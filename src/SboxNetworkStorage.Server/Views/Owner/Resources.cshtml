@@ -4,7 +4,7 @@
     var url = "/dashboard/projects/" + Uri.EscapeDataString(Model.ProjectId);
     var title = Model.Kind switch { "game-values" => "Game values", "query" => "Queries", _ => char.ToUpperInvariant(Model.Kind[0]) + Model.Kind[1..] + "s" };
 }
-<div class="page-heading"><div><p class="eyebrow">@Model.ProjectName / Authoring</p><h1>@title</h1><p>Real project resources, available immediately to the runtime and editor sync.</p></div><a class="button secondary" href="@url">Project overview</a></div>
+<div class="page-heading"><div><h1>@title</h1><p>Definitions for @Model.ProjectName.</p></div><a class="button secondary" href="@url">Project overview</a></div>
 @if (Model.Saved) { <p class="notice success" role="status">Resource saved. The live definition is shown below.</p> }
 @if (Model.Error is not null) { <div class="notice error" role="alert"><strong>Could not save this definition</strong><pre>@Model.Error</pre><p>Correct the reported field or source syntax and save again. Your input has been preserved.</p></div> }
 <div class="editor-grid">
@@ -19,6 +19,7 @@
 <form method="post" action="@url/resources/@Model.Kind">
 @Html.AntiForgeryToken()
 @if (Model.Id is not null) { <input type="hidden" name="id" value="@Model.Id" /> }
-<label for="definition">@title definition</label><textarea class="code-editor" id="definition" name="definition" rows="24" required spellcheck="false">@Model.Definition</textarea>
+<label for="definition">@title definition</label><textarea class="code-editor" id="definition" data-json-editor="@(Model.Kind == "collection" ? "collection" : null)" name="definition" rows="24" required spellcheck="false">@Model.Definition</textarea>
 <p class="muted">Saving updates this resource only; it does not remove other synced resources. Editor pushes can overwrite dashboard edits. Coordinate authoring with your checked-in source.</p><button type="submit">Save live definition</button>
 </form></section></div>
+@if (Model.Kind == "collection") { <script src="/owner-assets/json-editor.js" defer></script> }

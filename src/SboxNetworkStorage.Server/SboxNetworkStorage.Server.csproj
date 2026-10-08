@@ -25,6 +25,9 @@
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="wwwroot/css/owner-management.css" LogicalName="SboxNetworkStorage.Server.Owner.management.css" />
+    <EmbeddedResource Include="wwwroot/js/owner-theme.js" LogicalName="SboxNetworkStorage.Server.Owner.theme.js" />
+    <EmbeddedResource Include="wwwroot/js/owner-json-editor.js" LogicalName="SboxNetworkStorage.Server.Owner.json-editor.js" />
+    <EmbeddedResource Include="wwwroot/js/owner-demo.js" LogicalName="SboxNetworkStorage.Server.Owner.demo.js" />
     <InternalsVisibleTo Include="SboxNetworkStorage.Server.Tests" />
     <InternalsVisibleTo Include="SboxNetworkStorage.Cli.Tests" />
   </ItemGroup>

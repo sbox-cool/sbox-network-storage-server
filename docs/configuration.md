@@ -5,6 +5,76 @@ files. `sbox-ns setup` writes these files for you; this page documents every key
 so you can edit them by hand. Changes apply after a restart
 (`sbox-ns service restart`, or stop and rerun `sbox-ns start` in the foreground).
 
+## Owner administration security
+
+The owner panel is enabled by default. `sbox-ns adminpanel disable` writes
+`adminpanel.enabled = false`; restart the server to deny all owner controller
+endpoints, including setup, login links, login and the dashboard. Game APIs and
+health remain available. Restore with `sbox-ns adminpanel enable` or
+`sbox-ns config set adminpanel.enabled true`, then restart. Environment and
+`conf.d` overrides still take precedence over the file changed by the CLI.
+
+`adminpanel.demo_read_only` defaults to false. It is only for a dedicated public
+demonstration using an isolated SQLite database: the server seeds fixture data
+and supplies an ephemeral guest dashboard, rejecting owner auth/security/export,
+game operations and writes. Never enable it on a real operator database.
+
+`adminpanel.allowed_ips` is an optional comma-separated list of addresses or
+CIDRs, for example `"127.0.0.1,::1,192.0.2.0/24"`. An empty string permits
+all addresses. Restrictions apply before authentication and CSRF to every
+owner controller route. The policy uses only trusted `Connection.RemoteIpAddress`
+and never reads raw visitor headers. The server's existing forwarded-header
+middleware trusts only loopback proxies, with a one-hop limit. Through a local
+connector this may be the forwarded visitor address; without trusted forwarding
+it is the connector's address. `CF-Connecting-IP` is not used by this policy.
+Do not expose a loopback-origin listener through an untrusted local proxy.
+
+Owners may enroll an authenticator at `/dashboard/security` after signing in.
+Enter the displayed secret manually in an authenticator app using SHA-1,
+six digits and a 30-second period, then confirm a current code and password.
+Enrollment expires after ten minutes and is not enabled until confirmation.
+The encrypted secret, last accepted time step and hashed recovery codes are
+stored with the owner account. Protect and back up the data directory, including
+`owner-cookie-keys`: losing its protection keys prevents authenticator verification.
+Only a new time step can be used; a 30-second clock-skew window is supported.
+Ten random recovery codes are shown once and each can be used once in the login
+code field. Enrollment invalidates all existing sessions. Local
+`sbox-ns admin reset-2fa` removes the authenticator and invalidates sessions;
+password reset preserves an enabled authenticator. The existing locally issued
+single-use `admin login-link` remains a shell-authorized recovery route.
+
+### Optional Cloudflare Turnstile
+
+Turnstile is off by default and never gates game APIs. Create and configure your
+own widget; the server does not provision widgets or Cloudflare resources.
+Set these keys in `server.toml` and restart:
+
+```toml
+[adminpanel.turnstile]
+enabled = true
+sitekey = "YOUR_PUBLIC_SITEKEY"
+hostname = "YOUR_EXACT_PUBLIC_HOSTNAME"
+```
+
+Supply the secret through `NS_ADMINPANEL__TURNSTILE__SECRET` in the service's
+protected environment or set `adminpanel.turnstile.secret` in operator-only
+configuration. Do not put it in a game client, source control or browser code.
+Register the exact hostname in the widget's allowed domains. For an enabled
+`sboxns.com` tunnel use the actual `tunnel.hostname`, also reflected in
+`server.public_url`, as `hostname`; schemes, paths and ports are not allowed.
+No direct-origin hostname is inferred from untrusted request headers.
+
+The external widget script is loaded only when enabled. Server-side Siteverify
+must report success, the exact configured hostname, and the matching action:
+`owner_login`, `owner_setup`, or `owner_link`. Missing tokens, mismatches,
+provider errors, malformed responses and timeouts fail closed. Existing CSRF
+and rate limits remain in force. A local-only setup hostname will not pass a
+production hostname check: use the public single-use login link to create the
+owner through the tunnel, or create the owner locally with the CLI.
+Provider-boundary tests are deterministic; they are not proof that an operator's
+live widget and hostname configuration work. Validate a fresh live token and
+its replay rejection on your actual deployment.
+
 ## Where the files live
 
 | Install type | Config folder | Data folder |

@@ -8,6 +8,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Optional owner authenticator enrollment with encrypted confirmed secrets,
+  replay-resistant TOTP login and hashed single-use recovery codes; local
+  `admin reset-2fa` recovery invalidates owner sessions.
+- Owner endpoint CIDR restrictions, `sbox-ns adminpanel disable|enable`, and
+  optional operator-configured Turnstile with server-side success, action and
+  hostname validation, including explicitly configured sboxns.com tunnel hosts.
+- Owner dashboard supports system, neutral dark, light, slate and warm themes,
+  plus opt-in visual editing of collection definitions and records alongside
+  JSON. Visual mode preserves unknown fields and refuses precision-losing
+  numbers, duplicate keys and authoritative sourceText definitions.
+- Dedicated public demo mode (`adminpanel.demo_read_only`) with server-enforced
+  read-only access and generated sample data in an isolated SQLite database;
+  every mutation, owner login/setup/security/export and game execution route is
+  denied server-side.
+- Authoritative per-project snapshot core (`IAuthoritativeProjectStore`,
+  v2 archive with per-table counts and content hashes) for exact lossless
+  migration auditing. Live customer cutover remains disabled pending fenced
+  drain, full ingress coverage and verified soak evidence.
 
 - Free hosted name with your own IP: `sbox-ns dns enable|status|disable` publishes a
   signed `<name>.nN.sboxns.com` A/AAAA record pointing directly at the server, with a

@@ -22,10 +22,17 @@ public static class OwnerHostingExtensions
         services.AddScoped<OwnerAccountService>();
         services.AddScoped<OwnerLoginLinkService>();
         services.AddSingleton<OwnerSetupToken>();
+        services.AddSingleton<OwnerAccessPolicy>();
+        services.AddHttpClient<OwnerTurnstile>();
+        if (config.GetBoolean("adminpanel.demo_read_only"))
+            services.AddHostedService<SboxNetworkStorage.Server.Demo.DemoSeedService>();
         var keys = Directory.CreateDirectory(Path.Combine(config.DataDirectory, "owner-cookie-keys"));
         if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(keys.FullName, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
         services.AddDataProtection().SetApplicationName("sbox-ns-owner").PersistKeysToFileSystem(keys);
-        services.AddAuthentication(Scheme).AddCookie(Scheme, options =>
+        var authentication = services.AddAuthentication(Scheme);
+        if (config.GetBoolean("adminpanel.demo_read_only"))
+            authentication.AddScheme<AuthenticationSchemeOptions, SboxNetworkStorage.Server.Demo.DemoAuthenticationHandler>(Scheme, _ => { });
+        else authentication.AddCookie(Scheme, options =>
         {
             options.LoginPath = "/login";
             options.AccessDeniedPath = "/login";
@@ -76,8 +83,26 @@ public static class OwnerHostingExtensions
     // Call after UseRouting and before endpoint execution.
     public static WebApplication UseOwnerManagement(this WebApplication app)
     {
+        app.Use(async (context, next) =>
+        {
+            // Reserve the complete owner route perimeter even when endpoint metadata is
+            // unavailable (for example unmatched paths and method mismatches).
+            var path = context.Request.Path;
+            var ownerEndpoint = path.StartsWithSegments("/dashboard") || path.StartsWithSegments("/login")
+                || path.StartsWithSegments("/setup") || path.StartsWithSegments("/logout")
+                || context.GetEndpoint()?.Metadata.GetMetadata<Microsoft.AspNetCore.Mvc.Controllers.ControllerActionDescriptor>()
+                    ?.ControllerTypeInfo.Namespace == typeof(OwnerAuthController).Namespace;
+            if (ownerEndpoint && !context.RequestServices.GetRequiredService<OwnerAccessPolicy>().Allows(context.Connection.RemoteIpAddress))
+            {
+                context.Response.StatusCode = StatusCodes.Status403Forbidden;
+                return;
+            }
+            await next(context);
+        });
         app.UseMiddleware<OwnerHostCookieMiddleware>();
         app.UseAuthentication();
+        if (app.Services.GetRequiredService<EffectiveConfig>().GetBoolean("adminpanel.demo_read_only"))
+            app.UseMiddleware<SboxNetworkStorage.Server.Demo.DemoReadOnlyMiddleware>();
         app.UseAuthorization();
         app.UseRateLimiter();
         app.Use(async (context, next) =>
@@ -87,13 +112,22 @@ public static class OwnerHostingExtensions
                 context.Response.Headers.CacheControl = "no-store";
                 context.Response.Headers["Referrer-Policy"] = "no-referrer";
                 context.Response.Headers["X-Content-Type-Options"] = "nosniff";
-                context.Response.Headers["Content-Security-Policy"] = "default-src 'none'; style-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'";
+                var turnstile = context.RequestServices.GetRequiredService<OwnerTurnstile>().Enabled;
+                context.Response.Headers["Content-Security-Policy"] = turnstile
+                    ? "default-src 'none'; style-src 'self'; script-src 'self' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; connect-src 'self' https://challenges.cloudflare.com; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
+                    : "default-src 'none'; style-src 'self'; script-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'";
             }
             await next(context);
         });
         app.MapControllers();
         app.MapGet("/owner-assets/management.css", () => Results.Stream(
             typeof(OwnerHostingExtensions).Assembly.GetManifestResourceStream("SboxNetworkStorage.Server.Owner.management.css")!, "text/css"));
+        app.MapGet("/owner-assets/theme.js", () => Results.Stream(
+            typeof(OwnerHostingExtensions).Assembly.GetManifestResourceStream("SboxNetworkStorage.Server.Owner.theme.js")!, "text/javascript"));
+        app.MapGet("/owner-assets/json-editor.js", () => Results.Stream(
+            typeof(OwnerHostingExtensions).Assembly.GetManifestResourceStream("SboxNetworkStorage.Server.Owner.json-editor.js")!, "text/javascript"));
+        app.MapGet("/owner-assets/demo.js", () => Results.Stream(
+            typeof(OwnerHostingExtensions).Assembly.GetManifestResourceStream("SboxNetworkStorage.Server.Owner.demo.js")!, "text/javascript"));
         return app;
     }
 }
@@ -104,6 +138,7 @@ public sealed class OwnerSetupNotice(IServiceScopeFactory scopes, OwnerSetupToke
     public async Task StartAsync(CancellationToken ct)
     {
         await using var scope = scopes.CreateAsyncScope();
+        if (!config.GetBoolean("adminpanel.enabled") || config.GetBoolean("adminpanel.demo_read_only")) return;
         if (await scope.ServiceProvider.GetRequiredService<OwnerAccountService>().GetAsync(ct) is not null) return;
         var tls = config.GetString("tls.mode") != "off";
         ListenAddress.TryParse(config.GetString(tls ? "tls.https_listen" : "server.listen"), out var listen);

@@ -1,6 +1,6 @@
 @model SboxNetworkStorage.Server.Owner.OwnerActivityModel
 @{ Layout = "~/Views/Owner/_Layout.cshtml"; var url = "/dashboard/projects/" + Uri.EscapeDataString(Model.ProjectId); }
-<div class="page-heading"><div><p class="eyebrow">@Model.ProjectName / Operations</p><h1>@(char.ToUpperInvariant(Model.Tab[0]) + Model.Tab[1..])</h1><p>Live stored activity, not estimated or demonstration metrics.</p></div><a class="button secondary" href="@url">Project overview</a></div>
+<div class="page-heading"><div><h1>@(char.ToUpperInvariant(Model.Tab[0]) + Model.Tab[1..])</h1><p>Stored activity for @Model.ProjectName.</p></div><a class="button secondary" href="@url">Project overview</a></div>
 @if (Model.Tab == "usage" || Model.Tab == "analytics")
 {
     <form method="get" class="card filter-form">

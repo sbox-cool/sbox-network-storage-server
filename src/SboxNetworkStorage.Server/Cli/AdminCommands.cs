@@ -8,13 +8,19 @@ public static class AdminCommands
 {
     public static async Task<int> RunAsync(CliContext context)
     {
-        var command = context.RequirePositional(1, "create|reset-password|login-link");
+        var command = context.RequirePositional(1, "create|reset-password|reset-2fa|login-link");
         if (command == "login-link") return await AdminLinkCommand.RunAsync(context);
-        if (command is not ("create" or "reset-password")) throw new CliException($"Unknown admin command '{command}'.", CliApp.Usage);
+        if (command is not ("create" or "reset-password" or "reset-2fa")) throw new CliException($"Unknown admin command '{command}'.", CliApp.Usage);
         var config = context.LoadValidConfig();
         await using var services = CliServices.Build(config);
         await services.GetRequiredService<INetworkStorageStoreAdmin>().MigrateAsync(CancellationToken.None);
         var accounts = new OwnerAccountService(services.GetRequiredService<INetworkStorageStore>(), config);
+        if (command == "reset-2fa")
+        {
+            await accounts.ResetAuthenticatorAsync(CancellationToken.None);
+            Console.WriteLine("Authenticator removed. Existing owner sessions are invalidated.");
+            return CliApp.Ok;
+        }
         var current = await accounts.GetAsync(CancellationToken.None);
         if (command == "create" && current is not null) throw new CliException("An owner already exists. Use admin reset-password.");
         if (command == "reset-password" && current is null) throw new CliException("No owner exists. Use admin create.");

@@ -76,6 +76,8 @@ public static class CliApp
         Local owner
           admin create [--username NAME] [--password-file FILE]
           admin reset-password [--password-file FILE]
+          admin reset-2fa                Recover locally by removing the authenticator and invalidating sessions
+          adminpanel disable|enable      Persist owner endpoint availability (restart the server); game APIs remain available
                                         Password input is hidden; NS_ADMIN_USERNAME / NS_ADMIN_PASSWORD also work
           admin login-link [--minutes N]  Print a single-use owner login link (default 15, max 60 minutes);
                                         creates the owner if none exists. Run on the server, e.g. over SSH
@@ -141,6 +143,7 @@ public static class CliApp
                 "export" => await ExportCommands.ExportAsync(context),
                 "import" => await ExportCommands.ImportAsync(context),
                 "admin" => await AdminCommands.RunAsync(context),
+                "adminpanel" => RunAdminPanel(context),
                 "project" => await ProjectCommands.RunProjectAsync(context),
                 "key" => await ProjectCommands.RunKeyAsync(context),
                 "service" => await ServiceCommands.RunAsync(context),
@@ -162,6 +165,16 @@ public static class CliApp
     {
         var config = context.LoadValidConfig();
         return await ServerHost.RunAsync(config, []);
+    }
+
+    private static int RunAdminPanel(CliContext context)
+    {
+        var command = context.RequirePositional(1, "disable|enable");
+        if (command is not ("disable" or "enable")) throw new CliException("Use adminpanel disable or enable.", Usage);
+        var config = context.LoadValidConfig();
+        ConfigFiles.SetValue(config.ConfigDirectory, SettingDefinitions.All.Single(value => value.Key == "adminpanel.enabled"), command == "enable");
+        Console.WriteLine($"Owner administration {(command == "enable" ? "enabled" : "disabled")} in configuration. Restart the server to apply. Game APIs are unchanged.");
+        return Ok;
     }
 
     private static int Version()

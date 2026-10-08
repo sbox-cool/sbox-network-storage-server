@@ -73,6 +73,13 @@ public static class SettingDefinitions
             "RSA private key (PEM) that signs the published security config read by game clients. Generated on first start."),
         new(ServerFile, "auth.security_signing_key_id", SettingType.String, "",
             "Key id published with the signed security config. Empty derives it from the public key; set it to keep the key id of a migrated server."),
+        new(ServerFile, "adminpanel.enabled", SettingType.Boolean, true, "Serve owner administration endpoints. Disable leaves game APIs available. Restart after changing."),
+        new(ServerFile, "adminpanel.demo_read_only", SettingType.Boolean, false, "Dedicated public demonstration mode: ephemeral guest dashboard, fixtures only, no owner or game writes. Never enable on an operator's real database."),
+        new(ServerFile, "adminpanel.allowed_ips", SettingType.String, "", "Comma-separated IP addresses or CIDRs allowed for every owner endpoint. Empty allows all. Uses trusted server RemoteIpAddress, never reads raw forwarded headers."),
+        new(ServerFile, "adminpanel.turnstile.enabled", SettingType.Boolean, false, "Require Cloudflare Turnstile for owner login, setup and login links."),
+        new(ServerFile, "adminpanel.turnstile.sitekey", SettingType.String, "", "Operator-created Turnstile widget sitekey."),
+        new(ServerFile, "adminpanel.turnstile.secret", SettingType.String, "", "Turnstile Siteverify secret. Prefer NS_ADMINPANEL__TURNSTILE__SECRET.", Secret: true),
+        new(ServerFile, "adminpanel.turnstile.hostname", SettingType.String, "", "Exact public widget hostname, including the configured sboxns.com tunnel hostname when used. No scheme or port."),
 
         new(ServerFile, "tunnel.enabled", SettingType.Boolean, false, "Run the supervised cloudflared connector. Managed by tunnel enable/disable."),
         new(ServerFile, "tunnel.registry", SettingType.String, "https://sboxcool.com/api/network-storage/tunnels", "Signed tunnel registry endpoint. HTTPS required except loopback testing."),

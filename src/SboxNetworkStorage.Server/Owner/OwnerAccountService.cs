@@ -3,10 +3,12 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Options;
 using SboxNetworkStorage.Server.Configuration;
+using Microsoft.AspNetCore.DataProtection;
 
 namespace SboxNetworkStorage.Server.Owner;
 
-public sealed record OwnerAccount(string Username, string PasswordHash, string SecurityStamp, DateTimeOffset CreatedAt);
+public sealed record OwnerAccount(string Username, string PasswordHash, string SecurityStamp, DateTimeOffset CreatedAt,
+    string? TotpSecret = null, long TotpLastStep = -1, string[]? RecoveryHashes = null);
 
 /// <summary>One local owner, stored alongside workspace objects in the configured provider.</summary>
 public sealed class OwnerAccountService(INetworkStorageStore store, EffectiveConfig config)
@@ -20,6 +22,7 @@ public sealed class OwnerAccountService(INetworkStorageStore store, EffectiveCon
     }));
     private static readonly OwnerAccount Dummy = new("owner", string.Empty, string.Empty, DateTimeOffset.MinValue);
     private static readonly string DummyHash = Hasher.HashPassword(Dummy, Convert.ToHexString(RandomNumberGenerator.GetBytes(32)));
+    private IDataProtector? _protector;
 
     public async Task<OwnerAccount?> GetAsync(CancellationToken ct)
     {
@@ -42,6 +45,75 @@ public sealed class OwnerAccountService(INetworkStorageStore store, EffectiveCon
 
     public Task<OwnerAccount> ResetPasswordAsync(string password, CancellationToken ct)
         => MutateAsync(null, password, reset: true, ct);
+
+    private IDataProtector Protector()
+    {
+        if (_protector is not null) return _protector;
+        var directory = Directory.CreateDirectory(Path.Combine(config.DataDirectory, "owner-cookie-keys"));
+        if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(directory.FullName, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        return _protector = DataProtectionProvider.Create(directory, options => options.SetApplicationName("sbox-ns-owner"))
+            .CreateProtector("owner-authenticator-v1");
+    }
+
+    public string ProtectEnrollment(string secret) => Protector().Protect(secret + "|" + DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+
+    public async Task<string[]> EnrollAsync(string stamp, string enrollment, string code, CancellationToken ct)
+    {
+        string payload;
+        try { payload = Protector().Unprotect(enrollment); }
+        catch (CryptographicException) { throw new ArgumentException("Authenticator enrollment expired. Start again."); }
+        var parts = payload.Split('|');
+        if (parts.Length != 2 || !long.TryParse(parts[1], out var started) ||
+            DateTimeOffset.UtcNow.ToUnixTimeSeconds() - started is < 0 or > 600)
+            throw new ArgumentException("Authenticator enrollment expired. Start again.");
+        var step = OwnerTotp.Match(parts[0], code, -1, DateTimeOffset.UtcNow)
+            ?? throw new ArgumentException("Invalid authenticator code.");
+        var codes = Enumerable.Range(0, 10).Select(_ => Convert.ToHexString(RandomNumberGenerator.GetBytes(16))).ToArray();
+        await UpdateSecurityAsync(account =>
+        {
+            if (account.SecurityStamp != stamp || account.TotpSecret is not null) throw new InvalidOperationException("Owner session changed or authenticator already enabled.");
+            return account with { TotpSecret = Protector().Protect(parts[0]), TotpLastStep = step,
+                RecoveryHashes = codes.Select(OwnerTotp.RecoveryHash).ToArray(), SecurityStamp = NewStamp() };
+        }, ct);
+        return codes;
+    }
+
+    public async Task<bool> VerifySecondFactorAsync(string stamp, string? code, CancellationToken ct)
+    {
+        var accepted = false;
+        await UpdateSecurityAsync(account =>
+        {
+            if (account.SecurityStamp != stamp || account.TotpSecret is null) return account;
+            var step = OwnerTotp.Match(Protector().Unprotect(account.TotpSecret), code, account.TotpLastStep, DateTimeOffset.UtcNow);
+            if (step is not null) { accepted = true; return account with { TotpLastStep = step.Value }; }
+            if (code is not { Length: 32 }) return account;
+            var hash = OwnerTotp.RecoveryHash(code);
+            if (!(account.RecoveryHashes ?? []).Contains(hash, StringComparer.Ordinal)) return account;
+            accepted = true;
+            return account with { RecoveryHashes = account.RecoveryHashes!.Where(value => value != hash).ToArray() };
+        }, ct);
+        return accepted;
+    }
+
+    public Task ResetAuthenticatorAsync(CancellationToken ct) => UpdateSecurityAsync(account =>
+        account with { TotpSecret = null, TotpLastStep = -1, RecoveryHashes = null, SecurityStamp = NewStamp() }, ct);
+
+    private static string NewStamp() => Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
+
+    private async Task UpdateSecurityAsync(Func<OwnerAccount, OwnerAccount> change, CancellationToken ct)
+    {
+        await MutationGate.WaitAsync(ct);
+        try
+        {
+            Directory.CreateDirectory(config.DataDirectory);
+            await using var fileLock = new FileStream(Path.Combine(config.DataDirectory, "owner.lock"),
+                FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+            var account = await GetAsync(ct) ?? throw new InvalidOperationException("No owner exists.");
+            var updated = change(account);
+            if (updated != account) await store.PutWorkspaceObjectAsync(AccountPath, JsonSerializer.Serialize(updated), ct);
+        }
+        finally { MutationGate.Release(); }
+    }
 
     public static void ValidateCredentials(string? username, string password)
     {
@@ -66,7 +138,8 @@ public sealed class OwnerAccountService(INetworkStorageStore store, EffectiveCon
             if (!reset && current is not null) throw new InvalidOperationException("An owner already exists. Use admin reset-password.");
             if (reset && current is null) throw new InvalidOperationException("No owner exists. Use admin create.");
             var account = new OwnerAccount(reset ? current!.Username : username!.Trim(), string.Empty,
-                Convert.ToHexString(RandomNumberGenerator.GetBytes(32)), current?.CreatedAt ?? DateTimeOffset.UtcNow);
+                Convert.ToHexString(RandomNumberGenerator.GetBytes(32)), current?.CreatedAt ?? DateTimeOffset.UtcNow,
+                current?.TotpSecret, current?.TotpLastStep ?? -1, current?.RecoveryHashes);
             account = account with { PasswordHash = Hasher.HashPassword(account, password) };
             await store.PutWorkspaceObjectAsync(AccountPath, JsonSerializer.Serialize(account), ct);
             return account;

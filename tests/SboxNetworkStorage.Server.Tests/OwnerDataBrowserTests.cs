@@ -68,8 +68,6 @@ public abstract class OwnerDataBrowserTests<TFactory> : IDisposable
         Assert.Contains("<td>Global</td>", collections);
         Assert.Contains("<td>3</td>", collections);   // tombstoned player-9 is not counted
         Assert.Contains("<td>2</td>", collections);
-        Assert.DoesNotContain("<script", collections);
-        Assert.DoesNotContain("style=", collections);
 
         var firstPage = await client.GetStringAsync($"/dashboard/projects/{projectId}/data/inventory?size=2");
         Assert.Contains("Page 1 of 2", firstPage);

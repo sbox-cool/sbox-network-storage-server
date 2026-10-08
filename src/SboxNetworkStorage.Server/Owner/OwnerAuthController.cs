@@ -16,7 +16,7 @@ public sealed record OwnerLoginLinkModel(string? Token, string? OwnerName, strin
 
 [EnableRateLimiting("owner-login")]
 public sealed class OwnerAuthController(OwnerAccountService accounts, OwnerSetupToken setupToken,
-    OwnerLoginLinkService loginLinks, ILogger<OwnerAuthController> logger) : Controller
+    OwnerLoginLinkService loginLinks, OwnerTurnstile turnstile, ILogger<OwnerAuthController> logger) : Controller
 {
     [HttpGet("/login")]
     public async Task<IActionResult> Login(CancellationToken ct)
@@ -27,14 +27,16 @@ public sealed class OwnerAuthController(OwnerAccountService accounts, OwnerSetup
     }
 
     [HttpPost("/login")]
-    public async Task<IActionResult> Login([FromForm] string? username, [FromForm] string? password, CancellationToken ct)
+    public async Task<IActionResult> Login([FromForm] string? username, [FromForm] string? password,
+        [FromForm] string? secondFactor, [FromForm(Name = "cf-turnstile-response")] string? verification, CancellationToken ct)
     {
+        if (!await turnstile.VerifyAsync(verification, "owner_login", HttpContext.Connection.RemoteIpAddress, ct)) return StatusCode(403);
         var owner = password is { Length: >= 1 and <= 1024 } && username is { Length: >= 1 and <= 64 }
             ? await accounts.AuthenticateAsync(username, password, ct) : null;
-        if (owner is null)
+        if (owner is null || owner.TotpSecret is not null && !await accounts.VerifySecondFactorAsync(owner.SecurityStamp, secondFactor, ct))
         {
             Response.StatusCode = StatusCodes.Status401Unauthorized;
-            return View("~/Views/Owner/Auth.cshtml", new OwnerAuthModel(false, Error: "Invalid username or password.", Username: username));
+            return View("~/Views/Owner/Auth.cshtml", new OwnerAuthModel(false, Error: "Invalid credentials or authenticator/recovery code.", Username: username));
         }
         await SignInAsync(owner);
         return Redirect("/dashboard");
@@ -49,9 +51,11 @@ public sealed class OwnerAuthController(OwnerAccountService accounts, OwnerSetup
 
     [HttpPost("/setup")]
     public async Task<IActionResult> Setup([FromForm] string? token, [FromForm] string? username,
-        [FromForm] string? password, [FromForm] string? confirmPassword, CancellationToken ct)
+        [FromForm] string? password, [FromForm] string? confirmPassword,
+        [FromForm(Name = "cf-turnstile-response")] string? verification, CancellationToken ct)
     {
         if (!IsLocal() || !setupToken.IsValid(token) || await accounts.GetAsync(ct) is not null) return NotFound();
+        if (!await turnstile.VerifyAsync(verification, "owner_setup", HttpContext.Connection.RemoteIpAddress, ct)) return StatusCode(403);
         try
         {
             if (password != confirmPassword) throw new ArgumentException("Passwords do not match.");
@@ -77,9 +81,11 @@ public sealed class OwnerAuthController(OwnerAccountService accounts, OwnerSetup
 
     [HttpPost("/login/link")]
     public async Task<IActionResult> LoginLink([FromForm] string? token, [FromForm] string? username,
-        [FromForm] string? password, [FromForm] string? confirmPassword, CancellationToken ct)
+        [FromForm] string? password, [FromForm] string? confirmPassword,
+        [FromForm(Name = "cf-turnstile-response")] string? verification, CancellationToken ct)
     {
         if (!await loginLinks.IsValidAsync(token, ct)) return LoginLinkRejected();
+        if (!await turnstile.VerifyAsync(verification, "owner_link", HttpContext.Connection.RemoteIpAddress, ct)) return StatusCode(403);
         var owner = await accounts.GetAsync(ct);
         if (owner is not null)
         {

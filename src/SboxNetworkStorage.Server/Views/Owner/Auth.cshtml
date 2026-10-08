@@ -1,5 +1,10 @@
 @model SboxNetworkStorage.Server.Owner.OwnerAuthModel
+@inject SboxNetworkStorage.Server.Configuration.EffectiveConfig Config
 @{ Layout = "~/Views/Owner/_Layout.cshtml"; }
+@if (Config.GetBoolean("adminpanel.turnstile.enabled"))
+{
+    <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+}
 <section class="card auth">
     <h1>@(Model.Setup ? "Create the local owner" : "Owner login")</h1>
     @if (Model.Error is not null) { <p class="error" role="alert">@Model.Error</p> }
@@ -15,6 +20,14 @@
         @if (Model.Setup)
         {
             <label>Confirm password <input name="confirmPassword" type="password" required minlength="12" maxlength="1024" autocomplete="new-password" /></label>
+        }
+        else
+        {
+            <label>Authenticator or recovery code (if enabled) <input name="secondFactor" maxlength="32" autocomplete="one-time-code" /></label>
+        }
+        @if (Config.GetBoolean("adminpanel.turnstile.enabled"))
+        {
+            <div class="cf-turnstile" data-sitekey="@Config.GetString("adminpanel.turnstile.sitekey")" data-action="@(Model.Setup ? "owner_setup" : "owner_login")"></div>
         }
         <button type="submit">@(Model.Setup ? "Create owner" : "Log in")</button>
     </form>

@@ -55,8 +55,6 @@ public sealed class OwnerManagementTests
         Assert.Equal("/dashboard", loggedIn.Headers.Location!.ToString());
         var dashboard = await client.GetStringAsync("/dashboard");
         Assert.Contains("Create project", dashboard);
-        Assert.DoesNotContain("<script", dashboard);
-        Assert.DoesNotContain("style=", dashboard);
         var rejectedMutation = await client.PostAsync("/dashboard/projects", Form(("name", "Game")));
         Assert.Equal(HttpStatusCode.BadRequest, rejectedMutation.StatusCode);
         var created = await client.PostAsync("/dashboard/projects", Form(("name", "Game"), ("requireSboxAuth", "true"), ("__RequestVerificationToken", Csrf(dashboard))));

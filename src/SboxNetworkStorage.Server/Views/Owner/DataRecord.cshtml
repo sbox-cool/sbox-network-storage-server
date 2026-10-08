@@ -10,7 +10,7 @@
 }
 <a href="@collectionUrl">@Model.ProjectName · @collection.Name</a>
 <div class="page-heading">
-    <div><p class="eyebrow">@collection.Kind collection</p><h1>@(Model.Creating ? "Create record" : "Edit record") @if (!Model.Creating) { <code>@record.Key</code> }</h1></div>
+    <div><h1>@(Model.Creating ? "Create record" : "Edit record") @if (!Model.Creating) { <code>@record.Key</code> }</h1></div>
     <div class="actions"><a class="button secondary" href="@collectionUrl">Back to records</a>@if (!Model.Creating) { <a class="button secondary" href="@recordUrl">Reload current record</a> }</div>
 </div>
 @if (Model.Error is not null) { <p class="error" role="alert">@Model.Error</p> }
@@ -29,7 +29,7 @@
             <p class="muted">@(collection.Global ? "Global IDs identify shared records, not players. Use letters, numbers, underscores or hyphens." : "Use the player's record key. Letters, numbers, underscores, hyphens and colons are accepted.") Existing live records cannot be overwritten by this create form.</p>
         }
         <label for="record-payload">JSON object</label>
-        <textarea id="record-payload" class="code-editor record-editor" name="payload" rows="12" required maxlength="@Model.MaxPayloadBytes" spellcheck="false">@Model.PrettyJson</textarea>
+        <textarea id="record-payload" class="code-editor record-editor" data-json-editor name="payload" rows="12" required maxlength="@Model.MaxPayloadBytes" spellcheck="false">@Model.PrettyJson</textarea>
         <p class="muted">Maximum @Model.MaxPayloadBytes UTF-8 bytes. Saves validate the collection schema. Concurrent changes return a conflict without discarding your JSON.</p>
         <div class="actions"><button type="submit">@(Model.Creating ? "Create record" : "Save changes")</button><a class="button secondary" href="@collectionUrl">Cancel</a></div>
     </section>
@@ -43,3 +43,4 @@
         </section>
     }
 </form>
+<script src="/owner-assets/json-editor.js" defer></script>

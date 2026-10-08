@@ -196,3 +196,82 @@ After moving to an independently configured instance:
 Keep the archive private: it contains player data and public runtime credentials.
 For whole-instance disaster recovery, use [server export/import](export.md)
 with the required configuration/secrets, not a portable project archive.
+
+## Themes and visual editing
+
+The theme selector offers System, Dark, Light, Slate and Warm. System follows
+your operating system. Your choice is stored in this browser only; it does not
+change other operators' dashboards. All themes work without external assets.
+The shared design rules live in [UI guidelines](ui-guidelines.md).
+
+Record payloads and collection definitions open in JSON mode. Select **Visual**
+to edit strings, numbers, booleans, objects and arrays without writing JSON.
+You can add or remove nested fields, then switch back to JSON or save directly.
+Unknown fields are kept, including authoring metadata.
+
+Visual mode refuses duplicate keys, numbers that JavaScript would round, and
+definitions with authoritative `sourceText`. Keep those in JSON mode to preserve
+the original text. Editing compiled fields cannot replace editing authoritative
+source. Both modes use the same server-side schema validation, permission checks
+and conflict detection.
+
+## Optional admin security
+
+Open **Admin security** to add a time-based authenticator. Add the displayed
+secret manually in your authenticator app, then confirm your current password
+and a six-digit code. Enrollment expires after ten minutes. The server does
+not activate 2FA until confirmation succeeds.
+
+Save the ten recovery codes offline. Each works once. Enrollment and local
+reset invalidate existing owner sessions. Password reset does not remove 2FA.
+With local server access, recover using `sbox-ns admin reset-2fa`.
+Shell-issued login links remain a local-operator recovery capability, so
+protect SSH access and the configuration/data directories too.
+
+Disable the web admin surface with:
+
+```sh
+sbox-ns adminpanel disable
+sbox-ns service restart
+```
+
+This denies login, setup, login links and dashboard requests at the server
+boundary. It does not disable game APIs. Configuration changes take effect
+after restart; `sbox-ns adminpanel enable` restores access after another restart.
+If running in the foreground, stop and start the process instead.
+
+Allow only specific admin IPs or CIDR networks:
+
+```sh
+sbox-ns config set adminpanel.allowed_ips "192.0.2.10,2001:db8:1234::/48"
+sbox-ns service restart
+```
+
+Replace those documentation addresses with yours. An empty list allows all
+addresses. The policy uses the trusted connection address, not arbitrary
+forwarding headers. The built-in proxy trust is loopback, one hop. Confirm the
+observed address and your reverse proxy configuration before restricting access,
+especially with a Cloudflare tunnel; keep local recovery access available.
+
+Turnstile is optional. Create a widget for your exact public admin hostname
+(including your `sboxns.com` tunnel name when applicable), then configure
+`adminpanel.turnstile.enabled`, `site_key`, `secret` and `hostname` as described
+in [configuration](configuration.md). Keep the secret in a private config file
+or a protected environment variable, not shell history. The server checks
+success, action and hostname with Cloudflare before login/setup/link consumption,
+and denies requests when verification fails or Cloudflare is unavailable.
+Turnstile does not replace 2FA, passwords, rate limits or IP restrictions.
+
+## Public read-only demo
+
+`adminpanel.demo_read_only=true` is for a dedicated demonstration instance,
+not for making a production database public. It requires SQLite and refuses
+an existing project database without its demo marker. Start with a new, private
+configuration and data directory.
+
+The instance seeds clearly labeled generated player progress, inventory,
+world state, definitions and diagnostic rows into its real database. Visitors
+can browse anonymously and explore local editor changes. Every HTTP mutation,
+owner login/setup/security/export operation and game execution route is denied
+server-side. Health and server-info remain available. No production credentials
+or player data should ever be copied into this instance.

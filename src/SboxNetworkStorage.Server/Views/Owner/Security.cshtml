@@ -1,0 +1,32 @@
+@model SboxNetworkStorage.Server.Owner.OwnerSecurityModel
+@{ Layout = "~/Views/Owner/_Layout.cshtml"; }
+<section class="card auth">
+    <h1>Authenticator security</h1>
+    @if (Model.Error is not null) { <p class="error" role="alert">@Model.Error</p> }
+    @if (Model.RecoveryCodes is not null)
+    {
+        <h2>Save your recovery codes now</h2>
+        <p>Each code works once instead of an authenticator code. These codes will not be shown again. All previous sessions are signed out. Store these offline before logging in again.</p>
+        <pre>@string.Join("\n", Model.RecoveryCodes)</pre>
+        <a href="/login">Log in with your authenticator</a>
+    }
+    else if (Model.Enabled)
+    {
+        <p>Your authenticator is enabled. Password login requires a fresh six-digit code or one unused recovery code.</p>
+        <p>To remove or recover the authenticator, run <code>sbox-ns admin reset-2fa</code> locally on the server. This invalidates all owner sessions.</p>
+    }
+    else if (Model.Secret is not null)
+    {
+        <p>Add an account manually to your authenticator app. Use this secret with time-based codes, SHA-1, six digits, and a 30-second period.</p>
+        <pre>@Model.Secret</pre>
+        <p>The secret is not activated until you confirm a valid code. Enrollment expires after ten minutes.</p>
+        <form method="post" action="/dashboard/security/enroll">
+            @Html.AntiForgeryToken()
+            <input type="hidden" name="enrollment" value="@Model.Enrollment" />
+            <label>Current password <input type="password" name="password" autocomplete="current-password" required maxlength="1024" /></label>
+            <label>Authenticator code <input name="code" inputmode="numeric" autocomplete="one-time-code" required minlength="6" maxlength="6" /></label>
+            <button type="submit">Confirm and enable authenticator</button>
+        </form>
+    }
+    else { <a href="/dashboard/security">Start enrollment again</a> }
+</section>

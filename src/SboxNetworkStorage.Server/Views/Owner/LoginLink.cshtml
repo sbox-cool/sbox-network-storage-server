@@ -1,5 +1,10 @@
 @model SboxNetworkStorage.Server.Owner.OwnerLoginLinkModel
+@inject SboxNetworkStorage.Server.Configuration.EffectiveConfig Config
 @{ Layout = "~/Views/Owner/_Layout.cshtml"; }
+@if (Config.GetBoolean("adminpanel.turnstile.enabled"))
+{
+    <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+}
 <section class="card auth">
     <h1>@(Model.CreatesOwner ? "Create the server owner" : "Sign in with login link")</h1>
     @if (Model.Error is not null) { <p class="error" role="alert">@Model.Error</p> }
@@ -9,6 +14,10 @@
         <form method="post" action="/login/link">
             @Html.AntiForgeryToken()
             <input type="hidden" name="token" value="@Model.Token" />
+            @if (Config.GetBoolean("adminpanel.turnstile.enabled"))
+            {
+                <div class="cf-turnstile" data-sitekey="@Config.GetString("adminpanel.turnstile.sitekey")" data-action="owner_link"></div>
+            }
             @if (Model.CreatesOwner)
             {
                 <p>No owner exists yet. Choose the owner credentials; the link is used up when the owner is created.</p>

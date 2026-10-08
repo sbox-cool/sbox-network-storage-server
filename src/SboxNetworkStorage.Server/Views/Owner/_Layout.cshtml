@@ -7,27 +7,30 @@
     var projectUrl = segments.Length >= 3 && segments[0] == "dashboard" && segments[1] == "projects" ? "/dashboard/projects/" + Uri.EscapeDataString(segments[2]) : null;
     var path = Context.Request.Path.Value ?? "";
     var authenticated = User.Identity?.IsAuthenticated == true;
+    var demo = Context.Items.ContainsKey(SboxNetworkStorage.Server.Demo.DemoReadOnlyMiddleware.ContextKey);
 }
 <!doctype html>
 <html lang="en">
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="color-scheme" content="dark" />
+    <meta name="color-scheme" content="dark light" />
+    <script src="/owner-assets/theme.js"></script>
     <title>Network Storage · Owner console</title>
     <link rel="stylesheet" href="/owner-assets/management.css" />
 </head>
 <body>
 <a class="skip-link" href="#main-content">Skip to content</a>
 <header class="topbar">
-    <a href="/dashboard" class="brand"><span class="brand-mark" aria-hidden="true">ns</span><span>Network Storage<small>SELF-HOSTED CONSOLE</small></span></a>
-    <div class="header-meta"><span class="badge">Independent instance</span><span class="version">v@(BuildInfo.Version)</span>
-    @if (authenticated) { <form method="post" action="/logout">@Html.AntiForgeryToken()<button class="secondary" type="submit">Log out</button></form> }</div>
+    <a href="/dashboard" class="brand"><span class="brand-mark" aria-hidden="true">ns</span><span>Network Storage</span></a>
+    <div class="header-meta"><label class="theme-picker" for="theme-choice">Theme <select id="theme-choice"><option value="system">System</option><option value="dark">Dark</option><option value="light">Light</option><option value="slate">Slate</option><option value="warm">Warm</option></select></label><span class="version">v@(BuildInfo.Version)</span>
+    @if (authenticated && !demo) { <form method="post" action="/logout">@Html.AntiForgeryToken()<button class="secondary" type="submit">Log out</button></form> }</div>
 </header>
 <div class="shell @(authenticated ? "" : "auth-shell")">
 @if (authenticated)
 {
     <aside class="sidebar"><nav aria-label="Owner navigation"><p class="nav-label">Workspace</p><a href="/dashboard" aria-current="@(path == "/dashboard" ? "page" : null)">All projects</a>
+    @if (!demo) { <a href="/dashboard/security" aria-current="@(path == "/dashboard/security" ? "page" : null)">Admin security</a> }
     @if (projectUrl is not null)
     {
         <p class="nav-label">Project</p><a href="@projectUrl" aria-current="@(path == projectUrl ? "page" : null)">Overview &amp; settings</a>
@@ -43,21 +46,26 @@
             <a href="@projectUrl/activity/@tab" aria-current="@(path.EndsWith("/activity/" + tab, StringComparison.Ordinal) ? "page" : null)">@(char.ToUpperInvariant(tab[0]) + tab[1..])</a>
         }
     }
-    </nav><div class="sidebar-note"><span class="status-dot" aria-hidden="true"></span> Local owner access<p>No hosted account or billing dependency.</p></div></aside>
+    </nav><div class="sidebar-note">Local owner access<p>No hosted account or billing dependency.</p></div></aside>
 }
 <main id="main-content" tabindex="-1">
+    @if (demo)
+    {
+        <aside class="notice" role="status"><strong>Read-only demo</strong><p>Generated sample data stored in a real Network Storage database. No real players. Explore the editors; changes cannot be saved.</p></aside>
+    }
     @if (OwnerTransport.IsInsecureRemote(Context))
     {
         <aside class="notice security" role="alert"><strong>This panel is served over plain HTTP</strong><p>Passwords, login links and the session cookie travel unencrypted. Enable ACME TLS, a TLS reverse proxy, or connect through an SSH tunnel.</p><a href="@OwnerTransport.HttpsDocsUrl" rel="noreferrer">How to enable HTTPS</a></aside>
     }
     @if (authenticated && Updates.Current is { UpdateAvailable: true } update)
     {
-        <aside class="@(update.Latest.Security ? "notice security" : "notice")" role="status"><strong>@(update.Latest.Security ? "Security update available" : "Update available"): @update.Latest.Version</strong><p>Running @update.CurrentVersion. Updates are never installed automatically. Run <code>sbox-ns update</code>.</p>
+        <aside class="@(update.Latest.Security ? "notice security" : "notice")" role="status"><strong>@(update.Latest.Security ? "Security update available" : "Update available"): @update.Latest.Version</strong><p>Running @update.CurrentVersion. Automatic installation is optional and requires enabled release gates. Run <code>sbox-ns update</code> for a manual update.</p>
         @if (Uri.TryCreate(update.Latest.ChangelogUrl, UriKind.Absolute, out var changelog) && changelog.Scheme == "https") { <a href="@changelog.AbsoluteUri" rel="noreferrer">Read changelog</a> }</aside>
     }
     @RenderBody()
-    <footer>YOUR SERVER. YOUR DATA. <span>Network Storage · Single local owner</span></footer>
+    <footer>Your server. Your data. <span>Network Storage · Single local owner</span></footer>
 </main>
 </div>
+@if (demo) { <script src="/owner-assets/demo.js" defer></script> }
 </body>
 </html>

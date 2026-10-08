@@ -282,6 +282,16 @@ public static class ConfigLoader
                 ? new ConfigIssue(origin[..separator], line, message)
                 : new ConfigIssue(origin, 0, message);
         }
+        foreach (var address in S("adminpanel.allowed_ips").Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+            if (!System.Net.IPNetwork.TryParse(address.Contains('/') ? address : address + (address.Contains(':') ? "/128" : "/32"), out _))
+                issues.Add(Issue("adminpanel.allowed_ips", "Every admin IP restriction must be a valid IP address or CIDR."));
+        if ((bool)values["adminpanel.turnstile.enabled"].Value)
+        {
+            foreach (var key in new[] { "adminpanel.turnstile.sitekey", "adminpanel.turnstile.secret", "adminpanel.turnstile.hostname" })
+                if (string.IsNullOrWhiteSpace(S(key))) issues.Add(Issue(key, $"{key} is required when Turnstile is enabled."));
+            if (Uri.CheckHostName(S("adminpanel.turnstile.hostname")) == UriHostNameType.Unknown)
+                issues.Add(Issue("adminpanel.turnstile.hostname", "Turnstile hostname must be an exact hostname without a scheme, path or port."));
+        }
 
         try { _ = Tunnels.TunnelRegistryClient.ValidateRegistry(S("tunnel.registry")); }
         catch (InvalidOperationException ex) { issues.Add(Issue("tunnel.registry", ex.Message)); }

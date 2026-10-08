@@ -4,19 +4,19 @@
     var project = Model.Project;
     var url = "/dashboard/projects/" + Uri.EscapeDataString(project.Id);
 }
-<div class="page-heading"><div><p class="eyebrow">Project overview</p><h1>@project.Name</h1><p>@project.Description</p><code>@project.Id</code></div><a class="button" href="@url/data">Browse data →</a></div>
+<div class="page-heading"><div><h1>@project.Name</h1><p>@project.Description</p><code>@project.Id</code></div><a class="button" href="@url/data">Browse data</a></div>
 <section class="grid overview-grid">
     <article class="card metric"><span>Collections</span><strong>@(Model.Resources?.Collections.Count ?? 0)</strong><a href="@url/resources/collection">Manage schemas →</a></article>
     <article class="card metric"><span>Endpoints</span><strong>@(Model.Resources?.Endpoints.Count ?? 0)</strong><a href="@url/resources/endpoint">Author endpoints →</a></article>
     <article class="card metric"><span>API keys</span><strong>@Model.Keys.Count</strong><a href="#api-keys">Manage access →</a></article>
     <article class="card metric"><span>Project status</span><strong class="status-text">@(project.Enabled ? "Enabled" : "Disabled")</strong><span>s&box auth @((project.RequireSboxAuth ?? true) ? "required" : "off")</span></article>
 </section>
-<section class="card"><p class="eyebrow">Connect your game</p><h2>Use your existing client</h2><p>Create a public key below, then configure your game's Network Storage client with this project ID and this server's base URL. Keep secret keys out of game builds.</p><pre>NetworkStorage.Configure( "@project.Id", "&lt;public-api-key&gt;", "&lt;your-server-base-url&gt;" );</pre></section>
+<section class="card"><h2>Connect your game</h2><p>Create a public key below, then configure your game's Network Storage client with this project ID and this server's base URL. Keep secret keys out of game builds.</p><pre>NetworkStorage.Configure( "@project.Id", "&lt;public-api-key&gt;", "&lt;your-server-base-url&gt;" );</pre></section>
 @if (Model.Error is not null) { <p class="error" role="alert">@Model.Error</p> }
 @if (Model.RawKey is not null)
 {
     <aside class="notice security">
-        <strong>API key created — copy it now</strong>
+        <strong>API key created. Copy it now.</strong>
         <p><code class="selectable">@Model.RawKey</code></p>
         <p>Public keys belong in the game client. Secret keys are for editor sync or dedicated servers; never ship them in a game build.</p>
         <a href="@url">Dismiss</a>
