@@ -20,7 +20,11 @@ public sealed class TunnelConnectorState(EffectiveConfig config)
     {
         var status = Describe(config, state, pid);
         Volatile.Write(ref _current, status);
-        ConfigFiles.WriteAtomically(StatePath(config), JsonSerializer.Serialize(status));
+        // Disabled tunnels have nothing to report: Read derives "disabled" from
+        // config. Skipping the write keeps concurrently starting hosts that share
+        // a data directory from racing on the file (Windows denies the replace).
+        if (status.Enabled)
+            ConfigFiles.WriteAtomically(StatePath(config), JsonSerializer.Serialize(status));
     }
 
     public static TunnelStatus Read(EffectiveConfig config)
