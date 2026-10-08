@@ -6,6 +6,8 @@
 #   SBOX_NS_PROJECT      Configure and create/reuse this project, then print the game configuration.
 #   SBOX_NS_PUBLIC_URL   Optional public URL used with SBOX_NS_PROJECT.
 #   SBOX_NS_TUNNEL       Set to 1 to enable the hosted HTTPS tunnel after quickstart/setup.
+#   SBOX_NS_TELEMETRY    Set to 1 to opt in to anonymous usage statistics after quickstart/setup
+#                        (off by default; preview with `sbox-ns telemetry preview`).
 #   SBOX_NS_VERSION      Install this version (for example 0.3.0 or v0.3.0) instead of the latest release.
 #   SBOX_NS_PRERELEASE   Set to 1 to resolve the newest release including prereleases.
 #   SBOX_NS_NO_SETUP     Set to 1 to skip running `sbox-ns setup`.
@@ -173,6 +175,12 @@ function Install-SboxNs {
                 [System.Text.RegularExpressions.MatchEvaluator] { param($match) $match.Groups[1].Value + $tunnelUrl + $match.Groups[2].Value })
             $quickstartOut = [regex]::Replace($quickstartOut, '(?m)^Replace <this-host>.*\r?\n|^    sbox-ns config set server.public_url.*\r?\n', '')
         }
+    }
+
+    if ($env:SBOX_NS_TELEMETRY -eq '1') {
+        if (-not $configured) { throw 'SBOX_NS_TELEMETRY=1 requires setup or SBOX_NS_PROJECT.' }
+        & $exe telemetry enable @dirArgs
+        if ($LASTEXITCODE -ne 0) { throw 'telemetry enable failed; service was not started' }
     }
 
     $quotedDirs = "--config-dir `"$configDir`" --data-dir `"$dataDir`""

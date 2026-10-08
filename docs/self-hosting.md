@@ -342,7 +342,7 @@ The server supervises the child with bounded restart backoff, redacts its
 free-form output, and reports connection state in `doctor`, `tunnel status`
 and server-info. It never auto-updates cloudflared. The official optional
 cloudflared dependency includes Cloudflare crash reporting; the server's
-no-usage-telemetry policy does not describe that third-party process.
+opt-in usage statistics policy does not describe that third-party process.
 
 ```sh
 sbox-ns tunnel disable
@@ -383,6 +383,48 @@ separately when moving an installation if you want to preserve CLI removal;
 portable server archives do not include this data-directory file. Editing
 `notices.email` does not subscribe or unsubscribe. No marketing or billing
 integration is involved.
+
+### Anonymous usage statistics (opt-in)
+
+Usage statistics are off by default. Interactive setup asks once
+(`Share anonymous usage statistics (version, platform, project and player
+counts)? [y/N]`, default No); non-interactive setup never enables them. When
+enabled, the server posts one small JSON report to `telemetry.endpoint`
+(default `https://sboxcool.com/api/network-storage/telemetry`) about 10
+minutes after it starts and then every 24 hours. These are the only fields:
+
+| Field | Meaning |
+| --- | --- |
+| `schema` | Report format version, currently `1` |
+| `installId` | Random UUID stored in `<data dir>/telemetry-id` (owner-only file), used only for these statistics and separate from the notices `install-id` |
+| `version` | Installed sbox-ns version |
+| `os` | `linux`, `windows`, `macos` or `other` |
+| `arch` | `x64`, `arm64` or `other` |
+| `container` | `true` when `DOTNET_RUNNING_IN_CONTAINER` is set (Docker images) |
+| `database` | `sqlite` or `postgres` |
+| `tunnel` | Whether the hosted `sboxns.com` tunnel is enabled |
+| `uptimeHours` | Whole hours since the server process started |
+| `projects` | Number of projects |
+| `players` | Distinct players across all projects (a count only) |
+| `activePlayers30d` | Distinct players seen in the last 30 days (a count only) |
+
+No IP addresses are stored, and no emails, project IDs, project names, API
+keys, player IDs or game data are sent. A failed or rejected request is skipped
+silently until the next interval; the server never retries in a loop and never
+logs the report above Debug level.
+
+```sh
+sbox-ns telemetry status     # enabled or disabled, endpoint, telemetry ID file
+sbox-ns telemetry preview    # print the exact JSON that would be sent, without sending it
+sbox-ns telemetry enable     # opt in; restart the server afterward
+sbox-ns telemetry disable    # opt out; restart the server afterward
+```
+
+`preview` runs as a separate CLI process, so its `uptimeHours` is `0`; the
+running server reports its own uptime. Disabling keeps `telemetry-id` so a
+later enable is counted as the same install; delete the file to start over
+with a new random ID. A fresh install can opt in with `SBOX_NS_TELEMETRY=1`
+(both `install.sh` and `install.ps1`).
 
 
 ## Run

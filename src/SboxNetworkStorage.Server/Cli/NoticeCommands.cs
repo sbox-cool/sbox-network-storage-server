@@ -3,7 +3,6 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using SboxNetworkStorage.Server.Configuration;
 using SboxNetworkStorage.Server.Hosting;
-using SboxNetworkStorage.Server.Tunnels;
 
 namespace SboxNetworkStorage.Server.Cli;
 
@@ -86,27 +85,6 @@ public static class NoticeCommands
     }
 
     private static Guid LoadOrCreateInstallId(string path)
-    {
-        if (!File.Exists(path))
-        {
-            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-            var temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
-            var options = new FileStreamOptions { Mode = FileMode.CreateNew, Access = FileAccess.Write, Share = FileShare.None };
-            if (!OperatingSystem.IsWindows()) options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
-            try
-            {
-                using (var file = new FileStream(temporary, options))
-                using (var writer = new StreamWriter(file))
-                    writer.Write(Guid.NewGuid().ToString("D"));
-                TunnelFiles.Restrict(temporary);
-                try { File.Move(temporary, path, overwrite: false); }
-                catch (IOException) when (File.Exists(path)) { }
-            }
-            finally { File.Delete(temporary); }
-        }
-        if (!Guid.TryParse(File.ReadAllText(path).Trim(), out var id) || id == Guid.Empty)
-            throw new CliException("The local install ID is invalid. Restore data/install-id from a backup before removing an existing subscription.");
-        TunnelFiles.Restrict(path);
-        return id;
-    }
+        => PrivateIdFile.LoadOrCreate(path)
+            ?? throw new CliException("The local install ID is invalid. Restore data/install-id from a backup before removing an existing subscription.");
 }

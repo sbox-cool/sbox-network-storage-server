@@ -44,7 +44,10 @@ works the same way it does with the managed service.
   API keys, a data browser and portable server exports. No signup or payment.
 - **Agent tools:** idempotent project quickstart and an allowlisted stdio MCP server.
 - **Optional hosted HTTPS:** a stable self-certifying `sboxns.com` name, without a domain purchase or signup.
-- **No server usage telemetry or auto-update:** optional email notices require consent.
+- **No auto-update; usage statistics are opt-in:** off by default and anonymous. When enabled, the server
+  sends only a random statistics-only ID, version, OS, CPU architecture, container flag, database type, tunnel flag,
+  uptime hours, project count, player count and 30-day active player count once a day
+  ([details](docs/self-hosting.md#anonymous-usage-statistics-opt-in)). Optional email notices require consent.
   The optional Cloudflare connector has its own crash reporting.
 
 ## Quickstart (about 60 seconds)
@@ -190,6 +193,7 @@ Every key with its default: [docs/configuration.md](docs/configuration.md).
 | `sbox-ns mcp` | Serve allowlisted management tools over stdio ([guide](docs/mcp.md)) |
 | `sbox-ns tunnel enable\|status\|disable` | Manage the optional hosted HTTPS connector |
 | `sbox-ns register --email ADDRESS` / `register --remove` | Opt in to confirmed security/update email notices or remove the subscription |
+| `sbox-ns telemetry status\|enable\|disable\|preview` | Inspect, opt in to, opt out of, or preview the anonymous usage statistics (off by default) |
 | `sbox-ns project create <name>\|list\|delete <projectId>` | Manage projects |
 | `sbox-ns key create <projectId> --type public\|secret [--label L]` | Create an API key |
 | `sbox-ns key list <projectId>` / `key revoke <projectId> <key>` | List and revoke API keys |

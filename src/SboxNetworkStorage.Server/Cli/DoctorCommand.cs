@@ -121,6 +121,9 @@ public static class DoctorCommand
         var publicUrl = config.GetString("server.public_url");
         Report(string.IsNullOrWhiteSpace(publicUrl) ? Outcome.Warn : Outcome.Pass, "public url",
             string.IsNullOrWhiteSpace(publicUrl) ? "server.public_url is not set" : publicUrl);
+        Report(Outcome.Pass, "telemetry", config.GetBoolean("telemetry.enabled")
+            ? $"anonymous usage statistics enabled ({config.GetString("telemetry.endpoint")}); preview with `sbox-ns telemetry preview`"
+            : "anonymous usage statistics disabled (opt-in: `sbox-ns telemetry enable`)");
 
         return failures == 0 ? CliApp.Ok : CliApp.Failure;
     }

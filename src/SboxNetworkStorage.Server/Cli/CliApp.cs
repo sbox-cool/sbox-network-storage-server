@@ -39,6 +39,11 @@ public static class CliApp
           register --email ADDRESS       Request security/update notices (email confirmation required)
           register --remove              Unsubscribe this install; no automatic reporting
 
+        Anonymous usage statistics (opt-in, off by default)
+          telemetry status              Show whether usage statistics are enabled and where they are sent
+          telemetry enable|disable      Opt in or out (restart the server afterward)
+          telemetry preview             Print the exact JSON that would be sent, without sending it
+
         Configuration
           config path                   Print the config folder
           config show [--show-secrets]  Print every effective setting and where it came from
@@ -111,6 +116,7 @@ public static class CliApp
                 "mcp" => await McpServer.RunStdioAsync(context),
                 "tunnel" => await TunnelCommands.RunAsync(context),
                 "register" => await NoticeCommands.RunAsync(context),
+                "telemetry" => await TelemetryCommands.RunAsync(context),
                 "config" => ConfigCommands.Run(context),
                 "db" => await DatabaseCommands.RunAsync(context),
                 "export" => await ExportCommands.ExportAsync(context),

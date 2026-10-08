@@ -163,11 +163,15 @@ than manually changing tunnel state: the CLI atomically manages
 | `tunnel.previous_tls_mode` | `off` | Original TLS mode restored by disable |
 | `notices.registry` | `https://sboxcool.com/api/network-storage/notices` | Optional notice API; no request without explicit opt-in |
 | `notices.email` | empty | Last registered email, not authoritative consent; use `register` to subscribe/remove |
+| `telemetry.enabled` | `false` | Send anonymous usage statistics once a day; use `telemetry enable` / `telemetry disable` |
+| `telemetry.endpoint` | `https://sboxcool.com/api/network-storage/telemetry` | Usage statistics API; HTTPS required except loopback testing; no request unless enabled |
 
 Identity and connector credentials are separate private files under
 `secrets/`, not TOML values. Notice removal uses the private
-`<data dir>/install-id` file. See the
-[hosted HTTPS and notices guide](self-hosting.md#hosted-https-without-a-domain).
+`<data dir>/install-id` file; usage statistics use the separate private
+`<data dir>/telemetry-id` file. See the
+[hosted HTTPS and notices guide](self-hosting.md#hosted-https-without-a-domain)
+and [anonymous usage statistics](self-hosting.md#anonymous-usage-statistics-opt-in).
 
 
 ## database.toml

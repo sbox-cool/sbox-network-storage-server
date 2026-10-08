@@ -49,6 +49,7 @@ with arguments `["mcp"]` instead of SSH.
 | `update_check` | Check for a newer release (never installs) |
 | `service_status`, `service_restart` | The installed system service |
 | `tunnel_status`, `tunnel_enable` | Inspect or enable the optional hosted HTTPS connector; restart the server afterward |
+| `telemetry_status` | Show whether opt-in anonymous usage statistics are enabled (read-only; enable and disable are CLI-only) |
 
 Destructive operations (database restore, import, project delete, key revoke,
 tunnel disable) are deliberately not available as tools. Run them yourself over SSH.

@@ -8,6 +8,7 @@ using SboxNetworkStorage.Server.Middleware;
 using SboxNetworkStorage.Server.Owner;
 using SboxNetworkStorage.Server.Routing;
 using SboxNetworkStorage.Server.Updates;
+using SboxNetworkStorage.Server.Telemetry;
 using SboxNetworkStorage.Server.Tunnels;
 using SboxNetworkStorage.Storage.Relational;
 
@@ -67,6 +68,8 @@ public static class ServerHost
         builder.Services.AddHostedService<UpdateCheckService>();
         builder.Services.AddSingleton<TunnelConnectorState>();
         builder.Services.AddHostedService<TunnelConnectorService>();
+        builder.Services.AddHostedService(sp => new UsageTelemetryService(config,
+            sp.GetRequiredService<INetworkStorageStoreAdmin>(), sp.GetRequiredService<ILogger<UsageTelemetryService>>()));
 
         builder.Host.UseDefaultServiceProvider(o =>
         {

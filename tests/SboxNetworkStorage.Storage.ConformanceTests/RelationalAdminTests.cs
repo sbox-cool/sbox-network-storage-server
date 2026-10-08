@@ -87,6 +87,27 @@ public abstract class RelationalAdminTests : IAsyncLifetime
         Assert.False(string.IsNullOrWhiteSpace(ping.ServerVersion));
         Assert.True(ping.RoundTrip >= TimeSpan.Zero);
     }
+
+    [SkippableFact]
+    public async Task Telemetry_usage_counts_owned_projects_distinct_players_and_recent_activity()
+    {
+        await Store.MigrateAsync(Ct);
+        Assert.Equal(new StoreUsageCounts(0, 0, 0), await Store.CountUsageAsync(0, Ct));
+
+        const long now = 1_800_000_000_000;
+        const long since = now - 30L * 24 * 60 * 60 * 1000;
+        await Store.UpsertProjectMembershipAsync("1", "proj_a", "owner", now, Ct);
+        await Store.UpsertProjectMembershipAsync("1", "proj_b", "owner", now, Ct);
+        async Task Seen(string project, string steamId, long lastSeen)
+            => await Store.UpsertPlayerProfileAsync(project, steamId, "p", false, null, lastSeen, null, null, null, 0, 0, null, null, "{}", lastSeen, Ct);
+        await Seen("proj_a", "76561198000000001", now);
+        await Seen("proj_b", "76561198000000001", since - 1); // same player in a second project: counted once, active via proj_a
+        await Seen("proj_b", "76561198000000002", since);     // boundary is inclusive
+        await Seen("proj_b", "76561198000000003", since - 1); // inactive
+        await Seen("proj_deleted", "76561198000000004", now); // no membership: not counted
+
+        Assert.Equal(new StoreUsageCounts(2, 3, 2), await Store.CountUsageAsync(since, Ct));
+    }
 }
 
 public sealed class SqliteAdminTests : RelationalAdminTests

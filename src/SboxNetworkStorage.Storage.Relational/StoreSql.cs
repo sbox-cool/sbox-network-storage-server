@@ -144,6 +144,9 @@ internal sealed class StoreSql
         CreateSchemaVersionTable = $"CREATE TABLE IF NOT EXISTS {T("schema_version")} (version INTEGER NOT NULL PRIMARY KEY, applied_at_unix_ms BIGINT NOT NULL, description TEXT NOT NULL)";
         ReadSchemaVersion = $"SELECT COALESCE(MAX(version), 0) FROM {T("schema_version")}";
         InsertSchemaVersion = $"INSERT INTO {T("schema_version")} (version, applied_at_unix_ms, description) VALUES (@version, @applied_at_unix_ms, @description)";
+        CountUsage = $"SELECT (SELECT COUNT(DISTINCT project_id) FROM {T("project_members")}), COUNT(DISTINCT steam_id), "
+            + $"COUNT(DISTINCT CASE WHEN last_seen_unix_ms >= @active_since THEN steam_id END) FROM {T("player_profiles")} "
+            + $"WHERE project_id IN (SELECT project_id FROM {T("project_members")})";
     }
 
     public string UpsertProject { get; }
@@ -247,6 +250,7 @@ internal sealed class StoreSql
     public string CreateSchemaVersionTable { get; }
     public string ReadSchemaVersion { get; }
     public string InsertSchemaVersion { get; }
+    public string CountUsage { get; }
 
     private string T(string table) => _p + table;
 

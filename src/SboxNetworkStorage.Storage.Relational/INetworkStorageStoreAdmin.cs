@@ -32,10 +32,19 @@ public interface INetworkStorageStoreAdmin
     /// <see cref="SchemaVersionTooNewException"/> or <see cref="SchemaMigrationRequiredException"/>.
     /// </summary>
     Task EnsureSchemaCompatibleAsync(CancellationToken ct);
+
+    /// <summary>
+    /// Aggregate counts for opt-in anonymous usage statistics: projects, distinct players across
+    /// projects, and distinct players seen at or after <paramref name="activeSinceUnixMs"/>. Returns no identifiers.
+    /// </summary>
+    Task<StoreUsageCounts> CountUsageAsync(long activeSinceUnixMs, CancellationToken ct);
 }
 
 /// <summary>Outcome of <see cref="INetworkStorageStoreAdmin.PingAsync"/>.</summary>
 public sealed record StorePingResult(TimeSpan RoundTrip, string ServerVersion);
+
+/// <summary>Outcome of <see cref="INetworkStorageStoreAdmin.CountUsageAsync"/>.</summary>
+public sealed record StoreUsageCounts(long Projects, long Players, long ActivePlayers);
 
 /// <summary>Outcome of <see cref="INetworkStorageStoreAdmin.MigrateAsync"/>.</summary>
 public sealed record SchemaMigrationResult(int FromVersion, int ToVersion, IReadOnlyList<int> AppliedVersions);

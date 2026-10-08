@@ -51,6 +51,17 @@ public abstract partial class RelationalNetworkStorageStore
     }
 
     /// <inheritdoc />
+    public async Task<StoreUsageCounts> CountUsageAsync(long activeSinceUnixMs, CancellationToken ct)
+    {
+        await using var connection = await OpenConnectionAsync(ct);
+        await using var command = Command(connection, _sql.CountUsage, [Int64("active_since", activeSinceUnixMs)]);
+        await using var reader = await command.ExecuteReaderAsync(ct);
+        if (!await reader.ReadAsync(ct)) return new StoreUsageCounts(0, 0, 0);
+        long Read(int ordinal) => reader.IsDBNull(ordinal) ? 0 : Convert.ToInt64(reader.GetValue(ordinal), System.Globalization.CultureInfo.InvariantCulture);
+        return new StoreUsageCounts(Read(0), Read(1), Read(2));
+    }
+
+    /// <inheritdoc />
     public async Task<SchemaMigrationResult> MigrateAsync(CancellationToken ct)
     {
         var migrations = Migrations.OrderBy(m => m.Version).ToList();

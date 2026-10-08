@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-08
+
+### Added
+
+- Opt-in anonymous usage statistics, off by default: `sbox-ns telemetry status|enable|disable|preview`,
+  `telemetry.enabled` / `telemetry.endpoint` settings, a one-time `[y/N]` question in interactive
+  `setup`, `SBOX_NS_TELEMETRY=1` in the installers, a `doctor` line and a read-only `telemetry_status`
+  MCP tool. When enabled the server sends a random statistics-only ID, version, OS, architecture,
+  container/database/tunnel flags, uptime hours and project, player and 30-day active player counts
+  about 10 minutes after start and then daily. No IPs, emails, project IDs, keys or game data are sent.
+
 ## [0.1.0] - 2026-10-08
 
 ### Added
@@ -124,5 +135,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   not the requester.
 - Answer malformed sync/preflight JSON with the client-contract error shape.
 
-[Unreleased]: https://github.com/sbox-cool/sbox-network-storage-server/compare/v0.1.0...main
+[Unreleased]: https://github.com/sbox-cool/sbox-network-storage-server/compare/v0.2.0...main
+[0.2.0]: https://github.com/sbox-cool/sbox-network-storage-server/releases/tag/v0.2.0
 [0.1.0]: https://github.com/sbox-cool/sbox-network-storage-server/releases/tag/v0.1.0

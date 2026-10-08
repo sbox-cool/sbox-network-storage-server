@@ -84,6 +84,10 @@ public static class SettingDefinitions
             "Optional security-notice registration endpoint. No request is sent unless you explicitly register."),
         new(ServerFile, "notices.email", SettingType.String, "",
             "Email last registered for optional security/update notices. Editing this value does not subscribe or unsubscribe; use register."),
+        new(ServerFile, "telemetry.enabled", SettingType.Boolean, false,
+            "Send anonymous usage statistics once a day. Off by default; manage with telemetry enable/disable and inspect with telemetry preview."),
+        new(ServerFile, "telemetry.endpoint", SettingType.String, "https://sboxcool.com/api/network-storage/telemetry",
+            "Anonymous usage statistics endpoint. HTTPS required except loopback testing. No request is sent unless telemetry.enabled is true."),
 
         new(DatabaseFile, "database.provider", SettingType.String, "sqlite",
             "Database backend.", ["sqlite", "postgres"]),

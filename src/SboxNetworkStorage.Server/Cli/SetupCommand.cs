@@ -102,6 +102,7 @@ public static class SetupCommand
             await AdminCommands.ConfigureDuringSetupAsync(context, written, services, interactive);
         }
         await NoticeCommands.ConfigureDuringSetupAsync(context, interactive);
+        TelemetryCommands.ConfigureDuringSetup(context, interactive);
 
         Console.WriteLine();
         Console.WriteLine($"Configuration written to {written.ConfigDirectory}");

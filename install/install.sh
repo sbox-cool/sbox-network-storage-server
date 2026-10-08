@@ -12,6 +12,8 @@
 #                        public and secret keys, and print the line to add to your game.
 #   SBOX_NS_PUBLIC_URL   Address players use, e.g. https://ns.example.com (used with SBOX_NS_PROJECT).
 #   SBOX_NS_TUNNEL       Set to 1 for a hosted HTTPS name after quickstart/setup and before service start.
+#   SBOX_NS_TELEMETRY    Set to 1 to opt in to anonymous usage statistics after quickstart/setup
+#                        (off by default; preview with `sbox-ns telemetry preview`).
 #   SBOX_NS_VERSION      Install this version (for example 0.3.0 or v0.3.0) instead of the latest release.
 #   SBOX_NS_PRERELEASE   Set to 1 to resolve the newest release including prereleases.
 #   SBOX_NS_NO_SETUP     Set to 1 to skip running `sbox-ns setup`.
@@ -281,6 +283,12 @@ main() {
                 esac
             done)
         fi
+    fi
+
+    if [ "${SBOX_NS_TELEMETRY:-0}" = "1" ]; then
+        [ "$configured" -eq 1 ] || die "SBOX_NS_TELEMETRY=1 requires setup or SBOX_NS_PROJECT."
+        # shellcheck disable=SC2086 # $dirs is intentionally split into flags
+        "$ns" telemetry enable $dirs || die "telemetry enable failed; service was not started"
     fi
 
     if [ "$service_layout" -eq 1 ]; then
