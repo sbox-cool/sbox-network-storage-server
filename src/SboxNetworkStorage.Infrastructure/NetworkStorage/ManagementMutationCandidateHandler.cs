@@ -325,8 +325,10 @@ public sealed class ManagementMutationCandidateHandler : INetworkStorageCandidat
         IEnumerable<string> scopes = MutationScopes(resourcePath);
         if (resourcePath is "sync" or "sync/preflight")
         {
-            if (!TryParseBody(request.Body, out var document, out var error))
-                return ValidationFailedResult("project-sync", error);
+            // Unparseable bodies are rejected by the handler (with the client-contract
+            // error shape) before any section is read or written, so deferring is safe.
+            if (!TryParseBody(request.Body, out var document, out _))
+                return null;
             using (document)
             {
                 if (document.RootElement.ValueKind != JsonValueKind.Object)

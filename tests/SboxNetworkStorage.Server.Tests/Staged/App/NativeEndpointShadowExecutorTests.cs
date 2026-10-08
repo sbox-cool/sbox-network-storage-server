@@ -906,6 +906,42 @@ public sealed class NativeEndpointShadowExecutorTests
     }
 
     [Fact]
+    public async Task TryExecute_HostProxySave_KeysLeaderboardEntryByWrittenPlayer()
+    {
+        // A host/dedicated server saving another player's record must update that
+        // player's leaderboard entry, never the requesting host's.
+        var store = new Dictionary<string, object?>
+        {
+            ["proj:ep:save-all"] = MakeEndpointDef(
+                steps: new List<object?>
+                {
+                    MakeWriteStep("save_players", "players", "{{input.targetSteamId}}", "playerName", "{{input.playerName}}"),
+                },
+                body: new Dictionary<string, object?> { ["ok"] = true }),
+        };
+        var collections = new List<Dictionary<string, object?>>
+        {
+            new() { ["collection_id"] = "col-players", ["name"] = "players" },
+            new() { ["collection_id"] = "col-lb", ["name"] = "leaderboard_global" },
+        };
+        var ds = new RecordingDataSource(store, new Dictionary<string, object?>(), collections);
+        var executor = new NativeEndpointShadowExecutor(ds);
+
+        var result = await executor.TryExecuteAsync(
+            "proj", "save-all",
+            input: new Dictionary<string, object?> { ["targetSteamId"] = "7656222222", ["playerName"] = "Guest" },
+            steamId: "7656111111", userId: "u1",
+            gameValues: new Dictionary<string, object?>(),
+            hasSecretKey: false, isDedicatedServer: true, CancellationToken.None, liveServe: true);
+
+        Assert.True(result!.Ok);
+        var entries = Assert.IsType<Dictionary<string, object?>>(ds.GlobalRecordsWritten.Single().Payload["entriesByPlayer"]);
+        var guest = Assert.IsType<Dictionary<string, object?>>(Assert.Contains("7656222222", entries));
+        Assert.Equal("Guest", guest["playerName"]);
+        Assert.DoesNotContain("7656111111", entries.Keys);
+    }
+
+    [Fact]
     public async Task TryExecute_SaveAll_EmitsTrackedFieldDeltas()
     {
         // Spec: network-storage-player-analytics — totalLevel change produces a progression event.

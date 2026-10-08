@@ -155,6 +155,40 @@ public abstract class EndpointPlayerIdentityHttpTests<TFactory> : IClassFixture<
         Assert.Equal(0, setup.Facepunch.Calls);
     }
 
+    // Regression: host proxies (NetworkStorageHostProxyClient) send their own
+    // x-steam-id plus x-on-behalf-of. Ignoring the delegation wrote the guest's
+    // data into the host's own record. Bun trusts it for secret keys and
+    // auth-disabled projects.
+    [SkippableTheory]
+    [InlineData(true, true)]
+    [InlineData(false, false)]
+    public async Task TrustedHostProxyActsForOnBehalfOfPlayerNotHost(bool secret, bool requiredAuth)
+    {
+        using var setup = await CreateAsync(requiredAuth);
+        using var request = Request(setup, "x-steam-id", Host);
+        request.Headers.Add("x-on-behalf-of", Player);
+        if (secret)
+        {
+            request.Headers.Remove("x-api-key");
+            request.Headers.Add("x-secret-key", setup.Project.SecretKey);
+            request.Headers.Add("x-public-key", setup.Project.PublicKey);
+        }
+        using var response = await setup.Client.SendAsync(request);
+        await AssertExecutedAsync(setup, response, Player, secret);
+        Assert.Null(await setup.Store.ReadRecordAsync(setup.Project.ProjectId, "players", Host, CancellationToken.None));
+    }
+
+    [SkippableFact]
+    public async Task TrustedHostProxyRejectsImplausibleOnBehalfOfBeforeMutation()
+    {
+        using var setup = await CreateAsync(required: false);
+        using var request = Request(setup, "x-steam-id", Host);
+        request.Headers.Add("x-on-behalf-of", "not-a-steam-id");
+        using var response = await setup.Client.SendAsync(request);
+        await AssertErrorAsync(response, HttpStatusCode.BadRequest, "INVALID_STEAMID");
+        await AssertUntouchedAsync(setup);
+    }
+
     [SkippableFact]
     public async Task AuthDisabledProjectIgnoresUnverifiableTokensMatchingLegacyPassthrough()
     {

@@ -177,11 +177,24 @@ public static class EndpointExecutionEndpoints
             ReadBodyString(body, "steamId")) ?? "";
         var hasSecretKey = string.Equals(auth.KeyType, "secret", StringComparison.OrdinalIgnoreCase);
 
+        // Host proxies act for another player via x-on-behalf-of. Matching Bun,
+        // that delegation is trusted without s&box verification only for secret
+        // keys (dedicated servers) and auth-disabled projects; required public-key
+        // requests verify the delegated client in ResolvePlayerIdentityAsync.
+        var onBehalfOf = context.Request.Headers["x-on-behalf-of"].FirstOrDefault();
+        var trustedProxy = !string.IsNullOrEmpty(onBehalfOf) && (hasSecretKey || !access.RequireSboxAuth);
+        if (trustedProxy && !AuthSessionEndpoints.IsPlausibleSteamId(onBehalfOf!))
+        {
+            await WriteEndpointErrorAsync(context, 400, "INVALID_STEAMID",
+                "x-on-behalf-of must be a plausible numeric ID starting with 7 or 9.");
+            return;
+        }
+
         // Secret keys deliberately delegate player identity on dedicated servers.
         // Public keys identify the project, not a player: authenticate before any
         // endpoint steps (including writes) and use only the verified identity.
         var steamId = hasSecretKey
-            ? FirstNonEmpty(claimedSteamId) ?? "anonymous"
+            ? (trustedProxy ? onBehalfOf! : FirstNonEmpty(claimedSteamId) ?? "anonymous")
             : await ResolvePlayerIdentityAsync(context, body, projectId, endpointSlug, credential,
                 auth.UserId, access.RequireSboxAuth, access.Project.EnableAuthSessions == true,
                 claimedSteamId);
@@ -410,11 +423,12 @@ public static class EndpointExecutionEndpoints
         var hasSboxCredentials = !string.IsNullOrEmpty(token) || !string.IsNullOrEmpty(clientSteamId)
             || !string.IsNullOrEmpty(clientToken) || !string.IsNullOrEmpty(proxySignature);
         // Auth-disabled projects match Bun: s&box tokens are ignored and the
-        // claimed identity passes through. Presented auth-session tokens are
-        // still validated (they are our own issuance). Required projects fall
-        // through to strict verification below.
+        // claimed identity (or the proxied player, already plausibility-checked
+        // by the caller) passes through. Presented auth-session tokens are still
+        // validated (they are our own issuance). Required projects fall through
+        // to strict verification below.
         if (!required && sessionToken is null)
-            return FirstNonEmpty(claimedSteamId) ?? "anonymous";
+            return FirstNonEmpty(clientSteamId, claimedSteamId) ?? "anonymous";
 
         string? verifiedSteamId = null;
         if (sessionToken is not null)

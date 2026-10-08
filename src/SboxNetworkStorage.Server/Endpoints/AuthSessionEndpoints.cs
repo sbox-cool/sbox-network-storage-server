@@ -346,7 +346,7 @@ public static partial class AuthSessionEndpoints
         return string.Empty;
     }
 
-    private static bool IsPlausibleSteamId(string value)
+    internal static bool IsPlausibleSteamId(string value)
         => !string.IsNullOrEmpty(value) && PlausibleSteamId().IsMatch(value.Trim());
 
     [GeneratedRegex("^[79][0-9]{3,16}$")]

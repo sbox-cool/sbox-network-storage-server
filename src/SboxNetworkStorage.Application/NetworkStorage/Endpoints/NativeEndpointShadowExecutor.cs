@@ -486,7 +486,7 @@ public sealed class NativeEndpointShadowExecutor
         if (liveServe && durableWrites is { Count: > 0 } && steamId != "anonymous")
         {
             await ApplyPostFlushProjectionsAsync(
-                projectId, steamId, durableWrites, prefetched,
+                projectId, durableWrites, prefetched,
                 collectionNameToId, endpointSlug, ct);
         }
 
@@ -501,25 +501,29 @@ public sealed class NativeEndpointShadowExecutor
     /// succeeded; these are non-critical projections).
     /// </summary>
     private async Task ApplyPostFlushProjectionsAsync(
-        string projectId, string steamId,
+        string projectId,
         List<(string Collection, string Key, Dictionary<string, object?>? Data, bool IsDelete)> durableWrites,
         Dictionary<string, object?> prefetched,
         Dictionary<string, string> collectionNameToId,
         string endpointSlug,
         CancellationToken ct)
     {
-        // Find the players collection write (if any) in this flush.
+        // Find the players collection write (if any) in this flush. The written
+        // record's key is the player the projection describes; the requester can
+        // differ (host/dedicated-server proxy saves another player's record).
         var playersCollectionId = collectionNameToId.GetValueOrDefault("players");
         Dictionary<string, object?>? writtenPlayers = null;
+        string? playerId = null;
         foreach (var (collection, key, data, isDelete) in durableWrites)
         {
             if (collection == playersCollectionId && !isDelete && data is not null)
             {
                 writtenPlayers = data;
+                playerId = key;
                 break;
             }
         }
-        if (writtenPlayers is null) return; // no players write → no projection needed
+        if (writtenPlayers is null || string.IsNullOrEmpty(playerId)) return; // no players write → no projection needed
 
         // ── a) Leaderboard projection (spec: leaderboard-durability) ──
         // Read the current leaderboard_global/default record, update only this
@@ -542,7 +546,7 @@ public sealed class NativeEndpointShadowExecutor
                 if (writtenPlayers.TryGetValue("totalGold", out var tg)) entry["totalGold"] = tg;
                 if (writtenPlayers.TryGetValue("playerName", out var pn)) entry["playerName"] = pn;
                 if (writtenPlayers.TryGetValue("savedAt", out var sa)) entry["savedAt"] = sa;
-                ebp[steamId] = entry;
+                ebp[playerId] = entry;
                 lbDict["entriesByPlayer"] = ebp;
                 await _dataSource.WriteGlobalRecordAsync(projectId, lbCollectionId, "default", lbDict, ct);
             }
@@ -555,7 +559,7 @@ public sealed class NativeEndpointShadowExecutor
         // analytics service so the dashboard progression chart populates.
         try
         {
-            var preKey = $"{playersCollectionId}:{steamId}";
+            var preKey = $"{playersCollectionId}:{playerId}";
             var prePlayers = prefetched.TryGetValue(preKey, out var preVal)
                 ? preVal as Dictionary<string, object?>
                 : null;
@@ -585,7 +589,7 @@ public sealed class NativeEndpointShadowExecutor
                     ? new Dictionary<string, object> { ["playerName"] = pns }
                     : null;
                 _analyticsService?.RecordEndpointEventAsync(
-                    projectId, steamId, endpointSlug,
+                    projectId, playerId, endpointSlug,
                     eventType: "session.heartbeat",
                     payload: payload,
                     trackedFieldDeltas: deltas,

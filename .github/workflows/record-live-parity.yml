@@ -67,9 +67,10 @@ jobs:
 
       - name: Record candidate build
         run: bash scripts/smoke.sh --no-build --out TestResults/candidate.json
-
       - name: Diff against reviewed allow-list
+        shell: bash
         run: |
+          set -o pipefail
           dotnet tools/SboxNetworkStorage.Parity/bin/Release/net8.0/sbox-ns-parity.dll diff \
             --stable TestResults/stable.json --candidate TestResults/candidate.json \
             --allow tests/parity/intentional-differences.json | tee TestResults/diff.txt
