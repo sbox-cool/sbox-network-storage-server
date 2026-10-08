@@ -104,6 +104,7 @@ public static class NetworkStorageServices
         services.AddScoped<INetworkStorageCandidateHandler, EndpointExecutionCandidateHandler>();
         services.AddScoped<EndpointSlugReadCandidateHandler>();
         services.AddScoped<PackageSyncHandler>();
+        services.AddScoped<RevisionInitHandler>();
         services.AddScoped<NativeStatsHeartbeatHandler>();
 
         services.AddSingleton<IAuthSessionSecretProvider, ConfigurationAuthSessionSecretProvider>();

@@ -167,13 +167,18 @@ public static class NetworkStorageGatewayEndpoints
         // Route it to the existing native management handler instead of the
         // decommissioned-management catch-all.
         MapManagementMutation(endpoints, [HttpMethods.Post], "/v3/manage/{projectId}/auto-test");
+        // Game-client revision handshake (sbox-cool/sbox-network-storage
+        // NetworkStorageRevisionInit). Public-key route: the game reports its
+        // running revision and learns whether it is outdated. Read-only.
+        endpoints.MapPost("/v3/manage/{projectId}/revision-init", (Func<HttpContext, Task<IResult>>)ServeRevisionInitAsync)
+            .WithDisplayName("Network Storage revision init")
+            .WithRouteOwner(RouteOwner.DotNetNative, "ASP.NET Core native Network Storage revision handshake");
 
-        // Optional fallback for remaining management mutation POST routes that are
-        // not yet ported to native ScyllaDB writes. Returns a deliberate 501 instead
-        // of proxying to the decommissioned Bun storage-api.
-        endpoints.MapPost("/v3/manage/{projectId}/{**path}", ServeUnimplementedManagementMutationAsync)
-            .WithDisplayName("Network Storage management mutation unimplemented")
-            .WithRouteOwner(RouteOwner.DotNetNative, "ASP.NET Core Network Storage management mutation not yet implemented");
+        // Fallback for unknown management mutation POST routes. These match no
+        // reference surface (Bun or .NET); answer 404, never a 5xx.
+        endpoints.MapPost("/v3/manage/{projectId}/{**path}", ServeUnknownManagementMutationAsync)
+            .WithDisplayName("Network Storage management mutation unknown")
+            .WithRouteOwner(RouteOwner.DotNetNative, "ASP.NET Core native Network Storage unknown management mutation 404");
 
         // ── Cutover task 1.6 (cutover-network-storage-to-dotnet-scylla) ──
         // When ScyllaDB is the authoritative store, serve the v3 single-record
@@ -513,6 +518,14 @@ public static class NetworkStorageGatewayEndpoints
         return await handler.HandleAsync(context, projectId, context.RequestAborted);
     }
 
+    private static async Task<IResult> ServeRevisionInitAsync(HttpContext context)
+    {
+        StampDispatchDiagnostics(context);
+        var projectId = (string?)context.GetRouteValue("projectId") ?? string.Empty;
+        var handler = context.RequestServices.GetRequiredService<RevisionInitHandler>();
+        return await handler.HandleAsync(context, projectId, context.RequestAborted);
+    }
+
     private static async Task ServeEndpointSlugReadAsync(HttpContext context)
     {
         StampDispatchDiagnostics(context);
@@ -842,6 +855,20 @@ public static class NetworkStorageGatewayEndpoints
         context.Response.StatusCode = result.StatusCode;
         context.Response.ContentType = "application/json; charset=utf-8";
         await context.Response.WriteAsJsonAsync(result.Body, context.RequestAborted);
+    }
+
+    private static async Task ServeUnknownManagementMutationAsync(HttpContext context)
+    {
+        StampDispatchDiagnostics(context);
+        context.Response.StatusCode = StatusCodes.Status404NotFound;
+        context.Response.ContentType = "application/json; charset=utf-8";
+        context.Response.Headers["X-Sboxcool-Route-Owner"] = RouteOwner.DotNetNative.ToDisplayName();
+        await context.Response.WriteAsJsonAsync(new
+        {
+            ok = false,
+            error = "NOT_FOUND",
+            detail = "This Network Storage route is not recognized.",
+        }, context.RequestAborted);
     }
 
     private static async Task ServeUnimplementedManagementMutationAsync(HttpContext context)

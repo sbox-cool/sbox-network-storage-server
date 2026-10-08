@@ -39,6 +39,35 @@
           }
         },
         {
+          "id": "seed-economy",
+          "method": "POST",
+          "path": "/v3/storage/${projectId}/players/${steamId}",
+          "headers": {
+            "x-public-key": "${publicKey}",
+            "x-steam-id": "${steamId}",
+            "x-sbox-token": "parity-placeholder-token",
+            "x-ns-client-type": "game",
+            "Content-Type": "application/json"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "body": {
+            "playerName": "Parity Tester",
+            "gold": 100,
+            "level": 0,
+            "ores": {
+              "stone": 0
+            }
+          },
+          "expect": {
+            "status": 200,
+            "equals": {
+              "$.ok": true
+            }
+          }
+        },
+        {
           "id": "save-profile",
           "method": "POST",
           "path": "/v3/endpoints/${projectId}/save-profile",
@@ -255,10 +284,13 @@
             "_endpointSlug": "buy-upgrade"
           },
           "expect": {
-            "status": 400,
+            "status": 409,
             "requiredFields": [
               "$.error"
-            ]
+            ],
+            "equals": {
+              "$.error.code": "INSUFFICIENT_CURRENCY"
+            }
           }
         },
         {

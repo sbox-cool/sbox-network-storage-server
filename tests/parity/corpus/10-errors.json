@@ -556,7 +556,10 @@
           },
           "body": {},
           "expect": {
-            "status": 200
+            "status": 404,
+            "requiredFields": [
+              "$.error"
+            ]
           }
         },
         {

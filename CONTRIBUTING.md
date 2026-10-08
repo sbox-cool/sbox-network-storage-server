@@ -115,32 +115,20 @@ proof of managed-service parity.
 #### Upstream and fixture prerequisites
 
 The corpus tests the client contract, not just whichever routes currently return
-success. The remaining `200` assertions below are release-blocking and must not
-be relaxed to `4xx`/`5xx`, skipped, or whitelisted:
+success. Success assertions must not be relaxed to `4xx`/`5xx`, skipped, or
+whitelisted to obtain a green run.
 
-| Operation | Reference behavior | Prerequisite for success |
-| --- | --- | --- |
-| `POST /v3/manage/{projectId}/revision-init` (current and outdated revisions) | No implementation exists in any reference: absent from the Bun manage-api controller, routes, and server, and from production .NET. The management POST fallback returns `501 STORAGE_API_DECOMMISSIONED`. | A real revision-initialization and outdated-client policy implementation plus its response contract. `package-sync` persists game-package metadata but is not a runtime initialization equivalent. |
-| `buy-upgrade` endpoint flow (`buy-pickaxe`, `buy-pickaxe-again`) | All three runtimes reject null math input identically: Bun `tools/sbox/endpoint-expression.js` (`evaluateMath` throws `Unresolved variable` on null/undefined), production .NET `EndpointExpression.cs:130-131`, and this server. No write path in any runtime applies collection schema defaults, and the fixture flow never establishes `player.level` (`save-profile` writes `playerName` only; `mine-ore` writes `ores.stone`). | A fixture that establishes the economy state a real game client would send (e.g. `gold`/`level` present before purchase), or a product decision on null-tolerant math applied consistently across runtimes. Do not special-case the endpoint or the transform. |
-| `POST /v3/manage/{projectId}/does-not-exist` (`manage-unknown-mutation`) | Unknown management mutations match no reference route; Bun's router has no such path. This server answers the decommissioned-management fallback (`501 STORAGE_API_DECOMMISSIONED`). | A product decision: implement the route, or return `404 NOT_FOUND` for unknown mutations and correct the `200` assertion (no reference has ever returned `200` here). |
+Resolved blockers and their reference evidence:
 
-Resolved since extraction: `PUT /v3/manage/{projectId}/tests`,
-`POST /v3/manage/{projectId}/source-upgrade`, `run-tests`, `test-endpoint`,
-`suggest-tests`, `PUT settings`, and `DELETE keys` are registered as Gateway
-routes served by `ManagementMutationCandidateHandler` (real writes where
-ported, described dry-runs otherwise, matching production .NET). Collection
-ledger reads are store-backed: an existing record or a known player profile
-with no tracked deltas returns `200` with an empty ledger (matching Bun, which
-never 404s a present collection's ledger on missing history); a key with no
-record, no entries, and no profile returns `404 NOT_FOUND` (matching
-production .NET file-missing). `GET /api/storage/{projectId}/{collectionId}/list`
-is asserted `404`: no reference (Bun manage/api routes, production .NET
-Gateway, route catalog) serves a global-list under `/api/storage`; the `v1`/`v3`
-list routes are the supported surfaces and are covered by the catalog test.
-
-These are not missing extraction copies: mapping a dry-run candidate to a live
-route would report success without performing the requested operation. Their presence means the full smoke gate
-cannot pass until the prerequisites above are implemented.
+| Area | Resolution |
+| --- | --- |
+| `POST revision-init` | Implemented natively per the game-client contract (`sbox-cool/sbox-network-storage` `NetworkStorageRevisionInit`): public-key handshake comparing the client revision against the synced game package. No reference server implements it; the client tolerates failure, but the handshake now actually works. |
+| `buy-upgrade` economy flow | Two engine gaps fixed with Bun evidence (`tools/sbox/endpoint-runner.js`): game-values context is supplied to live execution, and workflow `returns:` blocks map into step results (`returns[key] = resolveTemplate(...)`). The fixture seeds complete player state (`seed-economy`) because no runtime populates schema defaults or tolerates null math input (Bun `endpoint-expression.js evaluateMath` throws identically). `buy-drill-unaffordable` asserts the designed `409 INSUFFICIENT_CURRENCY` (Bun honors `onFail.status`). |
+| Unknown management mutations | Answered `404 NOT_FOUND`: no reference route exists, and a 5xx must never mark an unknown path. |
+| Oversized payloads | `413` under the enforced 64 KiB store limit (append path already asserted this). |
+| `/api/storage` global list | `404`: absent from every reference inventory; `v1`/`v3` lists are the supported surfaces (catalog test guards this). |
+| Collection ledgers | `200`-empty for known players (record or analytics profile, no tracked deltas), matching Bun which never 404s a present collection's ledger; `404` only for unknown keys, matching production .NET file-missing. |
+| `PUT tests`, `source-upgrade`, `run-tests`, `test-endpoint`, `PUT settings`, `DELETE keys` | Registered as Gateway routes served by `ManagementMutationCandidateHandler` (real writes where ported, described dry-runs otherwise, matching production .NET). |
 
 Management query listing reuses the production dashboard's `queries.json`
 resource read, which the metadata workspace maps to `ListQueriesAsync`; it is a

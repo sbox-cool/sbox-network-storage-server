@@ -807,7 +807,16 @@ public sealed class EndpointStepExecutor
                 return err;
         }
 
-        // Return the sub-context as the workflow result (Bun returns the full sub-context).
+        // Map the workflow's returns block into the result (Bun resolves each
+        // returns template against the sub-context). Without a returns block,
+        // return the full sub-context so step ids stay addressable.
+        if (wfDef.GetValueOrDefault("returns") is Dictionary<string, object?> returnsDef)
+        {
+            var mapped = new Dictionary<string, object?>(StringComparer.Ordinal);
+            foreach (var (key, template) in returnsDef)
+                mapped[key] = EndpointExpression.ResolveTemplate(template, subContext);
+            return mapped;
+        }
         return subContext;
     }
 

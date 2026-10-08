@@ -91,5 +91,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   limit (`413`), and the `/api/storage` global-list expectation with the
   reference route inventory (`404`; `v1`/`v3` lists are the supported
   surfaces).
+- Implement the game-client revision handshake (`POST
+  /v3/manage/{projectId}/revision-init`, per `sbox-cool/sbox-network-storage`
+  `NetworkStorageRevisionInit`): public-key route comparing the client
+  revision against the synced game package and reporting outdated status.
+- Map workflow `returns:` blocks into step results (Bun parity); without a
+  returns block the full sub-context is returned as before.
+- Answer unknown management mutations with `404 NOT_FOUND` instead of 501.
 
 [Unreleased]: https://github.com/sbox-cool/sbox-network-storage-server/commits/main
