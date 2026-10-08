@@ -1,4 +1,41 @@
 {
   "schemaVersion": 1,
-  "differences": []
+  "differences": [
+    { "scenario": "manage-queries", "step": "list", "path": "*", "reason": "Live-unimplemented: managed service answers 501 MANAGEMENT_MUTATION_NOT_IMPLEMENTED and fails the corpus contract; this server implements the route." },
+    { "scenario": "manage-queries", "step": "list-after-delete", "path": "*", "reason": "Live-unimplemented: managed service answers 501 MANAGEMENT_MUTATION_NOT_IMPLEMENTED and fails the corpus contract; this server implements the route." },
+    { "scenario": "manage-package-and-revision", "step": "package-sync", "path": "*", "reason": "Live-unimplemented: managed service answers 200 with an empty body and fails the corpus contract; this server returns the synced gamePackage." },
+    { "scenario": "manage-package-and-revision", "step": "revision-init", "path": "*", "reason": "Live-unimplemented: managed service answers 501 STORAGE_API_DECOMMISSIONED and fails the corpus contract; this server implements revision-init." },
+    { "scenario": "manage-package-and-revision", "step": "revision-init-outdated", "path": "*", "reason": "Live-unimplemented: managed service answers 501 STORAGE_API_DECOMMISSIONED and fails the corpus contract; this server implements revision-init." },
+    { "scenario": "manage-tests-and-tools", "step": "put-tests", "path": "*", "reason": "Live-unimplemented: managed service answers 404 route-not-recognized and fails the corpus contract; this server implements PUT tests." },
+    { "scenario": "manage-tests-and-tools", "step": "source-upgrade", "path": "*", "reason": "Live-unimplemented: managed service answers 501 STORAGE_API_DECOMMISSIONED and fails the corpus contract; this server implements source-upgrade." },
+    { "scenario": "errors-invalid-input", "step": "manage-unknown-mutation", "path": "*", "reason": "Live bug: managed service falls through to the decommissioned backend (501) and fails the corpus contract (404 NOT_FOUND)." },
+
+    { "scenario": "endpoints-player-flow", "step": "buy-pickaxe", "path": "*", "reason": "Live bug: managed endpoint executor cannot resolve game-value table scan sources (400 ENDPOINT_ERROR.LOOKUP) and fails the corpus contract." },
+    { "scenario": "endpoints-player-flow", "step": "buy-pickaxe-again", "path": "*", "reason": "Live bug: managed endpoint executor cannot resolve game-value table scan sources (400 ENDPOINT_ERROR.LOOKUP) and fails the corpus contract." },
+    { "scenario": "endpoints-player-flow", "step": "buy-drill-unaffordable", "path": "*", "reason": "Live bug: managed endpoint executor cannot resolve game-value table scan sources (400 ENDPOINT_ERROR.LOOKUP) and fails the corpus contract (409 INSUFFICIENT_CURRENCY)." },
+    { "scenario": "endpoints-player-flow", "step": "buy-unknown-upgrade", "path": "body:$.error.*", "reason": "Live bug: status matches (400) only because the managed executor fails the table lookup (ENDPOINT_ERROR.LOOKUP) before evaluating the upgrade; this server returns UNKNOWN_UPGRADE." },
+    { "scenario": "endpoints-player-flow", "step": "load-after", "path": "body:$.profile.gold", "reason": "Downstream state: purchases failed on the managed service (table-lookup bug), so its gold was never spent." },
+    { "scenario": "endpoints-player-flow", "step": "load-after", "path": "body:$.profile.level", "reason": "Downstream state: purchases failed on the managed service (table-lookup bug), so its level never increased." },
+    { "scenario": "endpoints-get-and-routing", "step": "post-body-slug", "path": "body:$.profile.gold", "reason": "Downstream state of the managed table-lookup purchase failures." },
+    { "scenario": "endpoints-get-and-routing", "step": "post-body-slug", "path": "body:$.profile.level", "reason": "Downstream state of the managed table-lookup purchase failures." },
+    { "scenario": "endpoints-get-and-routing", "step": "post-v1-alias", "path": "body:$.profile.gold", "reason": "Downstream state of the managed table-lookup purchase failures." },
+    { "scenario": "endpoints-get-and-routing", "step": "post-v1-alias", "path": "body:$.profile.level", "reason": "Downstream state of the managed table-lookup purchase failures." },
+    { "scenario": "endpoints-secret-key", "step": "dedicated-load", "path": "body:$.profile.gold", "reason": "Downstream state of the managed table-lookup purchase failures." },
+    { "scenario": "endpoints-secret-key", "step": "dedicated-load", "path": "body:$.profile.level", "reason": "Downstream state of the managed table-lookup purchase failures." },
+    { "scenario": "documents-player-crud", "step": "get-existing", "path": "body:$.gold", "reason": "Downstream state of the managed table-lookup purchase failures." },
+    { "scenario": "documents-player-crud", "step": "get-existing", "path": "body:$.level", "reason": "Downstream state of the managed table-lookup purchase failures." },
+    { "scenario": "endpoints-get-and-routing", "step": "unknown-slug", "path": "*", "reason": "Live bug: managed service treats an unknown slug as an unsupported definition (501 ENDPOINT_NOT_SUPPORTED) and fails the corpus contract (404 ENDPOINT_NOT_FOUND)." },
+    { "scenario": "endpoints-get-and-routing", "step": "get-unknown-slug", "path": "*", "reason": "Live bug: managed service treats an unknown slug as an unsupported definition (501 ENDPOINT_NOT_SUPPORTED) and fails the corpus contract (404 ENDPOINT_NOT_FOUND)." },
+    { "scenario": "errors-invalid-input", "step": "endpoint-invalid-slug", "path": "*", "reason": "Live bug: managed service answers 501 ENDPOINT_NOT_SUPPORTED for an invalid slug and fails the corpus contract (404)." },
+
+    { "scenario": "global-append-list", "step": "list", "path": "body:$.records*", "reason": "Live bug: appended global records are not readable on the managed service (list empty after successful appends; see the record step). Candidate lists the appends plus the shared leaderboard_global/default projection record." },
+    { "scenario": "global-append-list", "step": "record", "path": "*", "reason": "Live bug: managed service answers 404 reading a record it just appended, failing the corpus contract." },
+    { "scenario": "ledger-read", "step": "ledger", "path": "*", "reason": "Live bug: managed service answers 404 for an empty ledger and fails the corpus contract (200 with an empty page)." },
+    { "scenario": "ledger-read", "step": "ledger-dedicated", "path": "*", "reason": "Live bug: managed service answers 404 for an empty ledger and fails the corpus contract (200 with an empty page)." },
+    { "scenario": "analytics-and-heartbeat", "step": "stats-read", "path": "*", "reason": "Live bug: managed service answers 404 for player stats immediately after accepted heartbeats, failing the corpus contract." },
+    { "scenario": "errors-oversized-payloads", "step": "document-oversized", "path": "*", "reason": "Live bug: managed service answers 500 STORAGE_ERROR for an oversized document; corpus contract is 413 PAYLOAD_TOO_LARGE." },
+    { "scenario": "errors-oversized-payloads", "step": "endpoint-oversized", "path": "*", "reason": "Live bug: managed service answers 500 STORAGE_WRITE_FAILED for an oversized endpoint payload; corpus contract is 413 PAYLOAD_TOO_LARGE." },
+    { "scenario": "errors-invalid-input", "step": "document-invalid-collection-id", "path": "*", "reason": "Live bug: managed service answers 500 STORAGE_ERROR for an invalid collection id; corpus contract is 404." },
+    { "scenario": "errors-invalid-input", "step": "document-encoded-key", "path": "*", "reason": "Live bug: managed service answers 500 STORAGE_ERROR for an encoded key; corpus contract is 404." }
+  ]
 }

@@ -102,8 +102,11 @@ An approved successful reference can be converted to golden responses with
 `snapshot --from stable.json --out tests/parity/expectations`; `check --expect
 tests/parity/expectations` adds strict golden comparison to the corpus assertions.
 No managed goldens are committed without an authorized, reviewed stable run.
-`intentional-differences.json` is deliberately empty; additions must describe the
-specific scenario, step, response path and reviewed reason, not suppress bugs.
+`intentional-differences.json` lists only managed-service deviations: steps where
+the managed service fails the corpus contract while this server passes it, plus
+their downstream state. Each entry names the scenario, step and response path with
+a reviewed reason. Never add an entry to hide a failure of this server; fix it or
+fix the corpus. Remove entries as the managed service converges.
 
 CI runs SQLite HTTP smoke on Linux/macOS/Windows and PostgreSQL smoke plus strict
 cross-driver comparison on Linux. Release additionally requires

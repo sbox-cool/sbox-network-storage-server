@@ -17,13 +17,14 @@ works the same way it does with the managed service.
 - **API and library docs:** [sbox.cool/wiki/network-storage-v3](https://sbox.cool/wiki/network-storage-v3)
 
 > **Status: early preview.** This is pre-1.0 software extracted from the
-> production code behind the managed service. Parity testing against the managed
-> service is in progress, and configuration or storage formats may still change
-> between releases. Keep backups. A local-owner dashboard manages projects,
-> API keys and core settings at `/dashboard`. Full managed-dashboard and managed
-> project export/import parity are not established; use the editor Sync Tool for resources.
-> Release downloads are not available yet: publishing remains blocked until an
-> approved managed-server parity recording passes. Build from source meanwhile.
+> production code behind the managed service. Releases are gated on an approved
+> recording of the managed service: this server passes the full HTTP client
+> contract corpus, and every remaining managed-service difference is a reviewed
+> managed-side gap ([tests/parity/intentional-differences.json](tests/parity/intentional-differences.json)).
+> Configuration or storage formats may still change between releases. Keep backups.
+> A local-owner dashboard manages projects, API keys and core settings at
+> `/dashboard`. Full managed-dashboard and managed project export/import parity are
+> not established; use the editor Sync Tool for resources.
 
 ## Features
 

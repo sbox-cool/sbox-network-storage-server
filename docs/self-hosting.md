@@ -354,15 +354,12 @@ public URL and TLS mode captured before enable. It keeps the identity so a
 later enable derives the same name. Re-enable recovers a missing local token.
 Do not manually override the managed tunnel settings.
 
-After releases are available, a fresh service install can opt in before start:
+A fresh service install can opt in before start:
 
 ```sh
 curl -fsSL https://github.com/sbox-cool/sbox-network-storage-server/releases/latest/download/install.sh \
   | sudo env SBOX_NS_PROJECT="My Game" SBOX_NS_TUNNEL=1 sh
 ```
-
-No release is currently published; the approved managed-server parity
-recording remains a mandatory release prerequisite.
 
 ### Optional security and update email notices
 

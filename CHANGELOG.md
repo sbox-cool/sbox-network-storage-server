@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-10-08
+
 ### Added
 
 - Self-hostable Network Storage server extracted from the sbox.cool production code,
@@ -116,5 +118,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Map workflow `returns:` blocks into step results (Bun parity); without a
   returns block the full sub-context is returned as before.
 - Answer unknown management mutations with `404 NOT_FOUND` instead of 501.
+- Host proxies act for the `x-on-behalf-of` player (secret keys and auth-disabled
+  projects, as in the legacy runtime) instead of overwriting the host's own record.
+- Key the leaderboard and tracked-field projections by the written player record,
+  not the requester.
+- Answer malformed sync/preflight JSON with the client-contract error shape.
 
-[Unreleased]: https://github.com/sbox-cool/sbox-network-storage-server/commits/main
+[Unreleased]: https://github.com/sbox-cool/sbox-network-storage-server/compare/v0.1.0...main
+[0.1.0]: https://github.com/sbox-cool/sbox-network-storage-server/releases/tag/v0.1.0
