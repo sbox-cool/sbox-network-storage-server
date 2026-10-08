@@ -20,13 +20,11 @@ TestResults/
 coverage/
 *.trx
 
-# Local databases and runtime data
+# Local databases and runtime data (database files use the .db extension;
+# do NOT add *.sqlite here: it also matches the SboxNetworkStorage.Storage.Sqlite project directory)
 *.db
 *.db-wal
 *.db-shm
-*.sqlite
-*.sqlite-wal
-*.sqlite-shm
 /data/
 
 # Secrets

@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>SboxNetworkStorage.Storage.Sqlite</RootNamespace>
+    <Description>SQLite driver for the Network Storage store (single database file, WAL mode).</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\SboxNetworkStorage.Storage\SboxNetworkStorage.Storage.csproj" />
+    <ProjectReference Include="..\SboxNetworkStorage.Storage.Relational\SboxNetworkStorage.Storage.Relational.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.11" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="8.0.2" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.2" />
+  </ItemGroup>
+</Project>
