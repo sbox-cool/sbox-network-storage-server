@@ -13,6 +13,7 @@ public static partial class ConfigFiles
         [SettingDefinitions.ServerFile] = "Listener, TLS, logging and auth settings.",
         [SettingDefinitions.DatabaseFile] = "Database backend. Use `sbox-ns db test` after editing.",
         [SettingDefinitions.UpdatesFile] = "Update notices. sbox-ns never installs updates on its own; run `sbox-ns update`.",
+        [SettingDefinitions.AlertsFile] = "Operator alerts (Discord webhook, SMTP email) for captured errors. Disabled by default.",
     };
 
     /// <summary>Renders a complete, commented config file. <paramref name="values"/> overrides defaults by key.</summary>

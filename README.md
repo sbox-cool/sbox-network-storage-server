@@ -41,25 +41,27 @@ works the same way it does with the managed service.
   cookie login with CSRF protection, and `admin create|reset-password` recovery commands.
 - **No telemetry, no auto-update:** the server only shows a notice when a new release exists.
 
-## Quick start
+## Quickstart (about 60 seconds)
 
-### Linux and macOS
+### 1. Install
+
+Linux and macOS:
 
 ```sh
 curl -fsSL https://github.com/sbox-cool/sbox-network-storage-server/releases/latest/download/install.sh | sh
 ```
 
-Run with `sudo sh` instead to install a systemd service on Linux. The installer
-verifies the download checksum, installs `sbox-ns` and starts the interactive
+Pipe through `sudo sh` on Linux for a systemd service install. The installer
+verifies the download checksum, installs `sbox-ns`, then runs the interactive
 `sbox-ns setup`.
 
-### Windows (PowerShell)
+Windows (PowerShell):
 
 ```powershell
 irm https://github.com/sbox-cool/sbox-network-storage-server/releases/latest/download/install.ps1 | iex
 ```
 
-### Docker
+Docker:
 
 ```sh
 docker run -d --name sbox-ns -p 8080:8080 \
@@ -70,13 +72,26 @@ docker exec -it sbox-ns /app/sbox-ns setup
 docker restart sbox-ns
 ```
 
-Then create a project and keys for your game:
+### 2. Create a project and keys
 
 ```sh
-sbox-ns project create "My Game"
+sbox-ns project create "My Game"                          # prints the project ID
 sbox-ns key create <projectId> --type public --label game
 sbox-ns key create <projectId> --type secret --label editor
 ```
+
+Put the public key in your game. The secret key stays in the s&box editor
+Sync Tool and is shown only once when created.
+
+### 3. Point your game at the server
+
+```csharp
+NetworkStorage.Configure( projectId, apiKey, "http://your-server:8080" );
+```
+
+That is the whole integration. Editor setup details:
+[docs/client-setup.md](docs/client-setup.md). Handshakes the client performs
+on top of that base URL: [docs/game-client.md](docs/game-client.md).
 
 The server listens on plain HTTP port **8080** by default. HTTPS is optional:
 built-in Let's Encrypt, your own certificate, or a reverse proxy.
@@ -160,11 +175,13 @@ Commands accept `--config-dir` and `--data-dir` to select the folders.
 
 ## Databases
 
-**SQLite** is the default. Nothing to install or configure: everything is
-stored in one file in the data folder.
+| Backend | Best for | Setup |
+| --- | --- | --- |
+| SQLite (default) | Solo dev or a single server, zero config | Nothing to do. One file in the data folder. |
+| PostgreSQL 13 or newer | Operators who already run Postgres, or a database on a separate machine | Set `provider = "postgres"` in `database.toml`; check with `sbox-ns db test`. Full spec: [docs/database.md](docs/database.md). |
+| ScyllaDB | Not applicable | Not supported by this server. `database.provider` accepts `sqlite` or `postgres` only. |
 
-**PostgreSQL** suits operators who already run it or want the database on a
-separate machine. Configure it in `database.toml`:
+PostgreSQL in `database.toml`:
 
 ```toml
 [database]
@@ -181,7 +198,8 @@ ssl_mode = "Prefer"
 ```
 
 A full `connection_string` may be used instead of the individual fields.
-Check it with `sbox-ns db test`. A ScyllaDB driver is planned.
+Check it with `sbox-ns db test`. Back up with `sbox-ns db backup` and restore
+with `sbox-ns db restore` (stop the server first). Details: [docs/database.md](docs/database.md).
 
 ## Updates
 

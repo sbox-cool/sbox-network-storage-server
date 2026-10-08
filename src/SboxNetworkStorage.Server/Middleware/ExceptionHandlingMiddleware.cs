@@ -1,9 +1,11 @@
 using System.Data.Common;
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.DependencyInjection;
 using SboxNetworkStorage.Application.Common;
 using SboxNetworkStorage.Application.Errors;
 using SboxNetworkStorage.Contracts.Errors;
+using SboxNetworkStorage.Infrastructure.Observability;
 
 namespace SboxNetworkStorage.Server.Middleware;
 
@@ -80,6 +82,20 @@ public sealed class ExceptionHandlingMiddleware(
         {
             logger.LogWarning(reportException, "Failed to record unhandled exception correlationId={CorrelationId}", correlationId);
         }
+
+        // Alert the operator through the shared sink (log + Discord/SMTP when
+        // configured). Resolved from the request services so this middleware
+        // keeps its constructor; fire-and-forget so a slow channel never
+        // delays the error response. Never masks the original failure.
+        try
+        {
+            var alertSink = context.RequestServices.GetService<IExceptionAlertSink>();
+            if (alertSink is not null)
+            {
+                AlertFireAndForget.Run(alertSink.NotifyAsync(captured, CancellationToken.None), logger, "alert for unhandled exception");
+            }
+        }
+        catch { /* best-effort */ }
 
         logger.LogError(exception,
             "Unhandled exception method={Method} path={Path} classification={Classification} correlationId={CorrelationId} dependencyTimings={DependencyTimings}",

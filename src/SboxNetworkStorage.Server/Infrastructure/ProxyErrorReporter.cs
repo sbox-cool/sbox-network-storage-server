@@ -21,7 +21,7 @@ public sealed class ProxyErrorReporter(
 {
     // Hard cap on how long a proxy request will WAIT for best-effort telemetry.
     // Proxy captures fire on the request hot path when an upstream (Bun
-    // storage-api) is unavailable. Archiving (ScyllaDB) and alerting (Discord)
+    // storage-api) is unavailable. Archiving and operator alerting (log, Discord, SMTP)
     // must never dominate request latency or pin a worker when those
     // dependencies are slow or unreachable — otherwise a fast 502 degrades into
     // a request-timeout 504/500 and cascades to worker-pool exhaustion. The

@@ -9,7 +9,7 @@ namespace SboxNetworkStorage.Server.Infrastructure;
 /// <list type="bullet">
 /// <item>the admin error dashboard (<c>/admin/errors</c>) via <c>internal_errors</c>,</item>
 /// <item>the per-project Network Storage dashboard (queries <c>internal_errors WHERE project_id</c>),</item>
-/// <item>Discord (<c>DISCORD_WEBHOOK_ERRORS</c>) via <see cref="IExceptionAlertSink"/>.</item>
+/// <item>Discord/SMTP operator alerts (<c>alerts.toml</c>) via <see cref="IExceptionAlertSink"/>.</item>
 /// </list>
 ///
 /// Without this, native-executor exceptions, 5xx results, and 409 data-integrity
@@ -105,7 +105,7 @@ public sealed class EndpointShadowReporter(
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Failed to send Discord alert for native endpoint shadow error {ProjectId}/{Slug}", projectId, endpointSlug);
+            logger.LogWarning(ex, "Failed to send error alert for native endpoint shadow error {ProjectId}/{Slug}", projectId, endpointSlug);
         }
     }
 }

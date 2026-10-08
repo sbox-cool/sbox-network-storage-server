@@ -11,6 +11,7 @@ using SboxNetworkStorage.Infrastructure.NetworkStorage;
 using SboxNetworkStorage.Infrastructure.NetworkStorage.Storage;
 using SboxNetworkStorage.Infrastructure.NetworkStorage.Usage;
 using SboxNetworkStorage.Infrastructure.Workspace;
+using SboxNetworkStorage.Server.Alerts;
 using SboxNetworkStorage.Server.Configuration;
 using SboxNetworkStorage.Server.Infrastructure;
 using SboxNetworkStorage.Server.Infrastructure.NetworkStorage;
@@ -39,7 +40,7 @@ public static class NetworkStorageServices
 
         services.AddHttpClient("endpoint-webhook", client => { client.Timeout = TimeSpan.FromSeconds(5); });
         services.AddHttpClient("storage-api-gateway", client => { client.Timeout = Timeout.InfiniteTimeSpan; });
-
+        services.AddHttpClient("alerts-discord", client => { client.Timeout = TimeSpan.FromSeconds(10); });
         services.AddResponseCompression();
         services.AddMemoryCache();
         services.AddSingleton<ISystemClock, SystemClock>();
@@ -49,8 +50,16 @@ public static class NetworkStorageServices
 
         // Errors are logged locally; the bounded in-memory archive backs correlation lookups.
         services.AddSingleton<IErrorArchive, InMemoryErrorArchive>();
-        services.AddSingleton<IExceptionAlertSink, LoggingExceptionAlertSink>();
-        services.AddSingleton<INetworkStorageErrorAlertSink, LoggingNetworkStorageErrorAlertSink>();
+        // OperatorAlertSink fans every capture out to Discord/SMTP when configured (docs/alerting.md).
+        services.AddSingleton(AlertOptions.Bind(config));
+        services.AddSingleton<LoggingExceptionAlertSink>();
+        services.AddSingleton<LoggingNetworkStorageErrorAlertSink>();
+        services.AddSingleton<IDiscordWebhookClient, HttpDiscordWebhookClient>();
+        services.AddSingleton<ISmtpTransport, SmtpTransport>();
+        services.AddSingleton<DiscordAlertSender>();
+        services.AddSingleton<SmtpAlertSender>();
+        services.AddSingleton<IExceptionAlertSink, OperatorAlertSink>();
+        services.AddSingleton<INetworkStorageErrorAlertSink, OperatorAlertSink>();
         services.AddSingleton<EndpointConflictReportThrottle>();
         services.AddScoped<EndpointShadowReporter>();
         services.AddSingleton<IProxyErrorReporter, ProxyErrorReporter>();

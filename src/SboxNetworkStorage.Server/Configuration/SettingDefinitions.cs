@@ -36,8 +36,9 @@ public static class SettingDefinitions
     public const string ServerFile = "server.toml";
     public const string DatabaseFile = "database.toml";
     public const string UpdatesFile = "updates.toml";
+    public const string AlertsFile = "alerts.toml";
 
-    public static readonly IReadOnlyList<string> Files = [ServerFile, DatabaseFile, UpdatesFile];
+    public static readonly IReadOnlyList<string> Files = [ServerFile, DatabaseFile, UpdatesFile, AlertsFile];
 
     public static readonly IReadOnlyList<SettingDefinition> All =
     [
@@ -104,6 +105,31 @@ public static class SettingDefinitions
         new(UpdatesFile, "updates.interval_hours", SettingType.Integer, 24L, "Hours between update checks."),
         new(UpdatesFile, "updates.include_prereleases", SettingType.Boolean, false,
             "Also announce pre-release versions."),
+        new(AlertsFile, "alerts.discord.enabled", SettingType.Boolean, false,
+            "Send captured errors and endpoint failures to a Discord channel via webhook."),
+        new(AlertsFile, "alerts.discord.webhook_url", SettingType.String, "",
+            "Discord webhook URL. Prefer webhook_url_file so the secret is not stored in this file.", Secret: true),
+        new(AlertsFile, "alerts.discord.webhook_url_file", SettingType.String, "",
+            "File containing the Discord webhook URL (first line is used). Relative paths resolve against the config folder."),
+        new(AlertsFile, "alerts.discord.username", SettingType.String, "sbox-ns",
+            "Username shown on Discord alert messages."),
+        new(AlertsFile, "alerts.smtp.enabled", SettingType.Boolean, false,
+            "Send captured errors and endpoint failures as plain-text email."),
+        new(AlertsFile, "alerts.smtp.host", SettingType.String, "",
+            "SMTP server hostname."),
+        new(AlertsFile, "alerts.smtp.port", SettingType.Integer, 587L, "SMTP server port."),
+        new(AlertsFile, "alerts.smtp.username", SettingType.String, "",
+            "SMTP username. Empty means no authentication."),
+        new(AlertsFile, "alerts.smtp.password", SettingType.String, "",
+            "SMTP password. Prefer password_file so the secret is not stored in this file.", Secret: true),
+        new(AlertsFile, "alerts.smtp.password_file", SettingType.String, "",
+            "File containing the SMTP password (first line is used). Relative paths resolve against the config folder."),
+        new(AlertsFile, "alerts.smtp.from", SettingType.String, "",
+            "Sender address shown on alert mail, e.g. sbox-ns@example.com."),
+        new(AlertsFile, "alerts.smtp.to", SettingType.String, "",
+            "Recipient address (comma or semicolon separated for several)."),
+        new(AlertsFile, "alerts.smtp.use_tls", SettingType.Boolean, true,
+            "Upgrade the SMTP connection with STARTTLS."),
     ];
 
     private static readonly Dictionary<string, SettingDefinition> ByKey =

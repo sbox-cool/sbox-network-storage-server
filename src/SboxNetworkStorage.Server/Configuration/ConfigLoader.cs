@@ -304,11 +304,47 @@ public static class ConfigLoader
             }
         }
 
-        foreach (var key in new[] { "database.postgres.port", "database.postgres.max_pool_size", "database.postgres.connect_timeout_seconds", "database.startup_timeout_seconds", "updates.interval_hours" })
+        foreach (var key in new[] { "database.postgres.port", "database.postgres.max_pool_size", "database.postgres.connect_timeout_seconds", "database.startup_timeout_seconds", "updates.interval_hours", "alerts.smtp.port" })
         {
             if ((long)values[key].Value <= 0)
             {
                 issues.Add(Issue(key, $"'{key}' must be greater than 0"));
+            }
+        }
+
+        var discordUrl = S("alerts.discord.webhook_url");
+        var discordUrlFile = S("alerts.discord.webhook_url_file");
+        if (!string.IsNullOrWhiteSpace(discordUrl) && !string.IsNullOrWhiteSpace(discordUrlFile))
+        {
+            issues.Add(Issue("alerts.discord.webhook_url", "set either 'alerts.discord.webhook_url' or 'alerts.discord.webhook_url_file', not both"));
+        }
+
+        if (!string.IsNullOrWhiteSpace(discordUrl) && !discordUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+        {
+            issues.Add(Issue("alerts.discord.webhook_url", "'alerts.discord.webhook_url' must be an https:// Discord webhook URL"));
+        }
+
+        if ((bool)values["alerts.discord.enabled"].Value
+            && string.IsNullOrWhiteSpace(discordUrl) && string.IsNullOrWhiteSpace(discordUrlFile))
+        {
+            issues.Add(Issue("alerts.discord.enabled", "'alerts.discord.enabled = true' requires 'alerts.discord.webhook_url' or 'alerts.discord.webhook_url_file'"));
+        }
+
+        var smtpPassword = S("alerts.smtp.password");
+        var smtpPasswordFile = S("alerts.smtp.password_file");
+        if (!string.IsNullOrWhiteSpace(smtpPassword) && !string.IsNullOrWhiteSpace(smtpPasswordFile))
+        {
+            issues.Add(Issue("alerts.smtp.password", "set either 'alerts.smtp.password' or 'alerts.smtp.password_file', not both"));
+        }
+
+        if ((bool)values["alerts.smtp.enabled"].Value)
+        {
+            foreach (var key in new[] { "alerts.smtp.host", "alerts.smtp.from", "alerts.smtp.to" })
+            {
+                if (string.IsNullOrWhiteSpace(S(key)))
+                {
+                    issues.Add(Issue(key, $"'alerts.smtp.enabled = true' requires '{key}'"));
+                }
             }
         }
     }

@@ -38,7 +38,7 @@ jobs:
       - name: SQLite HTTP writes, reads and editor sync
         run: bash scripts/smoke.sh --no-build --out TestResults/sqlite.json
       - name: PostgreSQL HTTP writes, reads and editor sync
-        run: bash scripts/smoke.sh --no-build --postgres 'Host=localhost;Port=5432;Database=sbox_ns_smoke;Username=sbox_ns;Password=sbox_ns' --out TestResults/postgres.json
+        run: bash scripts/smoke.sh --no-build --port 18431 --postgres 'Host=localhost;Port=5432;Database=sbox_ns_smoke;Username=sbox_ns;Password=sbox_ns' --out TestResults/postgres.json
       - name: Compare complete normalized runs
         run: dotnet tools/SboxNetworkStorage.Parity/bin/Release/net8.0/sbox-ns-parity.dll diff --stable TestResults/sqlite.json --candidate TestResults/postgres.json
       - uses: actions/upload-artifact@v4
