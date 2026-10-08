@@ -4,9 +4,14 @@
     var project = Model.Project;
     var url = "/dashboard/projects/" + Uri.EscapeDataString(project.Id);
 }
-<a href="/dashboard">All projects</a>
-<h1>@project.Name</h1>
-<p>Project ID: <code>@project.Id</code></p>
+<div class="page-heading"><div><p class="eyebrow">Project overview</p><h1>@project.Name</h1><p>@project.Description</p><code>@project.Id</code></div><a class="button" href="@url/data">Browse data →</a></div>
+<section class="grid overview-grid">
+    <article class="card metric"><span>Collections</span><strong>@(Model.Resources?.Collections.Count ?? 0)</strong><a href="@url/resources/collection">Manage schemas →</a></article>
+    <article class="card metric"><span>Endpoints</span><strong>@(Model.Resources?.Endpoints.Count ?? 0)</strong><a href="@url/resources/endpoint">Author endpoints →</a></article>
+    <article class="card metric"><span>API keys</span><strong>@Model.Keys.Count</strong><a href="#api-keys">Manage access →</a></article>
+    <article class="card metric"><span>Project status</span><strong class="status-text">@(project.Enabled ? "Enabled" : "Disabled")</strong><span>s&box auth @((project.RequireSboxAuth ?? true) ? "required" : "off")</span></article>
+</section>
+<section class="card"><p class="eyebrow">Connect your game</p><h2>Use your existing client</h2><p>Create a public key below, then configure your game's Network Storage client with this project ID and this server's base URL. Keep secret keys out of game builds.</p><pre>NetworkStorage.Configure( "@project.Id", "&lt;public-api-key&gt;", "&lt;your-server-base-url&gt;" );</pre></section>
 @if (Model.Error is not null) { <p class="error" role="alert">@Model.Error</p> }
 @if (Model.RawKey is not null)
 {
@@ -17,7 +22,7 @@
         <a href="@url">Dismiss</a>
     </aside>
 }
-<section class="card">
+<section class="card" id="api-keys">
     <h2>API keys</h2>
     <p><code>sbox_ns_...</code> public keys are runtime credentials. <code>sbox_sk_...</code> secret keys must stay server-side.</p>
     <div class="table-scroll"><table>
@@ -87,13 +92,15 @@
 </section>
 <section class="card">
     <h2>Synced resources</h2>
-    <p>Use the existing editor sync tool with this server's base URL to author resources. <a href="@url/data">Browse stored records</a> (read-only, with JSON download per collection).</p>
+    <p>Dashboard authoring and editor sync share the live store. Source-backed definitions keep their YAML/JSON source metadata; coordinate changes with your checked-in editor source.</p>
+    <div class="actions resource-links"><a class="button secondary" href="@url/resources/collection">Collections &amp; schemas</a><a class="button secondary" href="@url/resources/endpoint">Endpoints</a><a class="button secondary" href="@url/resources/workflow">Workflows</a><a class="button secondary" href="@url/resources/query">Queries</a><a class="button secondary" href="@url/resources/game-values">Game values</a></div>
     <h3>Collections</h3>
-    <ul>@foreach (var collection in Model.Resources?.Collections ?? []) { <li><strong>@collection.Name</strong> · @collection.CollectionType · <code>@collection.Id</code> · @collection.Description</li> }</ul>
+    <ul>@foreach (var collection in Model.Resources?.Collections ?? []) { <li><a href="@url/data/@Uri.EscapeDataString(collection.Id)"><strong>@collection.Name</strong></a> · @collection.CollectionType · <code>@collection.Id</code> · @collection.Description</li> }</ul>
     <h3>Endpoints</h3>
-    <ul>@foreach (var endpoint in Model.Resources?.Endpoints ?? []) { <li><strong>@endpoint.Name</strong> · @endpoint.Method <code>@endpoint.Slug</code> · @(endpoint.Enabled ? "Enabled" : "Disabled")</li> }</ul>
-    <p>Record editing, query/workflow/game-value authoring, analytics/log/error/usage views and managed project export/import are not available in this dashboard. No full dashboard parity claim is made.</p>
+    <ul>@foreach (var endpoint in Model.Resources?.Endpoints ?? []) { <li><a href="@url/resources/endpoint?id=@Uri.EscapeDataString(endpoint.Id)"><strong>@endpoint.Name</strong></a> · @endpoint.Method <code>@endpoint.Slug</code> · @(endpoint.Enabled ? "Enabled" : "Disabled")</li> }</ul>
+    <div class="actions resource-links"><a href="@url/activity/analytics">Player analytics</a><a href="@url/activity/logs">Audit &amp; request logs</a><a href="@url/activity/errors">Errors</a><a href="@url/activity/usage">Usage</a></div>
 </section>
+<section class="card"><h2>Portable project archive</h2><p>Move this self-hosted project to an independent instance. Export includes its stored data and API-key hashes, but no instance configuration, secrets or signing keys. Keep the archive private. Import on the destination retains the original ID and refuses existing projects.</p><form method="post" action="@url/export">@Html.AntiForgeryToken()<button type="submit" class="secondary">Download project archive</button></form><p class="muted">Create a new secret key on the destination for editor sync and dedicated servers. Existing player sessions must authenticate again. Update your game's server base URL.</p><p class="muted">Self-hosted store portability only; managed-host export parity is not established. For whole-instance recovery, use the separate database backup tools.</p></section>
 <section class="card danger-zone">
     <h2>Delete project</h2>
     <p>This permanently deletes the project and its data. Enter <code>@project.Id</code> to confirm.</p>

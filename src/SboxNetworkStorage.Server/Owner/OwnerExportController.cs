@@ -74,6 +74,57 @@ public sealed class OwnerExportController(INetworkStorageStore store, INetworkSt
         }
     }
 
+    [HttpPost("/dashboard/projects/{projectId}/export")]
+    public async Task<IActionResult> ExportProject(string projectId, CancellationToken ct)
+    {
+        if (!await Gate.WaitAsync(TimeSpan.Zero, ct))
+            return await DashboardErrorAsync(409, "An export or import is already running.", ct);
+        try
+        {
+            if (!(await workspace.GetUserProjectsAsync(Owner, ct)).Any(project => project.Id == projectId))
+                return NotFound();
+            await using var staged = await ServerArchive.PrepareProjectExportAsync(store, admin, config, projectId, ct);
+            Response.ContentType = "application/gzip";
+            Response.Headers.ContentDisposition = $"attachment; filename=\"sbox-ns-project-{projectId}-{staged.Manifest.CreatedAt:yyyyMMdd-HHmmss}.tar.gz\"";
+            await audit.LogActionAsync(new AuditLogRequest(projectId, Owner.ToString(CultureInfo.InvariantCulture),
+                "project.export", new { id = Owner, type = "owner-dashboard" }, new { id = projectId, type = "project" },
+                new { message = "Downloaded a portable project export", rows = staged.Manifest.TotalRows }, null, null), ct);
+            await staged.WriteToAsync(Response.Body, ct);
+            return new EmptyResult();
+        }
+        catch (ExportArchiveException ex)
+        {
+            return await DashboardErrorAsync(400, ex.Message, ct);
+        }
+        finally { Gate.Release(); }
+    }
+
+    [HttpPost("/dashboard/import")]
+    [RequestSizeLimit(ProjectArchive.MaxUploadBytes + 1024 * 1024)]
+    [RequestFormLimits(MultipartBodyLengthLimit = ProjectArchive.MaxUploadBytes)]
+    public async Task<IActionResult> ImportProject(IFormFile? archive, CancellationToken ct)
+    {
+        if (archive is null || archive.Length == 0 || archive.Length > ProjectArchive.MaxUploadBytes)
+            return await DashboardErrorAsync(400, "Choose a project .tar.gz export no larger than 64 MiB.", ct);
+        if (!await Gate.WaitAsync(TimeSpan.Zero, ct))
+            return await DashboardErrorAsync(409, "An export or import is already running.", ct);
+        try
+        {
+            await using var input = archive.OpenReadStream();
+            var result = await ProjectArchive.ImportAsync(input, store, config, ct);
+            var projectId = result.Manifest.Projects[0].Id;
+            await audit.LogActionAsync(new AuditLogRequest(projectId, Owner.ToString(CultureInfo.InvariantCulture),
+                "project.import", new { id = Owner, type = "owner-dashboard" }, new { id = projectId, type = "project" },
+                new { message = "Imported a portable project export", rows = result.RowsApplied }, null, null), ct);
+            return Redirect("/dashboard/projects/" + Uri.EscapeDataString(projectId));
+        }
+        catch (ExportArchiveException ex)
+        {
+            return await DashboardErrorAsync(400, ex.Message, ct);
+        }
+        finally { Gate.Release(); }
+    }
+
     private async Task<IActionResult> DashboardErrorAsync(int status, string error, CancellationToken ct)
     {
         Response.StatusCode = status;

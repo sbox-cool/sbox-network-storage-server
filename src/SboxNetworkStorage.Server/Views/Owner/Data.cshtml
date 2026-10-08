@@ -5,8 +5,8 @@
     var projectUrl = "/dashboard/projects/" + Uri.EscapeDataString(Model.ProjectId);
 }
 <a href="@projectUrl">@Model.ProjectName</a>
-<h1>Data browser</h1>
-<p>Browse the records stored for project <code>@Model.ProjectId</code>. Record details offer confirmed deletion. Deleted (tombstoned) player records are not shown.</p>
+<div class="page-heading"><div><p class="eyebrow">Project records</p><h1>Data browser</h1></div><a class="button secondary" href="@projectUrl">Back to project</a></div>
+<p class="muted">Browse, create and edit stored records with collection schema validation and version-checked saves. Deleted (tombstoned) player records are not shown.</p>
 <section class="card">
     <h2>Collections</h2>
     @if (Model.Collections.Count == 0)
@@ -16,7 +16,7 @@
     else
     {
         <div class="table-scroll"><table>
-            <thead><tr><th>Collection</th><th>Type</th><th>Records</th><th>Download</th></tr></thead>
+            <thead><tr><th>Collection</th><th>Type</th><th>Records</th><th>Actions</th></tr></thead>
             <tbody>
             @foreach (var collection in Model.Collections)
             {
@@ -25,7 +25,7 @@
                     <td><a href="@url">@collection.Name</a> <code>@collection.Id</code></td>
                     <td>@collection.Kind</td>
                     <td>@collection.RecordCount</td>
-                    <td><a href="@url/export" download>JSON</a></td>
+                    <td><div class="actions"><a href="@url/new">Create record</a><a href="@url/export" download>Download JSON</a></div></td>
                 </tr>
             }
             </tbody>

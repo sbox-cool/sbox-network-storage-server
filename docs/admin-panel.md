@@ -1,7 +1,7 @@
 # Admin panel
 
 Every server includes a web admin panel for its single local owner: projects,
-API keys, project settings and a read-only data browser. No website account,
+API keys, project settings and a schema-validated record editor. No website account,
 signup or SSH tunnel is needed.
 
 - `/login`: password login
@@ -112,7 +112,15 @@ On a project page, choose **Browse stored records**, or open
 - **Records:** sorted by key, 50 per page by default (`?size=` accepts 1–200).
   Each row shows version, last change, size and a short preview. Key search
   (`?q=`, up to 256 characters) is case-insensitive substring matching.
-- **Record detail:** the stored payload as pretty-printed JSON.
+- **Record detail:** pretty-printed JSON in an editable payload form.
+- **Create:** choose **Create record** on a collection. Player keys accept
+  1–256 letters, numbers, underscores, hyphens or colons; global record IDs
+  accept 1–128 letters, numbers, underscores or hyphens. Global records are
+  shared entries, not player records.
+- **Save:** payloads must be JSON objects within the configured store byte
+  limit and match the collection schema (including required fields, types,
+  enums, nested objects/arrays and supported size/range constraints). Unsupported
+  schema modifiers fail closed with an explicit error rather than being ignored.
 - **Download:** `…/data/{collectionId}/export` returns the whole collection as
   JSON. The file contains `format = "sbox-ns.collection-export"`, the
   collection type, and each record's key, version, change time and payload.
@@ -122,12 +130,69 @@ SQLite and PostgreSQL. Record counts and pages are computed from the full
 collection on each request. Very large collections therefore take longer to
 list.
 
-The only change the browser can make is deleting a single record. It needs the
-antiforgery token and the exact record key typed in as confirmation:
+All mutations require the owner session and an antiforgery token. Edit and
+delete forms carry the version and a protected snapshot of the original payload
+and change time. The database compares this state and changes the record
+atomically, including when game writers reuse a version number. A stale form
+receives HTTP 409 and cannot overwrite or delete changed content. Create uses
+an atomic missing-record check, so two create forms cannot overwrite one
+another. Player tombstones can be recreated; owner saves increment the row's
+version without changing the existing game API's version behavior.
 
-- Per-player records get a permanent deletion tombstone, just like a delete
-  through the storage API.
-- Global records are removed.
+Validation errors (HTTP 400) and conflicts preserve the entered JSON and key.
+Use **Reload current record** to compare the latest stored value, then reconcile
+your changes before submitting again.
 
-Every deletion is written to the project audit log as `record.delete` with
-the collection, key, collection type and version.
+Deletion additionally needs the exact record key typed as confirmation:
+
+- Per-player records get a deletion tombstone, just like a delete through the
+  storage API.
+- Global records are removed from the global record table.
+
+Creates, edits and deletions are written to the project audit log as
+`record.create`, `record.update` and `record.delete`, with the collection, key,
+collection type and expected version.
+
+## Authoring and runtime diagnostics
+
+The project overview links to collection/schema, endpoint, workflow and query
+definitions and game values. Edit JSON directly, or keep source-backed definitions
+in a wrapper with `sourceText`, `sourceFormat`, `sourcePath` and `authoringMode`.
+The owner console reuses the editor compiler and management writes. Source text
+remains authoritative when present; saving preserves source metadata and updates
+only the selected resource, not other definitions.
+
+Saved definitions are available to the runtime immediately. Editor sync can
+overwrite dashboard edits, so reconcile changes with your checked-in YAML/JSON
+source. Endpoint expressions use double braces, such as `{{steamId}}` and
+`{{player.level}}`.
+
+Analytics, audit/request logs, errors and usage tabs read stored runtime data.
+Empty panels mean no matching data has been recorded, not synthetic activity.
+The console does not replace every screen or workflow in the managed dashboard.
+
+## Move one project
+
+On the project overview, **Download project archive** exports that project's
+metadata, definitions, records, runtime data and stored API-key material as a
+private `.tar.gz`. It excludes instance configuration and private secrets,
+including signing keys. On the destination dashboard, upload it under
+**Import a portable project**.
+
+Import retains the original project ID and assigns its owner membership to the
+destination instance's owner. An existing project ID is refused rather than
+overwritten. Limits are 64 MiB compressed and 256 MiB expanded. This is
+self-hosted SQLite/PostgreSQL portability, not a managed-host export contract.
+
+After moving to an independently configured instance:
+
+- Create a new **secret key** for editor sync and dedicated servers. Secret-key
+  lookup identifiers depend on the instance's encryption secret; copied hashes
+  alone do not make the old secret key usable on a new instance.
+- Point the game client and editor at the destination's base URL.
+- Authenticate player sessions again; instance signing/session secrets are not
+  part of the project archive.
+
+Keep the archive private: it contains player data and public runtime credentials.
+For whole-instance disaster recovery, use [server export/import](export.md)
+with the required configuration/secrets, not a portable project archive.

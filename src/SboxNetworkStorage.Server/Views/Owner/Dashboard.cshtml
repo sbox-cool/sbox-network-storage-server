@@ -1,32 +1,21 @@
 @model SboxNetworkStorage.Server.Owner.OwnerDashboardModel
 @{ Layout = "~/Views/Owner/_Layout.cshtml"; }
-<h1>Projects</h1>
-@if (Model.Error is not null) { <p class="error" role="alert">@Model.Error</p> }
-<section class="grid">
+<div class="page-heading"><div><p class="eyebrow">Owner workspace</p><h1>Your games, your infrastructure.</h1><p>Build and operate independent game backends from one private console.</p></div><a href="#create-project" class="button">+ Create project</a></div>
+@if (Model.Error is not null) { <p class="notice error" role="alert">@Model.Error</p> }
+<div class="section-heading"><h2>Projects</h2><span class="badge">@Model.Projects.Count total</span></div>
+<section class="grid project-grid" aria-label="Projects">
 @foreach (var project in Model.Projects.OrderBy(project => project.Name))
 {
-    <article class="card">
-        <h2><a href="/dashboard/projects/@Uri.EscapeDataString(project.Id)">@project.Name</a></h2>
-        <code>@project.Id</code>
-        <p>@project.Description</p>
-        <p>@(project.Enabled ? "Enabled" : "Disabled") · s&box auth @((project.RequireSboxAuth ?? true) ? "required" : "off")</p>
-    </article>
+    <article class="card project-card"><div class="section-heading"><span class="project-icon" aria-hidden="true">@(project.Name.Length > 0 ? project.Name[..1].ToUpperInvariant() : "P")</span><span class="badge @(project.Enabled ? "positive" : "")">@(project.Enabled ? "Enabled" : "Disabled")</span></div>
+    <h2><a href="/dashboard/projects/@Uri.EscapeDataString(project.Id)">@project.Name</a></h2><p>@(string.IsNullOrEmpty(project.Description) ? "An independent Network Storage project." : project.Description)</p><code class="project-id">@project.Id</code>
+    <div class="card-bottom"><span>s&box auth @((project.RequireSboxAuth ?? true) ? "required" : "off")</span><a href="/dashboard/projects/@Uri.EscapeDataString(project.Id)">Open project →</a></div></article>
 }
 </section>
-@if (Model.Projects.Count == 0) { <p>No projects yet. Create your game's backend below.</p> }
-<section class="card">
-    <h2>Create project</h2>
-    <form method="post" action="/dashboard/projects">
-        @Html.AntiForgeryToken()
-        <label>Name <input name="name" required maxlength="64" /></label>
-        <label>Description <textarea name="description" maxlength="256"></textarea></label>
-        <label class="check"><input type="checkbox" name="requireSboxAuth" value="true" checked /> Require Facepunch s&box authentication</label>
-        <button type="submit">Create project</button>
-    </form>
+@if (Model.Projects.Count == 0) { <section class="card empty-state"><h2>Start with your first game</h2><p>Create a project, issue a public runtime key, then connect your existing Network Storage client. No hosted account is required.</p><a href="#create-project" class="button">Create your backend</a></section> }
+<section class="card onboarding"><p class="eyebrow">Quick start</p><h2>From project to playable</h2><ol class="steps"><li><strong>01 · Create a project</strong><p>Keep production and development data separate.</p></li><li><strong>02 · Issue a public key</strong><p>Use secret keys only for editor sync or trusted servers.</p></li><li><strong>03 · Point the client here</strong><p>Pass this server's base URL to <code>NetworkStorage.Configure</code>. Existing client calls stay the same.</p></li></ol></section>
+<section class="grid">
+<article class="card" id="create-project"><h2>Create project</h2><p>One isolated backend for your game.</p><form method="post" action="/dashboard/projects">@Html.AntiForgeryToken()<label>Name <input name="name" required maxlength="64" placeholder="My game" /></label><label>Description <textarea name="description" maxlength="256" rows="3" placeholder="What are you building?"></textarea></label><label class="check"><input type="checkbox" name="requireSboxAuth" value="true" checked /> Require Facepunch s&box authentication</label><button type="submit">Create project</button></form></article>
+<article class="card"><h2>Import a portable project</h2><p>Restore a self-hosted project archive on this instance. The archive retains its original project ID; import refuses an ID that already exists and never overwrites a live project.</p><form method="post" action="/dashboard/import" enctype="multipart/form-data">@Html.AntiForgeryToken()<label>Project archive (.tar.gz) <input type="file" name="archive" accept=".tar.gz,.tgz,application/gzip" required /></label><p class="muted">Maximum 64 MiB compressed / 256 MiB expanded. Archives contain player data and API-key hashes: store and transfer them securely. This is self-hosted portability, not a claim of managed-host export compatibility.</p><button type="submit" class="secondary">Import project</button></form></article>
 </section>
 @await Html.PartialAsync("~/Views/Owner/_ExportCard.cshtml")
-<aside class="notice">
-    <h2>Management coverage</h2>
-    <p>This dashboard manages projects, API keys, project/security/player-key settings, lists synced collections and endpoints, and offers a read-only record browser per project using the core services.</p>
-    <p>The managed dashboard's record editors, query/workflow authoring, game-value editor, analytics, log/error/usage views and project export/import are not ported here. Full dashboard and managed project export/import parity are not established. Editor sync and the existing <code>/v3</code> APIs remain the resource management entry points; database backup/restore is not a managed project export/import replacement.</p>
-</aside>
+<aside class="notice"><h2>Management coverage</h2><p>This owner console manages project settings and keys, record browsing and mutations, collection/schema, endpoint, workflow and query definitions, and game values. Source-backed YAML/JSON definitions use the same compiler as editor sync and preserve source metadata.</p><p>Analytics, audit/request logs, errors and usage read actual stored runtime data. Portable project archives are scoped to this self-hosted store; full managed-dashboard and managed-host export/import parity are not established. Database backup/restore remains a separate whole-instance operation.</p></aside>

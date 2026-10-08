@@ -8,8 +8,8 @@
     string PageUrl(int page) => $"{url}?page={page}&size={Model.PageSize}" + (Model.Query is null ? "" : "&q=" + Uri.EscapeDataString(Model.Query));
 }
 <a href="@dataUrl">@Model.ProjectName · data browser</a>
-<h1>@collection.Name</h1>
-<p><code>@collection.Id</code> · @collection.Kind collection · @collection.RecordCount record(s) · <a href="@url/export" download>Download as JSON</a></p>
+<div class="page-heading"><div><p class="eyebrow">Stored records</p><h1>@collection.Name</h1></div><div class="actions"><a class="button" href="@url/new">Create record</a><a class="button secondary" href="@url/export" download>Download JSON</a></div></div>
+<p class="muted"><code>@collection.Id</code> · @collection.Kind collection · @collection.RecordCount record(s)</p>
 <section class="card">
     <form method="get" action="@url" class="search">
         <label>Search keys <input name="q" value="@Model.Query" maxlength="@OwnerDataController.MaxQueryLength" placeholder="@(collection.Global ? "record id" : "player id or record key")" /></label>

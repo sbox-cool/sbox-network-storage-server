@@ -10,10 +10,10 @@ namespace SboxNetworkStorage.Storage.Relational;
 /// ADO.NET implementation of <see cref="INetworkStorageStore"/> shared by the
 /// SQLite and PostgreSQL drivers. Behavior mirrors the production ScyllaDB
 /// store: identical validation, row shapes, clustering order, overwrite
-/// semantics, and counter arithmetic. Every write is one atomic statement;
-/// no multi-row transactions are exposed.
+/// semantics, and counter arithmetic. Ordinary writes remain unconditional;
+/// portable project restoration additionally exposes a single atomic transaction.
 /// </summary>
-public abstract partial class RelationalNetworkStorageStore : INetworkStorageStore, INetworkStorageStoreAdmin, IAsyncDisposable, IDisposable
+public abstract partial class RelationalNetworkStorageStore : INetworkStorageStore, IProjectImportStore, INetworkStorageStoreAdmin, IAsyncDisposable, IDisposable
 {
     /// <summary><c>query_run_logs</c> rows expire after 90 days (production <c>default_time_to_live = 7776000</c>).</summary>
     public static readonly TimeSpan QueryRunLogRetention = TimeSpan.FromSeconds(7_776_000);
@@ -21,6 +21,7 @@ public abstract partial class RelationalNetworkStorageStore : INetworkStorageSto
     private readonly StoreSql _sql;
     private readonly int _maxPayloadBytes;
     private readonly TimeProvider _time;
+    private readonly AsyncLocal<DbTransaction?> _projectImport = new();
 
     protected RelationalNetworkStorageStore(string tablePrefix, int maxPayloadBytes, TimeProvider? time, ILogger? logger)
     {
@@ -63,6 +64,36 @@ public abstract partial class RelationalNetworkStorageStore : INetworkStorageSto
     private string Serialize(JsonElement element, string resourceType)
         => StoreValidation.Serialize(element, resourceType, _maxPayloadBytes);
 
+    public async Task<bool> TryImportProjectAsync(string projectId,
+        Func<INetworkStorageStore, CancellationToken, Task> restore, CancellationToken ct)
+    {
+        StoreValidation.Id(projectId);
+        ArgumentNullException.ThrowIfNull(restore);
+        if (_projectImport.Value is not null)
+            throw new InvalidOperationException("Project imports cannot be nested.");
+
+        await using var connection = await OpenConnectionAsync(ct);
+        await using var transaction = await connection.BeginTransactionAsync(ct);
+        await using var claim = Command(connection, _sql.ClaimProject,
+            [Text("project_id", projectId), Int64("updated_at_unix_ms", UnixMs())], transaction);
+        if (await claim.ExecuteNonQueryAsync(ct) != 1)
+            return false;
+
+        _projectImport.Value = transaction;
+        try
+        {
+            await restore(this, ct);
+            ct.ThrowIfCancellationRequested();
+            await transaction.CommitAsync(ct);
+            return true;
+        }
+        finally
+        {
+            // Disposal rolls back an uncommitted transaction even when the caller's token is canceled.
+            _projectImport.Value = null;
+        }
+    }
+
     // ── command helpers ────────────────────────────────────────────────
 
     /// <summary>A typed command parameter; <see cref="Name"/> matches the <c>@name</c> placeholder.</summary>
@@ -91,29 +122,34 @@ public abstract partial class RelationalNetworkStorageStore : INetworkStorageSto
 
     private async Task ExecuteAsync(string sql, CancellationToken ct, params Arg[] args)
     {
-        await using var connection = await OpenConnectionAsync(ct);
-        await using var command = Command(connection, sql, args);
+        var transaction = _projectImport.Value;
+        await using var owned = transaction is null ? await OpenConnectionAsync(ct) : null;
+        await using var command = Command(transaction?.Connection ?? owned!, sql, args, transaction);
         await command.ExecuteNonQueryAsync(ct);
     }
 
-    private static async Task ExecuteAsync(DbConnection connection, string sql, CancellationToken ct, params Arg[] args)
+    private async Task ExecuteAsync(DbConnection connection, string sql, CancellationToken ct, params Arg[] args)
     {
-        await using var command = Command(connection, sql, args);
+        var transaction = _projectImport.Value;
+        await using var command = Command(connection, sql, args,
+            ReferenceEquals(transaction?.Connection, connection) ? transaction : null);
         await command.ExecuteNonQueryAsync(ct);
     }
 
     private async Task<JsonElement?> QuerySingleAsync(string sql, Column[] columns, CancellationToken ct, params Arg[] args)
     {
-        await using var connection = await OpenConnectionAsync(ct);
-        await using var command = Command(connection, sql, args);
+        var transaction = _projectImport.Value;
+        await using var owned = transaction is null ? await OpenConnectionAsync(ct) : null;
+        await using var command = Command(transaction?.Connection ?? owned!, sql, args, transaction);
         await using var reader = await command.ExecuteReaderAsync(CommandBehavior.SingleRow, ct);
         return await reader.ReadAsync(ct) ? RowJson.Read(reader, columns) : null;
     }
 
     private async Task<IReadOnlyList<JsonElement>> QueryListAsync(string sql, Column[] columns, CancellationToken ct, params Arg[] args)
     {
-        await using var connection = await OpenConnectionAsync(ct);
-        await using var command = Command(connection, sql, args);
+        var transaction = _projectImport.Value;
+        await using var owned = transaction is null ? await OpenConnectionAsync(ct) : null;
+        await using var command = Command(transaction?.Connection ?? owned!, sql, args, transaction);
         await using var reader = await command.ExecuteReaderAsync(ct);
         var rows = new List<JsonElement>();
         while (await reader.ReadAsync(ct))
@@ -124,8 +160,9 @@ public abstract partial class RelationalNetworkStorageStore : INetworkStorageSto
     /// <summary>Reads the first column of the first row as text; <c>found</c> is false when no row exists.</summary>
     private async Task<(bool Found, string? Value)> QueryTextAsync(string sql, CancellationToken ct, params Arg[] args)
     {
-        await using var connection = await OpenConnectionAsync(ct);
-        await using var command = Command(connection, sql, args);
+        var transaction = _projectImport.Value;
+        await using var owned = transaction is null ? await OpenConnectionAsync(ct) : null;
+        await using var command = Command(transaction?.Connection ?? owned!, sql, args, transaction);
         await using var reader = await command.ExecuteReaderAsync(CommandBehavior.SingleRow, ct);
         if (!await reader.ReadAsync(ct)) return (false, null);
         return (true, reader.IsDBNull(0) ? null : reader.GetString(0));
@@ -133,8 +170,9 @@ public abstract partial class RelationalNetworkStorageStore : INetworkStorageSto
 
     private async Task<long> QueryInt64ScalarAsync(string sql, CancellationToken ct, params Arg[] args)
     {
-        await using var connection = await OpenConnectionAsync(ct);
-        await using var command = Command(connection, sql, args);
+        var transaction = _projectImport.Value;
+        await using var owned = transaction is null ? await OpenConnectionAsync(ct) : null;
+        await using var command = Command(transaction?.Connection ?? owned!, sql, args, transaction);
         var value = await command.ExecuteScalarAsync(ct);
         return value is null or DBNull ? 0 : Convert.ToInt64(value, System.Globalization.CultureInfo.InvariantCulture);
     }

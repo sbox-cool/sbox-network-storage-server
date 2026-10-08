@@ -62,6 +62,48 @@ public sealed class ManagementMutationCandidateHandler : INetworkStorageCandidat
 
     public NetworkStorageRouteFamily Family => NetworkStorageRouteFamily.Management;
 
+    /// <summary>Owner-panel adapter sharing the editor compiler and native management writes; never creates a credential.</summary>
+    public async Task<NetworkStorageCandidateResult> SaveOwnerResourceAsync(
+        long ownerUserId, string projectId, string kind, JsonElement resource, CancellationToken ct)
+    {
+        var projects = await _workspaceClient.GetUserProjectsAsync(ownerUserId, ct);
+        if (!projects.Any(project => project.Id == projectId))
+            return ManagementAuthError();
+        if (kind is not ("collection" or "endpoint" or "workflow" or "query" or "game-values"))
+            return ValidationFailedResult(kind, "Unknown resource kind.");
+        if (resource.ValueKind != JsonValueKind.Object)
+            return ValidationFailedResult(kind, "The definition must be a JSON object.");
+        var compiled = resource.Clone();
+        if (kind != "game-values")
+        {
+            if (!NetworkStorageSourceResourceCompiler.TryCompile(resource, kind, out compiled, out var error))
+                return ValidationFailedResult(kind, error ?? "Source compilation failed.");
+            var id = GetOptionalString(compiled, "id") ?? GetOptionalString(compiled, kind == "endpoint" ? "slug" : "name");
+            var wrapperId = GetOptionalString(resource, "id") ?? GetOptionalString(resource, kind == "endpoint" ? "slug" : "name");
+            if (id is null || !StorageIdValidation.IsValidCollectionId(id))
+                return ValidationFailedResult(kind, "Provide a valid resource id.");
+            if (wrapperId is not null && wrapperId != id)
+                return ValidationFailedResult(kind, "Source id must match the resource wrapper id. Keep the existing id when editing.");
+        }
+        var section = kind switch { "game-values" => kind, "query" => "queries", _ => kind + "s" };
+        var route = NetworkStorageRouteClassifier.Classify("POST", $"/v3/manage/{projectId}/{section}");
+        var request = new NetworkStorageCandidateRequest(route, new Dictionary<string, string>(), "application/json",
+            new Dictionary<string, bool>(), NetworkStorageCredentials.None, compiled.GetRawText(), ownerUserId, ct)
+            { SuppressSideEffects = false };
+        if (kind == "game-values") return await PutGameValuesAsync(request, projectId);
+        if (kind == "query")
+        {
+            request = request with { Body = JsonSerializer.Serialize(new[] { compiled }) };
+            var result = await PutQueriesAsync(request, projectId);
+            if (result.StatusCode < 400)
+                NativeQueryExecutor.ClearQueryCache(GetOptionalString(compiled, "id") ?? GetOptionalString(compiled, "name") ?? "", projectId);
+            return result;
+        }
+        request = request with { Body = JsonSerializer.Serialize(new Dictionary<string, object> { [kind + "s"] = new[] { compiled } }) };
+        var preflight = await PreflightSyncAsync(request, projectId, "owner");
+        return preflight.StatusCode >= 400 ? preflight : await PutSyncAsync(request, projectId);
+    }
+
     public bool CanHandle(NetworkStorageRouteClassification route) =>
         route.Family == NetworkStorageRouteFamily.Management
         && IsMutationMethod(route.Method);

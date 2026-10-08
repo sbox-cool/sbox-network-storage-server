@@ -68,6 +68,17 @@ public interface INetworkStorageStore
     Task<IReadOnlyList<JsonElement>> ListRecordsAsync(string projectId, string collectionId, CancellationToken ct);
     Task DeleteRecordAsync(string projectId, string collectionId, string recordKey, CancellationToken ct);
 
+    /// <summary>
+    /// Atomically saves or deletes a record only when its current version matches.
+    /// An optional trusted snapshot additionally checks exact stored payload and timestamp.
+    /// A null expected version creates an absent record (or revives a player tombstone);
+    /// a non-null version requires a live record. Successful saves/tombstones increment
+    /// that row's version; global deletion removes the row. Returns false on conflict.
+    /// </summary>
+    Task<bool> TryMutateRecordAsync(string projectId, string collectionId, string recordKey,
+        bool global, JsonElement payloadJson, bool delete, long? expectedVersion, CancellationToken ct,
+        RecordMutationSnapshot? snapshot = null);
+
     // ── record_idempotency ──────────────────────────────────────────
     Task UpsertRecordIdempotencyAsync(string projectId, string collectionId, string recordKey, string idempotencyKey, long resultRecordVersion, string resultHash, JsonElement payloadJson, CancellationToken ct);
     Task<JsonElement?> ReadRecordIdempotencyAsync(string projectId, string collectionId, string recordKey, string idempotencyKey, CancellationToken ct);
@@ -186,6 +197,9 @@ public interface INetworkStorageStore
     /// </summary>
     Task<IReadOnlyList<WorkspaceObjectEntry>> ListWorkspaceObjectsAsync(string directoryPath, CancellationToken ct);
 }
+
+/// <summary>Trusted observed record state for comparisons against writers that reuse versions.</summary>
+public sealed record RecordMutationSnapshot(string PayloadJson, long? ChangedAtUnixMs);
 
 /// <summary>A direct child of a workspace object directory listing.</summary>
 public sealed record WorkspaceObjectEntry(

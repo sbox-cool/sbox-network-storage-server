@@ -135,9 +135,12 @@ public sealed class StoreDumpReader(INetworkStorageStore store)
     /// <summary>A required string column; JSON null (a NULL text column) becomes empty, as the store renders it.</summary>
     private static string Str(JsonElement row, string name) => OptStr(row, name) ?? string.Empty;
 
+    private static JsonElement Column(JsonElement row, string name)
+        => row.TryGetProperty(name, out var value) ? value : throw new KeyNotFoundException($"missing column '{name}'");
+
     private static string? OptStr(JsonElement row, string name)
     {
-        var value = row.GetProperty(name);
+        var value = Column(row, name);
         return value.ValueKind == JsonValueKind.Null ? null : value.GetString();
     }
 
@@ -145,13 +148,13 @@ public sealed class StoreDumpReader(INetworkStorageStore store)
 
     private static long? OptLong(JsonElement row, string name)
     {
-        var value = row.GetProperty(name);
+        var value = Column(row, name);
         return value.ValueKind == JsonValueKind.Null ? null : value.GetInt64();
     }
 
     private static bool Bool(JsonElement row, string name)
     {
-        var value = row.GetProperty(name);
+        var value = Column(row, name);
         return value.ValueKind != JsonValueKind.Null && value.GetBoolean();
     }
 

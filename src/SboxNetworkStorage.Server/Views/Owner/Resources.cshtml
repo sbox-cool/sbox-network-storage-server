@@ -1,0 +1,24 @@
+@model SboxNetworkStorage.Server.Owner.OwnerResourcesModel
+@{
+    Layout = "~/Views/Owner/_Layout.cshtml";
+    var url = "/dashboard/projects/" + Uri.EscapeDataString(Model.ProjectId);
+    var title = Model.Kind switch { "game-values" => "Game values", "query" => "Queries", _ => char.ToUpperInvariant(Model.Kind[0]) + Model.Kind[1..] + "s" };
+}
+<div class="page-heading"><div><p class="eyebrow">@Model.ProjectName / Authoring</p><h1>@title</h1><p>Real project resources, available immediately to the runtime and editor sync.</p></div><a class="button secondary" href="@url">Project overview</a></div>
+@if (Model.Saved) { <p class="notice success" role="status">Resource saved. The live definition is shown below.</p> }
+@if (Model.Error is not null) { <div class="notice error" role="alert"><strong>Could not save this definition</strong><pre>@Model.Error</pre><p>Correct the reported field or source syntax and save again. Your input has been preserved.</p></div> }
+<div class="editor-grid">
+@if (Model.Kind != "game-values")
+{
+    <aside class="card resource-list"><h2>Resources <span class="badge">@Model.Items.Count</span></h2><a class="button secondary" href="@url/resources/@Model.Kind">+ New @Model.Kind</a>
+    @if (Model.Items.Count == 0) { <p class="muted">No resources yet. Start with a definition on the right.</p> }
+    <ul>@foreach (var item in Model.Items) { <li><a href="@url/resources/@Model.Kind?id=@Uri.EscapeDataString(item.Id)" aria-current="@(item.Id == Model.Id ? "page" : null)"><strong>@item.Name</strong><code>@item.Id</code></a></li> }</ul></aside>
+}
+<section class="card"><div class="section-heading"><h2>@(Model.Id is null && Model.Kind != "game-values" ? "Create definition" : "Edit definition")</h2><span class="badge">JSON / YAML source</span></div>
+<p>Use a JSON definition, or a JSON wrapper with <code>sourceText</code>, <code>sourceFormat</code> (<code>yaml</code> or <code>json</code>), <code>sourcePath</code>, and <code>authoringMode</code>. The existing editor compiler preserves source metadata. When a resource has source text, edit that source: it remains authoritative over the compiled fields.</p>
+<form method="post" action="@url/resources/@Model.Kind">
+@Html.AntiForgeryToken()
+@if (Model.Id is not null) { <input type="hidden" name="id" value="@Model.Id" /> }
+<label for="definition">@title definition</label><textarea class="code-editor" id="definition" name="definition" rows="24" required spellcheck="false">@Model.Definition</textarea>
+<p class="muted">Saving updates this resource only; it does not remove other synced resources. Editor pushes can overwrite dashboard edits. Coordinate authoring with your checked-in source.</p><button type="submit">Save live definition</button>
+</form></section></div>

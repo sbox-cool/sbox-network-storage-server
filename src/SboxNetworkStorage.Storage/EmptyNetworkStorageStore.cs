@@ -53,6 +53,7 @@ public class EmptyNetworkStorageStore : INetworkStorageStore
     public virtual Task<JsonElement?> ReadRecordAsync(string projectId, string collectionId, string recordKey, CancellationToken ct) => throw new NotImplementedException();
     public virtual Task<IReadOnlyList<JsonElement>> ListRecordsAsync(string projectId, string collectionId, CancellationToken ct) => throw new NotImplementedException();
     public virtual Task DeleteRecordAsync(string projectId, string collectionId, string recordKey, CancellationToken ct) => throw new NotImplementedException();
+    public virtual Task<bool> TryMutateRecordAsync(string projectId, string collectionId, string recordKey, bool global, JsonElement payloadJson, bool delete, long? expectedVersion, CancellationToken ct, RecordMutationSnapshot? snapshot = null) => throw new NotImplementedException();
 
     public virtual Task UpsertRecordIdempotencyAsync(string projectId, string collectionId, string recordKey, string idempotencyKey, long resultRecordVersion, string resultHash, JsonElement payloadJson, CancellationToken ct) => throw new NotImplementedException();
     public virtual Task<JsonElement?> ReadRecordIdempotencyAsync(string projectId, string collectionId, string recordKey, string idempotencyKey, CancellationToken ct) => throw new NotImplementedException();

@@ -32,6 +32,66 @@ public abstract partial class StoreConformanceTests
     }
 
     [SkippableFact]
+    public async Task Conditional_record_mutations_check_missing_version_and_snapshot_atomically()
+    {
+        var store = await StoreAsync();
+        foreach (var global in new[] { false, true })
+        {
+            var collection = global ? "global" : "player";
+            var payload = Json.Parse("""{"gold":1}""");
+            var creates = await Task.WhenAll(
+                store.TryMutateRecordAsync("p1", collection, "key", global, payload, false, null, Ct),
+                store.TryMutateRecordAsync("p1", collection, "key", global, payload, false, null, Ct));
+            Assert.Equal(1, creates.Count(success => success));
+            var row = global ? await store.ReadGlobalRecordAsync("p1", collection, "key", Ct)
+                : await store.ReadRecordAsync("p1", collection, "key", Ct);
+            var snapshot = new RecordMutationSnapshot(row!.Value.GetProperty("payload_json").GetRawText(), Time.GetUtcNow().ToUnixTimeMilliseconds());
+            Time.Advance(1);
+            var updates = await Task.WhenAll(
+                store.TryMutateRecordAsync("p1", collection, "key", global, Json.Parse("""{"gold":2}"""), false, 1, Ct, snapshot),
+                store.TryMutateRecordAsync("p1", collection, "key", global, Json.Parse("""{"gold":3}"""), false, 1, Ct, snapshot));
+            Assert.Equal(1, updates.Count(success => success));
+            Assert.False(await store.TryMutateRecordAsync("p1", collection, "key", global, payload, true, 1, Ct, snapshot));
+            Assert.True(await store.TryMutateRecordAsync("p1", collection, "key", global, Json.Parse("null"), true, 2, Ct));
+            row = global ? await store.ReadGlobalRecordAsync("p1", collection, "key", Ct)
+                : await store.ReadRecordAsync("p1", collection, "key", Ct);
+            if (global) Assert.Null(row);
+            else
+            {
+                Assert.True(row!.Value.GetProperty("deleted").GetBoolean());
+                Assert.Equal(3, row.Value.GetProperty("version").GetInt64());
+            }
+            Assert.False(await store.TryMutateRecordAsync("p1", collection, "key", global, payload, false, 2, Ct));
+            Assert.True(await store.TryMutateRecordAsync("p1", collection, "key", global, payload, false, null, Ct));
+            row = global ? await store.ReadGlobalRecordAsync("p1", collection, "key", Ct)
+                : await store.ReadRecordAsync("p1", collection, "key", Ct);
+            Assert.Equal(global ? 1 : 4, row!.Value.GetProperty("version").GetInt64());
+        }
+    }
+
+    [SkippableFact]
+    public async Task Conditional_snapshot_rejects_unconditional_writer_reusing_version_even_at_same_timestamp()
+    {
+        var store = await StoreAsync();
+        foreach (var global in new[] { false, true })
+        {
+            var collection = global ? "global" : "player";
+            if (global) await store.UpsertGlobalRecordAsync("p1", collection, "key", Json.Parse("""{"gold":1}"""), 1, Ct);
+            else await store.UpsertRecordAsync("p1", collection, "key", Json.Parse("""{"gold":1}"""), false, 1, Ct);
+            var snapshot = new RecordMutationSnapshot("""{"gold":1}""", Start);
+            // Existing data-plane writers can reuse version 1 and share a millisecond.
+            if (global) await store.UpsertGlobalRecordAsync("p1", collection, "key", Json.Parse("""{"gold":8}"""), 1, Ct);
+            else await store.UpsertRecordAsync("p1", collection, "key", Json.Parse("""{"gold":8}"""), false, 1, Ct);
+            Assert.False(await store.TryMutateRecordAsync("p1", collection, "key", global, Json.Parse("""{"gold":99}"""), false, 1, Ct, snapshot));
+            Assert.False(await store.TryMutateRecordAsync("p1", collection, "key", global, Json.Parse("null"), true, 1, Ct, snapshot));
+            var row = global ? await store.ReadGlobalRecordAsync("p1", collection, "key", Ct)
+                : await store.ReadRecordAsync("p1", collection, "key", Ct);
+            Assert.Equal(8, row!.Value.GetProperty("payload_json").GetProperty("gold").GetInt32());
+            Assert.Equal(1, row.Value.GetProperty("version").GetInt64());
+        }
+    }
+
+    [SkippableFact]
     public async Task Record_idempotency_rows_round_trip_and_overwrite()
     {
         var s = await StoreAsync();

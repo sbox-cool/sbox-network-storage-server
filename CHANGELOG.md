@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-08
+
+### Added
+
+- Repository `llms.txt` documentation index for coding agents, covering self-hosted
+  operation, MCP, client setup and official YAML/library references.
+- Owner-console resource authoring for collection schemas, endpoints, workflows,
+  queries and game values, using the existing editor compiler and preserving
+  source-backed YAML/JSON metadata.
+- Owner record create/edit/delete with schema validation, audit logs and atomic
+  protected-snapshot conflict checks, including game writes that reuse a version.
+- Per-project portable exports and imports between self-hosted SQLite/PostgreSQL
+  instances, retaining project IDs without copying instance configuration/secrets.
+- Runtime analytics, audit/request logs, error summaries and usage views.
+- Real owner-dashboard screenshots in the README.
+
+### Changed
+
+- Reorganized the README around a Linux VPS quickstart with explicit hosted HTTPS
+  opt-in, project/key provisioning, public-key game configuration and editor YAML
+  sync. Clarified provider-paid hosting costs, privacy defaults, Cloudflare routing,
+  preview caveats and the distinction between synced definitions and runtime data.
+- Updated client setup examples for HTTPS/public keys and YAML Source, and corrected
+  the outdated claim that the self-hosted server has no dashboard.
+- Redesigned the owner console with shared navigation, project cards, responsive
+  forms and explicit runtime/authoring/operations sections.
+- Documented destination secret-key regeneration and player reauthentication
+  after an independent-instance project migration.
+
 ## [0.2.0] - 2026-10-08
 
 ### Added
@@ -135,6 +164,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   not the requester.
 - Answer malformed sync/preflight JSON with the client-contract error shape.
 
-[Unreleased]: https://github.com/sbox-cool/sbox-network-storage-server/compare/v0.2.0...main
+[Unreleased]: https://github.com/sbox-cool/sbox-network-storage-server/compare/v0.3.0...main
+[0.3.0]: https://github.com/sbox-cool/sbox-network-storage-server/releases/tag/v0.3.0
 [0.2.0]: https://github.com/sbox-cool/sbox-network-storage-server/releases/tag/v0.2.0
 [0.1.0]: https://github.com/sbox-cool/sbox-network-storage-server/releases/tag/v0.1.0

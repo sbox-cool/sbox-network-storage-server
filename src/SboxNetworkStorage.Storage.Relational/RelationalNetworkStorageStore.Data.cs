@@ -40,6 +40,71 @@ public abstract partial class RelationalNetworkStorageStore
             Text("project_id", projectId), Text("collection_id", collectionId), Text("record_key", recordKey));
     }
 
+    public async Task<bool> TryMutateRecordAsync(string projectId, string collectionId, string recordKey,
+        bool global, JsonElement payloadJson, bool delete, long? expectedVersion, CancellationToken ct,
+        RecordMutationSnapshot? snapshot = null)
+    {
+        V.Id(projectId); V.Id(collectionId);
+        if (global) V.Id(recordKey); else V.RecordKey(recordKey);
+        if (expectedVersion is < 1 or long.MaxValue || (delete && expectedVersion is null))
+            throw new ArgumentOutOfRangeException(nameof(expectedVersion));
+        var table = TablePrefix + (global ? "global_records" : "records");
+        var key = global ? "record_id" : "record_key";
+        var timestamp = global ? "created_at_unix_ms" : "updated_at_unix_ms";
+        var predicate = $"project_id = @project_id AND collection_id = @collection_id AND {key} = @record_key";
+        var args = new List<Arg>
+        {
+            Text("project_id", projectId), Text("collection_id", collectionId),
+            Text("record_key", recordKey), Int64("expected_version", expectedVersion)
+        };
+        string sql;
+        if (global && delete)
+            sql = $"DELETE FROM {table} WHERE {predicate} AND version = @expected_version";
+        else
+        {
+            args.Add(Text("payload_json", Serialize(payloadJson, global ? "global_records" : "records")));
+            args.Add(Int64("changed_at", UnixMs()));
+            if (!global) args.Add(Bool("deleted", delete));
+            var deletedColumn = global ? "" : ", deleted";
+            var deletedValue = global ? "" : ", @deleted";
+            var deletedSet = global ? "" : ", deleted = @deleted";
+            if (expectedVersion is null)
+            {
+                // ON CONFLICT checks the locked row, including a concurrent insert.
+                // Tombstones are logically absent but keep their monotonically increasing version.
+                sql = $"INSERT INTO {table} (project_id, collection_id, {key}, payload_json, version, {timestamp}{deletedColumn}) " +
+                    $"VALUES (@project_id, @collection_id, @record_key, @payload_json, 1, @changed_at{deletedValue}) " +
+                    $"ON CONFLICT (project_id, collection_id, {key}) " +
+                    (global ? "DO NOTHING" :
+                        $"DO UPDATE SET payload_json = @payload_json, version = {table}.version + 1, {timestamp} = @changed_at, deleted = @deleted WHERE {table}.deleted = @tombstone");
+                if (!global) args.Add(Bool("tombstone", true));
+            }
+            else
+            {
+                sql = $"UPDATE {table} SET payload_json = @payload_json, version = version + 1, {timestamp} = @changed_at{deletedSet} " +
+                    $"WHERE {predicate} AND version = @expected_version";
+                if (!global)
+                {
+                    sql += " AND deleted = @live";
+                    args.Add(Bool("live", false));
+                }
+            }
+        }
+        if (snapshot is not null && expectedVersion is not null)
+        {
+            sql += " AND payload_json = @expected_payload";
+            args.Add(Text("expected_payload", snapshot.PayloadJson));
+            if (snapshot.ChangedAtUnixMs is { } changedAt)
+            {
+                sql += $" AND {timestamp} = @expected_changed_at";
+                args.Add(Int64("expected_changed_at", changedAt));
+            }
+        }
+        await using var connection = await OpenConnectionAsync(ct);
+        await using var command = Command(connection, sql, args.ToArray());
+        return await command.ExecuteNonQueryAsync(ct) == 1;
+    }
+
     // ── record_idempotency ──────────────────────────────────────────
 
     public Task UpsertRecordIdempotencyAsync(string projectId, string collectionId, string recordKey, string idempotencyKey, long resultRecordVersion, string resultHash, JsonElement payloadJson, CancellationToken ct)
@@ -154,7 +219,9 @@ public abstract partial class RelationalNetworkStorageStore
         if (string.IsNullOrEmpty(month)) throw new ArgumentException("Month key is required.", nameof(month));
         if (string.IsNullOrEmpty(day)) throw new ArgumentException("Day key is required.", nameof(day));
 
-        await using var connection = await OpenConnectionAsync(ct);
+        var transaction = _projectImport.Value;
+        await using var owned = transaction is null ? await OpenConnectionAsync(ct) : null;
+        var connection = transaction?.Connection ?? owned!;
         await ExecuteAsync(connection, _sql.IncrementUsageMonthly, ct,
             Text("project_id", projectId), Text("month", month),
             Int64("requests", delta.Requests), Int64("reads", delta.Reads), Int64("writes", delta.Writes),
@@ -183,8 +250,10 @@ public abstract partial class RelationalNetworkStorageStore
     public async Task<long> ReadProjectStorageBytesAsync(string projectId, CancellationToken ct)
     {
         V.Id(projectId);
-        await using var connection = await OpenConnectionAsync(ct);
-        await using var command = Command(connection, _sql.ReadUsageStorage, [Text("project_id", projectId)]);
+        var transaction = _projectImport.Value;
+        await using var owned = transaction is null ? await OpenConnectionAsync(ct) : null;
+        await using var command = Command(transaction?.Connection ?? owned!, _sql.ReadUsageStorage,
+            [Text("project_id", projectId)], transaction);
         await using var reader = await command.ExecuteReaderAsync(ct);
         long total = 0;
         while (await reader.ReadAsync(ct))

@@ -51,14 +51,45 @@ public static class ServerArchive
         }
     }
 
+    /// <summary>Produces a portable project archive, excluding server configuration and other projects.</summary>
+    public static async Task<StagedExport> PrepareProjectExportAsync(INetworkStorageStore store, INetworkStorageStoreAdmin admin,
+        EffectiveConfig config, string projectId, CancellationToken ct)
+    {
+        var staging = CreateStagingDirectory(config);
+        try
+        {
+            var dump = new StoreDumpWriter(store, staging);
+            var (objects, memberships, projects) = await dump.WriteProjectAsync(projectId, ct);
+            var manifest = new ExportManifest(ExportFormat.FormatName, ExportFormat.CurrentVersion, BuildInfo.Version,
+                await admin.GetSchemaVersionAsync(ct), admin.ProviderName, DateTimeOffset.UtcNow,
+                IncludesConfig: false, IncludesSecrets: false, objects, memberships, projects);
+            await File.WriteAllBytesAsync(Path.Combine(staging, ExportFormat.ManifestEntry),
+                JsonSerializer.SerializeToUtf8Bytes(manifest, ExportFormat.ManifestJson), ct);
+            return new StagedExport(staging, manifest, [ExportFormat.ManifestEntry, .. dump.Entries], []);
+        }
+        catch
+        {
+            DeleteQuietly(staging);
+            throw;
+        }
+    }
+
     /// <summary>
     /// Restores an archive into <paramref name="store"/> (the currently configured
     /// database). Refuses a newer archive format, and a target that already holds
     /// projects unless <see cref="ImportOptions.Force"/>. Rows are upserted, so a
     /// repeated import converges to the same state.
     /// </summary>
-    public static async Task<ImportResult> ImportAsync(Stream archive, INetworkStorageStore store, EffectiveConfig config,
+    public static Task<ImportResult> ImportAsync(Stream archive, INetworkStorageStore store, EffectiveConfig config,
         ImportOptions options, CancellationToken ct)
+        => ImportCoreAsync(archive, store, config, options, projectId: null, ct);
+
+    internal static Task<ImportResult> ImportProjectAsync(Stream archive, INetworkStorageStore store,
+        EffectiveConfig config, string projectId, CancellationToken ct)
+        => ImportCoreAsync(archive, store, config, new ImportOptions(Force: true, RestoreConfig: false), projectId, ct);
+
+    private static async Task<ImportResult> ImportCoreAsync(Stream archive, INetworkStorageStore store,
+        EffectiveConfig config, ImportOptions options, string? projectId, CancellationToken ct)
     {
         var staging = CreateStagingDirectory(config);
         try
@@ -154,16 +185,33 @@ public static class ServerArchive
             }
 
             // Only replay after the entire dump matches every manifest-declared entry and row count.
-            var reader = new StoreDumpReader(store);
-            foreach (var (name, path) in dataEntries)
+            long rows = 0;
+            async Task ReplayAsync(INetworkStorageStore target, CancellationToken replayCt)
             {
-                await using var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read,
-                    64 * 1024, useAsync: true);
-                await reader.ApplyEntryAsync(name, file, ct);
+                var reader = new StoreDumpReader(target);
+                foreach (var (name, path) in dataEntries)
+                {
+                    await using var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read,
+                        64 * 1024, useAsync: true);
+                    await reader.ApplyEntryAsync(name, file, replayCt);
+                }
+                rows = reader.Rows;
+            }
+
+            if (projectId is not null)
+            {
+                if (store is not IProjectImportStore importer)
+                    throw new ExportArchiveException("This store does not support atomic project imports.");
+                if (!await importer.TryImportProjectAsync(projectId, ReplayAsync, ct))
+                    throw new ExportArchiveException("That project ID already exists. Import on a server where it does not exist; existing projects are never overwritten.");
+            }
+            else
+            {
+                await ReplayAsync(store, ct);
             }
 
             IReadOnlyList<string> restoredConfig = options.RestoreConfig ? ConfigArchive.Restore(config, configFiles) : [];
-            return new ImportResult(manifest, reader.Rows, configFiles.Count, restoredConfig);
+            return new ImportResult(manifest, rows, configFiles.Count, restoredConfig);
         }
         finally
         {

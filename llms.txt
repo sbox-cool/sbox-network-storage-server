@@ -1,0 +1,40 @@
+# sbox Network Storage Server
+
+> Open-source, self-hosted s&box game backend using the existing Network Storage client library. This file is a documentation index, not a separate API specification.
+
+## Start here
+
+- [README](README.md): Linux VPS quickstart, HTTPS tunnel opt-in, project/public-key setup, editor secret key and Base URL, YAML definition sync, preview caveats and CLI reference.
+- [Self-hosting](docs/self-hosting.md): Linux/macOS, Windows, Docker, manual installation, services, HTTPS, optional tunnel/email/telemetry and backups.
+- [Client setup](docs/client-setup.md): Connect the s&box editor and game to a self-hosted Base URL; distinguish syncing definitions from moving runtime player records.
+- [Game-client protocol](docs/game-client.md): Startup handshakes performed by the library.
+
+## Operators and coding agents
+
+- [MCP](docs/mcp.md): Allowlisted stdio management tools, SSH configuration, permissions and excluded destructive operations.
+- [Configuration](docs/configuration.md): TOML settings, defaults, environment overrides and secrets.
+- [Databases](docs/database.md): SQLite/PostgreSQL storage, schema isolation and database administration.
+- [Owner dashboard](docs/admin-panel.md): Local-owner setup/sign-in, projects, keys, settings, schema-validated record mutations, resource authoring, runtime diagnostics and single-project migration.
+- [Export and import](docs/export.md): Portable server archives, secret inclusion and restore constraints.
+- [Alerting](docs/alerting.md): Operator alert configuration.
+
+## Official client and authoring references
+
+These references also describe the managed service. Use repository guides for self-hosted installation and operation; managed billing, package tiers and the default API hostname are not self-hosting requirements.
+
+- [Install the s&box library](https://sbox.game/sboxcool/network-storage): Official library package.
+- [Client source](https://github.com/sbox-cool/sbox-network-storage): C# client and editor integration source.
+- [Network Storage v3 documentation](https://sboxcool.com/wiki/network-storage-v3): Official documentation index.
+- [Library setup](https://sboxcool.com/wiki/network-storage-v3/getting-started/library-setup): Install and configure the game client.
+- [Library reference](https://sboxcool.com/wiki/network-storage-v3/getting-started/library-reference): C# API reference.
+- [YAML Source authoring](https://sboxcool.com/wiki/network-storage-v3/core-concepts/source-authoring): Resource formats; YAML definitions are distinct from JSON runtime requests and responses.
+- [Sync Tool](https://sboxcool.com/wiki/network-storage-v3/security-production/sync-tools): Editor resource authoring and push/pull workflows.
+- [Code examples](https://sboxcool.com/wiki/network-storage-v3/code-examples): Game systems and authored resource examples.
+
+## Repository contribution and security
+
+- [Agent instructions](AGENTS.md): Repository context and contributor constraints.
+- [Contributing](CONTRIBUTING.md): Development and contribution workflow.
+- [Security](SECURITY.md): Private vulnerability reporting.
+- [Changelog](CHANGELOG.md): Release history.
+- [License](LICENSE): AGPL-3.0-only terms.

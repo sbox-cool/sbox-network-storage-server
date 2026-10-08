@@ -32,7 +32,7 @@ server is behind NAT.
 
 ## 2. Create a project and API keys
 
-The server has no web dashboard yet. On the server, use the CLI:
+Use the local-owner [dashboard](admin-panel.md), or run the CLI on the server:
 
 ```sh
 sbox-ns project create "My Game"                          # prints the project ID
@@ -47,7 +47,9 @@ sbox-ns key create <projectId> --type secret --label editor
 3. Enter the **Project ID**, **Public API Key** and **Secret Key** from step 2.
 4. Set **Base URL** to your server URL from step 1.
 5. Leave **CDN URL** empty unless you serve a CDN in front of your server.
-6. Save, then use the Sync Tool as usual to push collections, endpoints and workflows.
+6. Save, then use **Editor > Network Storage > Sync Tool** to push YAML Source
+   definitions for collections, endpoints and workflows (`.yml` preferred;
+   `.yaml` also accepted).
 
 The Setup window stores the base URL in your project's Network Storage
 credentials, and the generated config is picked up automatically by
@@ -56,7 +58,7 @@ credentials, and the generated config is picked up automatically by
 ## 4. Or configure in code
 
 ```csharp
-NetworkStorage.Configure( projectId, apiKey, "http://your-server:8080" );
+NetworkStorage.Configure( projectId, publicKey, "https://ns.example.com" );
 ```
 
 `Configure` also accepts an optional API version and CDN URL, exactly as with the
@@ -90,6 +92,8 @@ put the server behind a reverse proxy with a real domain and a TLS certificate
 
 Player data stored on the managed service is not copied by syncing. Moving
 existing player records is not covered by this guide yet.
+The synced sources describe schemas and server-side logic, not player save
+files. Runtime records live in your server's SQLite or PostgreSQL database.
 
 Players running an older build keep talking to whichever server that build was
 configured for.

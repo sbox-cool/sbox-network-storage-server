@@ -12,7 +12,7 @@ namespace SboxNetworkStorage.Storage;
 /// storage conformance suite). Tables are dictionaries keyed by the primary key
 /// parts joined with U+001F, which no ID can contain.
 /// </summary>
-public class InMemoryNetworkStorageStore : INetworkStorageStore
+public partial class InMemoryNetworkStorageStore : INetworkStorageStore, IProjectImportStore
 {
     private const char Sep = '\u001F';
     private const int PayloadLimitBytes = 64 * 1024;
@@ -186,6 +186,45 @@ public class InMemoryNetworkStorageStore : INetworkStorageStore
     public Task<JsonElement?> ReadRecordAsync(string projectId, string collectionId, string recordKey, CancellationToken ct) { Id(projectId); Id(collectionId); RecordKey(recordKey); return Get(Records, K(projectId, collectionId, recordKey)); }
     public Task<IReadOnlyList<JsonElement>> ListRecordsAsync(string projectId, string collectionId, CancellationToken ct) { Id(projectId); Id(collectionId); return List(Under(Records, P(projectId, collectionId)).OrderBy(r => Str(r, "record_key"), StringComparer.Ordinal)); }
     public Task DeleteRecordAsync(string projectId, string collectionId, string recordKey, CancellationToken ct) { Id(projectId); Id(collectionId); RecordKey(recordKey); return Remove(Records, K(projectId, collectionId, recordKey)); }
+
+    public Task<bool> TryMutateRecordAsync(string projectId, string collectionId, string recordKey,
+        bool global, JsonElement payloadJson, bool delete, long? expectedVersion, CancellationToken ct,
+        RecordMutationSnapshot? snapshot = null)
+    {
+        Id(projectId); Id(collectionId);
+        if (global) Id(recordKey); else RecordKey(recordKey);
+        if (expectedVersion is < 1 or long.MaxValue || (delete && expectedVersion is null))
+            throw new ArgumentOutOfRangeException(nameof(expectedVersion));
+        var payload = global && delete ? null : ParseJson(Serialize(payloadJson, global ? "global_records" : "records"));
+        var table = global ? GlobalRecords : Records;
+        var key = K(projectId, collectionId, recordKey);
+        while (true)
+        {
+            ct.ThrowIfCancellationRequested();
+            var exists = table.TryGetValue(key, out var current);
+            var tombstone = exists && !global && current.GetProperty("deleted").GetBoolean();
+            if (expectedVersion is null ? exists && !tombstone :
+                !exists || tombstone || Long(current, "version") != expectedVersion)
+                return Task.FromResult(false);
+            if (snapshot is not null && expectedVersion is not null
+                && (!string.Equals(current.GetProperty("payload_json").GetRawText(), snapshot.PayloadJson, StringComparison.Ordinal)
+                    || (snapshot.ChangedAtUnixMs is { } changedAt
+                        && Long(current, global ? "created_at_unix_ms" : "updated_at_unix_ms") != changedAt)))
+                return Task.FromResult(false);
+            if (global && delete)
+            {
+                if (((ICollection<KeyValuePair<string, JsonElement>>)table).Remove(new(key, current)))
+                    return Task.FromResult(true);
+                continue;
+            }
+            var version = exists ? checked(Long(current, "version") + 1) : 1;
+            var next = global
+                ? Row(new { record_id = recordKey, payload_json = payload, version, created_at_unix_ms = Now() })
+                : Row(new { record_key = recordKey, payload_json = payload, deleted = delete, version, updated_at_unix_ms = Now() });
+            if (exists ? table.TryUpdate(key, next, current) : table.TryAdd(key, next))
+                return Task.FromResult(true);
+        }
+    }
 
     // ── record_idempotency ──────────────────────────────────────────
     public Task UpsertRecordIdempotencyAsync(string projectId, string collectionId, string recordKey, string idempotencyKey, long resultRecordVersion, string resultHash, JsonElement payloadJson, CancellationToken ct)

@@ -58,6 +58,33 @@ public sealed class StoreDumpWriter(INetworkStorageStore store, string stagingRo
         return (workspaceObjects, memberships, projects);
     }
 
+    /// <summary>Exports one project's objects without other projects or server configuration.</summary>
+    public async Task<(long WorkspaceObjects, long Memberships, IReadOnlyList<ExportedProject> Projects)> WriteProjectAsync(
+        string projectId, CancellationToken ct)
+    {
+        if (!ExportFormat.IsValidProjectId(projectId) || await store.ReadProjectAsync(projectId, ct) is null)
+            throw new ExportArchiveException("Project not found.");
+
+        var owner = NetworkStorageServices.LocalOwnerUserId.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        long objects;
+        await using (var file = Open(ExportFormat.WorkspaceObjectsEntry))
+        {
+            objects = await DumpWorkspaceDirectoryAsync(file, $"{UsersDirectory}/{owner}/{projectId}",
+                new SortedSet<string>(StringComparer.Ordinal), new SortedSet<string>(StringComparer.Ordinal), ct);
+        }
+        await using (var file = Open(ExportFormat.MembershipsEntry))
+        {
+            file.WriteObject(writer =>
+            {
+                writer.WriteString("user_id", owner);
+                writer.WriteString("project_id", projectId);
+                writer.WriteString("role", "owner");
+                writer.WriteNumber("created_at_unix_ms", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+            });
+        }
+        return (objects, 1, [new ExportedProject(projectId, await DumpProjectAsync(projectId, ct))]);
+    }
+
     private async Task<long> DumpWorkspaceDirectoryAsync(JsonLinesFile file, string directory, SortedSet<string> userIds,
         SortedSet<string> projectIds, CancellationToken ct)
     {

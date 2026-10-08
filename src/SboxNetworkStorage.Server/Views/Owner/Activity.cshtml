@@ -1,0 +1,23 @@
+@model SboxNetworkStorage.Server.Owner.OwnerActivityModel
+@{ Layout = "~/Views/Owner/_Layout.cshtml"; var url = "/dashboard/projects/" + Uri.EscapeDataString(Model.ProjectId); }
+<div class="page-heading"><div><p class="eyebrow">@Model.ProjectName / Operations</p><h1>@(char.ToUpperInvariant(Model.Tab[0]) + Model.Tab[1..])</h1><p>Live stored activity, not estimated or demonstration metrics.</p></div><a class="button secondary" href="@url">Project overview</a></div>
+@if (Model.Tab == "usage" || Model.Tab == "analytics")
+{
+    <form method="get" class="card filter-form">
+    @if (Model.Tab == "usage") { <label>Usage month <input type="month" name="month" value="@Model.Month" required /></label> }
+    else { <label>Issue date (UTC) <input type="date" name="date" value="@Model.Date" required /></label> }
+    <button type="submit">Apply filter</button></form>
+}
+@if (Model.Tab == "errors") { <aside class="notice"><p>Error identifiers, severity and request context are shown below. Raw exception messages and stack traces are deliberately kept out of the dashboard: they can contain credentials or player data. Use protected server logs for detailed investigation.</p></aside> }
+@if (Model.Tab == "usage") { <p class="notice">Usage is recorded by the runtime and may lag until its next flush. A missing row means no stored measurements for that period, not a fabricated zero.</p> }
+@foreach (var table in Model.Tables)
+{
+    <section class="card"><div class="section-heading"><h2>@table.Title</h2><span class="badge">@table.Rows.Count rows</span></div>
+    @if (table.Rows.Count == 0) { <div class="empty-state"><h3>No stored activity</h3><p>Once this project receives matching runtime traffic, its recorded activity will appear here.</p></div> }
+    else
+    {
+        <div class="table-scroll"><table><caption class="sr-only">@table.Title</caption><thead><tr>@foreach (var column in table.Columns) { <th scope="col">@column.Replace('_', ' ')</th> }</tr></thead><tbody>
+        @foreach (var row in table.Rows) { <tr>@foreach (var value in row) { <td>@value</td> }</tr> }
+        </tbody></table></div>
+    }</section>
+}

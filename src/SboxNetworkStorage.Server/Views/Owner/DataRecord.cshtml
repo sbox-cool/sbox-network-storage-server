@@ -6,24 +6,40 @@
     var record = Model.Record;
     var collectionUrl = OwnerDataController.CollectionUrl(Model.ProjectId, collection.Id);
     var recordUrl = OwnerDataController.RecordUrl(Model.ProjectId, collection.Id, record.Key);
+    var saveUrl = Model.Creating ? collectionUrl + "/new" : recordUrl + "/save";
 }
 <a href="@collectionUrl">@Model.ProjectName · @collection.Name</a>
-<h1>Record <code>@record.Key</code></h1>
+<div class="page-heading">
+    <div><p class="eyebrow">@collection.Kind collection</p><h1>@(Model.Creating ? "Create record" : "Edit record") @if (!Model.Creating) { <code>@record.Key</code> }</h1></div>
+    <div class="actions"><a class="button secondary" href="@collectionUrl">Back to records</a>@if (!Model.Creating) { <a class="button secondary" href="@recordUrl">Reload current record</a> }</div>
+</div>
 @if (Model.Error is not null) { <p class="error" role="alert">@Model.Error</p> }
-<p>@collection.Kind collection <code>@collection.Id</code> · version @record.Version · changed @record.ChangedAt · @record.SizeBytes B</p>
-<section class="card">
-    <h2>Payload</h2>
-    <pre class="json">@Model.PrettyJson</pre>
-</section>
-<section class="card danger-zone">
-    <h2>Delete record</h2>
-    <p>@(collection.Global
-        ? "This permanently removes the global record."
-        : "This writes a permanent deletion tombstone, exactly like a delete through the storage API; the player's game will see the record as missing.")
-        The deletion is recorded in the project audit log. Enter <code>@record.Key</code> to confirm.</p>
-    <form method="post" action="@recordUrl/delete">
-        @Html.AntiForgeryToken()
-        <label>Record key <input name="confirmation" required autocomplete="off" /></label>
-        <button type="submit" class="danger">Delete record</button>
-    </form>
-</section>
+<p class="muted"><code>@collection.Id</code> · @if (!Model.Creating) { <span>version @record.Version · changed @record.ChangedAt · @record.SizeBytes B</span> }</p>
+<form method="post" action="@saveUrl">
+    @Html.AntiForgeryToken()
+    @if (!Model.Creating) { <input type="hidden" name="expectedVersion" value="@record.Version" /> }
+    <section class="card">
+    @if (!Model.Creating) { <input type="hidden" name="snapshotToken" value="@Model.SnapshotToken" /> }
+        <h2>Record payload</h2>
+        @if (Model.Creating)
+        {
+            <label>@(collection.Global ? "Global record ID" : "Player record key")
+                <input name="recordKey" value="@record.Key" required maxlength="@(collection.Global ? 128 : 256)" autocomplete="off" pattern="@(collection.Global ? "[a-zA-Z0-9_-]{1,128}" : "[a-zA-Z0-9_:-]{1,256}")" />
+            </label>
+            <p class="muted">@(collection.Global ? "Global IDs identify shared records, not players. Use letters, numbers, underscores or hyphens." : "Use the player's record key. Letters, numbers, underscores, hyphens and colons are accepted.") Existing live records cannot be overwritten by this create form.</p>
+        }
+        <label for="record-payload">JSON object</label>
+        <textarea id="record-payload" class="code-editor record-editor" name="payload" rows="12" required maxlength="@Model.MaxPayloadBytes" spellcheck="false">@Model.PrettyJson</textarea>
+        <p class="muted">Maximum @Model.MaxPayloadBytes UTF-8 bytes. Saves validate the collection schema. Concurrent changes return a conflict without discarding your JSON.</p>
+        <div class="actions"><button type="submit">@(Model.Creating ? "Create record" : "Save changes")</button><a class="button secondary" href="@collectionUrl">Cancel</a></div>
+    </section>
+    @if (!Model.Creating)
+    {
+        <section class="card danger-zone">
+            <h2>Delete record</h2>
+            <p>@(collection.Global ? "This permanently removes the shared global record." : "This writes a deletion tombstone; the player's game will see the record as missing.") The deletion is version-checked and recorded in the project audit log.</p>
+            <label>Type <code>@record.Key</code> to confirm <input name="confirmation" value="@Model.Confirmation" maxlength="@(collection.Global ? 128 : 256)" autocomplete="off" /></label>
+            <button type="submit" class="danger" formaction="@recordUrl/delete" formnovalidate>Delete record</button>
+        </section>
+    }
+</form>

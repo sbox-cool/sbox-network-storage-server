@@ -12,6 +12,8 @@ using SboxNetworkStorage.Server.Operations;
 using SboxNetworkStorage.Server.Owner;
 using SboxNetworkStorage.Server.Tests.Hosting;
 using SboxNetworkStorage.Storage.Relational;
+using SboxNetworkStorage.Storage.Postgres;
+using SboxNetworkStorage.Storage.Sqlite;
 
 namespace SboxNetworkStorage.Server.Tests;
 
@@ -49,6 +51,206 @@ public abstract class ServerExportImportTests<TFactory> : IDisposable
         Assert.Contains(result.Manifest.Projects, p => p.Id == projectId && p.Counts["records"] == 2);
         Assert.Equal(result.Manifest.TotalRows, result.RowsApplied);
         await AssertSameDataAsync(Source, target, projectId);
+    }
+
+    [SkippableFact]
+    public async Task ProjectArchivePreservesOtherProjectsAndRejectsOverwrite()
+    {
+        var id = await SeedAsync();
+        var other = await factory.CreateProjectAsync("Unrelated source");
+        await Source.PutWorkspaceObjectAsync($"network-storage/users/1/{id}/authoring.yml", "collections: {}", Ct);
+        await Source.PutWorkspaceObjectAsync($"network-storage/users/1/{other.ProjectId}/private.json", "private", Ct);
+        var admin = factory.Services.GetRequiredService<INetworkStorageStoreAdmin>();
+        await using var staged = await ServerArchive.PrepareProjectExportAsync(Source, admin, factory.Config, id, Ct);
+        using var archive = new MemoryStream();
+        await staged.WriteToAsync(archive, Ct);
+        var target = await factory.NewStoreAsync();
+        await target.UpsertProjectAsync("existing", Json(new { name = "Keep me" }), 1, Ct);
+        archive.Position = 0;
+        await ProjectArchive.ImportAsync(archive, target, factory.Config, Ct);
+        Assert.NotNull(await target.ReadRecordAsync(id, Collection, PlayerA, Ct));
+        Assert.Null(await target.ReadProjectAsync(other.ProjectId, Ct));
+        Assert.Equal("collections: {}", await target.ReadWorkspaceObjectAsync($"network-storage/users/1/{id}/authoring.yml", Ct));
+        Assert.NotNull(await target.ReadProjectAsync("existing", Ct));
+        archive.Position = 0;
+        await Assert.ThrowsAsync<ExportArchiveException>(() => ProjectArchive.ImportAsync(archive, target, factory.Config, Ct));
+    }
+
+    [SkippableFact]
+    public async Task ProjectArchiveRejectsCrossProjectWorkspaceBeforeWriting()
+    {
+        var id = await SeedAsync();
+        var admin = factory.Services.GetRequiredService<INetworkStorageStoreAdmin>();
+        await using var staged = await ServerArchive.PrepareProjectExportAsync(Source, admin, factory.Config, id, Ct);
+        using var buffer = new MemoryStream();
+        await staged.WriteToAsync(buffer, Ct);
+        var entries = ReadArchive(buffer.ToArray());
+        entries[ExportFormat.WorkspaceObjectsEntry] = Encoding.UTF8.GetBytes(
+            "{\"path\":\"network-storage/users/1/projects.json\",\"content\":\"[]\"}\n");
+        using var archive = new MemoryStream(BuildArchive(entries.Select(entry => (entry.Key, entry.Value)).ToArray()));
+        var target = await factory.NewStoreAsync();
+        await Assert.ThrowsAsync<ExportArchiveException>(() => ProjectArchive.ImportAsync(archive, target, factory.Config, Ct));
+        Assert.Null(await target.ReadProjectAsync(id, Ct));
+        Assert.Empty(await target.ListWorkspaceObjectsAsync("", Ct));
+    }
+
+    [SkippableFact]
+    public async Task ProjectArchiveInvalidLaterRowRollsBackEverythingAndCorrectedRetrySucceeds()
+    {
+        var id = await SeedAsync();
+        var entries = ReadArchive(await ProjectExportAsync(id));
+        var recordsEntry = ExportFormat.ProjectEntry(id, "records");
+        var goodRecords = entries[recordsEntry];
+        var records = Encoding.UTF8.GetString(goodRecords).Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        var invalid = JsonNode.Parse(records[1])!.AsObject();
+        invalid.Remove("record_key");
+        entries[recordsEntry] = Encoding.UTF8.GetBytes(records[0] + "\n" + invalid.ToJsonString() + "\n");
+        // Fail after every other resource, including restored storage counters, has been written.
+        var broken = BuildArchive(entries.Where(entry => entry.Key != recordsEntry)
+            .Select(entry => (entry.Key, entry.Value)).Append((recordsEntry, entries[recordsEntry])).ToArray());
+        var target = await factory.NewStoreAsync();
+        using (var archive = new MemoryStream(broken))
+        {
+            var error = await Assert.ThrowsAsync<ExportArchiveException>(
+                () => ProjectArchive.ImportAsync(archive, target, factory.Config, Ct));
+            Assert.Contains("record_key", error.Message);
+        }
+        await AssertProjectAbsentAsync(target, id);
+
+        entries[recordsEntry] = goodRecords;
+        using var corrected = new MemoryStream(BuildArchive(entries.Select(entry => (entry.Key, entry.Value)).ToArray()));
+        var result = await ProjectArchive.ImportAsync(corrected, target, factory.Config, Ct);
+        Assert.Equal(result.Manifest.TotalRows, result.RowsApplied);
+        Assert.NotNull(await target.ReadProjectAsync(id, Ct));
+        Assert.Single(await target.ListProjectsForUserAsync("1", Ct));
+        Assert.Equal(5, (await target.ReadRecordAsync(id, Collection, PlayerA, Ct))!.Value.GetProperty("version").GetInt64());
+        Assert.Equal(4_321, await target.ReadProjectStorageBytesAsync(id, Ct));
+    }
+
+    [SkippableFact]
+    public async Task ProjectArchiveIndependentSharedDatabaseImportersHaveOneWinnerWithoutLoserOverwrite()
+    {
+        var id = await SeedAsync();
+        var firstProject = Normalize(await Source.ReadProjectAsync(id, Ct));
+        var first = await ProjectExportAsync(id);
+        await Source.UpsertProjectAsync(id, Json(new { name = "Second importer" }), 1, Ct);
+        await Source.UpsertRecordAsync(id, Collection, PlayerA, Json(new { gold = 999 }), false, 1, Ct);
+        await Source.PutWorkspaceObjectAsync($"network-storage/users/1/{id}/loser-only.json", "second", Ct);
+        await Source.UpsertCollectionAsync(id, "second-only", "Second", "private", Json(new { }), 1, Ct);
+        var second = await ProjectExportAsync(id);
+        var secondProject = Normalize(await Source.ReadProjectAsync(id, Ct));
+        var target = await factory.NewStoreAsync();
+        await using var independent = target switch
+        {
+            SqliteNetworkStorageStore sqlite => (RelationalNetworkStorageStore)new SqliteNetworkStorageStore(
+                new SqliteStoreOptions { DatabasePath = sqlite.DatabasePath }),
+            PostgresNetworkStorageStore postgres => new PostgresNetworkStorageStore(
+                new PostgresStoreOptions { ConnectionString = SelfHostFactory.PostgresConnectionString, Schema = postgres.Schema }),
+            _ => throw new InvalidOperationException("Expected a supported relational driver.")
+        };
+        using var ready = new Barrier(2);
+        async Task<bool> ImportContenderAsync(byte[] bytes, INetworkStorageStore store)
+        {
+            using var archive = new RewindBarrierStream(bytes, ready);
+            try
+            {
+                await ProjectArchive.ImportAsync(archive, store, factory.Config, Ct);
+                return true;
+            }
+            catch (ExportArchiveException ex)
+            {
+                Assert.Contains("already exists", ex.Message);
+                return false;
+            }
+        }
+        var results = await Task.WhenAll(
+            Task.Run(() => ImportContenderAsync(first, target)),
+            Task.Run(() => ImportContenderAsync(second, independent)));
+        Assert.Single(results.Where(won => won));
+        var secondWon = results[1];
+        Assert.Equal(secondWon ? 999 : 120,
+            (await target.ReadRecordAsync(id, Collection, PlayerA, Ct))!.Value.GetProperty("payload_json").GetProperty("gold").GetInt32());
+        Assert.Equal(secondWon ? 1 : 5,
+            (await target.ReadRecordAsync(id, Collection, PlayerA, Ct))!.Value.GetProperty("version").GetInt64());
+        Assert.Equal(secondWon ? secondProject : firstProject, Normalize(await target.ReadProjectAsync(id, Ct)));
+        Assert.Equal(secondWon, await target.ReadCollectionAsync(id, "second-only", Ct) is not null);
+        Assert.Equal(secondWon ? "second" : null,
+            await target.ReadWorkspaceObjectAsync($"network-storage/users/1/{id}/loser-only.json", Ct));
+        Assert.Single(await target.ListProjectsForUserAsync("1", Ct));
+    }
+
+    [SkippableTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ProjectImportReplayFailureOrCancellationRollsBackClaimAndRows(bool cancel)
+    {
+        var target = await factory.NewStoreAsync();
+        var importer = Assert.IsAssignableFrom<IProjectImportStore>(target);
+        using var cancellation = new CancellationTokenSource();
+        async Task ReplayAsync(INetworkStorageStore store, CancellationToken ct)
+        {
+            await store.UpsertProjectAsync("rollback", Json(new { name = "Rollback" }), 1, ct);
+            await store.UpsertCollectionAsync("rollback", Collection, "Inventory", "private", Json(new { }), 1, ct);
+            await store.UpsertProjectMembershipAsync("1", "rollback", "owner", 0, ct);
+            await store.PutWorkspaceObjectAsync("network-storage/users/1/rollback/package.json", "{}", ct);
+            await store.IncrementProjectUsageAsync("rollback", "2026-01", "2026-01-01", null,
+                new UsageDelta(0, 0, 0, 0, 0, 0, 0, 0, 0, 12), ct);
+            if (cancel) cancellation.Cancel();
+            else await store.IncrementProjectUsageAsync("rollback", "2026-01", "2026-01-01", null,
+                new UsageDelta(0, 0, 0, 0, 0, 0, 0, 0, 0, long.MaxValue), ct);
+        }
+        if (cancel)
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                () => importer.TryImportProjectAsync("rollback", ReplayAsync, cancellation.Token));
+        else
+            await Assert.ThrowsAnyAsync<System.Data.Common.DbException>(
+                () => importer.TryImportProjectAsync("rollback", ReplayAsync, cancellation.Token));
+        await AssertProjectAbsentAsync(target, "rollback");
+        Assert.True(await importer.TryImportProjectAsync("rollback",
+            (store, ct) => store.UpsertProjectAsync("rollback", Json(new { name = "Retry" }), 1, ct), Ct));
+    }
+
+    private static async Task AssertProjectAbsentAsync(INetworkStorageStore store, string id)
+    {
+        Assert.Null(await store.ReadProjectAsync(id, Ct));
+        Assert.Empty(await store.ListCollectionsAsync(id, Ct));
+        Assert.Empty(await store.ListRecordsAsync(id, Collection, Ct));
+        Assert.Empty(await store.ListGlobalRecordsAsync(id, Collection, Ct));
+        Assert.Empty(await store.ListLedgerEntriesAsync(id, Collection, PlayerA, Ct));
+        Assert.Empty(await store.ListEndpointsAsync(id, Ct));
+        Assert.Empty(await store.ListWorkflowsAsync(id, Ct));
+        Assert.Empty(await store.ListQueriesAsync(id, Ct));
+        Assert.Empty(await store.ListApiKeysAsync(id, Ct));
+        Assert.Empty(await store.ListPagesAsync(id, Ct));
+        Assert.Null(await store.ReadGameValuesAsync(id, Ct));
+        Assert.Null(await store.ReadRateLimitRulesAsync(id, Ct));
+        Assert.Null(await store.ReadCheckpointCursorAsync(id, Ct));
+        Assert.Empty(await store.ReadProjectProfilesAsync(id, Ct));
+        Assert.Null(await store.ReadPlayerSessionAsync(id, PlayerA, "sess-1", Ct));
+        Assert.Empty(await store.ListPlayerEventsAsync(id, PlayerA, 0, long.MaxValue, 100, Ct));
+        Assert.Empty(await store.ListAuditLogsAsync(id, 100, Ct));
+        Assert.Equal(0, await store.ReadProjectStorageBytesAsync(id, Ct));
+        Assert.Empty(await store.ListProjectsForUserAsync("1", Ct));
+        Assert.Empty(await WorkspaceAsync(store));
+    }
+
+    private sealed class RewindBarrierStream(byte[] bytes, Barrier barrier) : MemoryStream(bytes)
+    {
+        private bool _rewound;
+        public override long Position
+        {
+            get => base.Position;
+            set
+            {
+                if (!_rewound && value == 0)
+                {
+                    _rewound = true;
+                    if (!barrier.SignalAndWait(TimeSpan.FromSeconds(30)))
+                        throw new TimeoutException("Both importers must finish preflight before either can replay.");
+                }
+                base.Position = value;
+            }
+        }
     }
 
     [SkippableFact]
@@ -421,6 +623,15 @@ public abstract class ServerExportImportTests<TFactory> : IDisposable
     {
         var admin = factory.Services.GetRequiredService<INetworkStorageStoreAdmin>();
         await using var staged = await ServerArchive.PrepareExportAsync(store, admin, config, includeSecrets, Ct);
+        using var buffer = new MemoryStream();
+        await staged.WriteToAsync(buffer, Ct);
+        return buffer.ToArray();
+    }
+
+    private async Task<byte[]> ProjectExportAsync(string projectId)
+    {
+        var admin = factory.Services.GetRequiredService<INetworkStorageStoreAdmin>();
+        await using var staged = await ServerArchive.PrepareProjectExportAsync(Source, admin, factory.Config, projectId, Ct);
         using var buffer = new MemoryStream();
         await staged.WriteToAsync(buffer, Ct);
         return buffer.ToArray();

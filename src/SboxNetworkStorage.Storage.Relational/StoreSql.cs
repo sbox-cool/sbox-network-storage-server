@@ -18,6 +18,8 @@ internal sealed class StoreSql
         _p = tablePrefix;
 
         UpsertProject = Upsert("projects", ["project_id"], ["workspace_id", "storage_owner_user_id", "payload_json", "version", "updated_at_unix_ms"]);
+        ClaimProject = $"INSERT INTO {T("projects")} (project_id, payload_json, version, updated_at_unix_ms) "
+            + "VALUES (@project_id, '{}', 1, @updated_at_unix_ms) ON CONFLICT (project_id) DO NOTHING";
         ReadProject = $"SELECT payload_json FROM {T("projects")} WHERE project_id = @project_id";
         DeleteProject = $"DELETE FROM {T("projects")} WHERE project_id = @project_id";
         DeleteProjectUsageMonthly = $"DELETE FROM {T("project_usage_monthly")} WHERE project_id = @project_id";
@@ -150,6 +152,7 @@ internal sealed class StoreSql
     }
 
     public string UpsertProject { get; }
+    public string ClaimProject { get; }
     public string ReadProject { get; }
     public string DeleteProject { get; }
     public string DeleteProjectUsageMonthly { get; }

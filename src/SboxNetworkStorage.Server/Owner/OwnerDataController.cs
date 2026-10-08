@@ -1,8 +1,10 @@
+using System.Security.Cryptography;
 using System.Globalization;
 using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Mvc;
 using SboxNetworkStorage.Application.Common;
 using SboxNetworkStorage.Application.NetworkStorage;
@@ -31,12 +33,13 @@ public sealed record OwnerDataRecordsModel(string ProjectId, string ProjectName,
 }
 
 public sealed record OwnerDataRecordModel(string ProjectId, string ProjectName, OwnerDataCollection Collection,
-    OwnerDataRecord Record, string PrettyJson, string? Error = null);
+    OwnerDataRecord Record, string PrettyJson, string? Error = null, bool Creating = false, string? Confirmation = null,
+    int MaxPayloadBytes = 65536, string? SnapshotToken = null);
 
-/// <summary>Browser over a project's stored records, with confirmed, audited deletion.</summary>
+/// <summary>Owner record browser and schema-validated, atomically version-checked editor.</summary>
 [Authorize(AuthenticationSchemes = OwnerHostingExtensions.Scheme)]
 public sealed class OwnerDataController(INetworkStorageProjectService projects, INetworkStorageStore store,
-    INetworkStorageDataPlane dataPlane, IAuditLogger audit) : Controller
+    IAuditLogger audit, IDataProtectionProvider protection) : Controller
 {
     public const int DefaultPageSize = 50;
     public const int MaxPageSize = 200;
@@ -88,24 +91,135 @@ public sealed class OwnerDataController(INetworkStorageProjectService projects, 
         return model is null ? NotFound() : View("~/Views/Owner/DataRecord.cshtml", model);
     }
 
-    [HttpPost(Base + "/{collectionId}/records/{recordKey}/delete")]
-    public async Task<IActionResult> DeleteRecord(string projectId, string collectionId, string recordKey,
-        [FromForm] string? confirmation, CancellationToken ct)
+    [HttpGet(Base + "/{collectionId}/new")]
+    public async Task<IActionResult> NewRecord(string projectId, string collectionId, CancellationToken ct)
     {
-        var model = await LoadRecordModelAsync(projectId, collectionId, recordKey, ct);
-        if (model is null) return NotFound();
-        if (!string.Equals(confirmation, recordKey, StringComparison.Ordinal))
+        if (await ProjectNameAsync(projectId, ct) is not { } name) return NotFound();
+        if (await CollectionAsync(projectId, collectionId, ct) is not { } collection) return NotFound();
+        return View("~/Views/Owner/DataRecord.cshtml", Draft(projectId, name, collection, "", "{}", null, true));
+    }
+
+    [HttpPost(Base + "/{collectionId}/new")]
+    [ValidateAntiForgeryToken]
+    public Task<IActionResult> CreateRecord(string projectId, string collectionId,
+        [FromForm] string? recordKey, [FromForm] string? payload, CancellationToken ct)
+        => SaveAsync(projectId, collectionId, recordKey ?? "", payload ?? "", null, true, null, ct);
+
+    [HttpPost(Base + "/{collectionId}/records/{recordKey}/save")]
+    [ValidateAntiForgeryToken]
+    public Task<IActionResult> SaveRecord(string projectId, string collectionId, string recordKey,
+        [FromForm] string? payload, [FromForm] long? expectedVersion, [FromForm] string? snapshotToken, CancellationToken ct)
+        => SaveAsync(projectId, collectionId, recordKey, payload ?? "", expectedVersion, false, snapshotToken, ct);
+
+    private async Task<IActionResult> SaveAsync(string projectId, string collectionId, string recordKey,
+        string payload, long? expectedVersion, bool creating, string? snapshotToken, CancellationToken ct)
+    {
+        if (await ProjectNameAsync(projectId, ct) is not { } name) return NotFound();
+        if (await CollectionAsync(projectId, collectionId, ct) is not { } collection) return NotFound();
+        var draft = Draft(projectId, name, collection, recordKey, payload, expectedVersion, creating) with { SnapshotToken = snapshotToken };
+        if (!ValidKey(collection, recordKey))
+            return FormError(draft, "Use letters, numbers, underscores and hyphens" +
+                (collection.Global ? " (1–128 characters) for the global record ID." : ", or colons (1–256 characters) for the player record key."));
+        if (!ModelState.IsValid || (!creating && expectedVersion is null or < 1 or long.MaxValue))
+            return FormError(draft, "A valid expected version is required. Reload the record before editing.");
+        RecordMutationSnapshot? snapshot = null;
+        if (!creating && !TrySnapshot(snapshotToken, projectId, collection, recordKey, expectedVersion, out snapshot))
+            return FormError(draft, "The record snapshot is missing or invalid. Reload the current record before saving.");
+        if (Encoding.UTF8.GetByteCount(payload) > store.MaxPayloadBytes)
+            return FormError(draft, $"Payload exceeds the {store.MaxPayloadBytes} byte limit.");
+        JsonDocument document;
+        try { document = JsonDocument.Parse(payload); }
+        catch (JsonException error) { return FormError(draft, $"Invalid JSON: {error.Message}"); }
+        using (document)
         {
-            Response.StatusCode = StatusCodes.Status400BadRequest;
-            return View("~/Views/Owner/DataRecord.cshtml", model with { Error = "Type the exact record key to confirm deletion." });
+            var row = await store.ReadCollectionAsync(projectId, collectionId, ct);
+            if (row is null) return NotFound();
+            try
+            {
+                if (OwnerRecordValidation.Validate(row.Value, document.RootElement) is { } error)
+                    return FormError(draft, error);
+            }
+            catch (JsonException) { return FormError(draft, "The collection schema is not valid JSON. Correct the collection before saving records."); }
+            if (!await store.TryMutateRecordAsync(projectId, collectionId, recordKey, collection.Global,
+                document.RootElement, false, expectedVersion, ct, snapshot))
+                return FormError(draft, "Conflict: this record was created, changed or deleted since the form opened. Your entered JSON is preserved; reload the current record and reconcile your changes before saving.", StatusCodes.Status409Conflict);
         }
-        await dataPlane.DeleteRecordAsync(Owner, projectId, collectionId, recordKey, ct);
-        await audit.LogActionAsync(new AuditLogRequest(ProjectId: projectId, UserId: Owner.ToString(CultureInfo.InvariantCulture),
-            Action: "record.delete", Actor: new { id = Owner, type = "owner-dashboard" },
-            Target: new { id = recordKey, type = "record", collectionId },
-            Summary: new { collectionId, recordKey, collectionType = model.Collection.Global ? "global" : "player", model.Record.Version },
-            Before: null, After: null), ct);
+        await AuditMutationAsync(projectId, collection, recordKey, creating ? "record.create" : "record.update", expectedVersion, ct);
+        return Redirect(RecordUrl(projectId, collectionId, recordKey));
+    }
+
+    [HttpPost(Base + "/{collectionId}/records/{recordKey}/delete")]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> DeleteRecord(string projectId, string collectionId, string recordKey,
+        [FromForm] string? confirmation, [FromForm] long? expectedVersion, [FromForm] string? payload,
+        [FromForm] string? snapshotToken, CancellationToken ct)
+    {
+        if (await ProjectNameAsync(projectId, ct) is not { } name) return NotFound();
+        if (await CollectionAsync(projectId, collectionId, ct) is not { } collection || !ValidKey(collection, recordKey)) return NotFound();
+        var current = await LoadRecordModelAsync(projectId, collectionId, recordKey, ct);
+        var draft = Draft(projectId, name, collection, recordKey, payload ?? current?.PrettyJson ?? "", expectedVersion, false)
+            with { Confirmation = confirmation, SnapshotToken = snapshotToken };
+        if (!string.Equals(confirmation, recordKey, StringComparison.Ordinal))
+            return FormError(draft, "Type the exact record key to confirm deletion.");
+        if (!ModelState.IsValid || expectedVersion is null or < 1 or long.MaxValue)
+            return FormError(draft, "A valid expected version is required. Reload the record before deleting.");
+        if (!TrySnapshot(snapshotToken, projectId, collection, recordKey, expectedVersion, out var snapshot))
+            return FormError(draft, "The record snapshot is missing or invalid. Reload the current record before deleting.");
+        if (!await store.TryMutateRecordAsync(projectId, collectionId, recordKey, collection.Global,
+            JsonSerializer.SerializeToElement<object?>(null), true, expectedVersion, ct, snapshot))
+            return FormError(draft, "Conflict: this record changed or was deleted since the form opened. Reload it before deleting.", StatusCodes.Status409Conflict);
+        await AuditMutationAsync(projectId, collection, recordKey, "record.delete", expectedVersion, ct);
         return Redirect(CollectionUrl(projectId, collectionId));
+    }
+
+    private OwnerDataRecordModel Draft(string projectId, string name, OwnerDataCollection collection,
+        string key, string payload, long? version, bool creating)
+        => new(projectId, name, collection, new OwnerDataRecord(key, version, null, Encoding.UTF8.GetByteCount(payload), "", default),
+            payload, Creating: creating, MaxPayloadBytes: store.MaxPayloadBytes);
+
+    private IActionResult FormError(OwnerDataRecordModel model, string error, int status = StatusCodes.Status400BadRequest)
+    {
+        Response.StatusCode = status;
+        return View("~/Views/Owner/DataRecord.cshtml", model with { Error = error });
+    }
+
+    private Task AuditMutationAsync(string projectId, OwnerDataCollection collection, string key, string action, long? version, CancellationToken ct)
+        => audit.LogActionAsync(new AuditLogRequest(ProjectId: projectId, UserId: Owner.ToString(CultureInfo.InvariantCulture),
+            Action: action, Actor: new { id = Owner, type = "owner-dashboard" },
+            Target: new { id = key, type = "record", collectionId = collection.Id },
+            Summary: new { collectionId = collection.Id, recordKey = key, collectionType = collection.Global ? "global" : "player", expectedVersion = version },
+            Before: null, After: null), ct);
+
+    private static bool ValidKey(OwnerDataCollection collection, string key)
+        => collection.Global ? StorageIdValidation.IsValidCollectionId(key) : StorageIdValidation.IsValidRecordKey(key);
+
+    private sealed record FormSnapshot(string OwnerStamp, string ProjectId, string CollectionId,
+        string Key, bool Global, long? Version, RecordMutationSnapshot State);
+
+    private string ProtectSnapshot(string projectId, OwnerDataCollection collection, OwnerDataRecord record)
+        => protection.CreateProtector("owner-record-snapshot-v1").Protect(JsonSerializer.Serialize(new FormSnapshot(
+            User.FindFirst(OwnerHostingExtensions.StampClaim)?.Value ?? "",
+            projectId, collection.Id, record.Key, collection.Global, record.Version,
+            new RecordMutationSnapshot(record.Payload.GetRawText(), record.ChangedAtUnixMs))));
+
+    private bool TrySnapshot(string? token, string projectId, OwnerDataCollection collection, string key,
+        long? version, out RecordMutationSnapshot? state)
+    {
+        state = null;
+        if (string.IsNullOrEmpty(token) || token.Length > store.MaxPayloadBytes * 4L + 4096) return false;
+        try
+        {
+            var snapshot = JsonSerializer.Deserialize<FormSnapshot>(
+                protection.CreateProtector("owner-record-snapshot-v1").Unprotect(token));
+            if (snapshot is null || snapshot.OwnerStamp != User.FindFirst(OwnerHostingExtensions.StampClaim)?.Value
+                || snapshot.ProjectId != projectId || snapshot.CollectionId != collection.Id
+                || snapshot.Key != key || snapshot.Global != collection.Global || snapshot.Version != version)
+                return false;
+            state = snapshot.State;
+            return state is not null;
+        }
+        catch (CryptographicException) { return false; }
+        catch (JsonException) { return false; }
     }
 
     [HttpGet(Base + "/{collectionId}/export")]
@@ -145,7 +259,8 @@ public sealed class OwnerDataController(INetworkStorageProjectService projects, 
             ? await store.ReadGlobalRecordAsync(projectId, collectionId, recordKey, ct)
             : await store.ReadRecordAsync(projectId, collectionId, recordKey, ct);
         if (row is not { } value || ToRecord(value, collection.Global) is not { } record) return null;
-        return new OwnerDataRecordModel(projectId, name, collection, record, JsonSerializer.Serialize(record.Payload, Pretty));
+        return new OwnerDataRecordModel(projectId, name, collection, record, JsonSerializer.Serialize(record.Payload, Pretty),
+            MaxPayloadBytes: store.MaxPayloadBytes, SnapshotToken: ProtectSnapshot(projectId, collection, record));
     }
 
     private async Task<string?> ProjectNameAsync(string projectId, CancellationToken ct)

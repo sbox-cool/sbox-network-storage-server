@@ -132,6 +132,17 @@ memberships, player profiles, sessions and events keep their timestamps.
 - Config restoration rejects symlinked or reparse-point destinations and
   ancestors, including the config root, rather than following them outside it.
 
+### Portable project imports
+
+The dashboard's single-project import is separate from whole-server CLI replay.
+It accepts only a project archive without instance configuration or secrets,
+and never overwrites an existing project ID. SQLite and PostgreSQL claim that ID
+at the database boundary in the same transaction as every imported project row,
+owner membership, workspace object and storage-footprint counter. Concurrent
+importers sharing a database have only one winner; a losing import changes
+nothing. Malformed rows, cancellation and storage failures roll back the entire
+project, so after fixing the cause the corrected archive can be retried normally.
+
 ## Security of archives
 
 An archive holds everything a server holds: player records, hashed API keys,
