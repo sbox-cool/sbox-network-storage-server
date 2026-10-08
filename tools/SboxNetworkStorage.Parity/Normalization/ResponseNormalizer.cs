@@ -32,9 +32,11 @@ public static partial class ResponseNormalizer
     {
         "timestamp", "_timestamp", "serverTime", "serverTimeMs", "now", "lastSeen", "lastSeenUnix", "lastSeenUnixMs",
         "durationMs", "elapsedMs", "tookMs", "latencyMs", "executionMs", "totalMs", "scanMs", "queryMs", "processingMs",
-        "correlationId", "requestId", "_requestId", "traceId", "spanId", "encryptedRequestId", "jobId", "nonce",
         "sessionToken", "token", "signature", "versionHash", "configVersion", "contentHash", "sourceHash", "checksum", "etag",
         "_txId", "txId",
+        // Per-run generated signing keys (security-config): fresh key material
+        // on every server start must not fail cross-run comparison.
+        "keyId", "publicKeyJwk", "publicKeyPem",
         "lastSyncedAtUnix", "revisionFirstSyncedAtUnix", "lastran",
     };
 
