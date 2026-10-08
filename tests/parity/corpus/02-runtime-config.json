@@ -1,0 +1,153 @@
+{
+  "schemaVersion": 1,
+  "description": "Runtime configuration reads performed by the game client on startup.",
+  "scenarios": [
+    {
+      "name": "runtime-values",
+      "description": "Game values load.",
+      "source": "Code/Endpoints/NetworkStorageGameValues.cs GetGameValues",
+      "steps": [
+        {
+          "id": "values",
+          "method": "GET",
+          "path": "/v3/values/${projectId}",
+          "headers": {
+            "x-public-key": "${publicKey}"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "expect": {
+            "status": 200,
+            "requiredFields": [
+              "$.groups",
+              "$.tables"
+            ]
+          }
+        },
+        {
+          "id": "values-v1-alias",
+          "method": "GET",
+          "path": "/v1/values/${projectId}",
+          "headers": {
+            "x-public-key": "${publicKey}"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "expect": {
+            "status": 200,
+            "requiredFields": [
+              "$.groups",
+              "$.tables"
+            ]
+          }
+        },
+        {
+          "id": "values-no-key",
+          "method": "GET",
+          "path": "/v3/values/${projectId}",
+          "expect": {
+            "status": 401,
+            "requiredFields": [
+              "$.error"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "runtime-security-config",
+      "description": "Runtime security config load (cached and forced refresh).",
+      "source": "Code/Endpoints/NetworkStorageRuntimeSecurityConfigLoad.cs",
+      "steps": [
+        {
+          "id": "security-config",
+          "method": "GET",
+          "path": "/v3/security-config/${projectId}",
+          "expect": {
+            "status": 200
+          }
+        },
+        {
+          "id": "security-config-refresh",
+          "method": "GET",
+          "path": "/v3/security-config/${projectId}",
+          "query": {
+            "refresh": "1"
+          },
+          "expect": {
+            "status": 200
+          }
+        }
+      ]
+    },
+    {
+      "name": "runtime-rate-limits",
+      "description": "Rate limit config read.",
+      "source": "docs 18-rest-api-reference (GET /v3/storage/{projectId}/rate-limits)",
+      "steps": [
+        {
+          "id": "rate-limits",
+          "method": "GET",
+          "path": "/v3/storage/${projectId}/rate-limits",
+          "headers": {
+            "x-public-key": "${publicKey}"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "expect": {
+            "status": 200
+          }
+        },
+        {
+          "id": "rate-limits-v1",
+          "method": "GET",
+          "path": "/v1/storage/${projectId}/rate-limits",
+          "headers": {
+            "x-public-key": "${publicKey}"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "expect": {
+            "status": 200
+          }
+        }
+      ]
+    },
+    {
+      "name": "runtime-pages",
+      "description": "Published pages read (no page published in this project).",
+      "source": "docs 18-rest-api-reference (Pages API)",
+      "steps": [
+        {
+          "id": "page-missing",
+          "method": "GET",
+          "path": "/api/pages/${projectId}/news",
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "expect": {
+            "status": 404,
+            "requiredFields": [
+              "$.error"
+            ]
+          }
+        },
+        {
+          "id": "page-missing-short",
+          "method": "GET",
+          "path": "/pages/${projectId}/news",
+          "expect": {
+            "status": 404,
+            "requiredFields": [
+              "$.error"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,8625 @@
+{
+  "generatedAt": "2026-06-10T00:18:35.080Z",
+  "cases": [
+    {
+      "id": "t_single_num",
+      "kind": "template",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "expr": "{{player.coins}}",
+      "threw": false,
+      "value": 250
+    },
+    {
+      "id": "t_single_str",
+      "kind": "template",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "expr": "{{input.name}}",
+      "threw": false,
+      "value": "Bob"
+    },
+    {
+      "id": "t_single_bool",
+      "kind": "template",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "expr": "{{flagTrue}}",
+      "threw": false,
+      "value": true
+    },
+    {
+      "id": "t_single_null",
+      "kind": "template",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "expr": "{{nullField}}",
+      "threw": false,
+      "value": null
+    },
+    {
+      "id": "t_single_missing",
+      "kind": "template",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "expr": "{{does.not.exist}}",
+      "threw": false,
+      "value": {
+        "__undefined": true
+      }
+    },
+    {
+      "id": "t_single_nested_obj",
+      "kind": "template",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "expr": "{{load.nested.deep.v}}",
+      "threw": false,
+      "value": 42
+    },
+    {
+      "id": "t_single_array",
+      "kind": "template",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "expr": "{{input.tags}}",
+      "threw": false,
+      "value": [
+        "a",
+        "b",
+        "c"
+      ]
+    },
+    {
+      "id": "t_interp",
+      "kind": "template",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "expr": "Hi {{input.name}}, coins={{player.coins}}",
+      "threw": false,
+      "value": "Hi Bob, coins=250"
+    },
+    {
+      "id": "t_interp_missing",
+      "kind": "template",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "expr": "x={{missing}}y",
+      "threw": false,
+      "value": "x=y"
+    },
+    {
+      "id": "t_interp_null",
+      "kind": "template",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "expr": "n=[{{nullField}}]",
+      "threw": false,
+      "value": "n=[]"
+    },
+    {
+      "id": "t_negate_num",
+      "kind": "template",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "expr": "{{-input.price}}",
+      "threw": false,
+      "value": -100
+    },
+    {
+      "id": "t_negate_str_num",
+      "kind": "template",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "expr": "{{-numStr}}",
+      "threw": false,
+      "value": -42
+    },
+    {
+      "id": "t_negate_missing",
+      "kind": "template",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "expr": "{{-missing}}",
+      "threw": false,
+      "value": 0
+    },
+    {
+      "id": "t_default_used",
+      "kind": "template",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "expr": "{{missing | 7}}",
+      "threw": false,
+      "value": 7
+    },
+    {
+      "id": "t_default_unused",
+      "kind": "template",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "expr": "{{player.coins | 7}}",
+      "threw": false,
+      "value": 250
+    },
+    {
+      "id": "t_default_str",
+      "kind": "template",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "expr": "{{missing | 'fallback'}}",
+      "threw": false,
+      "value": "fallback"
+    },
+    {
+      "id": "t_default_bool",
+      "kind": "template",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "expr": "{{missing | true}}",
+      "threw": false,
+      "value": true
+    },
+    {
+      "id": "t_default_null_literal",
+      "kind": "template",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "expr": "{{missing | null}}",
+      "threw": false,
+      "value": null
+    },
+    {
+      "id": "t_default_on_null",
+      "kind": "template",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "expr": "{{nullField | 5}}",
+      "threw": false,
+      "value": 5
+    },
+    {
+      "id": "t_helper_coalesce",
+      "kind": "template",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "expr": "{{coalesce(missing, nullField, player.coins)}}",
+      "threw": false,
+      "value": 250
+    },
+    {
+      "id": "t_helper_default",
+      "kind": "template",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "expr": "{{default(missing, 99)}}",
+      "threw": false,
+      "value": 99
+    },
+    {
+      "id": "t_helper_num_ok",
+      "kind": "template",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "expr": "{{num(numStr)}}",
+      "threw": false,
+      "value": 42
+    },
+    {
+      "id": "t_helper_num_fallback",
+      "kind": "template",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "expr": "{{num(input.name, 0)}}",
+      "threw": false,
+      "value": 0
+    },
+    {
+      "id": "t_helper_get",
+      "kind": "template",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "expr": "{{get(load, nested, deep, v, 0)}}",
+      "threw": false,
+      "value": 42
+    },
+    {
+      "id": "t_helper_min",
+      "kind": "template",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "expr": "{{min(player.coins, input.price)}}",
+      "threw": false,
+      "value": 100
+    },
+    {
+      "id": "t_helper_max",
+      "kind": "template",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "expr": "{{max(player.coins, input.price)}}",
+      "threw": false,
+      "value": 250
+    },
+    {
+      "id": "t_helper_count",
+      "kind": "template",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "expr": "{{count(rows)}}",
+      "threw": false,
+      "value": 3
+    },
+    {
+      "id": "t_helper_sum",
+      "kind": "template",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "expr": "{{sum(rows, price)}}",
+      "threw": false,
+      "value": 60
+    },
+    {
+      "id": "t_helper_avg",
+      "kind": "template",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "expr": "{{avg(rows, price)}}",
+      "threw": false,
+      "value": 20
+    },
+    {
+      "id": "t_helper_first",
+      "kind": "template",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "expr": "{{first(rows, r => r.sold == true)}}",
+      "threw": false,
+      "value": {
+        "id": "a",
+        "sold": true,
+        "price": 10,
+        "qty": 2
+      }
+    },
+    {
+      "id": "t_helper_pluck",
+      "kind": "template",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "expr": "{{pluck(rows, id)}}",
+      "threw": false,
+      "value": [
+        "a",
+        "b",
+        "c"
+      ]
+    },
+    {
+      "id": "t_array_length",
+      "kind": "template",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "expr": "{{input.tags.length}}",
+      "threw": false,
+      "value": 3
+    },
+    {
+      "id": "t_array_index",
+      "kind": "template",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "expr": "{{input.tags.0}}",
+      "threw": false,
+      "value": "a"
+    },
+    {
+      "id": "t_array_index_oob",
+      "kind": "template",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "expr": "{{input.tags.9}}",
+      "threw": false,
+      "value": {
+        "__undefined": true
+      }
+    },
+    {
+      "id": "t_inventory_length",
+      "kind": "template",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "expr": "{{player.inventory.length}}",
+      "threw": false,
+      "value": 2
+    },
+    {
+      "id": "c_eq_num",
+      "kind": "condition",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "check": {
+        "field": "player.level",
+        "op": "==",
+        "value": 9
+      },
+      "threw": false,
+      "value": true
+    },
+    {
+      "id": "c_eq_coerce",
+      "kind": "condition",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "check": {
+        "field": "numStr",
+        "op": "==",
+        "value": 42
+      },
+      "threw": false,
+      "value": true
+    },
+    {
+      "id": "c_neq",
+      "kind": "condition",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "check": {
+        "field": "player.level",
+        "op": "!=",
+        "value": 1
+      },
+      "threw": false,
+      "value": true
+    },
+    {
+      "id": "c_gt",
+      "kind": "condition",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "check": {
+        "field": "player.coins",
+        "op": ">",
+        "value": "{{input.price}}"
+      },
+      "threw": false,
+      "value": true
+    },
+    {
+      "id": "c_gte_eq",
+      "kind": "condition",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "check": {
+        "field": "player.coins",
+        "op": ">=",
+        "value": 250
+      },
+      "threw": false,
+      "value": true
+    },
+    {
+      "id": "c_lt_false",
+      "kind": "condition",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "check": {
+        "field": "player.coins",
+        "op": "<",
+        "value": 100
+      },
+      "threw": false,
+      "value": false
+    },
+    {
+      "id": "c_lte",
+      "kind": "condition",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "check": {
+        "field": "input.price",
+        "op": "<=",
+        "value": 100
+      },
+      "threw": false,
+      "value": true
+    },
+    {
+      "id": "c_contains_arr",
+      "kind": "condition",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "check": {
+        "field": "input.tags",
+        "op": "contains",
+        "value": "b"
+      },
+      "threw": false,
+      "value": true
+    },
+    {
+      "id": "c_contains_str",
+      "kind": "condition",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "check": {
+        "field": "input.name",
+        "op": "contains",
+        "value": "ob"
+      },
+      "threw": false,
+      "value": true
+    },
+    {
+      "id": "c_in_arr",
+      "kind": "condition",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "check": {
+        "field": "input.name",
+        "op": "in",
+        "value": [
+          "Bob",
+          "Al"
+        ]
+      },
+      "threw": false,
+      "value": true
+    },
+    {
+      "id": "c_not_contains",
+      "kind": "condition",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "check": {
+        "field": "input.tags",
+        "op": "not_contains",
+        "value": "z"
+      },
+      "threw": false,
+      "value": true
+    },
+    {
+      "id": "c_not_in",
+      "kind": "condition",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "check": {
+        "field": "input.name",
+        "op": "not_in",
+        "value": [
+          "X",
+          "Y"
+        ]
+      },
+      "threw": false,
+      "value": true
+    },
+    {
+      "id": "c_exists",
+      "kind": "condition",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "check": {
+        "field": "player.coins",
+        "op": "exists"
+      },
+      "threw": false,
+      "value": true
+    },
+    {
+      "id": "c_exists_null",
+      "kind": "condition",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "check": {
+        "field": "nullField",
+        "op": "exists"
+      },
+      "threw": false,
+      "value": false
+    },
+    {
+      "id": "c_not_exists",
+      "kind": "condition",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "check": {
+        "field": "missing.thing",
+        "op": "not_exists"
+      },
+      "threw": false,
+      "value": true
+    },
+    {
+      "id": "c_starts_with",
+      "kind": "condition",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "check": {
+        "field": "input.name",
+        "op": "starts_with",
+        "value": "Bo"
+      },
+      "threw": false,
+      "value": true
+    },
+    {
+      "id": "c_not_starts_with",
+      "kind": "condition",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "check": {
+        "field": "input.name",
+        "op": "not_starts_with",
+        "value": "Z"
+      },
+      "threw": false,
+      "value": true
+    },
+    {
+      "id": "c_alias_gte",
+      "kind": "condition",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "check": {
+        "field": "player.coins",
+        "op": "gte",
+        "value": 250
+      },
+      "threw": false,
+      "value": true
+    },
+    {
+      "id": "c_alias_neq",
+      "kind": "condition",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "check": {
+        "field": "player.level",
+        "op": "ne",
+        "value": 1
+      },
+      "threw": false,
+      "value": true
+    },
+    {
+      "id": "c_alias_includes",
+      "kind": "condition",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "check": {
+        "field": "input.tags",
+        "op": "includes",
+        "value": "a"
+      },
+      "threw": false,
+      "value": true
+    },
+    {
+      "id": "c_alias_left_right",
+      "kind": "condition",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "check": {
+        "left": "player.level",
+        "op": "eq",
+        "right": 9
+      },
+      "threw": false,
+      "value": true
+    },
+    {
+      "id": "c_all_true",
+      "kind": "condition",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "check": {
+        "all": [
+          {
+            "field": "player.coins",
+            "op": ">=",
+            "value": 100
+          },
+          {
+            "field": "player.level",
+            "op": ">",
+            "value": 5
+          }
+        ]
+      },
+      "threw": false,
+      "value": true
+    },
+    {
+      "id": "c_all_false",
+      "kind": "condition",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "check": {
+        "all": [
+          {
+            "field": "player.coins",
+            "op": ">=",
+            "value": 100
+          },
+          {
+            "field": "player.level",
+            "op": ">",
+            "value": 50
+          }
+        ]
+      },
+      "threw": false,
+      "value": false
+    },
+    {
+      "id": "c_any_true",
+      "kind": "condition",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "check": {
+        "any": [
+          {
+            "field": "player.level",
+            "op": ">",
+            "value": 50
+          },
+          {
+            "field": "player.coins",
+            "op": ">=",
+            "value": 100
+          }
+        ]
+      },
+      "threw": false,
+      "value": true
+    },
+    {
+      "id": "c_any_false",
+      "kind": "condition",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "check": {
+        "any": [
+          {
+            "field": "player.level",
+            "op": ">",
+            "value": 50
+          },
+          {
+            "field": "player.coins",
+            "op": ">",
+            "value": 9999
+          }
+        ]
+      },
+      "threw": false,
+      "value": false
+    },
+    {
+      "id": "c_expr_only_true",
+      "kind": "condition",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "check": {
+        "expression": "{{player.coins}} - {{input.price}} > 0"
+      },
+      "threw": false,
+      "value": true
+    },
+    {
+      "id": "c_expr_only_truthy",
+      "kind": "condition",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "check": {
+        "expression": "max(0, {{player.level}})"
+      },
+      "threw": false,
+      "value": true
+    },
+    {
+      "id": "c_expr_field",
+      "kind": "condition",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "check": {
+        "field": "player.coins",
+        "op": ">=",
+        "expression": "{{input.price}} * 2"
+      },
+      "threw": false,
+      "value": true
+    },
+    {
+      "id": "m_add",
+      "kind": "math",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "expr": "{{player.coins}} + {{input.price}}",
+      "threw": false,
+      "value": 350
+    },
+    {
+      "id": "m_sub",
+      "kind": "math",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "expr": "{{player.coins}} - {{input.price}}",
+      "threw": false,
+      "value": 150
+    },
+    {
+      "id": "m_mul",
+      "kind": "math",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "expr": "{{player.level}} * {{values.xp_per_level}}",
+      "threw": false,
+      "value": 450
+    },
+    {
+      "id": "m_div",
+      "kind": "math",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "expr": "{{player.coins}} / {{values.base}}",
+      "threw": false,
+      "value": 83.33333333333333
+    },
+    {
+      "id": "m_mod",
+      "kind": "math",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "expr": "{{player.coins}} % {{input.price}}",
+      "threw": false,
+      "value": 50
+    },
+    {
+      "id": "m_parens",
+      "kind": "math",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "expr": "({{player.coins}} + {{input.price}}) * 2",
+      "threw": false,
+      "value": 700
+    },
+    {
+      "id": "m_floor",
+      "kind": "math",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "expr": "floor({{player.coins}} / {{values.base}})",
+      "threw": false,
+      "value": 83
+    },
+    {
+      "id": "m_ceil",
+      "kind": "math",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "expr": "ceil({{player.coins}} / {{values.base}})",
+      "threw": false,
+      "value": 84
+    },
+    {
+      "id": "m_round_halfup",
+      "kind": "math",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "expr": "round(2.5)",
+      "threw": false,
+      "value": 3
+    },
+    {
+      "id": "m_round_neg",
+      "kind": "math",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "expr": "round(-2.5)",
+      "threw": false,
+      "value": -2
+    },
+    {
+      "id": "m_min",
+      "kind": "math",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "expr": "min({{player.coins}}, {{input.price}}, 75)",
+      "threw": false,
+      "value": 75
+    },
+    {
+      "id": "m_max",
+      "kind": "math",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "expr": "max({{player.coins}}, {{input.price}}, 75)",
+      "threw": false,
+      "value": 250
+    },
+    {
+      "id": "m_abs",
+      "kind": "math",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "expr": "abs({{-input.price}})",
+      "threw": false,
+      "value": 100
+    },
+    {
+      "id": "m_pow",
+      "kind": "math",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "expr": "pow(2, 10)",
+      "threw": false,
+      "value": 1024
+    },
+    {
+      "id": "m_clamp",
+      "kind": "math",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "expr": "clamp({{player.coins}}, 0, 100)",
+      "threw": false,
+      "value": 100
+    },
+    {
+      "id": "m_log10",
+      "kind": "math",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "expr": "log10(1000)",
+      "threw": false,
+      "value": 3
+    },
+    {
+      "id": "m_unary_neg",
+      "kind": "math",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "expr": "-{{values.base}} + 10",
+      "threw": false,
+      "value": 7
+    },
+    {
+      "id": "m_length_nested",
+      "kind": "math",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "expr": "floor(length({{input.tags}}) / 2)",
+      "threw": false,
+      "value": 1
+    },
+    {
+      "id": "m_nested_funcs",
+      "kind": "math",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "expr": "max(floor({{player.coins}} / 100), 1)",
+      "threw": false,
+      "value": 2
+    },
+    {
+      "id": "e_length_arr",
+      "kind": "expression",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "expr": "length({{input.tags}})",
+      "threw": false,
+      "value": 3
+    },
+    {
+      "id": "e_length_str",
+      "kind": "expression",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "expr": "length({{input.name}})",
+      "threw": false,
+      "value": 3
+    },
+    {
+      "id": "e_count_all",
+      "kind": "expression",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "expr": "count(rows)",
+      "threw": false,
+      "value": 3
+    },
+    {
+      "id": "e_count_pred",
+      "kind": "expression",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "expr": "count(rows, r => r.sold == true)",
+      "threw": false,
+      "value": 2
+    },
+    {
+      "id": "e_sum_path",
+      "kind": "expression",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "expr": "sum(rows, price)",
+      "threw": false,
+      "value": 60
+    },
+    {
+      "id": "e_sum_lambda",
+      "kind": "expression",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "expr": "sum(rows, r => r.price)",
+      "threw": false,
+      "value": 60
+    },
+    {
+      "id": "e_avg_path",
+      "kind": "expression",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "expr": "avg(rows, qty)",
+      "threw": false,
+      "value": 2.3333333333333335
+    },
+    {
+      "id": "e_any_true",
+      "kind": "expression",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "expr": "any(rows, r => r.price > 25)",
+      "threw": false,
+      "value": true
+    },
+    {
+      "id": "e_all_false",
+      "kind": "expression",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "expr": "all(rows, r => r.sold == true)",
+      "threw": false,
+      "value": false
+    },
+    {
+      "id": "e_find",
+      "kind": "expression",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "expr": "find(rows, r => r.id == 'c')",
+      "threw": false,
+      "value": {
+        "id": "c",
+        "sold": true,
+        "price": 30,
+        "qty": 5
+      }
+    },
+    {
+      "id": "e_first_nopred",
+      "kind": "expression",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "expr": "first(rows)",
+      "threw": false,
+      "value": {
+        "id": "a",
+        "sold": true,
+        "price": 10,
+        "qty": 2
+      }
+    },
+    {
+      "id": "e_pluck",
+      "kind": "expression",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "expr": "pluck(rows, id)",
+      "threw": false,
+      "value": [
+        "a",
+        "b",
+        "c"
+      ]
+    },
+    {
+      "id": "e_filter",
+      "kind": "expression",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "expr": "filter(rows, r => r.sold == true)",
+      "threw": true,
+      "error": "Math expression contains invalid characters."
+    },
+    {
+      "id": "e_values",
+      "kind": "expression",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "expr": "values({{player.inventory}})",
+      "threw": false,
+      "value": [
+        {
+          "id": "sword",
+          "qty": 2,
+          "price": 10
+        },
+        {
+          "id": "shield",
+          "qty": 1,
+          "price": 5
+        }
+      ]
+    },
+    {
+      "id": "e_min_array",
+      "kind": "expression",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "expr": "min({{list}})",
+      "threw": false,
+      "value": 1
+    },
+    {
+      "id": "e_max_array",
+      "kind": "expression",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "expr": "max({{list}})",
+      "threw": false,
+      "value": 3
+    },
+    {
+      "id": "e_math_fallback",
+      "kind": "expression",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "expr": "{{player.coins}} * 2 + 1",
+      "threw": false,
+      "value": 501
+    },
+    {
+      "id": "e_single_template",
+      "kind": "expression",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "expr": "{{player.inventory}}",
+      "threw": false,
+      "value": [
+        {
+          "id": "sword",
+          "qty": 2,
+          "price": 10
+        },
+        {
+          "id": "shield",
+          "qty": 1,
+          "price": 5
+        }
+      ]
+    },
+    {
+      "id": "x_eq_str_num",
+      "kind": "condition",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "check": {
+        "field": "numStr",
+        "op": "==",
+        "value": "42"
+      },
+      "threw": false,
+      "value": true
+    },
+    {
+      "id": "x_zero_eq_emptystr",
+      "kind": "condition",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "check": {
+        "field": "zero",
+        "op": "==",
+        "value": ""
+      },
+      "threw": false,
+      "value": true
+    },
+    {
+      "id": "x_bool_eq_one",
+      "kind": "condition",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "check": {
+        "field": "flagTrue",
+        "op": "==",
+        "value": 1
+      },
+      "threw": false,
+      "value": true
+    },
+    {
+      "id": "x_null_eq_null",
+      "kind": "condition",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "check": {
+        "field": "nullField",
+        "op": "==",
+        "value": null
+      },
+      "threw": false,
+      "value": true
+    },
+    {
+      "id": "x_gt_string_coerce",
+      "kind": "condition",
+      "context": {
+        "input": {
+          "price": 100,
+          "name": "Bob",
+          "tags": [
+            "a",
+            "b",
+            "c"
+          ],
+          "index": 1,
+          "flag": true,
+          "empty": ""
+        },
+        "player": {
+          "coins": 250,
+          "level": 9,
+          "inventory": [
+            {
+              "id": "sword",
+              "qty": 2,
+              "price": 10
+            },
+            {
+              "id": "shield",
+              "qty": 1,
+              "price": 5
+            }
+          ]
+        },
+        "values": {
+          "xp_per_level": 50,
+          "base": 3
+        },
+        "load": {
+          "gold": 500,
+          "nested": {
+            "deep": {
+              "v": 42
+            }
+          }
+        },
+        "rows": [
+          {
+            "id": "a",
+            "sold": true,
+            "price": 10,
+            "qty": 2
+          },
+          {
+            "id": "b",
+            "sold": false,
+            "price": 20,
+            "qty": 0
+          },
+          {
+            "id": "c",
+            "sold": true,
+            "price": 30,
+            "qty": 5
+          }
+        ],
+        "flagTrue": true,
+        "flagFalse": false,
+        "nullField": null,
+        "zero": 0,
+        "numStr": "42",
+        "emptyStr": "",
+        "list": [
+          3,
+          1,
+          2
+        ]
+      },
+      "check": {
+        "field": "numStr",
+        "op": ">",
+        "value": 40
+      },
+      "threw": false,
+      "value": true
+    }
+  ]
+}

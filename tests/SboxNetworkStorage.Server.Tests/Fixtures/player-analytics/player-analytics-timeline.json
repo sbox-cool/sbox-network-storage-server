@@ -1,0 +1,17 @@
+[
+  {
+    "id": "evt123",
+    "ts": "2026-05-30T10:00:00.000Z",
+    "steamId": "76561197960287930",
+    "playerName": "Garry",
+    "sessionId": "sess123",
+    "type": "session.heartbeat",
+    "category": "session",
+    "label": "heartbeat",
+    "source": "server",
+    "ok": true,
+    "payload": {
+      "sessionSeconds": 60
+    }
+  }
+]

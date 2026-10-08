@@ -1,0 +1,230 @@
+{
+  "schemaVersion": 1,
+  "description": "Global collections: append, list and single-record reads.",
+  "scenarios": [
+    {
+      "name": "global-append-list",
+      "description": "Dedicated server appends runs; clients list and read them.",
+      "source": "docs 18-rest-api-reference (Global Collections); 02a-collections-http-api",
+      "steps": [
+        {
+          "id": "append-first",
+          "method": "POST",
+          "path": "/v3/storage/${projectId}/leaderboard_global/append",
+          "headers": {
+            "x-public-key": "${publicKey}",
+            "x-api-key": "${secretKey}",
+            "x-steam-id": "${steamId}",
+            "Idempotency-Key": "parity-run-1"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "body": {
+            "score": 1200,
+            "playerName": "Parity Tester"
+          },
+          "capture": {
+            "firstRecord": "$.record._id"
+          },
+          "expect": {
+            "status": 200,
+            "requiredFields": [
+              "$.record._id"
+            ],
+            "equals": {
+              "$.ok": true,
+              "$.record.score": 1200
+            }
+          }
+        },
+        {
+          "id": "append-replay",
+          "method": "POST",
+          "path": "/v3/storage/${projectId}/leaderboard_global/append",
+          "headers": {
+            "x-public-key": "${publicKey}",
+            "x-api-key": "${secretKey}",
+            "x-steam-id": "${steamId}",
+            "Idempotency-Key": "parity-run-1"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "body": {
+            "score": 1200,
+            "playerName": "Parity Tester"
+          },
+          "note": "Same Idempotency-Key as append-first.",
+          "expect": {
+            "status": 200,
+            "requiredFields": [
+              "$.record._id"
+            ],
+            "equals": {
+              "$.ok": true,
+              "$.record.score": 1200
+            }
+          }
+        },
+        {
+          "id": "append-second",
+          "method": "POST",
+          "path": "/v3/storage/${projectId}/leaderboard_global/append",
+          "headers": {
+            "x-public-key": "${publicKey}",
+            "x-api-key": "${secretKey}",
+            "x-steam-id": "${steamId2}"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "body": {
+            "score": 900,
+            "playerName": "Second Player",
+            "_id": "client-chosen-id"
+          },
+          "expect": {
+            "status": 200,
+            "requiredFields": [
+              "$.record._id"
+            ],
+            "equals": {
+              "$.ok": true,
+              "$.record.score": 900
+            }
+          }
+        },
+        {
+          "id": "list",
+          "method": "GET",
+          "path": "/v3/storage/${projectId}/leaderboard_global/list",
+          "headers": {
+            "x-public-key": "${publicKey}"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "orderInsensitivePaths": [
+            "$.records",
+            "$.data",
+            "$.items"
+          ],
+          "expect": {
+            "status": 200
+          }
+        },
+        {
+          "id": "record",
+          "method": "GET",
+          "path": "/v3/storage/${projectId}/leaderboard_global/record/${capture.firstRecord}",
+          "headers": {
+            "x-public-key": "${publicKey}"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "expect": {
+            "status": 200
+          }
+        },
+        {
+          "id": "record-missing",
+          "method": "GET",
+          "path": "/v3/storage/${projectId}/leaderboard_global/record/0000000000000000000000000000dead",
+          "headers": {
+            "x-public-key": "${publicKey}"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "expect": {
+            "status": 404,
+            "requiredFields": [
+              "$.error"
+            ]
+          }
+        },
+        {
+          "id": "append-public-key",
+          "method": "POST",
+          "path": "/v3/storage/${projectId}/leaderboard_global/append",
+          "headers": {
+            "x-public-key": "${publicKey}"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "body": {
+            "score": 1
+          },
+          "expect": {
+            "status": 403,
+            "requiredFields": [
+              "$.error"
+            ]
+          }
+        },
+        {
+          "id": "append-per-player-collection",
+          "method": "POST",
+          "path": "/v3/storage/${projectId}/players/append",
+          "headers": {
+            "x-public-key": "${publicKey}",
+            "x-api-key": "${secretKey}"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "body": {
+            "score": 1
+          },
+          "expect": {
+            "status": 400,
+            "requiredFields": [
+              "$.error"
+            ]
+          }
+        },
+        {
+          "id": "append-empty-body",
+          "method": "POST",
+          "path": "/v3/storage/${projectId}/leaderboard_global/append",
+          "headers": {
+            "x-public-key": "${publicKey}",
+            "x-api-key": "${secretKey}"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "body": {},
+          "expect": {
+            "status": 400,
+            "requiredFields": [
+              "$.error"
+            ]
+          }
+        },
+        {
+          "id": "list-api-alias",
+          "method": "GET",
+          "path": "/api/storage/${projectId}/leaderboard_global/list",
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "orderInsensitivePaths": [
+            "$.records",
+            "$.data",
+            "$.items"
+          ],
+          "expect": {
+            "status": 404,
+            "requiredFields": [
+              "$.error"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

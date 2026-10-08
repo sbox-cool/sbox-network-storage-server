@@ -1,0 +1,105 @@
+@model SboxNetworkStorage.Server.Owner.OwnerProjectModel
+@{
+    Layout = "~/Views/Owner/_Layout.cshtml";
+    var project = Model.Project;
+    var url = "/dashboard/projects/" + Uri.EscapeDataString(project.Id);
+}
+<a href="/dashboard">All projects</a>
+<h1>@project.Name</h1>
+<p>Project ID: <code>@project.Id</code></p>
+@if (Model.Error is not null) { <p class="error" role="alert">@Model.Error</p> }
+@if (Model.RawKey is not null)
+{
+    <aside class="notice security">
+        <strong>API key created — copy it now</strong>
+        <p><code class="selectable">@Model.RawKey</code></p>
+        <p>Public keys belong in the game client. Secret keys are for editor sync or dedicated servers; never ship them in a game build.</p>
+        <a href="@url">Dismiss</a>
+    </aside>
+}
+<section class="card">
+    <h2>API keys</h2>
+    <p><code>sbox_ns_...</code> public keys are runtime credentials. <code>sbox_sk_...</code> secret keys must stay server-side.</p>
+    <div class="table-scroll"><table>
+        <thead><tr><th>Label</th><th>Type</th><th>Status</th><th>Key identifier</th><th>Actions</th></tr></thead>
+        <tbody>
+        @foreach (var key in Model.Keys)
+        {
+            <tr>
+                <td>@key.Label</td><td>@key.KeyType</td><td>@(key.Enabled ? "Enabled" : "Disabled")</td>
+                <td><code>@(key.KeyType == "public" ? key.Key : key.KeyIdentifier ?? "Secret (hidden)")</code></td>
+                <td class="actions">
+                    <form method="post" action="@url/keys/toggle">
+                        @Html.AntiForgeryToken()<input name="key" type="hidden" value="@key.Key" />
+                        <button type="submit">@(key.Enabled ? "Disable" : "Enable")</button>
+                    </form>
+                    <form method="post" action="@url/keys/revoke">
+                        @Html.AntiForgeryToken()<input name="key" type="hidden" value="@key.Key" />
+                        <button class="danger" type="submit">Revoke permanently</button>
+                    </form>
+                </td>
+            </tr>
+        }
+        </tbody>
+    </table></div>
+    <h3>Create key</h3>
+    <form method="post" action="@url/keys">
+        @Html.AntiForgeryToken()
+        <label>Label <input name="label" required maxlength="64" /></label>
+        <label>Type <select name="keyType"><option value="public">Public (game runtime)</option><option value="secret">Secret (editor / server)</option></select></label>
+        <button type="submit">Create key</button>
+    </form>
+</section>
+<section class="grid">
+    <article class="card">
+        <h2>Project settings</h2>
+        <form method="post" action="@url/settings">
+            @Html.AntiForgeryToken()<input type="hidden" name="tab" value="project" />
+            <label>Name <input name="name" value="@project.Name" required maxlength="64" /></label>
+            <label>Description <textarea name="description" maxlength="256">@project.Description</textarea></label>
+            <label class="check"><input type="checkbox" name="enabled" value="true" checked="@project.Enabled" /> Enabled</label>
+            <button type="submit">Save project settings</button>
+        </form>
+    </article>
+    <article class="card">
+        <h2>Security</h2>
+        <form method="post" action="@url/settings">
+            @Html.AntiForgeryToken()<input type="hidden" name="tab" value="security" />
+            <label class="check"><input type="checkbox" name="requireSboxAuth" value="true" checked="@(project.RequireSboxAuth ?? true)" /> Require s&box authentication</label>
+            <label class="check"><input type="checkbox" name="enableAuthSessions" value="true" checked="@(project.EnableAuthSessions ?? false)" /> Enable auth sessions</label>
+            <label>Session TTL (seconds) <input type="number" name="authSessionTtlSeconds" value="@(project.AuthSessionTtlSeconds ?? 3600)" min="60" max="86400" /></label>
+            <label class="check"><input type="checkbox" name="enableEncryptedRequests" value="true" checked="@(project.EnableEncryptedRequests ?? false)" /> Enable encrypted requests</label>
+            <label>Encrypted request window (seconds) <input type="number" name="encryptedRequestWindowSeconds" value="@(project.EncryptedRequestWindowSeconds ?? 120)" min="30" max="600" /></label>
+            <button type="submit">Save security settings</button>
+        </form>
+    </article>
+    <article class="card">
+        <h2>Player keys</h2>
+        <form method="post" action="@url/settings">
+            @Html.AntiForgeryToken()<input type="hidden" name="tab" value="player-keys" />
+            <label>Mode <select name="playerKeyMode">
+                <option value="player" selected="@(project.PlayerKeyMode != "playerSave")">Player</option>
+                <option value="playerSave" selected="@(project.PlayerKeyMode == "playerSave")">Player save</option>
+            </select></label>
+            <button type="submit">Save player-key mode</button>
+        </form>
+    </article>
+</section>
+<section class="card">
+    <h2>Synced resources</h2>
+    <p>Use the existing editor sync tool with this server's base URL to author resources.</p>
+    <h3>Collections</h3>
+    <ul>@foreach (var collection in Model.Resources?.Collections ?? []) { <li><strong>@collection.Name</strong> · @collection.CollectionType · <code>@collection.Id</code> · @collection.Description</li> }</ul>
+    <h3>Endpoints</h3>
+    <ul>@foreach (var endpoint in Model.Resources?.Endpoints ?? []) { <li><strong>@endpoint.Name</strong> · @endpoint.Method <code>@endpoint.Slug</code> · @(endpoint.Enabled ? "Enabled" : "Disabled")</li> }</ul>
+    <p>Record browsing/editing, query/workflow/game-value authoring, analytics/log/error/usage views and managed project export/import are not available in this dashboard. No full dashboard parity claim is made.</p>
+</section>
+<section class="card danger-zone">
+    <h2>Delete project</h2>
+    <p>This permanently deletes the project and its data. Enter <code>@project.Id</code> to confirm.</p>
+    <form method="post" action="@url/delete">
+        @Html.AntiForgeryToken()
+        <label>Project ID <input name="confirmation" required autocomplete="off" /></label>
+        <button type="submit" class="danger">Delete permanently</button>
+    </form>
+</section>

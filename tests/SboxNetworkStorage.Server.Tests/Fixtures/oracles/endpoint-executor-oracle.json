@@ -1,0 +1,1347 @@
+{
+  "generatedAt": "2026-06-10T02:53:50.669Z",
+  "cases": [
+    {
+      "id": "static_response",
+      "def": {
+        "steps": [],
+        "response": {
+          "status": 200,
+          "body": {
+            "ok": true,
+            "msg": "hello"
+          }
+        }
+      },
+      "request": {
+        "steamId": "76561198021524886",
+        "input": {},
+        "gameValues": {},
+        "mockData": {}
+      },
+      "ok": true,
+      "status": 200,
+      "body": {
+        "ok": true,
+        "msg": "hello"
+      }
+    },
+    {
+      "id": "transform_into_response",
+      "def": {
+        "steps": [
+          {
+            "id": "calc",
+            "type": "transform",
+            "expression": "{{input.a}} + {{input.b}} * 2"
+          }
+        ],
+        "response": {
+          "status": 200,
+          "body": {
+            "sum": "{{calc}}",
+            "who": "{{steamId}}"
+          }
+        }
+      },
+      "request": {
+        "steamId": "76561198021524886",
+        "input": {
+          "a": 10,
+          "b": 5
+        },
+        "gameValues": {},
+        "mockData": {}
+      },
+      "ok": true,
+      "status": 200,
+      "body": {
+        "sum": 20,
+        "who": "76561198021524886"
+      }
+    },
+    {
+      "id": "read_mock_and_echo",
+      "def": {
+        "steps": [
+          {
+            "id": "player",
+            "type": "read",
+            "collection": "players",
+            "key": "{{steamId}}"
+          },
+          {
+            "id": "level",
+            "type": "transform",
+            "expression": "{{player.totalLevel}} + 1"
+          }
+        ],
+        "response": {
+          "status": 200,
+          "body": {
+            "current": "{{player.totalLevel}}"
+          },
+          "echo": [
+            "{{level}}"
+          ]
+        }
+      },
+      "request": {
+        "steamId": "76561198021524886",
+        "input": {},
+        "gameValues": {},
+        "mockData": {
+          "players": {
+            "totalLevel": 399,
+            "name": "cerbralone"
+          }
+        }
+      },
+      "ok": true,
+      "status": 200,
+      "body": {
+        "current": 399,
+        "level": 400
+      }
+    },
+    {
+      "id": "read_missing_returns_null",
+      "def": {
+        "steps": [
+          {
+            "id": "player",
+            "type": "read",
+            "collection": "players",
+            "key": "{{steamId}}"
+          }
+        ],
+        "response": {
+          "status": 200,
+          "body": {
+            "found": "{{player}}",
+            "fallback": "{{player.totalLevel | 0}}"
+          }
+        }
+      },
+      "request": {
+        "steamId": "76561198021524886",
+        "input": {},
+        "gameValues": {},
+        "mockData": {}
+      },
+      "ok": true,
+      "status": 200,
+      "body": {
+        "found": null,
+        "fallback": 0
+      }
+    },
+    {
+      "id": "condition_pass",
+      "def": {
+        "steps": [
+          {
+            "id": "player",
+            "type": "read",
+            "collection": "players",
+            "key": "{{steamId}}"
+          },
+          {
+            "id": "afford",
+            "type": "condition",
+            "check": {
+              "field": "player.coins",
+              "op": ">=",
+              "value": "{{input.price}}"
+            }
+          }
+        ],
+        "response": {
+          "status": 200,
+          "body": {
+            "ok": true,
+            "passed": "{{afford}}"
+          }
+        }
+      },
+      "request": {
+        "steamId": "76561198021524886",
+        "input": {
+          "price": 100
+        },
+        "gameValues": {},
+        "mockData": {
+          "players": {
+            "coins": 250
+          }
+        }
+      },
+      "ok": true,
+      "status": 200,
+      "body": {
+        "ok": true,
+        "passed": true
+      }
+    },
+    {
+      "id": "condition_reject",
+      "def": {
+        "steps": [
+          {
+            "id": "player",
+            "type": "read",
+            "collection": "players",
+            "key": "{{steamId}}"
+          },
+          {
+            "id": "afford",
+            "type": "condition",
+            "check": {
+              "field": "player.coins",
+              "op": ">=",
+              "value": "{{input.price}}"
+            },
+            "onFail": {
+              "status": 402,
+              "errorCode": "INSUFFICIENT_FUNDS",
+              "errorMessage": "Need {{input.price}} coins."
+            }
+          }
+        ],
+        "response": {
+          "status": 200,
+          "body": {
+            "ok": true
+          }
+        }
+      },
+      "request": {
+        "steamId": "76561198021524886",
+        "input": {
+          "price": 100
+        },
+        "gameValues": {},
+        "mockData": {
+          "players": {
+            "coins": 50
+          }
+        }
+      },
+      "ok": false,
+      "status": 402,
+      "body": {
+        "error": {
+          "code": "INSUFFICIENT_FUNDS",
+          "message": "Need 100 coins."
+        },
+        "flagged": false,
+        "severity": null,
+        "conditionRejection": true,
+        "fireWebhook": false
+      }
+    },
+    {
+      "id": "condition_reject_default",
+      "def": {
+        "steps": [
+          {
+            "id": "chk",
+            "type": "condition",
+            "check": {
+              "field": "input.x",
+              "op": ">",
+              "value": 100
+            }
+          }
+        ],
+        "response": {
+          "status": 200,
+          "body": {
+            "ok": true
+          }
+        }
+      },
+      "request": {
+        "steamId": "76561198021524886",
+        "input": {
+          "x": 5
+        },
+        "gameValues": {},
+        "mockData": {}
+      },
+      "ok": false,
+      "status": 400,
+      "body": {
+        "error": {
+          "code": "CONDITION_FAILED",
+          "message": "Condition check failed."
+        },
+        "flagged": false,
+        "severity": null,
+        "conditionRejection": true,
+        "fireWebhook": false
+      }
+    },
+    {
+      "id": "condition_continue_flag",
+      "def": {
+        "steps": [
+          {
+            "id": "chk",
+            "type": "condition",
+            "check": {
+              "field": "input.x",
+              "op": ">",
+              "value": 100
+            },
+            "onFail": {
+              "reject": false
+            }
+          }
+        ],
+        "response": {
+          "status": 200,
+          "body": {
+            "ok": true,
+            "chk": "{{chk}}"
+          }
+        }
+      },
+      "request": {
+        "steamId": "76561198021524886",
+        "input": {
+          "x": 5
+        },
+        "gameValues": {},
+        "mockData": {}
+      },
+      "ok": true,
+      "status": 200,
+      "body": {
+        "ok": true,
+        "chk": false
+      }
+    },
+    {
+      "id": "assert_pass",
+      "def": {
+        "steps": [
+          {
+            "id": "a",
+            "type": "assert",
+            "check": {
+              "field": "input.qty",
+              "op": ">",
+              "value": 0
+            }
+          }
+        ],
+        "response": {
+          "status": 200,
+          "body": {
+            "ok": true
+          }
+        }
+      },
+      "request": {
+        "steamId": "76561198021524886",
+        "input": {
+          "qty": 3
+        },
+        "gameValues": {},
+        "mockData": {}
+      },
+      "ok": true,
+      "status": 200,
+      "body": {
+        "ok": true
+      }
+    },
+    {
+      "id": "assert_fail",
+      "def": {
+        "steps": [
+          {
+            "id": "a",
+            "type": "assert",
+            "check": {
+              "field": "input.qty",
+              "op": ">",
+              "value": 0
+            },
+            "status": 422,
+            "errorCode": "BAD_QTY",
+            "message": "qty must be positive"
+          }
+        ],
+        "response": {
+          "status": 200,
+          "body": {
+            "ok": true
+          }
+        }
+      },
+      "request": {
+        "steamId": "76561198021524886",
+        "input": {
+          "qty": 0
+        },
+        "gameValues": {},
+        "mockData": {}
+      },
+      "ok": false,
+      "status": 422,
+      "body": {
+        "error": {
+          "code": "BAD_QTY",
+          "message": "qty must be positive",
+          "docsUrl": "https://sboxcool.com/wiki/network-storage-v3/endpoints#error-handling",
+          "step": {
+            "id": "a",
+            "type": "assert",
+            "check": "{\"field\":\"input.qty\",\"op\":\">\",\"value\":0}",
+            "errorCode": "BAD_QTY"
+          }
+        }
+      }
+    },
+    {
+      "id": "compute_object",
+      "def": {
+        "steps": [
+          {
+            "id": "c",
+            "type": "compute",
+            "values": {
+              "doubled": "{{input.n}} * 2",
+              "label": {
+                "value": "n={{input.n}}"
+              }
+            }
+          }
+        ],
+        "response": {
+          "status": 200,
+          "body": {
+            "d": "{{c.doubled}}",
+            "l": "{{c.label}}"
+          }
+        }
+      },
+      "request": {
+        "steamId": "76561198021524886",
+        "input": {
+          "n": 7
+        },
+        "gameValues": {},
+        "mockData": {}
+      },
+      "ok": true,
+      "status": 200,
+      "body": {
+        "d": 14,
+        "l": "n=7"
+      }
+    },
+    {
+      "id": "compute_scalars",
+      "def": {
+        "steps": [
+          {
+            "id": "c",
+            "type": "compute",
+            "output": "scalars",
+            "values": {
+              "xp": "{{input.n}} + 1",
+              "lvl": "floor(({{input.n}} + 1) / 10)"
+            }
+          }
+        ],
+        "response": {
+          "status": 200,
+          "body": {
+            "xp": "{{xp}}",
+            "lvl": "{{lvl}}"
+          }
+        }
+      },
+      "request": {
+        "steamId": "76561198021524886",
+        "input": {
+          "n": 49
+        },
+        "gameValues": {},
+        "mockData": {}
+      },
+      "ok": true,
+      "status": 200,
+      "body": {
+        "xp": 50,
+        "lvl": 5
+      }
+    },
+    {
+      "id": "switch_match",
+      "def": {
+        "steps": [
+          {
+            "id": "tier",
+            "type": "switch",
+            "cases": [
+              {
+                "when": {
+                  "field": "input.score",
+                  "op": ">=",
+                  "value": 100
+                },
+                "then": "gold"
+              },
+              {
+                "when": {
+                  "field": "input.score",
+                  "op": ">=",
+                  "value": 50
+                },
+                "then": "silver"
+              }
+            ],
+            "default": "bronze"
+          }
+        ],
+        "response": {
+          "status": 200,
+          "body": {
+            "tier": "{{tier}}"
+          }
+        }
+      },
+      "request": {
+        "steamId": "76561198021524886",
+        "input": {
+          "score": 75
+        },
+        "gameValues": {},
+        "mockData": {}
+      },
+      "ok": true,
+      "status": 200,
+      "body": {
+        "tier": "silver"
+      }
+    },
+    {
+      "id": "switch_default",
+      "def": {
+        "steps": [
+          {
+            "id": "tier",
+            "type": "switch",
+            "cases": [
+              {
+                "when": {
+                  "field": "input.score",
+                  "op": ">=",
+                  "value": 100
+                },
+                "then": "gold"
+              }
+            ],
+            "default": "bronze"
+          }
+        ],
+        "response": {
+          "status": 200,
+          "body": {
+            "tier": "{{tier}}"
+          }
+        }
+      },
+      "request": {
+        "steamId": "76561198021524886",
+        "input": {
+          "score": 10
+        },
+        "gameValues": {},
+        "mockData": {}
+      },
+      "ok": true,
+      "status": 200,
+      "body": {
+        "tier": "bronze"
+      }
+    },
+    {
+      "id": "object_and_array",
+      "def": {
+        "steps": [
+          {
+            "id": "obj",
+            "type": "object",
+            "fields": {
+              "id": "{{steamId}}",
+              "n": "{{input.n}}"
+            }
+          },
+          {
+            "id": "arr",
+            "type": "array",
+            "items": [
+              "{{input.n}}",
+              "{{steamId}}",
+              "static"
+            ]
+          }
+        ],
+        "response": {
+          "status": 200,
+          "body": {
+            "obj": "{{obj}}",
+            "arr": "{{arr}}"
+          }
+        }
+      },
+      "request": {
+        "steamId": "76561198021524886",
+        "input": {
+          "n": 3
+        },
+        "gameValues": {},
+        "mockData": {}
+      },
+      "ok": true,
+      "status": 200,
+      "body": {
+        "obj": {
+          "id": "76561198021524886",
+          "n": 3
+        },
+        "arr": [
+          3,
+          "76561198021524886",
+          "static"
+        ]
+      }
+    },
+    {
+      "id": "merge_objects",
+      "def": {
+        "steps": [
+          {
+            "id": "m",
+            "type": "merge",
+            "sources": [
+              {
+                "a": 1,
+                "b": 2
+              },
+              {
+                "b": "{{input.b}}",
+                "c": 3
+              }
+            ]
+          }
+        ],
+        "response": {
+          "status": 200,
+          "body": {
+            "merged": "{{m}}"
+          }
+        }
+      },
+      "request": {
+        "steamId": "76561198021524886",
+        "input": {
+          "b": 99
+        },
+        "gameValues": {},
+        "mockData": {}
+      },
+      "ok": true,
+      "status": 200,
+      "body": {
+        "merged": {
+          "a": 1,
+          "b": 99,
+          "c": 3
+        }
+      }
+    },
+    {
+      "id": "sort_desc",
+      "def": {
+        "steps": [
+          {
+            "id": "sorted",
+            "type": "sort",
+            "source": "{{input.nums}}",
+            "direction": "desc"
+          }
+        ],
+        "response": {
+          "status": 200,
+          "body": {
+            "sorted": "{{sorted}}"
+          }
+        }
+      },
+      "request": {
+        "steamId": "76561198021524886",
+        "input": {
+          "nums": [
+            3,
+            1,
+            4,
+            1,
+            5,
+            9,
+            2
+          ]
+        },
+        "gameValues": {},
+        "mockData": {}
+      },
+      "ok": true,
+      "status": 200,
+      "body": {
+        "sorted": [
+          9,
+          5,
+          4,
+          3,
+          2,
+          1,
+          1
+        ]
+      }
+    },
+    {
+      "id": "block_when_gates",
+      "def": {
+        "steps": [
+          {
+            "id": "blk",
+            "type": "block",
+            "when": {
+              "field": "input.enabled",
+              "op": "==",
+              "value": true
+            },
+            "steps": [
+              {
+                "id": "inner",
+                "type": "transform",
+                "value": "ran"
+              }
+            ]
+          }
+        ],
+        "response": {
+          "status": 200,
+          "body": {
+            "inner": "{{inner | skipped}}"
+          }
+        }
+      },
+      "request": {
+        "steamId": "76561198021524886",
+        "input": {
+          "enabled": false
+        },
+        "gameValues": {},
+        "mockData": {}
+      },
+      "ok": true,
+      "status": 200,
+      "body": {
+        "inner": "skipped"
+      }
+    },
+    {
+      "id": "step_when_skips",
+      "def": {
+        "steps": [
+          {
+            "id": "maybe",
+            "type": "transform",
+            "value": "ran",
+            "when": {
+              "field": "input.go",
+              "op": "==",
+              "value": true
+            }
+          }
+        ],
+        "response": {
+          "status": 200,
+          "body": {
+            "maybe": "{{maybe | nope}}"
+          }
+        }
+      },
+      "request": {
+        "steamId": "76561198021524886",
+        "input": {
+          "go": false
+        },
+        "gameValues": {},
+        "mockData": {}
+      },
+      "ok": true,
+      "status": 200,
+      "body": {
+        "maybe": "nope"
+      }
+    },
+    {
+      "id": "gamevalues_in_math",
+      "def": {
+        "steps": [
+          {
+            "id": "player",
+            "type": "read",
+            "collection": "players",
+            "key": "{{steamId}}"
+          },
+          {
+            "id": "lvl",
+            "type": "transform",
+            "expression": "floor({{player.xp}} / {{values.xpPerLevel}})"
+          }
+        ],
+        "response": {
+          "status": 200,
+          "body": {
+            "level": "{{lvl}}"
+          }
+        }
+      },
+      "request": {
+        "steamId": "76561198021524886",
+        "input": {},
+        "gameValues": {
+          "xpPerLevel": 100
+        },
+        "mockData": {
+          "players": {
+            "xp": 945
+          }
+        }
+      },
+      "ok": true,
+      "status": 200,
+      "body": {
+        "level": 9
+      }
+    },
+    {
+      "id": "write_set_and_read_back",
+      "def": {
+        "steps": [
+          {
+            "id": "player",
+            "type": "read",
+            "collection": "players",
+            "key": "{{steamId}}"
+          },
+          {
+            "id": "save",
+            "type": "write",
+            "collection": "players",
+            "key": "{{steamId}}",
+            "ops": [
+              {
+                "op": "set",
+                "path": "totalLevel",
+                "value": 400
+              },
+              {
+                "op": "inc",
+                "path": "xp",
+                "value": 50
+              }
+            ]
+          }
+        ],
+        "response": {
+          "status": 200,
+          "body": {
+            "level": "{{player.totalLevel}}",
+            "newXp": "{{player.xp}}"
+          }
+        }
+      },
+      "request": {
+        "steamId": "76561198021524886",
+        "input": {},
+        "gameValues": {},
+        "mockData": {
+          "players": {
+            "totalLevel": 399,
+            "xp": 945
+          }
+        }
+      },
+      "ok": true,
+      "status": 200,
+      "body": {
+        "level": 399,
+        "newXp": 945
+      }
+    },
+    {
+      "id": "write_inc_nested",
+      "def": {
+        "steps": [
+          {
+            "id": "player",
+            "type": "read",
+            "collection": "players",
+            "key": "{{steamId}}"
+          },
+          {
+            "id": "save",
+            "type": "write",
+            "collection": "players",
+            "key": "{{steamId}}",
+            "ops": [
+              {
+                "op": "inc",
+                "path": "stats.kills",
+                "value": 1
+              },
+              {
+                "op": "push",
+                "path": "inventory",
+                "value": {
+                  "id": "potion",
+                  "qty": 3
+                }
+              }
+            ]
+          }
+        ],
+        "response": {
+          "status": 200,
+          "body": {
+            "kills": "{{player.stats.kills}}",
+            "invLen": "{{player.inventory.length}}"
+          }
+        }
+      },
+      "request": {
+        "steamId": "76561198021524886",
+        "input": {},
+        "gameValues": {},
+        "mockData": {
+          "players": {
+            "stats": {
+              "kills": 10
+            },
+            "inventory": [
+              {
+                "id": "sword"
+              }
+            ]
+          }
+        }
+      },
+      "ok": true,
+      "status": 200,
+      "body": {
+        "kills": 10,
+        "invLen": 1
+      }
+    },
+    {
+      "id": "write_new_record",
+      "def": {
+        "steps": [
+          {
+            "id": "save",
+            "type": "write",
+            "collection": "scores",
+            "key": "{{steamId}}",
+            "ops": [
+              {
+                "op": "set",
+                "path": "score",
+                "value": 100
+              },
+              {
+                "op": "set",
+                "path": "name",
+                "value": "cerbralone"
+              }
+            ]
+          }
+        ],
+        "response": {
+          "status": 200,
+          "body": {
+            "saved": true
+          }
+        }
+      },
+      "request": {
+        "steamId": "76561198021524886",
+        "input": {},
+        "gameValues": {},
+        "mockData": {}
+      },
+      "ok": true,
+      "status": 200,
+      "body": {
+        "saved": true
+      }
+    },
+    {
+      "id": "delete_record",
+      "def": {
+        "steps": [
+          {
+            "id": "rm",
+            "type": "delete",
+            "collection": "scores",
+            "key": "{{steamId}}"
+          }
+        ],
+        "response": {
+          "status": 200,
+          "body": {
+            "deleted": true
+          }
+        }
+      },
+      "request": {
+        "steamId": "76561198021524886",
+        "input": {},
+        "gameValues": {},
+        "mockData": {}
+      },
+      "ok": true,
+      "status": 200,
+      "body": {
+        "deleted": true
+      }
+    },
+    {
+      "id": "random_int_completes",
+      "def": {
+        "steps": [
+          {
+            "id": "roll",
+            "type": "random",
+            "mode": "int",
+            "min": 1,
+            "max": 100
+          },
+          {
+            "id": "check",
+            "type": "condition",
+            "check": {
+              "field": "roll",
+              "op": ">=",
+              "value": 1
+            }
+          }
+        ],
+        "response": {
+          "status": 200,
+          "body": {
+            "ok": true
+          }
+        }
+      },
+      "request": {
+        "steamId": "76561198021524886",
+        "input": {},
+        "gameValues": {},
+        "mockData": {}
+      },
+      "ok": true,
+      "status": 200,
+      "body": {
+        "ok": true
+      }
+    },
+    {
+      "id": "lookup_values_first_match",
+      "def": {
+        "steps": [
+          {
+            "id": "item",
+            "type": "lookup",
+            "source": "values",
+            "table": "shop_items",
+            "where": {
+              "field": "id",
+              "op": "==",
+              "value": "sword"
+            }
+          }
+        ],
+        "response": {
+          "status": 200,
+          "body": {
+            "found": "{{item.name}}",
+            "price": "{{item.price}}"
+          }
+        }
+      },
+      "request": {
+        "steamId": "76561198021524886",
+        "input": {},
+        "gameValues": {
+          "shop_items": [
+            {
+              "id": "shield",
+              "name": "Iron Shield",
+              "price": 50
+            },
+            {
+              "id": "sword",
+              "name": "Steel Sword",
+              "price": 100
+            },
+            {
+              "id": "potion",
+              "name": "Health Potion",
+              "price": 10
+            }
+          ]
+        },
+        "mockData": {}
+      },
+      "ok": true,
+      "status": 200,
+      "body": {
+        "found": "Steel Sword",
+        "price": 100
+      }
+    },
+    {
+      "id": "lookup_values_no_match",
+      "def": {
+        "steps": [
+          {
+            "id": "item",
+            "type": "lookup",
+            "source": "values",
+            "table": "shop_items",
+            "where": {
+              "field": "id",
+              "op": "==",
+              "value": "axe"
+            }
+          }
+        ],
+        "response": {
+          "status": 200,
+          "body": {
+            "found": "{{item | null}}"
+          }
+        }
+      },
+      "request": {
+        "steamId": "76561198021524886",
+        "input": {},
+        "gameValues": {
+          "shop_items": [
+            {
+              "id": "sword",
+              "name": "Steel Sword",
+              "price": 100
+            }
+          ]
+        },
+        "mockData": {}
+      },
+      "ok": true,
+      "status": 200,
+      "body": {
+        "found": null
+      }
+    },
+    {
+      "id": "filter_values_by_price",
+      "def": {
+        "steps": [
+          {
+            "id": "cheap",
+            "type": "filter",
+            "source": "values",
+            "table": "shop_items",
+            "where": {
+              "field": "price",
+              "op": "<=",
+              "value": 50
+            }
+          }
+        ],
+        "response": {
+          "status": 200,
+          "body": {
+            "count": "{{cheap.length}}",
+            "items": "{{cheap}}"
+          }
+        }
+      },
+      "request": {
+        "steamId": "76561198021524886",
+        "input": {},
+        "gameValues": {
+          "shop_items": [
+            {
+              "id": "shield",
+              "name": "Iron Shield",
+              "price": 50
+            },
+            {
+              "id": "sword",
+              "name": "Steel Sword",
+              "price": 100
+            },
+            {
+              "id": "potion",
+              "name": "Health Potion",
+              "price": 10
+            }
+          ]
+        },
+        "mockData": {}
+      },
+      "ok": true,
+      "status": 200,
+      "body": {
+        "count": 2,
+        "items": [
+          {
+            "id": "shield",
+            "name": "Iron Shield",
+            "price": 50
+          },
+          {
+            "id": "potion",
+            "name": "Health Potion",
+            "price": 10
+          }
+        ]
+      }
+    },
+    {
+      "id": "filter_values_any_match",
+      "def": {
+        "steps": [
+          {
+            "id": "gear",
+            "type": "filter",
+            "source": "values",
+            "table": "shop_items",
+            "where": {
+              "any": [
+                {
+                  "field": "id",
+                  "op": "==",
+                  "value": "sword"
+                },
+                {
+                  "field": "id",
+                  "op": "==",
+                  "value": "shield"
+                }
+              ]
+            }
+          }
+        ],
+        "response": {
+          "status": 200,
+          "body": {
+            "count": "{{gear.length}}"
+          }
+        }
+      },
+      "request": {
+        "steamId": "76561198021524886",
+        "input": {},
+        "gameValues": {
+          "shop_items": [
+            {
+              "id": "shield",
+              "name": "Iron Shield",
+              "price": 50
+            },
+            {
+              "id": "sword",
+              "name": "Steel Sword",
+              "price": 100
+            },
+            {
+              "id": "potion",
+              "name": "Health Potion",
+              "price": 10
+            }
+          ]
+        },
+        "mockData": {}
+      },
+      "ok": true,
+      "status": 200,
+      "body": {
+        "count": 2
+      }
+    },
+    {
+      "id": "random_select_values",
+      "def": {
+        "steps": [
+          {
+            "id": "drop",
+            "type": "random_select",
+            "source": "values",
+            "table": "loot_table",
+            "where": {
+              "field": "tier",
+              "op": "==",
+              "value": "common"
+            }
+          }
+        ],
+        "response": {
+          "status": 200,
+          "body": {
+            "tier": "{{drop.tier}}"
+          }
+        }
+      },
+      "request": {
+        "steamId": "76561198021524886",
+        "input": {},
+        "gameValues": {
+          "loot_table": [
+            {
+              "id": "gold_coin",
+              "tier": "common",
+              "weight": 50
+            },
+            {
+              "id": "iron_ore",
+              "tier": "common",
+              "weight": 30
+            },
+            {
+              "id": "dragon_scale",
+              "tier": "rare",
+              "weight": 5
+            }
+          ]
+        },
+        "mockData": {}
+      },
+      "ok": true,
+      "status": 200,
+      "body": {
+        "tier": "common"
+      }
+    }
+  ]
+}

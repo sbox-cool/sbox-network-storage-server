@@ -1,0 +1,68 @@
+name: Bug report
+description: Something in the server, CLI, installer or image does not work as documented.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Security problems: do not file them here. See SECURITY.md for private reporting.
+        Remove secrets, API keys and passwords from anything you paste.
+  - type: input
+    id: version
+    attributes:
+      label: Server version
+      description: Output of `sbox-ns version`
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: Install method
+      options:
+        - install.sh (Linux)
+        - install.sh (macOS)
+        - install.ps1 (Windows)
+        - Docker image
+        - Manual download
+        - Built from source
+    validations:
+      required: true
+  - type: dropdown
+    id: database
+    attributes:
+      label: Database
+      options:
+        - SQLite
+        - PostgreSQL
+    validations:
+      required: true
+  - type: input
+    id: client
+    attributes:
+      label: s&box client library version
+      description: Version of the Network Storage library in your game, if relevant
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: sbox-ns doctor output
+      description: Output of `sbox-ns doctor`
+      render: text
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Output of `sbox-ns logs` around the problem
+      render: text

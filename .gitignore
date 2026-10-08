@@ -1,0 +1,37 @@
+# Build output
+bin/
+obj/
+publish/
+artifacts/
+out/
+
+# IDE and user files
+*.user
+*.suo
+*.userprefs
+.vs/
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Test output
+TestResults/
+coverage/
+*.trx
+
+# Local databases and runtime data
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+/data/
+
+# Secrets
+.env
+.env.*
+*.pfx
+*.key
+*.pem

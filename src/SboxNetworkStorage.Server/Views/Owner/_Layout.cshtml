@@ -1,0 +1,38 @@
+@using SboxNetworkStorage.Server.Updates
+@using SboxNetworkStorage.Server.Hosting
+@inject UpdateNoticeState Updates
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Network Storage · Local owner</title>
+    <link rel="stylesheet" href="/owner-assets/management.css" />
+</head>
+<body>
+<header>
+    <a href="/dashboard" class="brand">Network Storage</a>
+    <span>Self-hosted · @BuildInfo.Version</span>
+    @if (User.Identity?.IsAuthenticated == true)
+    {
+        <span>@User.Identity.Name</span>
+        <form method="post" action="/logout">@Html.AntiForgeryToken()<button type="submit">Log out</button></form>
+    }
+</header>
+<main>
+    @if (User.Identity?.IsAuthenticated == true && Updates.Current is { UpdateAvailable: true } update)
+    {
+        <aside class="@(update.Latest.Security ? "notice security" : "notice")" role="status">
+            <strong>@(update.Latest.Security ? "Security update available" : "Update available"): @update.Latest.Version</strong>
+            <p>Running @update.CurrentVersion. Updates are never installed automatically. Run <code>sbox-ns update</code>.</p>
+            @if (Uri.TryCreate(update.Latest.ChangelogUrl, UriKind.Absolute, out var changelog) && changelog.Scheme == "https")
+            {
+                <a href="@changelog.AbsoluteUri" rel="noreferrer">Read changelog</a>
+            }
+        </aside>
+    }
+    @RenderBody()
+</main>
+<footer>Single local owner. No website account, organization, or billing dependency.</footer>
+</body>
+</html>

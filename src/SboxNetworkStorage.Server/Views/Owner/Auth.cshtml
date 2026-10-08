@@ -1,0 +1,23 @@
+@model SboxNetworkStorage.Server.Owner.OwnerAuthModel
+@{ Layout = "~/Views/Owner/_Layout.cshtml"; }
+<section class="card auth">
+    <h1>@(Model.Setup ? "Create the local owner" : "Owner login")</h1>
+    @if (Model.Error is not null) { <p class="error" role="alert">@Model.Error</p> }
+    @if (Model.Setup)
+    {
+        <p>This capability is local-only and expires after two hours. Creating the owner permanently consumes it.</p>
+    }
+    <form method="post" action="@(Model.Setup ? "/setup" : "/login")">
+        @Html.AntiForgeryToken()
+        @if (Model.Setup) { <input type="hidden" name="token" value="@Model.Token" /> }
+        <label>Username <input name="username" value="@Model.Username" required maxlength="64" autocomplete="username" /></label>
+        <label>Password <input name="password" type="password" required minlength="@(Model.Setup ? 12 : 1)" maxlength="1024" autocomplete="@(Model.Setup ? "new-password" : "current-password")" /></label>
+        @if (Model.Setup)
+        {
+            <label>Confirm password <input name="confirmPassword" type="password" required minlength="12" maxlength="1024" autocomplete="new-password" /></label>
+        }
+        <button type="submit">@(Model.Setup ? "Create owner" : "Log in")</button>
+    </form>
+    <p>Use HTTPS for remote login. Plain HTTP is intended only for a trusted local connection or SSH tunnel.</p>
+    <p>Lost password? On the server run <code>sbox-ns admin reset-password</code>.</p>
+</section>

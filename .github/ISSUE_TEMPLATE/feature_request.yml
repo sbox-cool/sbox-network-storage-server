@@ -1,0 +1,27 @@
+name: Feature request
+description: Suggest an improvement to the self-hosted server.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What are you trying to do, and what gets in the way?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: checkboxes
+    id: client
+    attributes:
+      label: Client impact
+      options:
+        - label: This needs a change in the s&box client library (sbox-cool/sbox-network-storage)

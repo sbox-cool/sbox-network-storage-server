@@ -1,0 +1,8 @@
+{
+  "playerName": "TestPlayer",
+  "score": 1000,
+  "level": 5,
+  "inventory": ["sword", "shield", "potion"],
+  "_savedAt": 1717084800,
+  "_savedBy": "server"
+}

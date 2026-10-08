@@ -1,0 +1,268 @@
+{
+  "schemaVersion": 1,
+  "description": "Per-player ledger and multi-record save slots.",
+  "scenarios": [
+    {
+      "name": "ledger-read",
+      "description": "Ledger audit trail for the ledger-tracked gold field after endpoint writes.",
+      "source": "docs 18-rest-api-reference (Ledger)",
+      "steps": [
+        {
+          "id": "ledger",
+          "method": "GET",
+          "path": "/v3/storage/${projectId}/players/${steamId}/ledger",
+          "headers": {
+            "x-public-key": "${publicKey}",
+            "x-steam-id": "${steamId}",
+            "x-sbox-token": "parity-placeholder-token",
+            "x-ns-client-type": "game"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "expect": {
+            "status": 200
+          }
+        },
+        {
+          "id": "ledger-dedicated",
+          "method": "GET",
+          "path": "/v3/storage/${projectId}/players/${steamId2}/ledger",
+          "headers": {
+            "x-public-key": "${publicKey}",
+            "x-api-key": "${secretKey}"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "expect": {
+            "status": 200
+          }
+        }
+      ]
+    },
+    {
+      "name": "records-save-slots",
+      "description": "ListRecords/CreateRecord/RenameRecord/DeleteRecord.",
+      "source": "Code/Storage/NetworkStorageCollections.cs ListRecords/CreateRecord/RenameRecord/DeleteRecord",
+      "steps": [
+        {
+          "id": "list-empty",
+          "method": "GET",
+          "path": "/v3/storage/${projectId}/save_slots/${steamId}/records",
+          "headers": {
+            "x-public-key": "${publicKey}",
+            "x-steam-id": "${steamId}",
+            "x-sbox-token": "parity-placeholder-token",
+            "x-ns-client-type": "game",
+            "x-api-key": "${secretKey}"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "expect": {
+            "status": 200,
+            "requiredFields": [
+              "$.records",
+              "$.maxRecords"
+            ]
+          }
+        },
+        {
+          "id": "create-named",
+          "method": "POST",
+          "path": "/v3/storage/${projectId}/save_slots/${steamId}/records",
+          "headers": {
+            "x-public-key": "${publicKey}",
+            "x-steam-id": "${steamId}",
+            "x-sbox-token": "parity-placeholder-token",
+            "x-ns-client-type": "game",
+            "x-api-key": "${secretKey}"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "body": {
+            "recordName": "Main Save"
+          },
+          "capture": {
+            "slotA": "$.recordId"
+          },
+          "expect": {
+            "status": 200,
+            "requiredFields": [
+              "$.recordId",
+              "$.recordName"
+            ],
+            "equals": {
+              "$.ok": true
+            }
+          }
+        },
+        {
+          "id": "create-unnamed",
+          "method": "POST",
+          "path": "/v3/storage/${projectId}/save_slots/${steamId}/records",
+          "headers": {
+            "x-public-key": "${publicKey}",
+            "x-steam-id": "${steamId}",
+            "x-sbox-token": "parity-placeholder-token",
+            "x-ns-client-type": "game",
+            "x-api-key": "${secretKey}"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "body": {},
+          "capture": {
+            "slotB": "$.recordId"
+          },
+          "expect": {
+            "status": 200,
+            "requiredFields": [
+              "$.recordId",
+              "$.recordName"
+            ],
+            "equals": {
+              "$.ok": true
+            }
+          }
+        },
+        {
+          "id": "list",
+          "method": "GET",
+          "path": "/v3/storage/${projectId}/save_slots/${steamId}/records",
+          "headers": {
+            "x-public-key": "${publicKey}",
+            "x-steam-id": "${steamId}",
+            "x-sbox-token": "parity-placeholder-token",
+            "x-ns-client-type": "game",
+            "x-api-key": "${secretKey}"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "orderInsensitivePaths": [
+            "$.records"
+          ],
+          "expect": {
+            "status": 200,
+            "requiredFields": [
+              "$.records",
+              "$.maxRecords"
+            ]
+          }
+        },
+        {
+          "id": "rename",
+          "method": "PATCH",
+          "path": "/v3/storage/${projectId}/save_slots/${steamId}/records/${capture.slotA}",
+          "headers": {
+            "x-public-key": "${publicKey}",
+            "x-steam-id": "${steamId}",
+            "x-sbox-token": "parity-placeholder-token",
+            "x-ns-client-type": "game",
+            "x-api-key": "${secretKey}"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "body": {
+            "recordName": "Renamed Save"
+          },
+          "expect": {
+            "status": 200
+          }
+        },
+        {
+          "id": "delete",
+          "method": "DELETE",
+          "path": "/v3/storage/${projectId}/save_slots/${steamId}/records/${capture.slotB}",
+          "headers": {
+            "x-public-key": "${publicKey}",
+            "x-steam-id": "${steamId}",
+            "x-sbox-token": "parity-placeholder-token",
+            "x-ns-client-type": "game",
+            "x-api-key": "${secretKey}"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "expect": {
+            "status": 200
+          }
+        },
+        {
+          "id": "list-after",
+          "method": "GET",
+          "path": "/v3/storage/${projectId}/save_slots/${steamId}/records",
+          "headers": {
+            "x-public-key": "${publicKey}",
+            "x-steam-id": "${steamId}",
+            "x-sbox-token": "parity-placeholder-token",
+            "x-ns-client-type": "game",
+            "x-api-key": "${secretKey}"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "orderInsensitivePaths": [
+            "$.records"
+          ],
+          "expect": {
+            "status": 200,
+            "requiredFields": [
+              "$.records",
+              "$.maxRecords"
+            ]
+          }
+        },
+        {
+          "id": "rename-missing",
+          "method": "PATCH",
+          "path": "/v3/storage/${projectId}/save_slots/${steamId}/records/missing-record",
+          "headers": {
+            "x-public-key": "${publicKey}",
+            "x-steam-id": "${steamId}",
+            "x-sbox-token": "parity-placeholder-token",
+            "x-ns-client-type": "game",
+            "x-api-key": "${secretKey}"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "body": {
+            "recordName": "Nope"
+          },
+          "expect": {
+            "status": 404,
+            "requiredFields": [
+              "$.error"
+            ]
+          }
+        },
+        {
+          "id": "delete-missing",
+          "method": "DELETE",
+          "path": "/v3/storage/${projectId}/save_slots/${steamId}/records/missing-record",
+          "headers": {
+            "x-public-key": "${publicKey}",
+            "x-steam-id": "${steamId}",
+            "x-sbox-token": "parity-placeholder-token",
+            "x-ns-client-type": "game",
+            "x-api-key": "${secretKey}"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "expect": {
+            "status": 404,
+            "requiredFields": [
+              "$.error"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

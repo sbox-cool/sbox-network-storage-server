@@ -1,0 +1,104 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  DOTNET_NOLOGO: "true"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "true"
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: "true"
+
+jobs:
+  test:
+    name: Build and test (${{ matrix.os }}, PostgreSQL ${{ matrix.postgres || 'disabled' }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            postgres: "13"
+          - os: ubuntu-latest
+            postgres: "14"
+          - os: ubuntu-latest
+            postgres: "15"
+          - os: ubuntu-latest
+            postgres: "16"
+          - os: ubuntu-latest
+            postgres: "17"
+          - os: ubuntu-latest
+            postgres: "18"
+          - os: windows-latest
+            postgres: ""
+          - os: macos-latest
+            postgres: ""
+    # Service containers are only supported on Linux runners. An empty image
+    # name skips the service, so PostgreSQL runs on ubuntu only and the
+    # Postgres tests skip themselves when NS_TEST_POSTGRES is empty.
+    services:
+      postgres:
+        image: ${{ matrix.postgres != '' && format('postgres:{0}', matrix.postgres) || '' }}
+        env:
+          POSTGRES_USER: sbox_ns
+          POSTGRES_PASSWORD: sbox_ns
+          POSTGRES_DB: sbox_ns_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U sbox_ns"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      NS_TEST_POSTGRES: ${{ matrix.postgres != '' && 'Host=localhost;Port=5432;Database=sbox_ns_test;Username=sbox_ns;Password=sbox_ns' || '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore
+        run: dotnet restore SboxNetworkStorage.sln
+
+      - name: Build
+        run: dotnet build SboxNetworkStorage.sln -c Release --no-restore
+
+      - name: Test
+        run: dotnet test SboxNetworkStorage.sln -c Release --no-build --logger trx --results-directory TestResults
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.os }}-postgres-${{ matrix.postgres || 'disabled' }}
+          path: TestResults
+          if-no-files-found: ignore
+
+  gitleaks:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run gitleaks
+        shell: bash
+        env:
+          GITLEAKS_VERSION: 8.21.2
+        run: |
+          curl -fsSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            | tar -xz -C "$RUNNER_TEMP" gitleaks
+          "$RUNNER_TEMP/gitleaks" git --redact --verbose --exit-code 1 .

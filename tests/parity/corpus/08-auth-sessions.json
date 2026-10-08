@@ -1,0 +1,151 @@
+{
+  "schemaVersion": 1,
+  "description": "Auth session lifecycle (sessions are disabled on a fresh project).",
+  "scenarios": [
+    {
+      "name": "auth-sessions",
+      "description": "Session create/refresh/reauth/revoke as sent by the runtime.",
+      "source": "Code/Endpoints/NetworkStorageEndpointSecurity.cs EnsureRuntimeAuthSessionAsync",
+      "steps": [
+        {
+          "id": "create",
+          "method": "POST",
+          "path": "/v3/auth-sessions/${projectId}/create",
+          "headers": {
+            "x-api-key": "${publicKey}",
+            "x-public-key": "${publicKey}",
+            "x-steam-id": "${steamId}",
+            "x-sbox-token": "parity-placeholder-token"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "body": {
+            "steamId": "${steamId}"
+          },
+          "expect": {
+            "status": 200,
+            "equals": {
+              "$.ok": false,
+              "$.error.code": "AUTH_SESSION_DISABLED"
+            }
+          }
+        },
+        {
+          "id": "refresh-no-token",
+          "method": "POST",
+          "path": "/v3/auth-sessions/${projectId}/refresh",
+          "headers": {
+            "x-api-key": "${publicKey}"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "body": {},
+          "expect": {
+            "status": 200,
+            "equals": {
+              "$.ok": false,
+              "$.error.code": "AUTH_SESSION_DISABLED"
+            }
+          }
+        },
+        {
+          "id": "refresh-bad-token",
+          "method": "POST",
+          "path": "/v3/auth-sessions/${projectId}/refresh",
+          "headers": {
+            "x-api-key": "${publicKey}",
+            "x-auth-session": "not-a-session-token"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "body": {},
+          "expect": {
+            "status": 200,
+            "equals": {
+              "$.ok": false,
+              "$.error.code": "AUTH_SESSION_DISABLED"
+            }
+          }
+        },
+        {
+          "id": "reauth",
+          "method": "POST",
+          "path": "/v3/auth-sessions/${projectId}/reauth",
+          "headers": {
+            "x-api-key": "${publicKey}",
+            "x-auth-session": "not-a-session-token"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "body": {},
+          "expect": {
+            "status": 200,
+            "equals": {
+              "$.ok": false,
+              "$.error.code": "AUTH_SESSION_DISABLED"
+            }
+          }
+        },
+        {
+          "id": "revoke",
+          "method": "POST",
+          "path": "/v3/auth-sessions/${projectId}/revoke",
+          "headers": {
+            "x-api-key": "${publicKey}"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "body": {
+            "sessionToken": "not-a-session-token"
+          },
+          "expect": {
+            "status": 200,
+            "equals": {
+              "$.ok": false,
+              "$.error.code": "AUTH_SESSION_DISABLED"
+            }
+          }
+        },
+        {
+          "id": "create-no-key",
+          "method": "POST",
+          "path": "/v3/auth-sessions/${projectId}/create",
+          "body": {
+            "steamId": "${steamId}"
+          },
+          "expect": {
+            "status": 200,
+            "equals": {
+              "$.ok": false,
+              "$.error.code": "UNAUTHORIZED"
+            }
+          }
+        },
+        {
+          "id": "sessions-alias",
+          "method": "POST",
+          "path": "/v3/sessions/${projectId}/refresh",
+          "headers": {
+            "x-api-key": "${publicKey}"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "body": {},
+          "expect": {
+            "status": 200,
+            "equals": {
+              "$.ok": false,
+              "$.error.code": "AUTH_SESSION_DISABLED"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

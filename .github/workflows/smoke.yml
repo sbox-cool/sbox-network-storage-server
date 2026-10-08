@@ -1,0 +1,74 @@
+name: HTTP parity smoke
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_call:
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_NOLOGO: "true"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "true"
+
+jobs:
+  cross-driver:
+    name: SQLite and PostgreSQL HTTP differential gate
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: sbox_ns
+          POSTGRES_PASSWORD: sbox_ns
+          POSTGRES_DB: sbox_ns_smoke
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U sbox_ns -d sbox_ns_smoke"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - run: dotnet build SboxNetworkStorage.sln -c Release
+      - name: SQLite HTTP writes, reads and editor sync
+        run: bash scripts/smoke.sh --no-build --out TestResults/sqlite.json
+      - name: PostgreSQL HTTP writes, reads and editor sync
+        run: bash scripts/smoke.sh --no-build --postgres 'Host=localhost;Port=5432;Database=sbox_ns_smoke;Username=sbox_ns;Password=sbox_ns' --out TestResults/postgres.json
+      - name: Compare complete normalized runs
+        run: dotnet tools/SboxNetworkStorage.Parity/bin/Release/net8.0/sbox-ns-parity.dll diff --stable TestResults/sqlite.json --candidate TestResults/postgres.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cross-driver-http-parity
+          path: TestResults/*.json
+          if-no-files-found: ignore
+
+  sqlite:
+    name: SQLite HTTP smoke (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - run: dotnet build SboxNetworkStorage.sln -c Release
+      - if: runner.os != 'Windows'
+        run: bash scripts/smoke.sh --no-build --out TestResults/sqlite.json
+      - if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/smoke.ps1 -NoBuild -Out TestResults/sqlite.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sqlite-http-parity-${{ matrix.os }}
+          path: TestResults/*.json
+          if-no-files-found: ignore

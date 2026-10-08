@@ -1,0 +1,253 @@
+{
+  "timelineView": {
+    "hiddenTimelineCount": 2,
+    "timeline": [
+      {
+        "id": "h3",
+        "ts": "2026-05-01T10:02:00.000Z",
+        "type": "session.heartbeat",
+        "category": "session",
+        "sessionId": "s1",
+        "payload": {
+          "sessionSeconds": 150,
+          "fps": {
+            "average": 22,
+            "peak": 30,
+            "min": 15
+          }
+        },
+        "journeyLabel": null
+      },
+      {
+        "id": "err1",
+        "ts": "2026-05-01T10:01:30.000Z",
+        "type": "error.runtime",
+        "category": "error",
+        "sessionId": "s1",
+        "label": "NullRef",
+        "payload": {
+          "severity": "error",
+          "message": "boom"
+        },
+        "journeyLabel": null
+      },
+      {
+        "id": "h2",
+        "ts": "2026-05-01T10:01:00.000Z",
+        "type": "session.heartbeat",
+        "category": "session",
+        "sessionId": "s1",
+        "payload": {
+          "sessionSeconds": 90,
+          "fps": {
+            "average": 28,
+            "peak": 35,
+            "min": 18
+          }
+        },
+        "journeyLabel": null
+      },
+      {
+        "id": "ep1",
+        "ts": "2026-05-01T10:00:30.000Z",
+        "type": "endpoint.call",
+        "category": "endpoint",
+        "endpointSlug": "resolve-cast",
+        "sessionId": "s1",
+        "ok": true,
+        "payload": {
+          "status": 200
+        },
+        "journeyLabel": "Caught / resolved fish"
+      }
+    ],
+    "timelineGroup": "session",
+    "timelineGroups": [
+      {
+        "key": "s1",
+        "label": "Game session",
+        "events": [
+          {
+            "type": "session.low_fps.summary",
+            "category": "performance",
+            "ts": "2026-05-01T10:02:00.000Z",
+            "sessionId": "s1",
+            "steamId": null,
+            "label": "Low FPS",
+            "payload": {
+              "threshold": 50,
+              "sampleCount": 2,
+              "fps": {
+                "average": 22,
+                "min": 15,
+                "max": 30
+              },
+              "lowest": [
+                {
+                  "ts": "2026-05-01T10:02:00.000Z",
+                  "sessionSeconds": 150,
+                  "avg": 22,
+                  "min": 15,
+                  "max": 30
+                },
+                {
+                  "ts": "2026-05-01T10:01:00.000Z",
+                  "sessionSeconds": 90,
+                  "avg": 28,
+                  "min": 18,
+                  "max": 35
+                }
+              ]
+            }
+          },
+          {
+            "id": "err1",
+            "ts": "2026-05-01T10:01:30.000Z",
+            "type": "error.runtime",
+            "category": "error",
+            "sessionId": "s1",
+            "label": "NullRef",
+            "payload": {
+              "severity": "error",
+              "message": "boom"
+            },
+            "journeyLabel": null
+          },
+          {
+            "id": "ep1",
+            "ts": "2026-05-01T10:00:30.000Z",
+            "type": "endpoint.call",
+            "category": "endpoint",
+            "endpointSlug": "resolve-cast",
+            "sessionId": "s1",
+            "ok": true,
+            "payload": {
+              "status": 200
+            },
+            "journeyLabel": "Caught / resolved fish"
+          }
+        ],
+        "startedAt": "2026-05-01T10:00:30.000Z",
+        "endedAt": "2026-05-01T10:02:00.000Z",
+        "avgFps": 25,
+        "peakFps": 35,
+        "lowFpsSummary": {
+          "threshold": 50,
+          "sampleCount": 2,
+          "fps": {
+            "average": 22,
+            "min": 15,
+            "max": 30
+          },
+          "lowest": [
+            {
+              "ts": "2026-05-01T10:02:00.000Z",
+              "sessionSeconds": 150,
+              "avg": 22,
+              "min": 15,
+              "max": 30
+            },
+            {
+              "ts": "2026-05-01T10:01:00.000Z",
+              "sessionSeconds": 90,
+              "avg": 28,
+              "min": 18,
+              "max": 35
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "errorView": {
+    "errorEventCount": 1,
+    "timeline": [
+      {
+        "id": "err1",
+        "ts": "2026-05-01T10:01:30.000Z",
+        "type": "error.runtime",
+        "category": "error",
+        "sessionId": "s1",
+        "label": "NullRef",
+        "payload": {
+          "severity": "error",
+          "message": "boom"
+        },
+        "journeyLabel": null
+      }
+    ],
+    "timelineGroup": "session",
+    "timelineGroups": [
+      {
+        "key": "s1",
+        "label": "Game session",
+        "events": [
+          {
+            "id": "err1",
+            "ts": "2026-05-01T10:01:30.000Z",
+            "type": "error.runtime",
+            "category": "error",
+            "sessionId": "s1",
+            "label": "NullRef",
+            "payload": {
+              "severity": "error",
+              "message": "boom"
+            },
+            "journeyLabel": null
+          }
+        ],
+        "startedAt": "2026-05-01T10:01:30.000Z",
+        "endedAt": "2026-05-01T10:01:30.000Z",
+        "avgFps": 0,
+        "peakFps": 0
+      }
+    ]
+  },
+  "sessionJourney": [
+    {
+      "sessionId": "s1",
+      "startedAt": "2026-05-01T10:00:00.000Z",
+      "endedAt": "2026-05-01T10:05:00.000Z",
+      "performance": {
+        "fpsAverage": 50,
+        "fpsPeak": 120,
+        "fpsMin": 15
+      },
+      "updatedAt": "2026-05-01T10:01:30.000Z",
+      "durationSeconds": 150,
+      "avgFps": 50,
+      "peakFps": 120,
+      "minFps": 15,
+      "eventCount": 6,
+      "hiddenCount": 1,
+      "heartbeatCount": 3,
+      "lastHeartbeatSeconds": 150,
+      "loadedProfileAt": "2026-05-01T10:00:45.000Z",
+      "managedTelemetry": {
+        "sourceCount": 0,
+        "sources": [],
+        "snapshotChangeCount": 0,
+        "snapshotSections": [],
+        "incidentCount": 1,
+        "endpointCalls": 0,
+        "endpointFailures": 0,
+        "voiceSeconds": 0,
+        "maxConnections": 0,
+        "maxPingMs": 0,
+        "memoryMb": 0
+      },
+      "keyMoments": [
+        {
+          "ts": "2026-05-01T10:01:30.000Z",
+          "label": "Nullref error",
+          "type": "error.runtime"
+        },
+        {
+          "ts": "2026-05-01T10:00:30.000Z",
+          "label": "Caught / resolved fish",
+          "type": "endpoint.call"
+        }
+      ]
+    }
+  ]
+}

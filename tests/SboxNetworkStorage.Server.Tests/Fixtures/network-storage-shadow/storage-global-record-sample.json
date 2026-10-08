@@ -1,0 +1,6 @@
+{
+  "id": "rec_abc123",
+  "data": { "score": 1500, "playerName": "TestPlayer" },
+  "_timestamp": "2026-05-30T12:00:00.000Z",
+  "_writerId": "76561198000000001"
+}

@@ -1,0 +1,16 @@
+{
+  "records": [
+    {
+      "recordId": "abc123",
+      "recordName": "Auto Save",
+      "createdAt": "2026-05-30T12:00:00.000Z",
+      "updatedAt": "2026-05-30T12:00:00.000Z"
+    },
+    {
+      "recordId": "def456",
+      "recordName": "Save 2",
+      "createdAt": "2026-05-30T13:00:00.000Z",
+      "updatedAt": "2026-05-30T13:00:00.000Z"
+    }
+  ]
+}

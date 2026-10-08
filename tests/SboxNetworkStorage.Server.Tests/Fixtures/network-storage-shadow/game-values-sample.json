@@ -1,0 +1,141 @@
+{
+  "gameValues": {
+    "_version": "v-abc123",
+    "_updatedAt": "2026-06-01T12:00:00.000Z",
+    "items": [
+      {
+        "id": "speed",
+        "name": "Movement Speeds",
+        "type": "group",
+        "entries": {
+          "walk": 100,
+          "run": 200,
+          "sprint": 350
+        }
+      },
+      {
+        "id": "weapons",
+        "name": "Weapons Table",
+        "type": "table",
+        "columns": [
+          { "key": "name", "type": "string" },
+          { "key": "damage", "type": "number" }
+        ],
+        "rows": [
+          { "name": "Pistol", "damage": 25 },
+          { "name": "Rifle", "damage": 50 }
+        ]
+      },
+      {
+        "id": "existing-group",
+        "name": "Legacy Constants",
+        "type": "group",
+        "entries": {
+          "maxPlayers": 32,
+          "tickRate": 64
+        }
+      }
+    ]
+  },
+  "collections": [
+    {
+      "id": "gamebalance",
+      "name": "Game Balance",
+      "constants": [
+        {
+          "id": "economy",
+          "name": "Economy",
+          "description": "Economy settings",
+          "entries": {
+            "startCash": 1000,
+            "interestRate": 0.05
+          }
+        }
+      ],
+      "tables": [
+        {
+          "id": "levels",
+          "name": "Levels",
+          "description": "Level configuration table",
+          "columns": [
+            { "key": "level", "type": "number" },
+            { "key": "xpRequired", "type": "number" }
+          ],
+          "rows": [
+            { "level": 1, "xpRequired": 0 },
+            { "level": 2, "xpRequired": 100 },
+            { "level": 3, "xpRequired": 500 }
+          ],
+          "color": "#ff6600"
+        }
+      ]
+    },
+    {
+      "id": "cosmetics",
+      "name": "Cosmetics",
+      "constants": []
+    }
+  ],
+  "expectedClientFormat": {
+    "version": "v-abc123",
+    "updatedAt": "2026-06-01T12:00:00.000Z",
+    "groups": {
+      "speed": {
+        "name": "Movement Speeds",
+        "description": "",
+        "values": {
+          "walk": 100,
+          "run": 200,
+          "sprint": 350
+        }
+      },
+      "economy": {
+        "name": "Economy",
+        "description": "Economy settings",
+        "values": {
+          "startCash": 1000,
+          "interestRate": 0.05
+        },
+        "_collection": "gamebalance"
+      },
+      "existing-group": {
+        "name": "Legacy Constants",
+        "description": "",
+        "values": {
+          "maxPlayers": 32,
+          "tickRate": 64
+        }
+      }
+    },
+    "tables": {
+      "weapons": {
+        "name": "Weapons Table",
+        "description": "",
+        "columns": [
+          { "key": "name", "type": "string", "description": "" },
+          { "key": "damage", "type": "number", "description": "" }
+        ],
+        "rows": [
+          { "name": "Pistol", "damage": 25 },
+          { "name": "Rifle", "damage": 50 }
+        ],
+        "color": null
+      },
+      "levels": {
+        "name": "Levels",
+        "description": "Level configuration table",
+        "columns": [
+          { "key": "level", "type": "number", "description": "" },
+          { "key": "xpRequired", "type": "number", "description": "" }
+        ],
+        "rows": [
+          { "level": 1, "xpRequired": 0 },
+          { "level": 2, "xpRequired": 100 },
+          { "level": 3, "xpRequired": 500 }
+        ],
+        "color": "#ff6600",
+        "_collection": "gamebalance"
+      }
+    }
+  }
+}

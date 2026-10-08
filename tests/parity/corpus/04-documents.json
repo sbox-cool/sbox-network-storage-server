@@ -1,0 +1,301 @@
+{
+  "schemaVersion": 1,
+  "description": "Per-player collection documents (GetDocument/SaveDocument/UpdateDocument/DeleteDocument).",
+  "scenarios": [
+    {
+      "name": "documents-player-crud",
+      "description": "Game client document lifecycle with player auth headers.",
+      "source": "Code/Storage/NetworkStorageDocuments.cs; Code/Storage/NetworkStorageCollections.cs SendStorageRequest",
+      "steps": [
+        {
+          "id": "get-existing",
+          "method": "GET",
+          "path": "/v3/storage/${projectId}/players/${steamId}",
+          "headers": {
+            "x-public-key": "${publicKey}",
+            "x-steam-id": "${steamId}",
+            "x-sbox-token": "parity-placeholder-token",
+            "x-ns-client-type": "game"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "expect": {
+            "status": 200
+          }
+        },
+        {
+          "id": "save",
+          "method": "POST",
+          "path": "/v3/storage/${projectId}/players/${steamId}",
+          "headers": {
+            "x-public-key": "${publicKey}",
+            "x-steam-id": "${steamId}",
+            "x-sbox-token": "parity-placeholder-token",
+            "x-ns-client-type": "game"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "body": {
+            "playerName": "Saved Directly",
+            "gold": 250,
+            "level": 2,
+            "ores": {
+              "stone": 9
+            }
+          },
+          "expect": {
+            "status": 200
+          }
+        },
+        {
+          "id": "get-after-save",
+          "method": "GET",
+          "path": "/v3/storage/${projectId}/players/${steamId}",
+          "headers": {
+            "x-public-key": "${publicKey}",
+            "x-steam-id": "${steamId}",
+            "x-sbox-token": "parity-placeholder-token",
+            "x-ns-client-type": "game"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "expect": {
+            "status": 200,
+            "equals": {
+              "$.gold": 250,
+              "$.playerName": "Saved Directly"
+            }
+          }
+        },
+        {
+          "id": "update-ops",
+          "method": "POST",
+          "path": "/v3/storage/${projectId}/players/${steamId}",
+          "headers": {
+            "x-public-key": "${publicKey}",
+            "x-steam-id": "${steamId}",
+            "x-sbox-token": "parity-placeholder-token",
+            "x-ns-client-type": "game"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "body": {
+            "ops": [
+              {
+                "op": "inc",
+                "path": "gold",
+                "value": 25
+              },
+              {
+                "op": "set",
+                "path": "playerName",
+                "value": "Updated By Ops"
+              }
+            ]
+          },
+          "expect": {
+            "status": 200
+          }
+        },
+        {
+          "id": "get-after-update",
+          "method": "GET",
+          "path": "/v3/storage/${projectId}/players/${steamId}",
+          "headers": {
+            "x-public-key": "${publicKey}",
+            "x-steam-id": "${steamId}",
+            "x-sbox-token": "parity-placeholder-token",
+            "x-ns-client-type": "game"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "expect": {
+            "status": 200,
+            "equals": {
+              "$.ops[0].value": 25,
+              "$.ops[1].value": "Updated By Ops"
+            }
+          }
+        },
+        {
+          "id": "probe",
+          "method": "GET",
+          "path": "/v3/storage/${projectId}/players/${steamId}/probe",
+          "headers": {
+            "x-public-key": "${publicKey}",
+            "x-steam-id": "${steamId}",
+            "x-sbox-token": "parity-placeholder-token",
+            "x-ns-client-type": "game"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "expect": {
+            "status": 200
+          }
+        },
+        {
+          "id": "delete",
+          "method": "DELETE",
+          "path": "/v3/storage/${projectId}/players/${steamId}",
+          "headers": {
+            "x-public-key": "${publicKey}",
+            "x-steam-id": "${steamId}",
+            "x-sbox-token": "parity-placeholder-token",
+            "x-ns-client-type": "game"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "expect": {
+            "status": 200
+          }
+        },
+        {
+          "id": "get-after-delete",
+          "method": "GET",
+          "path": "/v3/storage/${projectId}/players/${steamId}",
+          "headers": {
+            "x-public-key": "${publicKey}",
+            "x-steam-id": "${steamId}",
+            "x-sbox-token": "parity-placeholder-token",
+            "x-ns-client-type": "game"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "expect": {
+            "status": 404,
+            "requiredFields": [
+              "$.error"
+            ]
+          }
+        },
+        {
+          "id": "delete-missing",
+          "method": "DELETE",
+          "path": "/v3/storage/${projectId}/players/${steamId}",
+          "headers": {
+            "x-public-key": "${publicKey}",
+            "x-steam-id": "${steamId}",
+            "x-sbox-token": "parity-placeholder-token",
+            "x-ns-client-type": "game"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "expect": {
+            "status": 200
+          }
+        }
+      ]
+    },
+    {
+      "name": "documents-dedicated-server",
+      "description": "Dedicated server document access with the secret key in x-api-key.",
+      "source": "Code/Auth/NetworkStorageDedicatedServerSecret.cs TryBuildDedicatedStorageHeaders",
+      "steps": [
+        {
+          "id": "save",
+          "method": "POST",
+          "path": "/v3/storage/${projectId}/players/${steamId2}",
+          "headers": {
+            "x-public-key": "${publicKey}",
+            "x-api-key": "${secretKey}"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "body": {
+            "playerName": "Server Written",
+            "gold": 10
+          },
+          "expect": {
+            "status": 200
+          }
+        },
+        {
+          "id": "get",
+          "method": "GET",
+          "path": "/v3/storage/${projectId}/players/${steamId2}",
+          "headers": {
+            "x-public-key": "${publicKey}",
+            "x-api-key": "${secretKey}"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "expect": {
+            "status": 200
+          }
+        },
+        {
+          "id": "get-unknown-collection",
+          "method": "GET",
+          "path": "/v3/storage/${projectId}/no_such_collection/${steamId2}",
+          "headers": {
+            "x-public-key": "${publicKey}",
+            "x-api-key": "${secretKey}"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "expect": {
+            "status": 404,
+            "requiredFields": [
+              "$.error"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "documents-v0-alias",
+      "description": "Deprecated /api/storage document routes.",
+      "source": "docs 18-rest-api-reference (Deprecated Routes)",
+      "steps": [
+        {
+          "id": "save",
+          "method": "POST",
+          "path": "/api/storage/${projectId}/players/v0-key",
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "body": {
+            "playerName": "Legacy"
+          },
+          "expect": {
+            "status": 200
+          }
+        },
+        {
+          "id": "get",
+          "method": "GET",
+          "path": "/api/storage/${projectId}/players/v0-key",
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "expect": {
+            "status": 200
+          }
+        },
+        {
+          "id": "delete",
+          "method": "DELETE",
+          "path": "/api/storage/${projectId}/players/v0-key",
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "expect": {
+            "status": 200
+          }
+        }
+      ]
+    }
+  ]
+}

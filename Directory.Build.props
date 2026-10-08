@@ -1,0 +1,14 @@
+<Project>
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <DebugType>embedded</DebugType>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <Authors>sbox.cool</Authors>
+    <Company>sbox.cool</Company>
+    <PackageLicenseExpression>AGPL-3.0-only</PackageLicenseExpression>
+    <RepositoryUrl>https://github.com/sbox-cool/sbox-network-storage-server</RepositoryUrl>
+  </PropertyGroup>
+</Project>

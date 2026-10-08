@@ -1,0 +1,49 @@
+# systemd unit for sbox Network Storage Server.
+# Template for /etc/systemd/system/sbox-ns.service, as installed by `sbox-ns service install`.
+# Local overrides belong in `systemctl edit sbox-ns`, not in this file.
+
+[Unit]
+Description=sbox Network Storage Server
+Documentation=https://github.com/sbox-cool/sbox-network-storage-server
+Wants=network-online.target
+After=network-online.target postgresql.service
+
+[Service]
+Type=simple
+User=sbox-ns
+Group=sbox-ns
+ExecStart=/usr/local/bin/sbox-ns start --config-dir /etc/sbox-ns --data-dir /var/lib/sbox-ns
+WorkingDirectory=/var/lib/sbox-ns
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+KillSignal=SIGTERM
+# Single-file builds extract native libraries on first run; keep them in the writable data dir.
+Environment=DOTNET_BUNDLE_EXTRACT_BASE_DIR=/var/lib/sbox-ns/.net
+Environment=DOTNET_CLI_TELEMETRY_OPTOUT=1
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+LockPersonality=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+ReadWritePaths=/var/lib/sbox-ns /etc/sbox-ns
+UMask=0027
+# To bind ports below 1024 (for example 80 or 443) without root, uncomment:
+# AmbientCapabilities=CAP_NET_BIND_SERVICE
+# CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+
+[Install]
+WantedBy=multi-user.target

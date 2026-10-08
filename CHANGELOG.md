@@ -1,0 +1,95 @@
+# Changelog
+
+All notable changes to this project are documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+### Added
+
+- Self-hostable Network Storage server extracted from the sbox.cool production code,
+  compatible with the existing s&box client library by setting its base URL.
+- `sbox-ns` single binary acting as server and CLI (`start`, `setup`, `config`,
+  `db`, `project`, `key`, `service`, `logs`, `update`, `rollback`, `version`,
+  `doctor`).
+- `GET /health` and `GET /v3/server-info` endpoints.
+- SQLite (default) and PostgreSQL storage, with PostgreSQL tables in a configurable schema.
+- TOML configuration folder with `conf.d` overrides and `NS_` environment variables.
+- Optional HTTPS with your own PEM certificate or automatic Let's Encrypt (ACME).
+- Install scripts for Linux, macOS and Windows, systemd unit, Docker image.
+- Release update notices (no automatic updates).
+- Persisted single-owner account with ASP.NET Identity password hashing, cookie
+  sessions, CSRF-protected local setup/login/logout and invalidation on password reset.
+- `admin create|reset-password` commands and owner creation during `setup`,
+  with hidden password input, password-file and environment support.
+- Standalone Razor project/key/settings dashboard and embedded external stylesheet;
+  update banners emphasize security releases. Full managed dashboard and managed
+  project export/import parity remain explicitly unestablished.
+- Versioned HTTP replay corpus and differential parity harness, CLI-driven SQLite
+  and PostgreSQL smoke gates, and release blocking until an approved stable
+  response recording reports zero unlisted differences.
+
+### Fixed
+
+- Restore production response compression ordering so usage metering records
+  the compressed bytes actually transferred to clients.
+- Preserve inline comments and multiline-string boundaries when changing TOML settings.
+- Stop the installed service before taking an update recovery backup; abort on
+  failed service control and restore the previous binary and data on update failure.
+- Refuse in-place updates through the shared `dotnet` host.
+- Serialize the package-sync handler's returned response instead of discarding it.
+- Store newly created public API keys under their raw client-facing key, matching
+  runtime resolution and management toggle/remove lookups; secret-key hashing
+  and masked management responses remain unchanged.
+- Read collection ledger history from the authoritative tracked-delta projection
+  instead of obsolete workspace ledger files; saved records without tracked
+  changes return an empty ledger.
+- Reject oversized direct document writes with HTTP 413 and `PAYLOAD_TOO_LARGE`
+  before storage mutation, using the configured store's UTF-8 payload limit.
+- Serve management query lists through the read handler using the existing
+  authoritative metadata resource mapping instead of the mutation handler.
+- Correct the HTTP corpus's batch-sync validation assertion to check the failed
+  section's `VALIDATION_FAILED` error and false success flags, matching production.
+- Identify unimplemented upstream revision initialization as an explicit
+  smoke/release prerequisite without relaxing its success assertions or the
+  failure gate (see CONTRIBUTING for the full blocked list).
+- Enforce project player-authentication policy on public endpoint execution:
+  required-auth projects reject forged `steamId` claims before any step runs,
+  supported Facepunch/session credentials are validated and bound to the
+  executor identity, and secret-key dedicated-server delegation is preserved.
+  Auth-disabled projects ignore s&box tokens like the legacy runtime.
+- Enforce per-resource API-key scopes on management reads, mutations, sync,
+  preflight and auto-test; restricted and read-only keys can no longer read
+  or overwrite unauthorized categories. Package sync requires read/write on
+  all management scopes.
+- Filter private-collection constants and tables from public game-values
+  responses; scoped secret keys retain access. Accept parsed-object and
+  string `definition_json` so public values are actually served.
+- Supply the game-values context to live endpoint execution so `source:
+  "values"` lookups and `values.*` expressions resolve; a values-load failure
+  is a reported error, not a silent empty map.
+- Map genuinely missing endpoint definitions to `404 ENDPOINT_NOT_FOUND`
+  (matching the slug-read contract); present-but-unsupported definitions stay
+  reported `501`.
+- Grant query management (`rwx`) to default secret keys, matching the
+  full-access meaning of defaults; restricted keys remain scoped.
+- Register the ported management mutation routes (`PUT settings`, `PUT
+  tests`, `DELETE keys`, `POST source-upgrade`/`run-tests`/`test-endpoint`/
+  `suggest-tests`); unported logic answers the described dry-run contract.
+- Validate collection/record identifiers at document ingress and answer `404`
+  instead of `500 STORAGE_ERROR`; oversized endpoint record writes are
+  rejected `413` pre-commit with zero mutation while valid multi-record
+  batches still succeed.
+- Return `200` with an empty ledger for known players (existing record or
+  analytics profile) without tracked deltas; unknown keys stay `404`.
+- Auth-disabled projects ignore unverifiable s&box tokens exactly like the
+  legacy runtime; required-auth projects still reject forged identity, and
+  presented auth-session tokens are always validated.
+- Align oversized-payload corpus expectations with the enforced 64 KiB store
+  limit (`413`), and the `/api/storage` global-list expectation with the
+  reference route inventory (`404`; `v1`/`v3` lists are the supported
+  surfaces).
+
+[Unreleased]: https://github.com/sbox-cool/sbox-network-storage-server/commits/main

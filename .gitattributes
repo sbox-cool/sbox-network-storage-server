@@ -1,0 +1,13 @@
+* text=auto
+
+*.sh      text eol=lf
+*.service text eol=lf
+Dockerfile text eol=lf
+*.ps1     text eol=crlf
+*.sln     text eol=crlf
+
+*.png binary
+*.jpg binary
+*.ico binary
+*.zip binary
+*.gz  binary

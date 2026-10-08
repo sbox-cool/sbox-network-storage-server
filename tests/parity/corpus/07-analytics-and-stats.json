@@ -1,0 +1,223 @@
+{
+  "schemaVersion": 1,
+  "description": "Player analytics events and session heartbeats.",
+  "scenarios": [
+    {
+      "name": "analytics-and-heartbeat",
+      "description": "Library analytics runtime traffic.",
+      "source": "Code/Analytics/NetworkStorageAnalytics.cs SendAnalyticsEvent/SendSessionSignal",
+      "steps": [
+        {
+          "id": "heartbeat",
+          "method": "POST",
+          "path": "/v3/storage/${projectId}/stats/heartbeat",
+          "headers": {
+            "x-public-key": "${publicKey}",
+            "x-steam-id": "${steamId}",
+            "x-sbox-token": "parity-placeholder-token",
+            "x-ns-client-type": "game"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "body": {
+            "steamId": "${steamId}",
+            "sessionId": "parity-session-1",
+            "sessionSeconds": 120,
+            "event": "heartbeat",
+            "playerName": "Parity Tester",
+            "source": "network-storage-library",
+            "libraryVersion": "1.0.0",
+            "packageIdent": "parity.testgame",
+            "context": {
+              "map": "quarry"
+            },
+            "fps": {
+              "avg": 60
+            }
+          },
+          "expect": {
+            "status": 200
+          }
+        },
+        {
+          "id": "heartbeat-leave",
+          "method": "POST",
+          "path": "/v3/storage/${projectId}/stats/heartbeat",
+          "headers": {
+            "x-public-key": "${publicKey}",
+            "x-steam-id": "${steamId}",
+            "x-sbox-token": "parity-placeholder-token",
+            "x-ns-client-type": "game"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "body": {
+            "steamId": "${steamId}",
+            "sessionId": "parity-session-1",
+            "sessionSeconds": 120,
+            "event": "leave",
+            "playerName": "Parity Tester",
+            "source": "network-storage-library",
+            "libraryVersion": "1.0.0",
+            "packageIdent": "parity.testgame",
+            "context": {
+              "map": "quarry"
+            },
+            "fps": null
+          },
+          "expect": {
+            "status": 200
+          }
+        },
+        {
+          "id": "analytics-event",
+          "method": "POST",
+          "path": "/v3/storage/${projectId}/analytics/events",
+          "headers": {
+            "x-public-key": "${publicKey}",
+            "x-steam-id": "${steamId}",
+            "x-sbox-token": "parity-placeholder-token",
+            "x-ns-client-type": "game"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "body": {
+            "steamId": "${steamId}",
+            "type": "level_complete",
+            "severity": null,
+            "label": "level_complete",
+            "message": null,
+            "stack": null,
+            "context": {
+              "level": 3,
+              "durationSeconds": 42
+            },
+            "playerName": "Parity Tester",
+            "sessionId": "parity-session-1",
+            "source": "network-storage-library",
+            "libraryVersion": "1.0.0",
+            "packageIdent": "parity.testgame"
+          },
+          "expect": {
+            "status": 200,
+            "equals": {
+              "$.ok": true,
+              "$.stored": true
+            }
+          }
+        },
+        {
+          "id": "analytics-error-event",
+          "method": "POST",
+          "path": "/v3/storage/${projectId}/analytics/events",
+          "headers": {
+            "x-public-key": "${publicKey}",
+            "x-steam-id": "${steamId}",
+            "x-sbox-token": "parity-placeholder-token",
+            "x-ns-client-type": "game"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "body": {
+            "steamId": "${steamId}",
+            "type": "error",
+            "severity": "error",
+            "label": "error",
+            "message": "NullReferenceException",
+            "stack": "at Game.Tick()",
+            "context": {
+              "level": 3,
+              "durationSeconds": 42
+            },
+            "playerName": "Parity Tester",
+            "sessionId": "parity-session-1",
+            "source": "network-storage-library",
+            "libraryVersion": "1.0.0",
+            "packageIdent": "parity.testgame"
+          },
+          "expect": {
+            "status": 200,
+            "equals": {
+              "$.ok": true,
+              "$.stored": true
+            }
+          }
+        },
+        {
+          "id": "analytics-missing-type",
+          "method": "POST",
+          "path": "/v3/storage/${projectId}/analytics/events",
+          "headers": {
+            "x-public-key": "${publicKey}",
+            "x-steam-id": "${steamId}",
+            "x-sbox-token": "parity-placeholder-token",
+            "x-ns-client-type": "game"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "body": {
+            "steamId": "${steamId}"
+          },
+          "expect": {
+            "status": 400,
+            "requiredFields": [
+              "$.error"
+            ]
+          }
+        },
+        {
+          "id": "stats-read",
+          "method": "GET",
+          "path": "/v3/storage/${projectId}/stats/${steamId}",
+          "headers": {
+            "x-public-key": "${publicKey}"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "expect": {
+            "status": 200
+          }
+        },
+        {
+          "id": "heartbeat-api-alias",
+          "method": "POST",
+          "path": "/api/storage/${projectId}/stats/heartbeat",
+          "headers": {
+            "x-public-key": "${publicKey}",
+            "x-steam-id": "${steamId}",
+            "x-sbox-token": "parity-placeholder-token",
+            "x-ns-client-type": "game"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "body": {
+            "steamId": "${steamId}",
+            "sessionId": "parity-session-1",
+            "sessionSeconds": 120,
+            "event": "heartbeat",
+            "playerName": "Parity Tester",
+            "source": "network-storage-library",
+            "libraryVersion": "1.0.0",
+            "packageIdent": "parity.testgame",
+            "context": {
+              "map": "quarry"
+            },
+            "fps": {
+              "avg": 60
+            }
+          },
+          "expect": {
+            "status": 200
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/sbox-cool/sbox-network-storage-server/security/advisories/new
+    about: Report security problems privately, never as a public issue.
+  - name: Client library issues
+    url: https://github.com/sbox-cool/sbox-network-storage/issues
+    about: Problems inside the s&box Network Storage client library.
+  - name: Managed service (sbox.cool)
+    url: https://sbox.cool/tools/network-storage
+    about: Questions about the hosted Network Storage service.

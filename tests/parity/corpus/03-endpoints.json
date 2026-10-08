@@ -1,0 +1,707 @@
+{
+  "schemaVersion": 1,
+  "description": "Endpoint execution by slug (game client, dedicated server and host-proxy shapes).",
+  "scenarios": [
+    {
+      "name": "endpoints-player-flow",
+      "description": "A player saves a profile, mines ore and buys an upgrade (workflow + game-values lookup).",
+      "source": "Code/Endpoints/NetworkStorageEndpoints.cs CallEndpoint; NetworkStorageEndpointSecurity.cs body/headers",
+      "steps": [
+        {
+          "id": "load-empty",
+          "method": "POST",
+          "path": "/v3/endpoints/${projectId}/load-profile",
+          "headers": {
+            "x-public-key": "${publicKey}",
+            "x-steam-id": "${steamId}",
+            "x-sbox-token": "parity-placeholder-token",
+            "x-ns-client-type": "game"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "body": {
+            "security": {
+              "configVersion": "",
+              "clientMode": "legacy",
+              "authSessions": "disabled",
+              "encryptedRequests": "disabled",
+              "revisionId": 0,
+              "revisionOutdated": false
+            },
+            "_endpointSlug": "load-profile"
+          },
+          "expect": {
+            "status": 200,
+            "equals": {
+              "$.ok": true
+            }
+          }
+        },
+        {
+          "id": "save-profile",
+          "method": "POST",
+          "path": "/v3/endpoints/${projectId}/save-profile",
+          "headers": {
+            "x-public-key": "${publicKey}",
+            "x-steam-id": "${steamId}",
+            "x-sbox-token": "parity-placeholder-token",
+            "x-ns-client-type": "game"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "body": {
+            "playerName": "Parity Tester",
+            "security": {
+              "configVersion": "",
+              "clientMode": "legacy",
+              "authSessions": "disabled",
+              "encryptedRequests": "disabled",
+              "revisionId": 0,
+              "revisionOutdated": false
+            },
+            "_endpointSlug": "save-profile"
+          },
+          "expect": {
+            "status": 200,
+            "equals": {
+              "$.ok": true
+            }
+          }
+        },
+        {
+          "id": "mine-ore",
+          "method": "POST",
+          "path": "/v3/endpoints/${projectId}/mine-ore",
+          "headers": {
+            "x-public-key": "${publicKey}",
+            "x-steam-id": "${steamId}",
+            "x-sbox-token": "parity-placeholder-token",
+            "x-ns-client-type": "game"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "body": {
+            "amount": 5,
+            "security": {
+              "configVersion": "",
+              "clientMode": "legacy",
+              "authSessions": "disabled",
+              "encryptedRequests": "disabled",
+              "revisionId": 0,
+              "revisionOutdated": false
+            },
+            "_endpointSlug": "mine-ore"
+          },
+          "expect": {
+            "status": 200,
+            "equals": {
+              "$.ok": true
+            }
+          }
+        },
+        {
+          "id": "mine-ore-invalid",
+          "method": "POST",
+          "path": "/v3/endpoints/${projectId}/mine-ore",
+          "headers": {
+            "x-public-key": "${publicKey}",
+            "x-steam-id": "${steamId}",
+            "x-sbox-token": "parity-placeholder-token",
+            "x-ns-client-type": "game"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "body": {
+            "amount": 0,
+            "security": {
+              "configVersion": "",
+              "clientMode": "legacy",
+              "authSessions": "disabled",
+              "encryptedRequests": "disabled",
+              "revisionId": 0,
+              "revisionOutdated": false
+            },
+            "_endpointSlug": "mine-ore"
+          },
+          "expect": {
+            "status": 400,
+            "requiredFields": [
+              "$.error"
+            ]
+          }
+        },
+        {
+          "id": "mine-ore-missing-input",
+          "method": "POST",
+          "path": "/v3/endpoints/${projectId}/mine-ore",
+          "headers": {
+            "x-public-key": "${publicKey}",
+            "x-steam-id": "${steamId}",
+            "x-sbox-token": "parity-placeholder-token",
+            "x-ns-client-type": "game"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "body": {
+            "security": {
+              "configVersion": "",
+              "clientMode": "legacy",
+              "authSessions": "disabled",
+              "encryptedRequests": "disabled",
+              "revisionId": 0,
+              "revisionOutdated": false
+            },
+            "_endpointSlug": "mine-ore"
+          },
+          "expect": {
+            "status": 400,
+            "requiredFields": [
+              "$.error"
+            ]
+          }
+        },
+        {
+          "id": "buy-pickaxe",
+          "method": "POST",
+          "path": "/v3/endpoints/${projectId}/buy-upgrade",
+          "headers": {
+            "x-public-key": "${publicKey}",
+            "x-steam-id": "${steamId}",
+            "x-sbox-token": "parity-placeholder-token",
+            "x-ns-client-type": "game"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "body": {
+            "upgradeId": "pickaxe",
+            "security": {
+              "configVersion": "",
+              "clientMode": "legacy",
+              "authSessions": "disabled",
+              "encryptedRequests": "disabled",
+              "revisionId": 0,
+              "revisionOutdated": false
+            },
+            "_endpointSlug": "buy-upgrade"
+          },
+          "expect": {
+            "status": 200,
+            "equals": {
+              "$.ok": true
+            }
+          }
+        },
+        {
+          "id": "buy-pickaxe-again",
+          "method": "POST",
+          "path": "/v3/endpoints/${projectId}/buy-upgrade",
+          "headers": {
+            "x-public-key": "${publicKey}",
+            "x-steam-id": "${steamId}",
+            "x-sbox-token": "parity-placeholder-token",
+            "x-ns-client-type": "game"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "body": {
+            "upgradeId": "pickaxe",
+            "security": {
+              "configVersion": "",
+              "clientMode": "legacy",
+              "authSessions": "disabled",
+              "encryptedRequests": "disabled",
+              "revisionId": 0,
+              "revisionOutdated": false
+            },
+            "_endpointSlug": "buy-upgrade"
+          },
+          "expect": {
+            "status": 200,
+            "equals": {
+              "$.ok": true
+            }
+          }
+        },
+        {
+          "id": "buy-drill-unaffordable",
+          "method": "POST",
+          "path": "/v3/endpoints/${projectId}/buy-upgrade",
+          "headers": {
+            "x-public-key": "${publicKey}",
+            "x-steam-id": "${steamId}",
+            "x-sbox-token": "parity-placeholder-token",
+            "x-ns-client-type": "game"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "body": {
+            "upgradeId": "drill",
+            "security": {
+              "configVersion": "",
+              "clientMode": "legacy",
+              "authSessions": "disabled",
+              "encryptedRequests": "disabled",
+              "revisionId": 0,
+              "revisionOutdated": false
+            },
+            "_endpointSlug": "buy-upgrade"
+          },
+          "expect": {
+            "status": 400,
+            "requiredFields": [
+              "$.error"
+            ]
+          }
+        },
+        {
+          "id": "buy-unknown-upgrade",
+          "method": "POST",
+          "path": "/v3/endpoints/${projectId}/buy-upgrade",
+          "headers": {
+            "x-public-key": "${publicKey}",
+            "x-steam-id": "${steamId}",
+            "x-sbox-token": "parity-placeholder-token",
+            "x-ns-client-type": "game"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "body": {
+            "upgradeId": "laser",
+            "security": {
+              "configVersion": "",
+              "clientMode": "legacy",
+              "authSessions": "disabled",
+              "encryptedRequests": "disabled",
+              "revisionId": 0,
+              "revisionOutdated": false
+            },
+            "_endpointSlug": "buy-upgrade"
+          },
+          "expect": {
+            "status": 400,
+            "requiredFields": [
+              "$.error"
+            ]
+          }
+        },
+        {
+          "id": "load-after",
+          "method": "POST",
+          "path": "/v3/endpoints/${projectId}/load-profile",
+          "headers": {
+            "x-public-key": "${publicKey}",
+            "x-steam-id": "${steamId}",
+            "x-sbox-token": "parity-placeholder-token",
+            "x-ns-client-type": "game"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "body": {
+            "security": {
+              "configVersion": "",
+              "clientMode": "legacy",
+              "authSessions": "disabled",
+              "encryptedRequests": "disabled",
+              "revisionId": 0,
+              "revisionOutdated": false
+            },
+            "_endpointSlug": "load-profile"
+          },
+          "expect": {
+            "status": 200,
+            "equals": {
+              "$.ok": true
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "endpoints-get-and-routing",
+      "description": "GET by slug, body-slug route, v1 alias and unknown slugs.",
+      "source": "Code/Endpoints/NetworkStorageEndpoints.cs (GET when input is null); docs 18-rest-api-reference",
+      "steps": [
+        {
+          "id": "get-market",
+          "method": "GET",
+          "path": "/v3/endpoints/${projectId}/market-listings",
+          "headers": {
+            "x-public-key": "${publicKey}",
+            "x-steam-id": "${steamId}",
+            "x-sbox-token": "parity-placeholder-token",
+            "x-ns-client-type": "game"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "expect": {
+            "status": 200,
+            "equals": {
+              "$.ok": true
+            }
+          }
+        },
+        {
+          "id": "post-market",
+          "method": "POST",
+          "path": "/v3/endpoints/${projectId}/market-listings",
+          "headers": {
+            "x-public-key": "${publicKey}",
+            "x-steam-id": "${steamId}",
+            "x-sbox-token": "parity-placeholder-token",
+            "x-ns-client-type": "game"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "body": {
+            "security": {
+              "configVersion": "",
+              "clientMode": "legacy",
+              "authSessions": "disabled",
+              "encryptedRequests": "disabled",
+              "revisionId": 0,
+              "revisionOutdated": false
+            },
+            "_endpointSlug": "market-listings"
+          },
+          "expect": {
+            "status": 200,
+            "equals": {
+              "$.ok": true
+            }
+          }
+        },
+        {
+          "id": "post-body-slug",
+          "method": "POST",
+          "path": "/v3/endpoints/${projectId}",
+          "headers": {
+            "x-public-key": "${publicKey}",
+            "x-steam-id": "${steamId}",
+            "x-sbox-token": "parity-placeholder-token",
+            "x-ns-client-type": "game"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "body": {
+            "endpoint": "load-profile",
+            "security": {
+              "configVersion": "",
+              "clientMode": "legacy",
+              "authSessions": "disabled",
+              "encryptedRequests": "disabled",
+              "revisionId": 0,
+              "revisionOutdated": false
+            }
+          },
+          "expect": {
+            "status": 200,
+            "equals": {
+              "$.ok": true
+            }
+          }
+        },
+        {
+          "id": "post-v1-alias",
+          "method": "POST",
+          "path": "/v1/endpoints/${projectId}/load-profile",
+          "headers": {
+            "x-public-key": "${publicKey}",
+            "x-steam-id": "${steamId}",
+            "x-sbox-token": "parity-placeholder-token",
+            "x-ns-client-type": "game"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "body": {
+            "security": {
+              "configVersion": "",
+              "clientMode": "legacy",
+              "authSessions": "disabled",
+              "encryptedRequests": "disabled",
+              "revisionId": 0,
+              "revisionOutdated": false
+            },
+            "_endpointSlug": "load-profile"
+          },
+          "expect": {
+            "status": 200,
+            "equals": {
+              "$.ok": true
+            }
+          }
+        },
+        {
+          "id": "unknown-slug",
+          "method": "POST",
+          "path": "/v3/endpoints/${projectId}/does-not-exist",
+          "headers": {
+            "x-public-key": "${publicKey}",
+            "x-steam-id": "${steamId}",
+            "x-sbox-token": "parity-placeholder-token",
+            "x-ns-client-type": "game"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "body": {
+            "security": {
+              "configVersion": "",
+              "clientMode": "legacy",
+              "authSessions": "disabled",
+              "encryptedRequests": "disabled",
+              "revisionId": 0,
+              "revisionOutdated": false
+            },
+            "_endpointSlug": "does-not-exist"
+          },
+          "expect": {
+            "status": 404,
+            "requiredFields": [
+              "$.error"
+            ]
+          }
+        },
+        {
+          "id": "get-unknown-slug",
+          "method": "GET",
+          "path": "/v3/endpoints/${projectId}/does-not-exist",
+          "headers": {
+            "x-public-key": "${publicKey}",
+            "x-steam-id": "${steamId}",
+            "x-sbox-token": "parity-placeholder-token",
+            "x-ns-client-type": "game"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "expect": {
+            "status": 404,
+            "requiredFields": [
+              "$.error"
+            ]
+          }
+        },
+        {
+          "id": "missing-slug",
+          "method": "POST",
+          "path": "/v3/endpoints/${projectId}",
+          "headers": {
+            "x-public-key": "${publicKey}",
+            "x-steam-id": "${steamId}",
+            "x-sbox-token": "parity-placeholder-token",
+            "x-ns-client-type": "game"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "body": {
+            "security": {
+              "configVersion": "",
+              "clientMode": "legacy",
+              "authSessions": "disabled",
+              "encryptedRequests": "disabled",
+              "revisionId": 0,
+              "revisionOutdated": false
+            }
+          },
+          "expect": {
+            "status": 400,
+            "requiredFields": [
+              "$.error"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "endpoints-secret-key",
+      "description": "requiresSecretKey endpoint from a dedicated server vs a game client.",
+      "source": "Code/Auth/NetworkStorageDedicatedServerSecret.cs TryAddDedicatedServerSecretHeaders",
+      "steps": [
+        {
+          "id": "dedicated-grant",
+          "method": "POST",
+          "path": "/v3/endpoints/${projectId}/grant-gold",
+          "headers": {
+            "x-public-key": "${publicKey}",
+            "x-secret-key": "${secretKey}",
+            "x-steam-id": "${steamId}",
+            "x-ns-security-mode": "legacy"
+          },
+          "query": {
+            "apiKey": "${publicKey}",
+            "secret-key": "1"
+          },
+          "body": {
+            "amount": 50,
+            "security": {
+              "configVersion": "",
+              "clientMode": "legacy",
+              "authSessions": "disabled",
+              "encryptedRequests": "disabled",
+              "revisionId": 0,
+              "revisionOutdated": false
+            },
+            "_endpointSlug": "grant-gold"
+          },
+          "expect": {
+            "status": 200,
+            "equals": {
+              "$.ok": true
+            }
+          }
+        },
+        {
+          "id": "player-grant-rejected",
+          "method": "POST",
+          "path": "/v3/endpoints/${projectId}/grant-gold",
+          "headers": {
+            "x-public-key": "${publicKey}",
+            "x-steam-id": "${steamId}",
+            "x-sbox-token": "parity-placeholder-token",
+            "x-ns-client-type": "game"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "body": {
+            "amount": 50,
+            "security": {
+              "configVersion": "",
+              "clientMode": "legacy",
+              "authSessions": "disabled",
+              "encryptedRequests": "disabled",
+              "revisionId": 0,
+              "revisionOutdated": false
+            },
+            "_endpointSlug": "grant-gold"
+          },
+          "expect": {
+            "status": 401,
+            "requiredFields": [
+              "$.error"
+            ]
+          }
+        },
+        {
+          "id": "dedicated-load",
+          "method": "POST",
+          "path": "/v3/endpoints/${projectId}/load-profile",
+          "headers": {
+            "x-public-key": "${publicKey}",
+            "x-secret-key": "${secretKey}",
+            "x-steam-id": "${steamId}",
+            "x-ns-security-mode": "legacy"
+          },
+          "query": {
+            "apiKey": "${publicKey}",
+            "secret-key": "1"
+          },
+          "body": {
+            "security": {
+              "configVersion": "",
+              "clientMode": "legacy",
+              "authSessions": "disabled",
+              "encryptedRequests": "disabled",
+              "revisionId": 0,
+              "revisionOutdated": false
+            },
+            "_endpointSlug": "load-profile"
+          },
+          "expect": {
+            "status": 200,
+            "equals": {
+              "$.ok": true
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "endpoints-host-proxy",
+      "description": "Host proxy calling an endpoint on behalf of another player with a dedicated secret.",
+      "source": "Code/Proxy/NetworkStorageHostProxyClient.cs",
+      "steps": [
+        {
+          "id": "proxy-save",
+          "method": "POST",
+          "path": "/v3/endpoints/${projectId}/save-profile",
+          "headers": {
+            "x-public-key": "${publicKey}",
+            "x-secret-key": "${secretKey}",
+            "x-steam-id": "${steamId}",
+            "x-ns-security-mode": "legacy",
+            "x-on-behalf-of": "${steamId2}"
+          },
+          "query": {
+            "apiKey": "${publicKey}",
+            "secret-key": "1"
+          },
+          "body": {
+            "playerName": "Second Player",
+            "security": {
+              "configVersion": "",
+              "clientMode": "legacy",
+              "authSessions": "disabled",
+              "encryptedRequests": "disabled",
+              "revisionId": 0,
+              "revisionOutdated": false
+            },
+            "_endpointSlug": "save-profile"
+          },
+          "expect": {
+            "status": 200,
+            "equals": {
+              "$.ok": true
+            }
+          }
+        },
+        {
+          "id": "second-player-load",
+          "method": "POST",
+          "path": "/v3/endpoints/${projectId}/load-profile",
+          "headers": {
+            "x-public-key": "${publicKey}",
+            "x-steam-id": "${steamId2}",
+            "x-sbox-token": "parity-placeholder-token",
+            "x-ns-client-type": "game"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "body": {
+            "security": {
+              "configVersion": "",
+              "clientMode": "legacy",
+              "authSessions": "disabled",
+              "encryptedRequests": "disabled",
+              "revisionId": 0,
+              "revisionOutdated": false
+            },
+            "_endpointSlug": "load-profile"
+          },
+          "expect": {
+            "status": 200,
+            "equals": {
+              "$.ok": true
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

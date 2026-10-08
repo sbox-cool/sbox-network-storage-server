@@ -1,0 +1,1490 @@
+{
+  "schemaVersion": 1,
+  "description": "Management API push flow used by the s&box editor Sync Tool and sync.py.",
+  "scenarios": [
+    {
+      "name": "manage-validate",
+      "description": "Credential validation before any push.",
+      "source": "Editor/SyncToolApi.cs ValidateCredentials; Code/Auth/NetworkStorageDedicatedServerSecretValidation.cs",
+      "steps": [
+        {
+          "id": "validate-both-keys",
+          "method": "GET",
+          "path": "/v3/manage/${projectId}/validate",
+          "headers": {
+            "x-api-key": "${secretKey}",
+            "x-public-key": "${publicKey}"
+          },
+          "expect": {
+            "status": 200,
+            "requiredFields": [
+              "$.ok"
+            ]
+          }
+        },
+        {
+          "id": "validate-secret-only",
+          "method": "GET",
+          "path": "/v3/manage/${projectId}/validate",
+          "headers": {
+            "x-api-key": "${secretKey}"
+          },
+          "expect": {
+            "status": 200,
+            "requiredFields": [
+              "$.ok"
+            ]
+          }
+        },
+        {
+          "id": "settings",
+          "method": "GET",
+          "path": "/v3/manage/${projectId}/settings",
+          "headers": {
+            "x-api-key": "${secretKey}",
+            "x-public-key": "${publicKey}"
+          },
+          "expect": {
+            "status": 200,
+            "requiredFields": [
+              "$.ok"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "manage-game-values",
+      "description": "Game values are pushed before endpoints that look them up.",
+      "source": "dashboard/CI management API (docs 18-rest-api-reference)",
+      "steps": [
+        {
+          "id": "put",
+          "method": "PUT",
+          "path": "/v3/manage/${projectId}/game-values",
+          "headers": {
+            "x-api-key": "${secretKey}",
+            "x-public-key": "${publicKey}",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "items": [
+              {
+                "id": "economy",
+                "type": "group",
+                "name": "Economy",
+                "description": "Economy tuning",
+                "entries": {
+                  "startingGold": 100,
+                  "oreValue": 3
+                }
+              },
+              {
+                "id": "upgrades",
+                "type": "table",
+                "name": "Upgrades",
+                "columns": [
+                  {
+                    "key": "id",
+                    "type": "string"
+                  },
+                  {
+                    "key": "baseCost",
+                    "type": "number"
+                  },
+                  {
+                    "key": "costGrowth",
+                    "type": "number"
+                  }
+                ],
+                "rows": [
+                  {
+                    "id": "pickaxe",
+                    "baseCost": 10,
+                    "costGrowth": 1.5
+                  },
+                  {
+                    "id": "drill",
+                    "baseCost": 250,
+                    "costGrowth": 2
+                  }
+                ]
+              }
+            ]
+          },
+          "expect": {
+            "status": 200,
+            "requiredFields": [
+              "$.ok"
+            ]
+          }
+        },
+        {
+          "id": "get",
+          "method": "GET",
+          "path": "/v3/manage/${projectId}/game-values",
+          "headers": {
+            "x-api-key": "${secretKey}",
+            "x-public-key": "${publicKey}"
+          },
+          "expect": {
+            "status": 200,
+            "requiredFields": [
+              "$.ok"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "manage-push-all",
+      "description": "Push All: preflight then batch PUT sync with raw YAML sources (backend compiles).",
+      "source": "Editor/SyncToolApi.cs (Request: x-api-key secret + x-public-key) PreflightSync/PushSync; Editor/SyncToolSourceFiles.cs payload shape",
+      "steps": [
+        {
+          "id": "preflight",
+          "method": "POST",
+          "path": "/v3/manage/${projectId}/sync/preflight",
+          "headers": {
+            "x-api-key": "${secretKey}",
+            "x-public-key": "${publicKey}",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "endpoints": [
+              {
+                "kind": "endpoint",
+                "id": "load-profile",
+                "authoringMode": "source",
+                "sourceFormat": "yaml",
+                "sourcePath": "load-profile.endpoint.yml",
+                "sourceText": "sourceVersion: 1\nkind: endpoint\nid: load-profile\nname: Load Profile\ndescription: Return the caller's players record.\nexposure: public\nmethod: POST\ninput:\n  type: object\n  properties: {}\nsteps:\n  - id: profile\n    type: read\n    collection: players\n    key: \"{{steamId}}\"\nresponse:\n  status: 200\n  body:\n    ok: true\n    profile: \"{{profile}}\"\n"
+              },
+              {
+                "kind": "endpoint",
+                "id": "save-profile",
+                "authoringMode": "source",
+                "sourceFormat": "yaml",
+                "sourcePath": "save-profile.endpoint.yml",
+                "sourceText": "sourceVersion: 1\nkind: endpoint\nid: save-profile\nname: Save Profile\ndescription: Save non-economic profile state.\nexposure: public\nmethod: POST\ninput:\n  type: object\n  properties:\n    playerName:\n      type: string\n  required: [ playerName ]\nsteps:\n  - id: save\n    type: write\n    collection: players\n    key: \"{{steamId}}\"\n    ops:\n      - op: set\n        path: playerName\n        value: \"{{input.playerName}}\"\nresponse:\n  status: 200\n  body:\n    ok: true\n"
+              },
+              {
+                "kind": "endpoint",
+                "id": "mine-ore",
+                "authoringMode": "source",
+                "sourceFormat": "yaml",
+                "sourcePath": "mine-ore.endpoint.yml",
+                "sourceText": "sourceVersion: 1\nkind: endpoint\nid: mine-ore\nname: Mine Ore\ndescription: Adds ore after validating the amount.\nexposure: public\nmethod: POST\ninput:\n  type: object\n  properties:\n    amount:\n      type: number\n  required: [ amount ]\nsteps:\n  - id: player\n    type: read\n    collection: players\n    key: \"{{steamId}}\"\n  - id: positive_amount\n    type: condition\n    check:\n      field: \"{{input.amount}}\"\n      op: \">\"\n      value: 0\n    routes:\n      false:\n        action: reject\n        status: 400\n        error: INVALID_AMOUNT\n        message: Amount must be positive.\n  - id: apply\n    type: write\n    collection: players\n    key: \"{{steamId}}\"\n    ops:\n      - op: inc\n        path: ores.stone\n        value: \"{{input.amount}}\"\nresponse:\n  status: 200\n  body:\n    ok: true\n    mined: \"{{input.amount}}\"\n"
+              },
+              {
+                "kind": "endpoint",
+                "id": "buy-upgrade",
+                "authoringMode": "source",
+                "sourceFormat": "yaml",
+                "sourcePath": "buy-upgrade.endpoint.yml",
+                "sourceText": "sourceVersion: 1\nkind: endpoint\nid: buy-upgrade\nname: Buy Upgrade\ndescription: Workflow-backed purchase priced from the upgrades game-values table.\nexposure: public\nmethod: POST\ninput:\n  type: object\n  properties:\n    upgradeId:\n      type: string\n  required: [ upgradeId ]\nsteps:\n  - id: player\n    type: read\n    collection: players\n    key: \"{{steamId}}\"\n  - id: upgrade\n    type: lookup\n    source: values\n    table: upgrades\n    required: true\n    onMissing:\n      status: 400\n      errorCode: UNKNOWN_UPGRADE\n      message: Unknown upgrade.\n    where:\n      field: id\n      op: ==\n      value: \"{{input.upgradeId}}\"\n  - id: pricing\n    type: workflow\n    workflow: scaled-cost\n    params:\n      baseCost: \"{{upgrade.baseCost}}\"\n      costGrowth: \"{{upgrade.costGrowth}}\"\n      currentValue: \"{{player.level}}\"\n  - id: afford\n    type: workflow\n    workflow: check-currency\n    params:\n      balance: \"{{player.gold}}\"\n      cost: \"{{pricing.cost}}\"\n  - id: charge\n    type: write\n    collection: players\n    key: \"{{steamId}}\"\n    ops:\n      - op: inc\n        path: gold\n        value: \"{{pricing.negCost}}\"\n      - op: set\n        path: level\n        value: \"{{pricing.nextValue}}\"\nresponse:\n  status: 200\n  body:\n    ok: true\n    cost: \"{{pricing.cost}}\"\n    level: \"{{pricing.nextValue}}\"\n"
+              },
+              {
+                "kind": "endpoint",
+                "id": "market-listings",
+                "authoringMode": "source",
+                "sourceFormat": "yaml",
+                "sourcePath": "market-listings.endpoint.yml",
+                "sourceText": "sourceVersion: 1\nkind: endpoint\nid: market-listings\nname: Market Listings\ndescription: Static read-only listing endpoint (callable by GET).\nexposure: public\nmethod: GET\nsteps: []\nresponse:\n  status: 200\n  body:\n    ok: true\n    listings: []\n"
+              },
+              {
+                "kind": "endpoint",
+                "id": "grant-gold",
+                "authoringMode": "source",
+                "sourceFormat": "yaml",
+                "sourcePath": "grant-gold.endpoint.yml",
+                "sourceText": "sourceVersion: 1\nkind: endpoint\nid: grant-gold\nname: Grant Gold\ndescription: Dedicated-server-only reward grant.\nexposure: public\nrequiresSecretKey: true\nmethod: POST\ninput:\n  type: object\n  properties:\n    amount:\n      type: number\n  required: [ amount ]\nsteps:\n  - id: grant\n    type: write\n    collection: players\n    key: \"{{steamId}}\"\n    ops:\n      - op: inc\n        path: gold\n        value: \"{{input.amount}}\"\nresponse:\n  status: 200\n  body:\n    ok: true\n    granted: \"{{input.amount}}\"\n"
+              }
+            ],
+            "collections": [
+              {
+                "kind": "collection",
+                "id": "players",
+                "authoringMode": "source",
+                "sourceFormat": "yaml",
+                "sourcePath": "players.collection.yml",
+                "sourceText": "sourceVersion: 1\nkind: collection\nid: players\nname: players\ndescription: Per-player profile and economy state.\ndefinition:\n  collectionType: per-steamid\n  accessMode: public\n  maxRecords: 1\n  allowRecordDelete: true\n  requireSaveVersion: false\n  rateLimitAction: reject\n  rateLimits:\n    mode: none\n  schema:\n    playerName:\n      type: string\n      default: \"\"\n    gold:\n      type: number\n      default: 100\n      _ledger: true\n    level:\n      type: number\n      default: 0\n    ores:\n      type: object\n      default:\n        stone: 0\n      properties:\n        stone:\n          type: number\n"
+              },
+              {
+                "kind": "collection",
+                "id": "save_slots",
+                "authoringMode": "source",
+                "sourceFormat": "yaml",
+                "sourcePath": "save_slots.collection.yml",
+                "sourceText": "sourceVersion: 1\nkind: collection\nid: save_slots\nname: save_slots\ndescription: Up to three save files per player.\ndefinition:\n  collectionType: per-steamid\n  accessMode: public\n  maxRecords: 3\n  allowRecordDelete: true\n  schema:\n    slotName:\n      type: string\n      default: \"\"\n    playtimeSeconds:\n      type: number\n      default: 0\n"
+              },
+              {
+                "kind": "collection",
+                "id": "leaderboard_global",
+                "authoringMode": "source",
+                "sourceFormat": "yaml",
+                "sourcePath": "leaderboard_global.collection.yml",
+                "sourceText": "sourceVersion: 1\nkind: collection\nid: leaderboard_global\nname: leaderboard_global\ndescription: Shared append-only run log.\ndefinition:\n  collectionType: global\n  accessMode: public\n  allowRecordDelete: false\n  schema:\n    score:\n      type: number\n    playerName:\n      type: string\n"
+              }
+            ],
+            "workflows": [
+              {
+                "kind": "workflow",
+                "id": "scaled-cost",
+                "authoringMode": "source",
+                "sourceFormat": "yaml",
+                "sourcePath": "scaled-cost.workflow.yml",
+                "sourceText": "sourceVersion: 1\nkind: workflow\nid: scaled-cost\nname: Scaled Cost\ndescription: Compute an exponential purchase cost for the next level.\ndefinition:\n  params:\n    baseCost:\n      type: number\n    costGrowth:\n      type: number\n    currentValue:\n      type: number\n  steps:\n    - id: current_value\n      type: transform\n      expression: \"max(0, {{currentValue}})\"\n    - id: cost\n      type: transform\n      expression: \"ceil({{baseCost}} * pow({{costGrowth}}, {{current_value}}))\"\n    - id: neg_cost\n      type: transform\n      expression: \"0 - {{cost}}\"\n    - id: next_value\n      type: transform\n      expression: \"{{current_value}} + 1\"\n  returns:\n    cost: \"{{cost}}\"\n    negCost: \"{{neg_cost}}\"\n    nextValue: \"{{next_value}}\"\n"
+              },
+              {
+                "kind": "workflow",
+                "id": "check-currency",
+                "authoringMode": "source",
+                "sourceFormat": "yaml",
+                "sourcePath": "check-currency.workflow.yml",
+                "sourceText": "sourceVersion: 1\nkind: workflow\nid: check-currency\nname: Check Currency\ndescription: Validate that a player has enough currency for a cost.\ndefinition:\n  params:\n    balance:\n      type: number\n    cost:\n      type: number\n  steps:\n    - id: has_currency\n      type: condition\n      check:\n        field: \"{{balance}}\"\n        op: \">=\"\n        value: \"{{cost}}\"\n      onFail:\n        status: 409\n        error: INSUFFICIENT_CURRENCY\n        message: Not enough currency.\n  returns:\n    ok: true\n"
+              }
+            ]
+          },
+          "orderInsensitivePaths": [
+            "$.endpoints.results",
+            "$.collections.results",
+            "$.workflows.results"
+          ],
+          "expect": {
+            "status": 200,
+            "requiredFields": [
+              "$.ok"
+            ]
+          }
+        },
+        {
+          "id": "push",
+          "method": "PUT",
+          "path": "/v3/manage/${projectId}/sync",
+          "headers": {
+            "x-api-key": "${secretKey}",
+            "x-public-key": "${publicKey}",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "endpoints": [
+              {
+                "kind": "endpoint",
+                "id": "load-profile",
+                "authoringMode": "source",
+                "sourceFormat": "yaml",
+                "sourcePath": "load-profile.endpoint.yml",
+                "sourceText": "sourceVersion: 1\nkind: endpoint\nid: load-profile\nname: Load Profile\ndescription: Return the caller's players record.\nexposure: public\nmethod: POST\ninput:\n  type: object\n  properties: {}\nsteps:\n  - id: profile\n    type: read\n    collection: players\n    key: \"{{steamId}}\"\nresponse:\n  status: 200\n  body:\n    ok: true\n    profile: \"{{profile}}\"\n"
+              },
+              {
+                "kind": "endpoint",
+                "id": "save-profile",
+                "authoringMode": "source",
+                "sourceFormat": "yaml",
+                "sourcePath": "save-profile.endpoint.yml",
+                "sourceText": "sourceVersion: 1\nkind: endpoint\nid: save-profile\nname: Save Profile\ndescription: Save non-economic profile state.\nexposure: public\nmethod: POST\ninput:\n  type: object\n  properties:\n    playerName:\n      type: string\n  required: [ playerName ]\nsteps:\n  - id: save\n    type: write\n    collection: players\n    key: \"{{steamId}}\"\n    ops:\n      - op: set\n        path: playerName\n        value: \"{{input.playerName}}\"\nresponse:\n  status: 200\n  body:\n    ok: true\n"
+              },
+              {
+                "kind": "endpoint",
+                "id": "mine-ore",
+                "authoringMode": "source",
+                "sourceFormat": "yaml",
+                "sourcePath": "mine-ore.endpoint.yml",
+                "sourceText": "sourceVersion: 1\nkind: endpoint\nid: mine-ore\nname: Mine Ore\ndescription: Adds ore after validating the amount.\nexposure: public\nmethod: POST\ninput:\n  type: object\n  properties:\n    amount:\n      type: number\n  required: [ amount ]\nsteps:\n  - id: player\n    type: read\n    collection: players\n    key: \"{{steamId}}\"\n  - id: positive_amount\n    type: condition\n    check:\n      field: \"{{input.amount}}\"\n      op: \">\"\n      value: 0\n    routes:\n      false:\n        action: reject\n        status: 400\n        error: INVALID_AMOUNT\n        message: Amount must be positive.\n  - id: apply\n    type: write\n    collection: players\n    key: \"{{steamId}}\"\n    ops:\n      - op: inc\n        path: ores.stone\n        value: \"{{input.amount}}\"\nresponse:\n  status: 200\n  body:\n    ok: true\n    mined: \"{{input.amount}}\"\n"
+              },
+              {
+                "kind": "endpoint",
+                "id": "buy-upgrade",
+                "authoringMode": "source",
+                "sourceFormat": "yaml",
+                "sourcePath": "buy-upgrade.endpoint.yml",
+                "sourceText": "sourceVersion: 1\nkind: endpoint\nid: buy-upgrade\nname: Buy Upgrade\ndescription: Workflow-backed purchase priced from the upgrades game-values table.\nexposure: public\nmethod: POST\ninput:\n  type: object\n  properties:\n    upgradeId:\n      type: string\n  required: [ upgradeId ]\nsteps:\n  - id: player\n    type: read\n    collection: players\n    key: \"{{steamId}}\"\n  - id: upgrade\n    type: lookup\n    source: values\n    table: upgrades\n    required: true\n    onMissing:\n      status: 400\n      errorCode: UNKNOWN_UPGRADE\n      message: Unknown upgrade.\n    where:\n      field: id\n      op: ==\n      value: \"{{input.upgradeId}}\"\n  - id: pricing\n    type: workflow\n    workflow: scaled-cost\n    params:\n      baseCost: \"{{upgrade.baseCost}}\"\n      costGrowth: \"{{upgrade.costGrowth}}\"\n      currentValue: \"{{player.level}}\"\n  - id: afford\n    type: workflow\n    workflow: check-currency\n    params:\n      balance: \"{{player.gold}}\"\n      cost: \"{{pricing.cost}}\"\n  - id: charge\n    type: write\n    collection: players\n    key: \"{{steamId}}\"\n    ops:\n      - op: inc\n        path: gold\n        value: \"{{pricing.negCost}}\"\n      - op: set\n        path: level\n        value: \"{{pricing.nextValue}}\"\nresponse:\n  status: 200\n  body:\n    ok: true\n    cost: \"{{pricing.cost}}\"\n    level: \"{{pricing.nextValue}}\"\n"
+              },
+              {
+                "kind": "endpoint",
+                "id": "market-listings",
+                "authoringMode": "source",
+                "sourceFormat": "yaml",
+                "sourcePath": "market-listings.endpoint.yml",
+                "sourceText": "sourceVersion: 1\nkind: endpoint\nid: market-listings\nname: Market Listings\ndescription: Static read-only listing endpoint (callable by GET).\nexposure: public\nmethod: GET\nsteps: []\nresponse:\n  status: 200\n  body:\n    ok: true\n    listings: []\n"
+              },
+              {
+                "kind": "endpoint",
+                "id": "grant-gold",
+                "authoringMode": "source",
+                "sourceFormat": "yaml",
+                "sourcePath": "grant-gold.endpoint.yml",
+                "sourceText": "sourceVersion: 1\nkind: endpoint\nid: grant-gold\nname: Grant Gold\ndescription: Dedicated-server-only reward grant.\nexposure: public\nrequiresSecretKey: true\nmethod: POST\ninput:\n  type: object\n  properties:\n    amount:\n      type: number\n  required: [ amount ]\nsteps:\n  - id: grant\n    type: write\n    collection: players\n    key: \"{{steamId}}\"\n    ops:\n      - op: inc\n        path: gold\n        value: \"{{input.amount}}\"\nresponse:\n  status: 200\n  body:\n    ok: true\n    granted: \"{{input.amount}}\"\n"
+              }
+            ],
+            "collections": [
+              {
+                "kind": "collection",
+                "id": "players",
+                "authoringMode": "source",
+                "sourceFormat": "yaml",
+                "sourcePath": "players.collection.yml",
+                "sourceText": "sourceVersion: 1\nkind: collection\nid: players\nname: players\ndescription: Per-player profile and economy state.\ndefinition:\n  collectionType: per-steamid\n  accessMode: public\n  maxRecords: 1\n  allowRecordDelete: true\n  requireSaveVersion: false\n  rateLimitAction: reject\n  rateLimits:\n    mode: none\n  schema:\n    playerName:\n      type: string\n      default: \"\"\n    gold:\n      type: number\n      default: 100\n      _ledger: true\n    level:\n      type: number\n      default: 0\n    ores:\n      type: object\n      default:\n        stone: 0\n      properties:\n        stone:\n          type: number\n"
+              },
+              {
+                "kind": "collection",
+                "id": "save_slots",
+                "authoringMode": "source",
+                "sourceFormat": "yaml",
+                "sourcePath": "save_slots.collection.yml",
+                "sourceText": "sourceVersion: 1\nkind: collection\nid: save_slots\nname: save_slots\ndescription: Up to three save files per player.\ndefinition:\n  collectionType: per-steamid\n  accessMode: public\n  maxRecords: 3\n  allowRecordDelete: true\n  schema:\n    slotName:\n      type: string\n      default: \"\"\n    playtimeSeconds:\n      type: number\n      default: 0\n"
+              },
+              {
+                "kind": "collection",
+                "id": "leaderboard_global",
+                "authoringMode": "source",
+                "sourceFormat": "yaml",
+                "sourcePath": "leaderboard_global.collection.yml",
+                "sourceText": "sourceVersion: 1\nkind: collection\nid: leaderboard_global\nname: leaderboard_global\ndescription: Shared append-only run log.\ndefinition:\n  collectionType: global\n  accessMode: public\n  allowRecordDelete: false\n  schema:\n    score:\n      type: number\n    playerName:\n      type: string\n"
+              }
+            ],
+            "workflows": [
+              {
+                "kind": "workflow",
+                "id": "scaled-cost",
+                "authoringMode": "source",
+                "sourceFormat": "yaml",
+                "sourcePath": "scaled-cost.workflow.yml",
+                "sourceText": "sourceVersion: 1\nkind: workflow\nid: scaled-cost\nname: Scaled Cost\ndescription: Compute an exponential purchase cost for the next level.\ndefinition:\n  params:\n    baseCost:\n      type: number\n    costGrowth:\n      type: number\n    currentValue:\n      type: number\n  steps:\n    - id: current_value\n      type: transform\n      expression: \"max(0, {{currentValue}})\"\n    - id: cost\n      type: transform\n      expression: \"ceil({{baseCost}} * pow({{costGrowth}}, {{current_value}}))\"\n    - id: neg_cost\n      type: transform\n      expression: \"0 - {{cost}}\"\n    - id: next_value\n      type: transform\n      expression: \"{{current_value}} + 1\"\n  returns:\n    cost: \"{{cost}}\"\n    negCost: \"{{neg_cost}}\"\n    nextValue: \"{{next_value}}\"\n"
+              },
+              {
+                "kind": "workflow",
+                "id": "check-currency",
+                "authoringMode": "source",
+                "sourceFormat": "yaml",
+                "sourcePath": "check-currency.workflow.yml",
+                "sourceText": "sourceVersion: 1\nkind: workflow\nid: check-currency\nname: Check Currency\ndescription: Validate that a player has enough currency for a cost.\ndefinition:\n  params:\n    balance:\n      type: number\n    cost:\n      type: number\n  steps:\n    - id: has_currency\n      type: condition\n      check:\n        field: \"{{balance}}\"\n        op: \">=\"\n        value: \"{{cost}}\"\n      onFail:\n        status: 409\n        error: INSUFFICIENT_CURRENCY\n        message: Not enough currency.\n  returns:\n    ok: true\n"
+              }
+            ]
+          },
+          "expect": {
+            "status": 200,
+            "requiredFields": [
+              "$.ok"
+            ]
+          }
+        },
+        {
+          "id": "preflight-again",
+          "method": "POST",
+          "path": "/v3/manage/${projectId}/sync/preflight",
+          "headers": {
+            "x-api-key": "${secretKey}",
+            "x-public-key": "${publicKey}",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "endpoints": [
+              {
+                "kind": "endpoint",
+                "id": "load-profile",
+                "authoringMode": "source",
+                "sourceFormat": "yaml",
+                "sourcePath": "load-profile.endpoint.yml",
+                "sourceText": "sourceVersion: 1\nkind: endpoint\nid: load-profile\nname: Load Profile\ndescription: Return the caller's players record.\nexposure: public\nmethod: POST\ninput:\n  type: object\n  properties: {}\nsteps:\n  - id: profile\n    type: read\n    collection: players\n    key: \"{{steamId}}\"\nresponse:\n  status: 200\n  body:\n    ok: true\n    profile: \"{{profile}}\"\n"
+              },
+              {
+                "kind": "endpoint",
+                "id": "save-profile",
+                "authoringMode": "source",
+                "sourceFormat": "yaml",
+                "sourcePath": "save-profile.endpoint.yml",
+                "sourceText": "sourceVersion: 1\nkind: endpoint\nid: save-profile\nname: Save Profile\ndescription: Save non-economic profile state.\nexposure: public\nmethod: POST\ninput:\n  type: object\n  properties:\n    playerName:\n      type: string\n  required: [ playerName ]\nsteps:\n  - id: save\n    type: write\n    collection: players\n    key: \"{{steamId}}\"\n    ops:\n      - op: set\n        path: playerName\n        value: \"{{input.playerName}}\"\nresponse:\n  status: 200\n  body:\n    ok: true\n"
+              },
+              {
+                "kind": "endpoint",
+                "id": "mine-ore",
+                "authoringMode": "source",
+                "sourceFormat": "yaml",
+                "sourcePath": "mine-ore.endpoint.yml",
+                "sourceText": "sourceVersion: 1\nkind: endpoint\nid: mine-ore\nname: Mine Ore\ndescription: Adds ore after validating the amount.\nexposure: public\nmethod: POST\ninput:\n  type: object\n  properties:\n    amount:\n      type: number\n  required: [ amount ]\nsteps:\n  - id: player\n    type: read\n    collection: players\n    key: \"{{steamId}}\"\n  - id: positive_amount\n    type: condition\n    check:\n      field: \"{{input.amount}}\"\n      op: \">\"\n      value: 0\n    routes:\n      false:\n        action: reject\n        status: 400\n        error: INVALID_AMOUNT\n        message: Amount must be positive.\n  - id: apply\n    type: write\n    collection: players\n    key: \"{{steamId}}\"\n    ops:\n      - op: inc\n        path: ores.stone\n        value: \"{{input.amount}}\"\nresponse:\n  status: 200\n  body:\n    ok: true\n    mined: \"{{input.amount}}\"\n"
+              },
+              {
+                "kind": "endpoint",
+                "id": "buy-upgrade",
+                "authoringMode": "source",
+                "sourceFormat": "yaml",
+                "sourcePath": "buy-upgrade.endpoint.yml",
+                "sourceText": "sourceVersion: 1\nkind: endpoint\nid: buy-upgrade\nname: Buy Upgrade\ndescription: Workflow-backed purchase priced from the upgrades game-values table.\nexposure: public\nmethod: POST\ninput:\n  type: object\n  properties:\n    upgradeId:\n      type: string\n  required: [ upgradeId ]\nsteps:\n  - id: player\n    type: read\n    collection: players\n    key: \"{{steamId}}\"\n  - id: upgrade\n    type: lookup\n    source: values\n    table: upgrades\n    required: true\n    onMissing:\n      status: 400\n      errorCode: UNKNOWN_UPGRADE\n      message: Unknown upgrade.\n    where:\n      field: id\n      op: ==\n      value: \"{{input.upgradeId}}\"\n  - id: pricing\n    type: workflow\n    workflow: scaled-cost\n    params:\n      baseCost: \"{{upgrade.baseCost}}\"\n      costGrowth: \"{{upgrade.costGrowth}}\"\n      currentValue: \"{{player.level}}\"\n  - id: afford\n    type: workflow\n    workflow: check-currency\n    params:\n      balance: \"{{player.gold}}\"\n      cost: \"{{pricing.cost}}\"\n  - id: charge\n    type: write\n    collection: players\n    key: \"{{steamId}}\"\n    ops:\n      - op: inc\n        path: gold\n        value: \"{{pricing.negCost}}\"\n      - op: set\n        path: level\n        value: \"{{pricing.nextValue}}\"\nresponse:\n  status: 200\n  body:\n    ok: true\n    cost: \"{{pricing.cost}}\"\n    level: \"{{pricing.nextValue}}\"\n"
+              },
+              {
+                "kind": "endpoint",
+                "id": "market-listings",
+                "authoringMode": "source",
+                "sourceFormat": "yaml",
+                "sourcePath": "market-listings.endpoint.yml",
+                "sourceText": "sourceVersion: 1\nkind: endpoint\nid: market-listings\nname: Market Listings\ndescription: Static read-only listing endpoint (callable by GET).\nexposure: public\nmethod: GET\nsteps: []\nresponse:\n  status: 200\n  body:\n    ok: true\n    listings: []\n"
+              },
+              {
+                "kind": "endpoint",
+                "id": "grant-gold",
+                "authoringMode": "source",
+                "sourceFormat": "yaml",
+                "sourcePath": "grant-gold.endpoint.yml",
+                "sourceText": "sourceVersion: 1\nkind: endpoint\nid: grant-gold\nname: Grant Gold\ndescription: Dedicated-server-only reward grant.\nexposure: public\nrequiresSecretKey: true\nmethod: POST\ninput:\n  type: object\n  properties:\n    amount:\n      type: number\n  required: [ amount ]\nsteps:\n  - id: grant\n    type: write\n    collection: players\n    key: \"{{steamId}}\"\n    ops:\n      - op: inc\n        path: gold\n        value: \"{{input.amount}}\"\nresponse:\n  status: 200\n  body:\n    ok: true\n    granted: \"{{input.amount}}\"\n"
+              }
+            ],
+            "collections": [
+              {
+                "kind": "collection",
+                "id": "players",
+                "authoringMode": "source",
+                "sourceFormat": "yaml",
+                "sourcePath": "players.collection.yml",
+                "sourceText": "sourceVersion: 1\nkind: collection\nid: players\nname: players\ndescription: Per-player profile and economy state.\ndefinition:\n  collectionType: per-steamid\n  accessMode: public\n  maxRecords: 1\n  allowRecordDelete: true\n  requireSaveVersion: false\n  rateLimitAction: reject\n  rateLimits:\n    mode: none\n  schema:\n    playerName:\n      type: string\n      default: \"\"\n    gold:\n      type: number\n      default: 100\n      _ledger: true\n    level:\n      type: number\n      default: 0\n    ores:\n      type: object\n      default:\n        stone: 0\n      properties:\n        stone:\n          type: number\n"
+              },
+              {
+                "kind": "collection",
+                "id": "save_slots",
+                "authoringMode": "source",
+                "sourceFormat": "yaml",
+                "sourcePath": "save_slots.collection.yml",
+                "sourceText": "sourceVersion: 1\nkind: collection\nid: save_slots\nname: save_slots\ndescription: Up to three save files per player.\ndefinition:\n  collectionType: per-steamid\n  accessMode: public\n  maxRecords: 3\n  allowRecordDelete: true\n  schema:\n    slotName:\n      type: string\n      default: \"\"\n    playtimeSeconds:\n      type: number\n      default: 0\n"
+              },
+              {
+                "kind": "collection",
+                "id": "leaderboard_global",
+                "authoringMode": "source",
+                "sourceFormat": "yaml",
+                "sourcePath": "leaderboard_global.collection.yml",
+                "sourceText": "sourceVersion: 1\nkind: collection\nid: leaderboard_global\nname: leaderboard_global\ndescription: Shared append-only run log.\ndefinition:\n  collectionType: global\n  accessMode: public\n  allowRecordDelete: false\n  schema:\n    score:\n      type: number\n    playerName:\n      type: string\n"
+              }
+            ],
+            "workflows": [
+              {
+                "kind": "workflow",
+                "id": "scaled-cost",
+                "authoringMode": "source",
+                "sourceFormat": "yaml",
+                "sourcePath": "scaled-cost.workflow.yml",
+                "sourceText": "sourceVersion: 1\nkind: workflow\nid: scaled-cost\nname: Scaled Cost\ndescription: Compute an exponential purchase cost for the next level.\ndefinition:\n  params:\n    baseCost:\n      type: number\n    costGrowth:\n      type: number\n    currentValue:\n      type: number\n  steps:\n    - id: current_value\n      type: transform\n      expression: \"max(0, {{currentValue}})\"\n    - id: cost\n      type: transform\n      expression: \"ceil({{baseCost}} * pow({{costGrowth}}, {{current_value}}))\"\n    - id: neg_cost\n      type: transform\n      expression: \"0 - {{cost}}\"\n    - id: next_value\n      type: transform\n      expression: \"{{current_value}} + 1\"\n  returns:\n    cost: \"{{cost}}\"\n    negCost: \"{{neg_cost}}\"\n    nextValue: \"{{next_value}}\"\n"
+              },
+              {
+                "kind": "workflow",
+                "id": "check-currency",
+                "authoringMode": "source",
+                "sourceFormat": "yaml",
+                "sourcePath": "check-currency.workflow.yml",
+                "sourceText": "sourceVersion: 1\nkind: workflow\nid: check-currency\nname: Check Currency\ndescription: Validate that a player has enough currency for a cost.\ndefinition:\n  params:\n    balance:\n      type: number\n    cost:\n      type: number\n  steps:\n    - id: has_currency\n      type: condition\n      check:\n        field: \"{{balance}}\"\n        op: \">=\"\n        value: \"{{cost}}\"\n      onFail:\n        status: 409\n        error: INSUFFICIENT_CURRENCY\n        message: Not enough currency.\n  returns:\n    ok: true\n"
+              }
+            ]
+          },
+          "orderInsensitivePaths": [
+            "$.endpoints.results",
+            "$.collections.results",
+            "$.workflows.results"
+          ],
+          "expect": {
+            "status": 200,
+            "requiredFields": [
+              "$.ok"
+            ]
+          }
+        },
+        {
+          "id": "list-endpoints",
+          "method": "GET",
+          "path": "/v3/manage/${projectId}/endpoints",
+          "headers": {
+            "x-api-key": "${secretKey}",
+            "x-public-key": "${publicKey}",
+            "Cache-Control": "no-cache",
+            "Pragma": "no-cache"
+          },
+          "query": {
+            "includeStaged": "true",
+            "_syncToolTs": "1767225600000"
+          },
+          "orderInsensitivePaths": [
+            "$.data"
+          ],
+          "expect": {
+            "status": 200,
+            "requiredFields": [
+              "$.ok"
+            ]
+          }
+        },
+        {
+          "id": "list-collections",
+          "method": "GET",
+          "path": "/v3/manage/${projectId}/collections",
+          "headers": {
+            "x-api-key": "${secretKey}",
+            "x-public-key": "${publicKey}",
+            "Cache-Control": "no-cache",
+            "Pragma": "no-cache"
+          },
+          "query": {
+            "includeStaged": "true",
+            "_syncToolTs": "1767225600000"
+          },
+          "orderInsensitivePaths": [
+            "$.data"
+          ],
+          "expect": {
+            "status": 200,
+            "requiredFields": [
+              "$.ok"
+            ]
+          }
+        },
+        {
+          "id": "list-workflows",
+          "method": "GET",
+          "path": "/v3/manage/${projectId}/workflows",
+          "headers": {
+            "x-api-key": "${secretKey}",
+            "x-public-key": "${publicKey}",
+            "Cache-Control": "no-cache",
+            "Pragma": "no-cache"
+          },
+          "query": {
+            "_syncToolTs": "1767225600000"
+          },
+          "orderInsensitivePaths": [
+            "$.data"
+          ],
+          "expect": {
+            "status": 200,
+            "requiredFields": [
+              "$.ok"
+            ]
+          }
+        },
+        {
+          "id": "list-endpoints-live",
+          "method": "GET",
+          "path": "/v3/manage/${projectId}/endpoints",
+          "headers": {
+            "x-api-key": "${secretKey}",
+            "x-public-key": "${publicKey}"
+          },
+          "query": {
+            "revisionTarget": "live"
+          },
+          "orderInsensitivePaths": [
+            "$.data"
+          ],
+          "expect": {
+            "status": 200,
+            "requiredFields": [
+              "$.ok"
+            ]
+          }
+        },
+        {
+          "id": "preflight-invalid",
+          "method": "POST",
+          "path": "/v3/manage/${projectId}/sync/preflight",
+          "headers": {
+            "x-api-key": "${secretKey}",
+            "x-public-key": "${publicKey}",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "endpoints": [
+              {
+                "kind": "endpoint",
+                "id": "broken",
+                "authoringMode": "source",
+                "sourceFormat": "yaml",
+                "sourcePath": "broken.endpoint.yml",
+                "sourceText": "sourceVersion: 1\nkind: endpoint\nid: broken\nsteps: [\n"
+              }
+            ],
+            "collections": [
+              {
+                "description": "missing name"
+              }
+            ]
+          },
+          "expect": {
+            "status": 400,
+            "requiredFields": [
+              "$.error"
+            ]
+          }
+        },
+        {
+          "id": "push-invalid-section",
+          "method": "PUT",
+          "path": "/v3/manage/${projectId}/sync",
+          "headers": {
+            "x-api-key": "${secretKey}",
+            "x-public-key": "${publicKey}",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "endpoints": {
+              "slug": "not-an-array"
+            }
+          },
+          "expect": {
+            "status": 400,
+            "requiredFields": [
+              "$.endpoints.error",
+              "$.endpoints.results"
+            ],
+            "equals": {
+              "$.ok": false,
+              "$.endpoints.ok": false,
+              "$.endpoints.error": "VALIDATION_FAILED"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "manage-resource-crud",
+      "description": "Per-resource legacy JSON pushes and deletes (sync.py) plus editor PATCH upserts.",
+      "source": "Editor/sync.py (api_request: x-api-key secret + x-public-key, JSON body); Editor/SyncToolApi.cs PatchEndpoint/PatchCollection/PatchWorkflow",
+      "steps": [
+        {
+          "id": "put-collections",
+          "method": "PUT",
+          "path": "/v3/manage/${projectId}/collections",
+          "headers": {
+            "x-api-key": "${secretKey}",
+            "x-public-key": "${publicKey}",
+            "Content-Type": "application/json"
+          },
+          "body": [
+            {
+              "id": "inventory",
+              "name": "inventory",
+              "description": "Per-player item stacks.",
+              "collectionType": "per-steamid",
+              "accessMode": "public",
+              "maxRecords": 1,
+              "allowRecordDelete": false,
+              "requireSaveVersion": false,
+              "rateLimitAction": "reject",
+              "rateLimits": {
+                "mode": "none"
+              },
+              "schema": {
+                "items": {
+                  "type": "array",
+                  "default": [],
+                  "items": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          ],
+          "expect": {
+            "status": 200,
+            "requiredFields": [
+              "$.ok"
+            ]
+          }
+        },
+        {
+          "id": "put-endpoints",
+          "method": "PUT",
+          "path": "/v3/manage/${projectId}/endpoints",
+          "headers": {
+            "x-api-key": "${secretKey}",
+            "x-public-key": "${publicKey}",
+            "Content-Type": "application/json"
+          },
+          "body": [
+            {
+              "id": "ping",
+              "slug": "ping",
+              "name": "ping",
+              "description": "Health ping endpoint.",
+              "enabled": true,
+              "method": "POST",
+              "input": {
+                "type": "object",
+                "properties": {}
+              },
+              "steps": [],
+              "response": {
+                "status": 200,
+                "body": {
+                  "ok": true,
+                  "pong": true
+                }
+              }
+            }
+          ],
+          "expect": {
+            "status": 200,
+            "requiredFields": [
+              "$.ok"
+            ]
+          }
+        },
+        {
+          "id": "put-workflows",
+          "method": "PUT",
+          "path": "/v3/manage/${projectId}/workflows",
+          "headers": {
+            "x-api-key": "${secretKey}",
+            "x-public-key": "${publicKey}",
+            "Content-Type": "application/json"
+          },
+          "body": [
+            {
+              "id": "is-positive",
+              "name": "Is Positive",
+              "builtIn": false,
+              "description": "Reject when a computed value is zero or negative.",
+              "condition": {
+                "field": "{{value}}",
+                "op": ">",
+                "value": 0
+              },
+              "onFail": {
+                "errorCode": "NO_VALUE",
+                "errorMessage": "Value must be positive.",
+                "status": 400
+              },
+              "params": {},
+              "requires": {
+                "value": {
+                  "description": "Value to validate."
+                }
+              },
+              "returns": {},
+              "steps": []
+            }
+          ],
+          "expect": {
+            "status": 200,
+            "requiredFields": [
+              "$.ok"
+            ]
+          }
+        },
+        {
+          "id": "patch-endpoint",
+          "method": "PATCH",
+          "path": "/v3/manage/${projectId}/endpoints",
+          "headers": {
+            "x-api-key": "${secretKey}",
+            "x-public-key": "${publicKey}",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "id": "ping",
+            "slug": "ping",
+            "name": "ping",
+            "description": "Health ping endpoint.",
+            "enabled": true,
+            "method": "POST",
+            "input": {
+              "type": "object",
+              "properties": {}
+            },
+            "steps": [],
+            "response": {
+              "status": 200,
+              "body": {
+                "ok": true,
+                "pong": true
+              }
+            }
+          },
+          "expect": {
+            "status": 200,
+            "requiredFields": [
+              "$.ok"
+            ]
+          }
+        },
+        {
+          "id": "patch-collection",
+          "method": "PATCH",
+          "path": "/v3/manage/${projectId}/collections",
+          "headers": {
+            "x-api-key": "${secretKey}",
+            "x-public-key": "${publicKey}",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "id": "inventory",
+            "name": "inventory",
+            "description": "Per-player item stacks.",
+            "collectionType": "per-steamid",
+            "accessMode": "public",
+            "maxRecords": 1,
+            "allowRecordDelete": false,
+            "requireSaveVersion": false,
+            "rateLimitAction": "reject",
+            "rateLimits": {
+              "mode": "none"
+            },
+            "schema": {
+              "items": {
+                "type": "array",
+                "default": [],
+                "items": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "expect": {
+            "status": 200,
+            "requiredFields": [
+              "$.ok"
+            ]
+          }
+        },
+        {
+          "id": "patch-workflow",
+          "method": "PATCH",
+          "path": "/v3/manage/${projectId}/workflows",
+          "headers": {
+            "x-api-key": "${secretKey}",
+            "x-public-key": "${publicKey}",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "id": "is-positive",
+            "name": "Is Positive",
+            "builtIn": false,
+            "description": "Reject when a computed value is zero or negative.",
+            "condition": {
+              "field": "{{value}}",
+              "op": ">",
+              "value": 0
+            },
+            "onFail": {
+              "errorCode": "NO_VALUE",
+              "errorMessage": "Value must be positive.",
+              "status": 400
+            },
+            "params": {},
+            "requires": {
+              "value": {
+                "description": "Value to validate."
+              }
+            },
+            "returns": {},
+            "steps": []
+          },
+          "expect": {
+            "status": 200,
+            "requiredFields": [
+              "$.ok"
+            ]
+          }
+        },
+        {
+          "id": "put-endpoints-missing-slug",
+          "method": "PUT",
+          "path": "/v3/manage/${projectId}/endpoints",
+          "headers": {
+            "x-api-key": "${secretKey}",
+            "x-public-key": "${publicKey}",
+            "Content-Type": "application/json"
+          },
+          "body": [
+            {
+              "method": "POST",
+              "steps": []
+            }
+          ],
+          "expect": {
+            "status": 400,
+            "requiredFields": [
+              "$.error"
+            ]
+          }
+        },
+        {
+          "id": "put-collections-not-array",
+          "method": "PUT",
+          "path": "/v3/manage/${projectId}/collections",
+          "headers": {
+            "x-api-key": "${secretKey}",
+            "x-public-key": "${publicKey}",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "name": "inventory"
+          },
+          "expect": {
+            "status": 400,
+            "requiredFields": [
+              "$.error"
+            ]
+          }
+        },
+        {
+          "id": "list-after-put",
+          "method": "GET",
+          "path": "/v3/manage/${projectId}/endpoints",
+          "headers": {
+            "x-api-key": "${secretKey}",
+            "x-public-key": "${publicKey}"
+          },
+          "orderInsensitivePaths": [
+            "$.data"
+          ],
+          "expect": {
+            "status": 200,
+            "requiredFields": [
+              "$.ok"
+            ]
+          }
+        },
+        {
+          "id": "delete-endpoint",
+          "method": "DELETE",
+          "path": "/v3/manage/${projectId}/endpoints/ping",
+          "headers": {
+            "x-api-key": "${secretKey}",
+            "x-public-key": "${publicKey}"
+          },
+          "expect": {
+            "status": 200,
+            "requiredFields": [
+              "$.ok"
+            ]
+          }
+        },
+        {
+          "id": "delete-collection",
+          "method": "DELETE",
+          "path": "/v3/manage/${projectId}/collections/inventory",
+          "headers": {
+            "x-api-key": "${secretKey}",
+            "x-public-key": "${publicKey}"
+          },
+          "expect": {
+            "status": 200,
+            "requiredFields": [
+              "$.ok"
+            ]
+          }
+        },
+        {
+          "id": "delete-workflow",
+          "method": "DELETE",
+          "path": "/v3/manage/${projectId}/workflows/is-positive",
+          "headers": {
+            "x-api-key": "${secretKey}",
+            "x-public-key": "${publicKey}"
+          },
+          "expect": {
+            "status": 200,
+            "requiredFields": [
+              "$.ok"
+            ]
+          }
+        },
+        {
+          "id": "list-after-delete",
+          "method": "GET",
+          "path": "/v3/manage/${projectId}/collections",
+          "headers": {
+            "x-api-key": "${secretKey}",
+            "x-public-key": "${publicKey}"
+          },
+          "orderInsensitivePaths": [
+            "$.data"
+          ],
+          "expect": {
+            "status": 200,
+            "requiredFields": [
+              "$.ok"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "manage-rate-limit-rules",
+      "description": "Project rate limit rules write/read.",
+      "source": "management API (docs 06-rate-limits)",
+      "steps": [
+        {
+          "id": "put",
+          "method": "PUT",
+          "path": "/v3/manage/${projectId}/rate-limit-rules",
+          "headers": {
+            "x-api-key": "${secretKey}",
+            "x-public-key": "${publicKey}",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "rules": [
+              {
+                "name": "ore_minute_cap",
+                "collection": "players",
+                "field": "ores.stone",
+                "scope": "per_player",
+                "window": "perMinute",
+                "limit": 1000,
+                "action": "reject"
+              },
+              {
+                "name": "gold_daily_flag",
+                "collection": "players",
+                "field": "gold",
+                "scope": "per_player",
+                "window": "perDay",
+                "limit": 1000000,
+                "action": "flag"
+              }
+            ]
+          },
+          "expect": {
+            "status": 200,
+            "requiredFields": [
+              "$.ok"
+            ]
+          }
+        },
+        {
+          "id": "get",
+          "method": "GET",
+          "path": "/v3/manage/${projectId}/rate-limit-rules",
+          "headers": {
+            "x-api-key": "${secretKey}",
+            "x-public-key": "${publicKey}"
+          },
+          "expect": {
+            "status": 200,
+            "requiredFields": [
+              "$.ok"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "manage-queries",
+      "description": "Dashboard queries CRUD.",
+      "source": "management API (Code/Storage/NetworkStorageQueries.cs consumes them)",
+      "steps": [
+        {
+          "id": "create-leaderboard",
+          "method": "POST",
+          "path": "/v3/manage/${projectId}/queries",
+          "headers": {
+            "x-api-key": "${secretKey}",
+            "x-public-key": "${publicKey}",
+            "Content-Type": "application/json"
+          },
+          "body": [
+            {
+              "id": "top_miners",
+              "name": "top_miners",
+              "type": "leaderboard",
+              "requiresSecretKey": false,
+              "sources": [
+                {
+                  "collectionId": "players"
+                }
+              ],
+              "config": {
+                "field": "ores.stone",
+                "order": "desc",
+                "limit": 10
+              }
+            }
+          ],
+          "expect": {
+            "status": 200,
+            "requiredFields": [
+              "$.ok"
+            ]
+          }
+        },
+        {
+          "id": "create-secret-count",
+          "method": "POST",
+          "path": "/v3/manage/${projectId}/queries",
+          "headers": {
+            "x-api-key": "${secretKey}",
+            "x-public-key": "${publicKey}",
+            "Content-Type": "application/json"
+          },
+          "body": [
+            {
+              "id": "player_count",
+              "name": "player_count",
+              "type": "count",
+              "requiresSecretKey": true,
+              "sources": [
+                {
+                  "collectionId": "players"
+                }
+              ],
+              "config": {}
+            }
+          ],
+          "expect": {
+            "status": 200,
+            "requiredFields": [
+              "$.ok"
+            ]
+          }
+        },
+        {
+          "id": "create-scratch",
+          "method": "POST",
+          "path": "/v3/manage/${projectId}/queries",
+          "headers": {
+            "x-api-key": "${secretKey}",
+            "x-public-key": "${publicKey}",
+            "Content-Type": "application/json"
+          },
+          "body": [
+            {
+              "id": "scratch_query",
+              "name": "scratch_query",
+              "type": "count",
+              "sources": [
+                {
+                  "collectionId": "players"
+                }
+              ],
+              "config": {}
+            }
+          ],
+          "expect": {
+            "status": 200,
+            "requiredFields": [
+              "$.ok"
+            ]
+          }
+        },
+        {
+          "id": "list",
+          "method": "GET",
+          "path": "/v3/manage/${projectId}/queries",
+          "headers": {
+            "x-api-key": "${secretKey}",
+            "x-public-key": "${publicKey}"
+          },
+          "orderInsensitivePaths": [
+            "$.data",
+            "$.queries"
+          ],
+          "expect": {
+            "status": 200,
+            "requiredFields": [
+              "$.data"
+            ],
+            "equals": {
+              "$.ok": true
+            }
+          }
+        },
+        {
+          "id": "delete-scratch",
+          "method": "DELETE",
+          "path": "/v3/manage/${projectId}/queries/scratch_query",
+          "headers": {
+            "x-api-key": "${secretKey}",
+            "x-public-key": "${publicKey}"
+          },
+          "expect": {
+            "status": 200,
+            "requiredFields": [
+              "$.ok"
+            ]
+          }
+        },
+        {
+          "id": "list-after-delete",
+          "method": "GET",
+          "path": "/v3/manage/${projectId}/queries",
+          "headers": {
+            "x-api-key": "${secretKey}",
+            "x-public-key": "${publicKey}"
+          },
+          "orderInsensitivePaths": [
+            "$.data",
+            "$.queries"
+          ],
+          "expect": {
+            "status": 200,
+            "requiredFields": [
+              "$.data"
+            ],
+            "equals": {
+              "$.ok": true
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "manage-package-and-revision",
+      "description": "Package sync and game-package read, plus required client revision initialization. Production .NET has no revision-init handler; those success assertions remain release-blocking upstream prerequisites.",
+      "source": "Editor/SyncToolApi.cs (Request: x-api-key secret + x-public-key) SyncPackageInfo/GetGamePackage; Code/Core/NetworkStorageRevisionInit.cs",
+      "steps": [
+        {
+          "id": "package-sync",
+          "method": "POST",
+          "path": "/v3/manage/${projectId}/package-sync",
+          "headers": {
+            "x-api-key": "${secretKey}",
+            "x-public-key": "${publicKey}",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "packageId": "parity.testgame",
+            "packageIdent": "parity.testgame",
+            "packageTitle": "Parity Test Game",
+            "orgIdent": "parity",
+            "packageType": "game",
+            "runtimeClientType": "editor",
+            "isEditorContext": true,
+            "isPublishedGameBundle": false,
+            "currentRevisionId": 41,
+            "latestRevisionId": 42,
+            "publishStatus": "published",
+            "rawPackage": {},
+            "rawRevision": {},
+            "rawBundle": {}
+          },
+          "expect": {
+            "status": 200,
+            "requiredFields": [
+              "$.gamePackage",
+              "$.promotedRevisionOverrides"
+            ],
+            "equals": {
+              "$.ok": true,
+              "$.gamePackage.packageIdent": "parity.testgame",
+              "$.gamePackage.currentRevisionId": 41,
+              "$.revisionChanged": false
+            }
+          }
+        },
+        {
+          "id": "game-package",
+          "method": "GET",
+          "path": "/v3/manage/${projectId}/game-package",
+          "headers": {
+            "x-api-key": "${secretKey}",
+            "x-public-key": "${publicKey}"
+          },
+          "expect": {
+            "status": 200,
+            "requiredFields": [
+              "$.gamePackage"
+            ],
+            "equals": {
+              "$.ok": true,
+              "$.gamePackage.packageIdent": "parity.testgame",
+              "$.gamePackage.currentRevisionId": 41
+            }
+          }
+        },
+        {
+          "id": "revision-init",
+          "method": "POST",
+          "path": "/v3/manage/${projectId}/revision-init",
+          "headers": {
+            "x-public-key": "${publicKey}",
+            "x-ns-revision-id": "42",
+            "x-ns-client-type": "game"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "body": {
+            "projectId": "${projectId}",
+            "clientType": "game",
+            "networkStorageVersion": "1.0",
+            "isPublishedGameBundle": true,
+            "packageIdent": "parity.testgame",
+            "revisionId": 42
+          },
+          "expect": {
+            "status": 200,
+            "requiredFields": [
+              "$.ok"
+            ]
+          }
+        },
+        {
+          "id": "revision-init-outdated",
+          "method": "POST",
+          "path": "/v3/manage/${projectId}/revision-init",
+          "headers": {
+            "x-public-key": "${publicKey}",
+            "x-ns-revision-id": "40",
+            "x-ns-client-type": "game"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "body": {
+            "projectId": "${projectId}",
+            "clientType": "game",
+            "networkStorageVersion": "1.0",
+            "isPublishedGameBundle": true,
+            "packageIdent": "parity.testgame",
+            "revisionId": 40
+          },
+          "expect": {
+            "status": 200,
+            "requiredFields": [
+              "$.ok"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "manage-tests-and-tools",
+      "description": "Editor test runner and tooling routes. Production .NET supports auto-test and reads, but PUT tests and source-upgrade have no live implementation; their success assertions remain release-blocking upstream prerequisites.",
+      "source": "Editor/SyncToolApi.cs (Request: x-api-key secret + x-public-key) AutoTest/RunTest/GetTests/UpgradeSource/GetSyncJobStatus",
+      "steps": [
+        {
+          "id": "auto-test-one",
+          "method": "POST",
+          "path": "/v3/manage/${projectId}/auto-test",
+          "headers": {
+            "x-api-key": "${secretKey}",
+            "x-public-key": "${publicKey}",
+            "Content-Type": "application/json",
+            "x-ns-publish-target": "live"
+          },
+          "body": {
+            "slug": "mine-ore"
+          },
+          "expect": {
+            "status": 200,
+            "requiredFields": [
+              "$.ok"
+            ]
+          }
+        },
+        {
+          "id": "auto-test-all",
+          "method": "POST",
+          "path": "/v3/manage/${projectId}/auto-test",
+          "headers": {
+            "x-api-key": "${secretKey}",
+            "x-public-key": "${publicKey}",
+            "Content-Type": "application/json",
+            "x-ns-publish-target": "live"
+          },
+          "body": {},
+          "expect": {
+            "status": 200,
+            "requiredFields": [
+              "$.ok"
+            ]
+          }
+        },
+        {
+          "id": "get-tests",
+          "method": "GET",
+          "path": "/v3/manage/${projectId}/tests",
+          "headers": {
+            "x-api-key": "${secretKey}",
+            "x-public-key": "${publicKey}"
+          },
+          "expect": {
+            "status": 200,
+            "requiredFields": [
+              "$.ok"
+            ]
+          }
+        },
+        {
+          "id": "put-tests",
+          "method": "PUT",
+          "path": "/v3/manage/${projectId}/tests",
+          "headers": {
+            "x-api-key": "${secretKey}",
+            "x-public-key": "${publicKey}",
+            "Content-Type": "application/json"
+          },
+          "body": [
+            {
+              "id": "mine-ore-success",
+              "endpoint": "mine-ore",
+              "input": {
+                "amount": 3
+              },
+              "expect": {
+                "status": 200
+              }
+            }
+          ],
+          "expect": {
+            "status": 200,
+            "requiredFields": [
+              "$.ok"
+            ]
+          }
+        },
+        {
+          "id": "source-upgrade",
+          "method": "POST",
+          "path": "/v3/manage/${projectId}/source-upgrade",
+          "headers": {
+            "x-api-key": "${secretKey}",
+            "x-public-key": "${publicKey}",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "kind": "endpoint",
+            "id": "mine-ore",
+            "sourceFormat": "yaml",
+            "sourcePath": "mine-ore.endpoint.yml",
+            "sourceText": "sourceVersion: 1\nkind: endpoint\nid: mine-ore\nname: Mine Ore\ndescription: Adds ore after validating the amount.\nexposure: public\nmethod: POST\ninput:\n  type: object\n  properties:\n    amount:\n      type: number\n  required: [ amount ]\nsteps:\n  - id: player\n    type: read\n    collection: players\n    key: \"{{steamId}}\"\n  - id: positive_amount\n    type: condition\n    check:\n      field: \"{{input.amount}}\"\n      op: \">\"\n      value: 0\n    routes:\n      false:\n        action: reject\n        status: 400\n        error: INVALID_AMOUNT\n        message: Amount must be positive.\n  - id: apply\n    type: write\n    collection: players\n    key: \"{{steamId}}\"\n    ops:\n      - op: inc\n        path: ores.stone\n        value: \"{{input.amount}}\"\nresponse:\n  status: 200\n  body:\n    ok: true\n    mined: \"{{input.amount}}\"\n"
+          },
+          "expect": {
+            "status": 200,
+            "requiredFields": [
+              "$.ok"
+            ]
+          }
+        },
+        {
+          "id": "sync-job-unknown",
+          "method": "GET",
+          "path": "/v3/manage/${projectId}/sync-jobs/job_does_not_exist",
+          "headers": {
+            "x-api-key": "${secretKey}",
+            "x-public-key": "${publicKey}"
+          },
+          "expect": {
+            "status": 200,
+            "requiredFields": [
+              "$.ok"
+            ]
+          }
+        },
+        {
+          "id": "config",
+          "method": "GET",
+          "path": "/v3/manage/${projectId}/config",
+          "headers": {
+            "x-api-key": "${secretKey}",
+            "x-public-key": "${publicKey}"
+          },
+          "expect": {
+            "status": 200,
+            "requiredFields": [
+              "$.ok"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

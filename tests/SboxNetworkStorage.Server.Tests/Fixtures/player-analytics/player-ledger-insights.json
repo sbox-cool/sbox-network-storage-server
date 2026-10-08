@@ -1,0 +1,28 @@
+{
+  "steamId": "76561197960287930",
+  "projectId": "85ed638340264f44",
+  "days": 30,
+  "ledgerInsights": {
+    "hasData": true,
+    "fieldCount": 1,
+    "pointCount": 10,
+    "series": [
+      {
+        "key": "stats:experience",
+        "label": "Experience",
+        "points": [
+          {
+            "ts": "2026-05-30T10:00:00.000Z",
+            "value": 1000,
+            "delta": 100
+          }
+        ],
+        "summary": {
+          "latestValue": 1000,
+          "netChange": 1000
+        }
+      }
+    ],
+    "milestones": []
+  }
+}

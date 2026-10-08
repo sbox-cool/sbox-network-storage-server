@@ -1,0 +1,50 @@
+{
+  "endpointRateLimits": {
+    "enabled": true,
+    "perPlayer": {
+      "perMinute": 60,
+      "perHour": 300,
+      "perDay": 5000
+    },
+    "global": {
+      "perMinute": 1000,
+      "perHour": 10000,
+      "perDay": null
+    }
+  },
+  "rules": [
+    {
+      "id": "rule-field-score",
+      "collection": "player_data",
+      "field": "score",
+      "action": "reject",
+      "maxPerMinute": 10,
+      "maxPerHour": null,
+      "maxPerDay": null,
+      "enabled": true,
+      "scope": "per_player"
+    },
+    {
+      "id": "rule-collection-logs",
+      "collection": "logs",
+      "field": "",
+      "action": "reject",
+      "maxPerMinute": null,
+      "maxPerHour": null,
+      "maxPerDay": 1000,
+      "enabled": true,
+      "scope": "global"
+    },
+    {
+      "id": "rule-field-xp",
+      "collection": "player_data",
+      "field": "experience",
+      "action": "clamp",
+      "maxPerMinute": 300,
+      "maxPerHour": 5000,
+      "maxPerDay": null,
+      "enabled": false,
+      "scope": "per_player"
+    }
+  ]
+}

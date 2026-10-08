@@ -1,0 +1,173 @@
+using SboxNetworkStorage.Server.Configuration;
+using SboxNetworkStorage.Server.Hosting;
+
+namespace SboxNetworkStorage.Server.Cli;
+
+/// <summary>Entry point: one binary is both the server (<c>start</c>) and the operator CLI.</summary>
+public static class CliApp
+{
+    public const int Ok = 0;
+    public const int Failure = 1;
+    public const int Usage = 2;
+
+    public const string HelpText = """
+        sbox-ns - self-hosted s&box Network Storage server
+
+        Usage: sbox-ns <command> [options]
+
+        Server
+          start                         Run the server in the foreground
+          setup                         Create or update the config folder interactively
+                                        (--non-interactive with --database, --listen, --public-url, --pg-* flags)
+                                        (--admin-username with --admin-password-file FILE or NS_ADMIN_PASSWORD)
+          doctor                        Check config, database, port, TLS, disk and updates
+          version                       Print the version
+
+        Configuration
+          config path                   Print the config folder
+          config show [--show-secrets]  Print every effective setting and where it came from
+          config get <key>              Print one setting
+          config set <key> <value>      Change one setting in its file (comments are kept)
+          config validate               Validate the config folder
+          config edit [file]            Open a config file in $EDITOR and validate it
+
+        Database
+          db test                       Connect to the configured database
+          db status                     Show the schema version
+          db migrate                    Apply pending schema migrations
+          db backup [--output FILE]     Back up the database
+          db restore <FILE>             Restore a backup (stop the server first)
+
+        Local owner
+          admin create [--username NAME] [--password-file FILE]
+          admin reset-password [--password-file FILE]
+                                        Password input is hidden; NS_ADMIN_USERNAME / NS_ADMIN_PASSWORD also work
+
+        Projects and API keys
+          project create <name>         Create a project
+          project list                  List projects
+          project delete <projectId>    Delete a project
+          key create <projectId> --type public|secret [--label LABEL]
+          key list <projectId>
+          key revoke <projectId> <key>
+
+        Service
+          service install|uninstall     Register sbox-ns as a system service (systemd, launchd, Windows)
+          service start|stop|restart|status
+          logs [-f]                     Show service logs
+
+        Updates (never automatic)
+          update [--check] [--version X.Y.Z]   Check for or install a release
+          rollback                      Restore the binary and database from before the last update
+
+        Global options
+          --config-dir DIR   Config folder (default: NS_CONFIG_DIR, /etc/sbox-ns, or <install dir>/config)
+          --data-dir DIR     Data folder (default: NS_DATA_DIR, server.data_dir, /var/lib/sbox-ns, or <install dir>/data)
+          --listen ADDR      Override server.listen, e.g. 0.0.0.0:8080
+        """;
+
+    public static async Task<int> RunAsync(string[] args)
+    {
+        var parsed = CliArguments.Parse(args);
+        var command = parsed.Positional(0);
+        if (command is null || parsed.Flag("help", "h") || command is "help")
+        {
+            Console.WriteLine(HelpText);
+            return command is null && !parsed.Flag("help", "h") ? Usage : Ok;
+        }
+
+        var context = new CliContext(parsed);
+        try
+        {
+            return command switch
+            {
+                "start" => await StartAsync(context),
+                "version" or "--version" => Version(),
+                "setup" => await SetupCommand.RunAsync(context),
+                "config" => ConfigCommands.Run(context),
+                "db" => await DatabaseCommands.RunAsync(context),
+                "admin" => await AdminCommands.RunAsync(context),
+                "project" => await ProjectCommands.RunProjectAsync(context),
+                "key" => await ProjectCommands.RunKeyAsync(context),
+                "service" => await ServiceCommands.RunAsync(context),
+                "logs" => await ServiceCommands.LogsAsync(context),
+                "doctor" => await DoctorCommand.RunAsync(context),
+                "update" => await UpdateCommands.UpdateAsync(context),
+                "rollback" => await UpdateCommands.RollbackAsync(context),
+                _ => UnknownCommand(command)
+            };
+        }
+        catch (CliException ex)
+        {
+            Console.Error.WriteLine($"error: {ex.Message}");
+            return ex.ExitCode;
+        }
+    }
+
+    private static async Task<int> StartAsync(CliContext context)
+    {
+        var config = context.LoadValidConfig();
+        return await ServerHost.RunAsync(config, []);
+    }
+
+    private static int Version()
+    {
+        Console.WriteLine($"sbox-ns {BuildInfo.Version} ({BuildInfo.RuntimeIdentifier})");
+        return Ok;
+    }
+
+    private static int UnknownCommand(string command)
+    {
+        Console.Error.WriteLine($"error: unknown command '{command}'. Run `sbox-ns help`.");
+        return Usage;
+    }
+}
+
+/// <summary>An expected, user-facing failure; printed without a stack trace.</summary>
+public sealed class CliException(string message, int exitCode = CliApp.Failure) : Exception(message)
+{
+    public int ExitCode { get; } = exitCode;
+}
+
+/// <summary>Parsed arguments plus lazily loaded configuration shared by all commands.</summary>
+public sealed class CliContext(CliArguments args)
+{
+    public CliArguments Args { get; } = args;
+
+    public IReadOnlyDictionary<string, string> FlagOverrides
+    {
+        get
+        {
+            var overrides = new Dictionary<string, string>(StringComparer.Ordinal);
+            if (Args.Option("listen") is { } listen)
+            {
+                overrides["server.listen"] = listen;
+            }
+
+            return overrides;
+        }
+    }
+
+    public EffectiveConfig LoadConfig()
+        => ConfigLoader.Load(Args.Option("config-dir"), Args.Option("data-dir"), FlagOverrides);
+
+    /// <summary>Loads configuration and fails with every validation issue listed.</summary>
+    public EffectiveConfig LoadValidConfig()
+    {
+        var config = LoadConfig();
+        if (config.IsValid)
+        {
+            return config;
+        }
+
+        foreach (var issue in config.Issues)
+        {
+            Console.Error.WriteLine($"  {issue}");
+        }
+
+        throw new CliException($"configuration in {config.ConfigDirectory} is invalid ({config.Issues.Count} problem(s))", CliApp.Usage);
+    }
+
+    public string RequirePositional(int index, string name)
+        => Args.Positional(index) ?? throw new CliException($"missing <{name}>. Run `sbox-ns help`.", CliApp.Usage);
+}

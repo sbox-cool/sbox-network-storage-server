@@ -1,0 +1,115 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{E8ED539F-4D2B-4A40-BD12-5EE131D6A88F}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SboxNetworkStorage.Application", "src\SboxNetworkStorage.Application\SboxNetworkStorage.Application.csproj", "{2C2E44F5-213D-49EC-AF42-448AC80BD904}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SboxNetworkStorage.Contracts", "src\SboxNetworkStorage.Contracts\SboxNetworkStorage.Contracts.csproj", "{5DF50A04-8ED6-4720-A40C-77C0B9DADCCB}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SboxNetworkStorage.Domain", "src\SboxNetworkStorage.Domain\SboxNetworkStorage.Domain.csproj", "{6DCA1E98-73FC-4BE7-8429-EBAC74499573}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SboxNetworkStorage.Infrastructure", "src\SboxNetworkStorage.Infrastructure\SboxNetworkStorage.Infrastructure.csproj", "{76DEE272-1C63-4200-9CD9-5FE56AB0613A}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SboxNetworkStorage.Server", "src\SboxNetworkStorage.Server\SboxNetworkStorage.Server.csproj", "{C9B52CC2-F47F-4008-A788-424B7A4262B6}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SboxNetworkStorage.Storage", "src\SboxNetworkStorage.Storage\SboxNetworkStorage.Storage.csproj", "{6B9BDD2F-7FED-4A8B-A254-F6991BBBBAE5}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SboxNetworkStorage.Storage.Relational", "src\SboxNetworkStorage.Storage.Relational\SboxNetworkStorage.Storage.Relational.csproj", "{5C6BB2A4-683B-45D4-A058-D82FB5D7BA1B}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SboxNetworkStorage.Storage.Sqlite", "src\SboxNetworkStorage.Storage.Sqlite\SboxNetworkStorage.Storage.Sqlite.csproj", "{B686153C-EC60-4AE9-8BB8-8EA88EAE0BEE}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SboxNetworkStorage.Storage.Postgres", "src\SboxNetworkStorage.Storage.Postgres\SboxNetworkStorage.Storage.Postgres.csproj", "{1537F3F4-88F4-4FE4-A20A-B6366B767592}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{2172429F-A557-4A5B-ABCC-026FEFFA693B}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SboxNetworkStorage.Storage.ConformanceTests", "tests\SboxNetworkStorage.Storage.ConformanceTests\SboxNetworkStorage.Storage.ConformanceTests.csproj", "{ADA89A75-419A-4A64-B866-5DAFD3D63F53}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SboxNetworkStorage.Server.Tests", "tests\SboxNetworkStorage.Server.Tests\SboxNetworkStorage.Server.Tests.csproj", "{87BBF6BB-C36A-416E-BE5E-16AFD6EAFFEA}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SboxNetworkStorage.Cli.Tests", "tests\SboxNetworkStorage.Cli.Tests\SboxNetworkStorage.Cli.Tests.csproj", "{F8EE0017-D6EA-443D-977E-538DF013A3D3}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tools", "tools", "{94F6F360-D606-43D8-97A1-3C0ED1FAD142}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SboxNetworkStorage.Parity", "tools\SboxNetworkStorage.Parity\SboxNetworkStorage.Parity.csproj", "{6B5757DD-7A46-4535-AFBB-DDDE69A7EC0E}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{2C2E44F5-213D-49EC-AF42-448AC80BD904}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{2C2E44F5-213D-49EC-AF42-448AC80BD904}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{2C2E44F5-213D-49EC-AF42-448AC80BD904}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{2C2E44F5-213D-49EC-AF42-448AC80BD904}.Release|Any CPU.Build.0 = Release|Any CPU
+		{5DF50A04-8ED6-4720-A40C-77C0B9DADCCB}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{5DF50A04-8ED6-4720-A40C-77C0B9DADCCB}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{5DF50A04-8ED6-4720-A40C-77C0B9DADCCB}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{5DF50A04-8ED6-4720-A40C-77C0B9DADCCB}.Release|Any CPU.Build.0 = Release|Any CPU
+		{6DCA1E98-73FC-4BE7-8429-EBAC74499573}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{6DCA1E98-73FC-4BE7-8429-EBAC74499573}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{6DCA1E98-73FC-4BE7-8429-EBAC74499573}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{6DCA1E98-73FC-4BE7-8429-EBAC74499573}.Release|Any CPU.Build.0 = Release|Any CPU
+		{76DEE272-1C63-4200-9CD9-5FE56AB0613A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{76DEE272-1C63-4200-9CD9-5FE56AB0613A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{76DEE272-1C63-4200-9CD9-5FE56AB0613A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{76DEE272-1C63-4200-9CD9-5FE56AB0613A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C9B52CC2-F47F-4008-A788-424B7A4262B6}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C9B52CC2-F47F-4008-A788-424B7A4262B6}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C9B52CC2-F47F-4008-A788-424B7A4262B6}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C9B52CC2-F47F-4008-A788-424B7A4262B6}.Release|Any CPU.Build.0 = Release|Any CPU
+		{6B9BDD2F-7FED-4A8B-A254-F6991BBBBAE5}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{6B9BDD2F-7FED-4A8B-A254-F6991BBBBAE5}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{6B9BDD2F-7FED-4A8B-A254-F6991BBBBAE5}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{6B9BDD2F-7FED-4A8B-A254-F6991BBBBAE5}.Release|Any CPU.Build.0 = Release|Any CPU
+		{5C6BB2A4-683B-45D4-A058-D82FB5D7BA1B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{5C6BB2A4-683B-45D4-A058-D82FB5D7BA1B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{5C6BB2A4-683B-45D4-A058-D82FB5D7BA1B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{5C6BB2A4-683B-45D4-A058-D82FB5D7BA1B}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B686153C-EC60-4AE9-8BB8-8EA88EAE0BEE}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B686153C-EC60-4AE9-8BB8-8EA88EAE0BEE}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B686153C-EC60-4AE9-8BB8-8EA88EAE0BEE}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B686153C-EC60-4AE9-8BB8-8EA88EAE0BEE}.Release|Any CPU.Build.0 = Release|Any CPU
+		{1537F3F4-88F4-4FE4-A20A-B6366B767592}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{1537F3F4-88F4-4FE4-A20A-B6366B767592}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{1537F3F4-88F4-4FE4-A20A-B6366B767592}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{1537F3F4-88F4-4FE4-A20A-B6366B767592}.Release|Any CPU.Build.0 = Release|Any CPU
+		{ADA89A75-419A-4A64-B866-5DAFD3D63F53}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{ADA89A75-419A-4A64-B866-5DAFD3D63F53}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{ADA89A75-419A-4A64-B866-5DAFD3D63F53}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{ADA89A75-419A-4A64-B866-5DAFD3D63F53}.Release|Any CPU.Build.0 = Release|Any CPU
+		{87BBF6BB-C36A-416E-BE5E-16AFD6EAFFEA}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{87BBF6BB-C36A-416E-BE5E-16AFD6EAFFEA}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{87BBF6BB-C36A-416E-BE5E-16AFD6EAFFEA}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{87BBF6BB-C36A-416E-BE5E-16AFD6EAFFEA}.Release|Any CPU.Build.0 = Release|Any CPU
+		{F8EE0017-D6EA-443D-977E-538DF013A3D3}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F8EE0017-D6EA-443D-977E-538DF013A3D3}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F8EE0017-D6EA-443D-977E-538DF013A3D3}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F8EE0017-D6EA-443D-977E-538DF013A3D3}.Release|Any CPU.Build.0 = Release|Any CPU
+		{6B5757DD-7A46-4535-AFBB-DDDE69A7EC0E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{6B5757DD-7A46-4535-AFBB-DDDE69A7EC0E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{6B5757DD-7A46-4535-AFBB-DDDE69A7EC0E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{6B5757DD-7A46-4535-AFBB-DDDE69A7EC0E}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{2C2E44F5-213D-49EC-AF42-448AC80BD904} = {E8ED539F-4D2B-4A40-BD12-5EE131D6A88F}
+		{5DF50A04-8ED6-4720-A40C-77C0B9DADCCB} = {E8ED539F-4D2B-4A40-BD12-5EE131D6A88F}
+		{6DCA1E98-73FC-4BE7-8429-EBAC74499573} = {E8ED539F-4D2B-4A40-BD12-5EE131D6A88F}
+		{76DEE272-1C63-4200-9CD9-5FE56AB0613A} = {E8ED539F-4D2B-4A40-BD12-5EE131D6A88F}
+		{C9B52CC2-F47F-4008-A788-424B7A4262B6} = {E8ED539F-4D2B-4A40-BD12-5EE131D6A88F}
+		{6B9BDD2F-7FED-4A8B-A254-F6991BBBBAE5} = {E8ED539F-4D2B-4A40-BD12-5EE131D6A88F}
+		{5C6BB2A4-683B-45D4-A058-D82FB5D7BA1B} = {E8ED539F-4D2B-4A40-BD12-5EE131D6A88F}
+		{B686153C-EC60-4AE9-8BB8-8EA88EAE0BEE} = {E8ED539F-4D2B-4A40-BD12-5EE131D6A88F}
+		{1537F3F4-88F4-4FE4-A20A-B6366B767592} = {E8ED539F-4D2B-4A40-BD12-5EE131D6A88F}
+		{ADA89A75-419A-4A64-B866-5DAFD3D63F53} = {2172429F-A557-4A5B-ABCC-026FEFFA693B}
+		{87BBF6BB-C36A-416E-BE5E-16AFD6EAFFEA} = {2172429F-A557-4A5B-ABCC-026FEFFA693B}
+		{F8EE0017-D6EA-443D-977E-538DF013A3D3} = {2172429F-A557-4A5B-ABCC-026FEFFA693B}
+		{6B5757DD-7A46-4535-AFBB-DDDE69A7EC0E} = {94F6F360-D606-43D8-97A1-3C0ED1FAD142}
+	EndGlobalSection
+EndGlobal

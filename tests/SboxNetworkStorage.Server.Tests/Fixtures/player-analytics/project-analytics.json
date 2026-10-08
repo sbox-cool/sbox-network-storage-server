@@ -1,0 +1,70 @@
+{
+  "project": {
+    "id": "85ed638340264f44",
+    "name": "Fixture Project",
+    "enabled": true,
+    "analytics": {
+      "enabled": true
+    }
+  },
+  "projectOrganization": {
+    "id": "org123",
+    "name": "Fixture Org"
+  },
+  "currentWorkspace": {
+    "id": "org123",
+    "name": "Fixture Org"
+  },
+  "baseUrl": "http://localhost:4546",
+  "apiBaseUrl": "http://localhost:4546/api",
+  "lastHeartbeat": "2026-05-30T10:00:00.000Z",
+  "lastHeartbeatLabel": "just now",
+  "players": [
+    {
+      "steamId": "76561197960287930",
+      "playerName": "Garry",
+      "totalSeconds": 3600,
+      "lastSeen": "2026-05-30T10:00:00.000Z",
+      "lastSeenLabel": "just now",
+      "analyticsStatusLabel": "Managed",
+      "analyticsStatusSlug": "managed",
+      "onlineStatusLabel": "Online",
+      "onlineStatusSlug": "online",
+      "isOnline": true
+    }
+  ],
+  "totalPlayers": 1,
+  "onlinePlayers": 1,
+  "activeAnalyticsTab": "recent",
+  "recentPlayersUrl": "/api/storage-browse/85ed638340264f44/player-analytics?tab=recent",
+  "performanceUrl": "/api/storage-browse/85ed638340264f44/player-analytics?tab=performance",
+  "errorsUrl": "/api/storage-browse/85ed638340264f44/player-analytics?tab=errors",
+  "performanceSummary": {
+    "averageFps": 60,
+    "rows": []
+  },
+  "errorRows": [],
+  "managedIncidentSummary": {
+    "counts": {
+      "localErrors": 0,
+      "localWarnings": 0,
+      "endpointFailures": 0,
+      "performanceIssues": 0,
+      "networkQuality": 0,
+      "voiceActivity": 0,
+      "outdatedRevision": 0
+    },
+    "recent": [],
+    "days": 7,
+    "playerCount": 1
+  },
+  "currentPage": 1,
+  "totalPages": 1,
+  "perPage": 100,
+  "startPlayer": 1,
+  "endPlayer": 1,
+  "q": "",
+  "analyticsSettings": {
+    "enabled": true
+  }
+}

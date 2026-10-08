@@ -1,0 +1,126 @@
+{
+  "schemaVersion": 1,
+  "description": "Dashboard queries run by the game client and dedicated servers.",
+  "scenarios": [
+    {
+      "name": "queries-run",
+      "description": "RunQuery with public and secret keys.",
+      "source": "Code/Storage/NetworkStorageQueries.cs GetQuery",
+      "steps": [
+        {
+          "id": "leaderboard",
+          "method": "GET",
+          "path": "/v3/queries/${projectId}/top_miners",
+          "headers": {
+            "x-public-key": "${publicKey}"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "expect": {
+            "status": 200,
+            "equals": {
+              "$.ok": true
+            },
+            "requiredFields": [
+              "$.queryId"
+            ]
+          }
+        },
+        {
+          "id": "leaderboard-v1",
+          "method": "GET",
+          "path": "/v1/queries/${projectId}/top_miners",
+          "headers": {
+            "x-public-key": "${publicKey}"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "expect": {
+            "status": 200,
+            "equals": {
+              "$.ok": true
+            },
+            "requiredFields": [
+              "$.queryId"
+            ]
+          }
+        },
+        {
+          "id": "secret-query-public-key",
+          "method": "GET",
+          "path": "/v3/queries/${projectId}/player_count",
+          "headers": {
+            "x-public-key": "${publicKey}"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "expect": {
+            "status": 401,
+            "requiredFields": [
+              "$.error"
+            ]
+          }
+        },
+        {
+          "id": "secret-query-dedicated",
+          "method": "GET",
+          "path": "/v3/queries/${projectId}/player_count",
+          "headers": {
+            "x-public-key": "${publicKey}",
+            "x-api-key": "${secretKey}"
+          },
+          "query": {
+            "apiKey": "${publicKey}",
+            "secret-key": "1"
+          },
+          "expect": {
+            "status": 200,
+            "equals": {
+              "$.ok": true
+            },
+            "requiredFields": [
+              "$.queryId"
+            ]
+          }
+        },
+        {
+          "id": "unknown-query",
+          "method": "GET",
+          "path": "/v3/queries/${projectId}/no_such_query",
+          "headers": {
+            "x-public-key": "${publicKey}"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "expect": {
+            "status": 404,
+            "requiredFields": [
+              "$.error"
+            ]
+          }
+        },
+        {
+          "id": "api-storage-alias",
+          "method": "GET",
+          "path": "/api/storage/${projectId}/queries/top_miners",
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "expect": {
+            "status": 200,
+            "equals": {
+              "$.ok": true
+            },
+            "requiredFields": [
+              "$.queryId"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

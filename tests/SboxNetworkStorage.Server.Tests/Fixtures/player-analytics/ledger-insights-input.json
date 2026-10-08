@@ -1,0 +1,84 @@
+{
+  "events": [
+    {
+      "id": "e1",
+      "ts": "2026-05-01T10:00:00.000Z",
+      "type": "endpoint.call",
+      "category": "endpoint",
+      "endpointSlug": "resolve-cast",
+      "sessionId": "s1",
+      "ok": true,
+      "payload": {
+        "method": "POST",
+        "status": 200,
+        "timingMs": 12
+      }
+    },
+    {
+      "id": "e2",
+      "ts": "2026-05-01T10:00:05.000Z",
+      "type": "tracked_field.delta",
+      "category": "tracked_field",
+      "collectionId": "col_a",
+      "sessionId": "s1",
+      "source": "quest",
+      "key": "111",
+      "payload": {
+        "fieldPath": "coins",
+        "label": "Coins",
+        "kind": "currency",
+        "before": 100,
+        "after": 150,
+        "delta": 50
+      }
+    },
+    {
+      "id": "e3",
+      "ts": "2026-05-01T10:30:00.000Z",
+      "type": "tracked_field.delta",
+      "category": "tracked_field",
+      "collectionId": "col_a",
+      "sessionId": "s1",
+      "source": "shop",
+      "key": "111",
+      "payload": {
+        "fieldPath": "coins",
+        "before": 150,
+        "after": 130,
+        "delta": -20
+      }
+    },
+    {
+      "id": "e4",
+      "ts": "2026-05-01T11:00:00.000Z",
+      "type": "tracked_field.delta",
+      "category": "tracked_field",
+      "collectionId": "col_a",
+      "sessionId": "s2",
+      "source": "quest",
+      "key": "111",
+      "payload": {
+        "fieldPath": "coins",
+        "before": 130,
+        "after": 400,
+        "delta": 270
+      }
+    }
+  ],
+  "sessions": [
+    {
+      "sessionId": "s1",
+      "startedAt": "2026-05-01T10:00:00.000Z",
+      "endedAt": "2026-05-01T10:45:00.000Z"
+    },
+    {
+      "sessionId": "s2",
+      "startedAt": "2026-05-01T11:00:00.000Z"
+    }
+  ],
+  "profile": {
+    "steamId": "111",
+    "totalSeconds": 3600,
+    "effectiveTotalSeconds": 3600
+  }
+}

@@ -1,0 +1,278 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  DOTNET_NOLOGO: "true"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "true"
+  SERVER_PROJECT: src/SboxNetworkStorage.Server/SboxNetworkStorage.Server.csproj
+  IMAGE: ghcr.io/sbox-cool/sbox-network-storage-server
+
+jobs:
+  test:
+    name: Test
+    uses: ./.github/workflows/ci.yml
+
+  smoke:
+    name: HTTP parity release gate
+    uses: ./.github/workflows/smoke.yml
+
+  stable-parity:
+    name: Approved stable HTTP parity release gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Require approved stable reference
+        shell: bash
+        env:
+          STABLE_PARITY_RESULTS_URL: ${{ secrets.STABLE_PARITY_RESULTS_URL }}
+        run: |
+          if [ -z "$STABLE_PARITY_RESULTS_URL" ]; then
+            echo "::error::Release blocked: configure STABLE_PARITY_RESULTS_URL with an approved stable-server run of this exact corpus. Cross-driver parity is not managed parity."
+            exit 1
+          fi
+          mkdir -p TestResults
+          curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' "$STABLE_PARITY_RESULTS_URL" --output TestResults/stable.json
+      - name: Replay candidate HTTP corpus
+        run: bash scripts/smoke.sh --out TestResults/candidate.json
+      - name: Compare against approved stable reference
+        run: dotnet tools/SboxNetworkStorage.Parity/bin/Release/net8.0/sbox-ns-parity.dll diff --stable TestResults/stable.json --candidate TestResults/candidate.json --allow tests/parity/intentional-differences.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: stable-http-parity-release
+          path: TestResults/*.json
+          if-no-files-found: ignore
+
+  meta:
+    name: Resolve version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      prerelease: ${{ steps.v.outputs.prerelease }}
+    steps:
+      - id: v
+        shell: bash
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          version="${TAG#v}"
+          if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "Tag '$TAG' is not a semantic version (expected vMAJOR.MINOR.PATCH[-pre])" >&2
+            exit 1
+          fi
+          case "$version" in
+            *-*) prerelease=true ;;
+            *) prerelease=false ;;
+          esac
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+
+  publish:
+    name: Publish ${{ matrix.rid }}
+    needs: [test, smoke, stable-parity, meta]
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - rid: linux-x64
+            os: ubuntu-latest
+          - rid: linux-arm64
+            os: ubuntu-latest
+          - rid: win-x64
+            os: windows-latest
+          # macOS binaries are published on macOS so the apphost is code signed (ad hoc),
+          # which Apple Silicon requires to execute.
+          - rid: osx-arm64
+            os: macos-latest
+          - rid: osx-x64
+            os: macos-latest
+    env:
+      VERSION: ${{ needs.meta.outputs.version }}
+      RID: ${{ matrix.rid }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Publish
+        shell: bash
+        run: |
+          dotnet publish "$SERVER_PROJECT" \
+            -c Release \
+            -r "$RID" \
+            --self-contained true \
+            -p:PublishSingleFile=true \
+            -p:IncludeNativeLibrariesForSelfExtract=true \
+            -p:EnableCompressionInSingleFile=true \
+            -p:Version="$VERSION" \
+            -o "publish/$RID"
+          cp LICENSE README.md CHANGELOG.md "publish/$RID/"
+
+      - name: Archive (tar.gz)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          mkdir -p dist
+          tar -C "publish/$RID" -czf "dist/sbox-ns-$VERSION-$RID.tar.gz" .
+
+      - name: Archive (zip)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Compress-Archive -Path "publish/$env:RID/*" -DestinationPath "dist/sbox-ns-$env:VERSION-$env:RID.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.rid }}
+          path: dist/*
+          if-no-files-found: error
+
+  image:
+    name: Container image
+    needs: [test, smoke, stable-parity, meta]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      VERSION: ${{ needs.meta.outputs.version }}
+      PRERELEASE: ${{ needs.meta.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-qemu-action@v3
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute tags
+        id: tags
+        shell: bash
+        run: |
+          tags="$IMAGE:$VERSION"
+          if [ "$PRERELEASE" = "false" ]; then
+            tags="$tags,$IMAGE:latest"
+          fi
+          echo "tags=$tags" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.tags.outputs.tags }}
+          build-args: |
+            VERSION=${{ needs.meta.outputs.version }}
+          labels: |
+            org.opencontainers.image.title=sbox Network Storage Server
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.version=${{ needs.meta.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.licenses=AGPL-3.0-only
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  release:
+    name: GitHub Release
+    needs: [meta, publish, image]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+    env:
+      VERSION: ${{ needs.meta.outputs.version }}
+      PRERELEASE: ${{ needs.meta.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: dist-*
+          path: dist
+          merge-multiple: true
+
+      - name: Generate release.json
+        shell: bash
+        env:
+          CHANGELOG_URL: https://github.com/${{ github.repository }}/releases/tag/${{ github.ref_name }}
+        run: |
+          meta_file=.github/release-meta.json
+          if [ ! -f "$meta_file" ]; then
+            echo '{}' > "$RUNNER_TEMP/release-meta.json"
+            meta_file="$RUNNER_TEMP/release-meta.json"
+          fi
+          jq -n \
+            --arg version "$VERSION" \
+            --arg changelogUrl "$CHANGELOG_URL" \
+            --arg publishedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --argjson prerelease "$PRERELEASE" \
+            --slurpfile meta "$meta_file" \
+            '{
+              version: $version,
+              prerelease: $prerelease,
+              minUpgradableFrom: ($meta[0].minUpgradableFrom // null),
+              migrationRequired: ($meta[0].migrationRequired // false),
+              security: ($meta[0].security // false),
+              changelogUrl: $changelogUrl,
+              publishedAt: $publishedAt
+            }' > dist/release.json
+          cat dist/release.json
+
+      - name: Generate SHA256SUMS
+        shell: bash
+        run: |
+          cp install/install.sh install/install.ps1 dist/
+          cd dist
+          sha256sum -- * > SHA256SUMS
+          cat SHA256SUMS
+
+      - uses: sigstore/cosign-installer@v3
+        with:
+          cosign-release: v2.4.1
+
+      - name: Sign SHA256SUMS (keyless)
+        shell: bash
+        run: |
+          cosign sign-blob --yes \
+            --output-signature dist/SHA256SUMS.sig \
+            --output-certificate dist/SHA256SUMS.pem \
+            dist/SHA256SUMS
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: sbox-ns ${{ needs.meta.outputs.version }}
+          prerelease: ${{ needs.meta.outputs.prerelease == 'true' }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            dist/sbox-ns-*.tar.gz
+            dist/sbox-ns-*.zip
+            dist/SHA256SUMS
+            dist/SHA256SUMS.sig
+            dist/SHA256SUMS.pem
+            dist/release.json
+            dist/install.sh
+            dist/install.ps1

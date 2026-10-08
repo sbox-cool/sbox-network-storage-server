@@ -1,0 +1,1060 @@
+[
+  {
+    "method": "GET",
+    "template": "/_internal/health",
+    "sources": [
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "GET",
+    "template": "/_internal/ready",
+    "sources": [
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "GET",
+    "template": "/_internal/self-test",
+    "sources": [
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "GET",
+    "template": "/_internal/stats",
+    "sources": [
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "GET",
+    "template": "/api/pages/:projectId/:pageSlug",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "DELETE",
+    "template": "/api/storage/:projectId/:collectionId/:key",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "GET",
+    "template": "/api/storage/:projectId/:collectionId/:key",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "POST",
+    "template": "/api/storage/:projectId/:collectionId/:key",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "GET",
+    "template": "/api/storage/:projectId/:collectionId/:steamId/records",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "POST",
+    "template": "/api/storage/:projectId/:collectionId/:steamId/records",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "DELETE",
+    "template": "/api/storage/:projectId/:collectionId/:steamId/records/:recordId",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "PATCH",
+    "template": "/api/storage/:projectId/:collectionId/:steamId/records/:recordId",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "POST",
+    "template": "/api/storage/:projectId/analytics/events",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "GET",
+    "template": "/api/storage/:projectId/queries/:queryId",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "GET",
+    "template": "/api/storage/:projectId/stats/:steamId",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "POST",
+    "template": "/api/storage/:projectId/stats/heartbeat",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "GET",
+    "template": "/pages/:projectId/:pageSlug",
+    "sources": [
+      "routes/server.js"
+    ]
+  },
+  {
+    "method": "POST",
+    "template": "/v1/auth-sessions/:projectId/create",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "POST",
+    "template": "/v1/auth-sessions/:projectId/reauth",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "POST",
+    "template": "/v1/auth-sessions/:projectId/refresh",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "POST",
+    "template": "/v1/auth-sessions/:projectId/revoke",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "POST",
+    "template": "/v1/endpoints/:projectId",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "GET",
+    "template": "/v1/endpoints/:projectId/:endpointSlug",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "POST",
+    "template": "/v1/endpoints/:projectId/:endpointSlug",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "GET",
+    "template": "/v1/queries/:projectId/:queryId",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "POST",
+    "template": "/v1/sessions/:projectId/create",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "POST",
+    "template": "/v1/sessions/:projectId/reauth",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "POST",
+    "template": "/v1/sessions/:projectId/refresh",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "POST",
+    "template": "/v1/sessions/:projectId/revoke",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "DELETE",
+    "template": "/v1/storage/:projectId/:collectionId/:key",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "GET",
+    "template": "/v1/storage/:projectId/:collectionId/:key",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "POST",
+    "template": "/v1/storage/:projectId/:collectionId/:key",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "GET",
+    "template": "/v1/storage/:projectId/:collectionId/:steamId/ledger",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "GET",
+    "template": "/v1/storage/:projectId/:collectionId/:steamId/records",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "POST",
+    "template": "/v1/storage/:projectId/:collectionId/:steamId/records",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "DELETE",
+    "template": "/v1/storage/:projectId/:collectionId/:steamId/records/:recordId",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "PATCH",
+    "template": "/v1/storage/:projectId/:collectionId/:steamId/records/:recordId",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "POST",
+    "template": "/v1/storage/:projectId/:collectionId/append",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "GET",
+    "template": "/v1/storage/:projectId/:collectionId/list",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "GET",
+    "template": "/v1/storage/:projectId/:collectionId/record/:recordId",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "POST",
+    "template": "/v1/storage/:projectId/analytics/events",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "GET",
+    "template": "/v1/storage/:projectId/rate-limits",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "GET",
+    "template": "/v1/storage/:projectId/stats/:steamId",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "POST",
+    "template": "/v1/storage/:projectId/stats/heartbeat",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "GET",
+    "template": "/v1/values/:projectId",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "POST",
+    "template": "/v3/auth-sessions/:projectId/create",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "POST",
+    "template": "/v3/auth-sessions/:projectId/reauth",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "POST",
+    "template": "/v3/auth-sessions/:projectId/refresh",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "POST",
+    "template": "/v3/auth-sessions/:projectId/revoke",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "POST",
+    "template": "/v3/endpoints/:projectId",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "GET",
+    "template": "/v3/endpoints/:projectId/:endpointSlug",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "POST",
+    "template": "/v3/endpoints/:projectId/:endpointSlug",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "GET",
+    "template": "/v3/manage/:projectId/agent-manifest",
+    "sources": [
+      "routes/server.js"
+    ]
+  },
+  {
+    "method": "POST",
+    "template": "/v3/manage/:projectId/auto-test",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "GET",
+    "template": "/v3/manage/:projectId/collections",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "PATCH",
+    "template": "/v3/manage/:projectId/collections",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "PUT",
+    "template": "/v3/manage/:projectId/collections",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "GET",
+    "template": "/v3/manage/:projectId/config",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "GET",
+    "template": "/v3/manage/:projectId/endpoints",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "PATCH",
+    "template": "/v3/manage/:projectId/endpoints",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "PUT",
+    "template": "/v3/manage/:projectId/endpoints",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "GET",
+    "template": "/v3/manage/:projectId/game-package",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "GET",
+    "template": "/v3/manage/:projectId/game-values",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "PUT",
+    "template": "/v3/manage/:projectId/game-values",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "DELETE",
+    "template": "/v3/manage/:projectId/keys",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "POST",
+    "template": "/v3/manage/:projectId/package-sync",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "GET",
+    "template": "/v3/manage/:projectId/rate-limit-rules",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "PUT",
+    "template": "/v3/manage/:projectId/rate-limit-rules",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "POST",
+    "template": "/v3/manage/:projectId/run-tests",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "GET",
+    "template": "/v3/manage/:projectId/settings",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "PUT",
+    "template": "/v3/manage/:projectId/settings",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "POST",
+    "template": "/v3/manage/:projectId/source-upgrade",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "POST",
+    "template": "/v3/manage/:projectId/suggest-tests",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "PUT",
+    "template": "/v3/manage/:projectId/sync",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "GET",
+    "template": "/v3/manage/:projectId/sync-jobs/:jobId",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "POST",
+    "template": "/v3/manage/:projectId/sync/preflight",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "POST",
+    "template": "/v3/manage/:projectId/test-endpoint",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "GET",
+    "template": "/v3/manage/:projectId/tests",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "PUT",
+    "template": "/v3/manage/:projectId/tests",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "GET",
+    "template": "/v3/manage/:projectId/validate",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "GET",
+    "template": "/v3/manage/:projectId/workflows",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "PATCH",
+    "template": "/v3/manage/:projectId/workflows",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "PUT",
+    "template": "/v3/manage/:projectId/workflows",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "POST",
+    "template": "/v3/prototype/spacetimedb/:projectId/checkpoint",
+    "sources": [
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "GET",
+    "template": "/v3/prototype/spacetimedb/:projectId/collections",
+    "sources": [
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "PUT",
+    "template": "/v3/prototype/spacetimedb/:projectId/collections",
+    "sources": [
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "GET",
+    "template": "/v3/prototype/spacetimedb/:projectId/endpoints",
+    "sources": [
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "PUT",
+    "template": "/v3/prototype/spacetimedb/:projectId/endpoints",
+    "sources": [
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "GET",
+    "template": "/v3/prototype/spacetimedb/:projectId/game-values",
+    "sources": [
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "PUT",
+    "template": "/v3/prototype/spacetimedb/:projectId/game-values",
+    "sources": [
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "GET",
+    "template": "/v3/prototype/spacetimedb/:projectId/project",
+    "sources": [
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "PUT",
+    "template": "/v3/prototype/spacetimedb/:projectId/project",
+    "sources": [
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "GET",
+    "template": "/v3/prototype/spacetimedb/:projectId/queries",
+    "sources": [
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "PUT",
+    "template": "/v3/prototype/spacetimedb/:projectId/queries",
+    "sources": [
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "GET",
+    "template": "/v3/prototype/spacetimedb/:projectId/rate-limit-rules",
+    "sources": [
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "PUT",
+    "template": "/v3/prototype/spacetimedb/:projectId/rate-limit-rules",
+    "sources": [
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "GET",
+    "template": "/v3/prototype/spacetimedb/:projectId/status",
+    "sources": [
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "DELETE",
+    "template": "/v3/prototype/spacetimedb/:projectId/storage/:collectionId/:key",
+    "sources": [
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "GET",
+    "template": "/v3/prototype/spacetimedb/:projectId/storage/:collectionId/:key",
+    "sources": [
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "POST",
+    "template": "/v3/prototype/spacetimedb/:projectId/storage/:collectionId/:key",
+    "sources": [
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "GET",
+    "template": "/v3/prototype/spacetimedb/:projectId/workflows",
+    "sources": [
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "PUT",
+    "template": "/v3/prototype/spacetimedb/:projectId/workflows",
+    "sources": [
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "GET",
+    "template": "/v3/queries/:projectId/:queryId",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "GET",
+    "template": "/v3/security-config/:projectId",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "POST",
+    "template": "/v3/sessions/:projectId/create",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "POST",
+    "template": "/v3/sessions/:projectId/reauth",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "POST",
+    "template": "/v3/sessions/:projectId/refresh",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "POST",
+    "template": "/v3/sessions/:projectId/revoke",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "DELETE",
+    "template": "/v3/storage/:projectId/:collectionId/:key",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "GET",
+    "template": "/v3/storage/:projectId/:collectionId/:key",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "POST",
+    "template": "/v3/storage/:projectId/:collectionId/:key",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "GET",
+    "template": "/v3/storage/:projectId/:collectionId/:steamId/ledger",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "GET",
+    "template": "/v3/storage/:projectId/:collectionId/:steamId/records",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "POST",
+    "template": "/v3/storage/:projectId/:collectionId/:steamId/records",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "DELETE",
+    "template": "/v3/storage/:projectId/:collectionId/:steamId/records/:recordId",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "PATCH",
+    "template": "/v3/storage/:projectId/:collectionId/:steamId/records/:recordId",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "POST",
+    "template": "/v3/storage/:projectId/:collectionId/append",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "GET",
+    "template": "/v3/storage/:projectId/:collectionId/list",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "GET",
+    "template": "/v3/storage/:projectId/:collectionId/record/:recordId",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "POST",
+    "template": "/v3/storage/:projectId/analytics/events",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "GET",
+    "template": "/v3/storage/:projectId/rate-limits",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "GET",
+    "template": "/v3/storage/:projectId/stats/:steamId",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "POST",
+    "template": "/v3/storage/:projectId/stats/heartbeat",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "GET",
+    "template": "/v3/values/:projectId",
+    "sources": [
+      "routes/server.js",
+      "storage-api/routes.js"
+    ]
+  },
+  {
+    "method": "POST",
+    "template": "/v3/manage/:projectId/collections",
+    "sources": [
+      "dotnet-native"
+    ]
+  },
+  {
+    "method": "DELETE",
+    "template": "/v3/manage/:projectId/collections/:collectionId",
+    "sources": [
+      "dotnet-native"
+    ]
+  },
+  {
+    "method": "POST",
+    "template": "/v3/manage/:projectId/endpoints",
+    "sources": [
+      "dotnet-native"
+    ]
+  },
+  {
+    "method": "DELETE",
+    "template": "/v3/manage/:projectId/endpoints/:endpointId",
+    "sources": [
+      "dotnet-native"
+    ]
+  },
+  {
+    "method": "POST",
+    "template": "/v3/manage/:projectId/game-values",
+    "sources": [
+      "dotnet-native"
+    ]
+  },
+  {
+    "method": "DELETE",
+    "template": "/v3/manage/:projectId/game-values",
+    "sources": [
+      "dotnet-native"
+    ]
+  },
+  {
+    "method": "GET",
+    "template": "/v3/manage/:projectId/queries",
+    "sources": [
+      "dotnet-native"
+    ]
+  },
+  {
+    "method": "POST",
+    "template": "/v3/manage/:projectId/queries",
+    "sources": [
+      "dotnet-native"
+    ]
+  },
+  {
+    "method": "DELETE",
+    "template": "/v3/manage/:projectId/queries/:queryId",
+    "sources": [
+      "dotnet-native"
+    ]
+  },
+  {
+    "method": "POST",
+    "template": "/v3/manage/:projectId/rate-limit-rules",
+    "sources": [
+      "dotnet-native"
+    ]
+  },
+  {
+    "method": "DELETE",
+    "template": "/v3/manage/:projectId/rate-limit-rules",
+    "sources": [
+      "dotnet-native"
+    ]
+  },
+  {
+    "method": "POST",
+    "template": "/v3/manage/:projectId/workflows",
+    "sources": [
+      "dotnet-native"
+    ]
+  },
+  {
+    "method": "DELETE",
+    "template": "/v3/manage/:projectId/workflows/:workflowId",
+    "sources": [
+      "dotnet-native"
+    ]
+  }
+]

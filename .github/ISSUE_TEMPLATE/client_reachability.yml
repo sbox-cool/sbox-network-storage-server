@@ -1,0 +1,42 @@
+name: Client reachability report
+description: Report whether an s&box game client could reach your self-hosted server with a given URL type.
+labels: [reachability]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The client reachability table in the README is untested. Reports like this one fill it in.
+        Do not include your real domain or IP address if you prefer not to.
+  - type: dropdown
+    id: url-type
+    attributes:
+      label: Server URL type
+      options:
+        - HTTPS domain
+        - HTTP domain
+        - IP address and port
+        - localhost
+    validations:
+      required: true
+  - type: dropdown
+    id: result
+    attributes:
+      label: Result
+      options:
+        - Works
+        - Does not work
+        - Works in editor only
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: Server version, client library version, s&box build if known
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: Details
+      description: Editor or published game, error messages from the s&box console, TLS setup (Let's Encrypt, own certificate, reverse proxy).

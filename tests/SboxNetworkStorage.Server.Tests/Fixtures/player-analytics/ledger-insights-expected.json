@@ -1,0 +1,266 @@
+{
+  "hasData": true,
+  "fieldCount": 1,
+  "pointCount": 3,
+  "omittedPointCount": 0,
+  "selectedFieldKey": null,
+  "thresholds": {
+    "absolute": 1,
+    "proportional": 0.25,
+    "sessionNetAbsolute": 100,
+    "correlationBeforeSeconds": 30,
+    "correlationAfterSeconds": 10
+  },
+  "profile": {
+    "steamId": "111",
+    "totalSeconds": 3600,
+    "effectiveTotalSeconds": 3600
+  },
+  "series": [
+    {
+      "key": "col_a:coins",
+      "collectionId": "col_a",
+      "fieldPath": "coins",
+      "label": "Coins",
+      "kind": "currency",
+      "source": "quest",
+      "firstSeen": "2026-05-01T10:00:05.000Z",
+      "lastSeen": "2026-05-01T11:00:00.000Z",
+      "points": [
+        {
+          "id": "e2",
+          "ts": "2026-05-01T10:00:05.000Z",
+          "value": 150,
+          "before": 100,
+          "after": 150,
+          "delta": 50,
+          "source": "quest",
+          "key": "111",
+          "sessionId": "s1",
+          "direction": "increase",
+          "nearbyActivity": [
+            {
+              "id": "e1",
+              "ts": "2026-05-01T10:00:00.000Z",
+              "type": "endpoint.call",
+              "category": "endpoint",
+              "label": "resolve-cast",
+              "endpointSlug": "resolve-cast",
+              "collectionId": "",
+              "ok": true,
+              "sessionId": "s1",
+              "relativeSeconds": -5,
+              "payload": {
+                "status": 200,
+                "timingMs": 12,
+                "method": "POST"
+              }
+            }
+          ],
+          "sessionContext": {
+            "sessionId": "s1",
+            "startedAt": "2026-05-01T10:00:00.000Z",
+            "endedAt": "2026-05-01T10:45:00.000Z",
+            "relativeSeconds": 5
+          }
+        },
+        {
+          "id": "e3",
+          "ts": "2026-05-01T10:30:00.000Z",
+          "value": 130,
+          "before": 150,
+          "after": 130,
+          "delta": -20,
+          "source": "shop",
+          "key": "111",
+          "sessionId": "s1",
+          "direction": "decrease",
+          "nearbyActivity": [],
+          "sessionContext": {
+            "sessionId": "s1",
+            "startedAt": "2026-05-01T10:00:00.000Z",
+            "endedAt": "2026-05-01T10:45:00.000Z",
+            "relativeSeconds": 1800
+          }
+        },
+        {
+          "id": "e4",
+          "ts": "2026-05-01T11:00:00.000Z",
+          "value": 400,
+          "before": 130,
+          "after": 400,
+          "delta": 270,
+          "source": "quest",
+          "key": "111",
+          "sessionId": "s2",
+          "direction": "increase",
+          "nearbyActivity": [],
+          "sessionContext": {
+            "sessionId": "s2",
+            "startedAt": "2026-05-01T11:00:00.000Z",
+            "relativeSeconds": 0
+          }
+        }
+      ],
+      "omittedCount": 0,
+      "summary": {
+        "firstValue": 100,
+        "latestValue": 400,
+        "minValue": 100,
+        "maxValue": 400,
+        "totalIncrease": 320,
+        "totalDecrease": -20,
+        "netChange": 300,
+        "pointCount": 3,
+        "returnedPointCount": 3,
+        "omittedCount": 0
+      }
+    }
+  ],
+  "milestones": [
+    {
+      "id": "movement:col_a:coins:e4",
+      "kind": "increase",
+      "fieldKey": "col_a:coins",
+      "fieldPath": "coins",
+      "collectionId": "col_a",
+      "label": "Coins",
+      "ts": "2026-05-01T11:00:00.000Z",
+      "delta": 270,
+      "before": 130,
+      "after": 400,
+      "ratio": 2.076923076923077,
+      "threshold": {
+        "type": "proportional",
+        "value": 0.25
+      },
+      "nearbyActivity": [],
+      "sessionContext": {
+        "sessionId": "s2",
+        "startedAt": "2026-05-01T11:00:00.000Z",
+        "relativeSeconds": 0
+      }
+    },
+    {
+      "id": "local-max:col_a:coins:e4",
+      "kind": "local_max",
+      "fieldKey": "col_a:coins",
+      "label": "Coins",
+      "ts": "2026-05-01T11:00:00.000Z",
+      "after": 400,
+      "delta": 270,
+      "nearbyActivity": [],
+      "sessionContext": {
+        "sessionId": "s2",
+        "startedAt": "2026-05-01T11:00:00.000Z",
+        "relativeSeconds": 0
+      }
+    },
+    {
+      "id": "session-net:col_a:coins:s2:2026-05-01T11:00:00.000Z",
+      "kind": "session_net_increase",
+      "fieldKey": "col_a:coins",
+      "fieldPath": "coins",
+      "collectionId": "col_a",
+      "label": "Coins",
+      "ts": "2026-05-01T11:00:00.000Z",
+      "sessionId": "s2",
+      "totalIncrease": 270,
+      "totalDecrease": 0,
+      "netChange": 270,
+      "eventCount": 1,
+      "threshold": {
+        "type": "session_net_absolute",
+        "value": 100
+      },
+      "nearbyActivity": [],
+      "sessionContext": {
+        "sessionId": "s2",
+        "startedAt": "2026-05-01T11:00:00.000Z",
+        "relativeSeconds": 0
+      }
+    },
+    {
+      "id": "movement:col_a:coins:e3",
+      "kind": "decrease",
+      "fieldKey": "col_a:coins",
+      "fieldPath": "coins",
+      "collectionId": "col_a",
+      "label": "Coins",
+      "ts": "2026-05-01T10:30:00.000Z",
+      "delta": -20,
+      "before": 150,
+      "after": 130,
+      "ratio": 0.13333333333333333,
+      "threshold": {
+        "type": "absolute",
+        "value": 1
+      },
+      "nearbyActivity": [],
+      "sessionContext": {
+        "sessionId": "s1",
+        "startedAt": "2026-05-01T10:00:00.000Z",
+        "endedAt": "2026-05-01T10:45:00.000Z",
+        "relativeSeconds": 1800
+      }
+    },
+    {
+      "id": "local-min:col_a:coins:e3",
+      "kind": "local_min",
+      "fieldKey": "col_a:coins",
+      "label": "Coins",
+      "ts": "2026-05-01T10:30:00.000Z",
+      "after": 130,
+      "delta": -20,
+      "nearbyActivity": [],
+      "sessionContext": {
+        "sessionId": "s1",
+        "startedAt": "2026-05-01T10:00:00.000Z",
+        "endedAt": "2026-05-01T10:45:00.000Z",
+        "relativeSeconds": 1800
+      }
+    },
+    {
+      "id": "movement:col_a:coins:e2",
+      "kind": "increase",
+      "fieldKey": "col_a:coins",
+      "fieldPath": "coins",
+      "collectionId": "col_a",
+      "label": "Coins",
+      "ts": "2026-05-01T10:00:05.000Z",
+      "delta": 50,
+      "before": 100,
+      "after": 150,
+      "ratio": 0.5,
+      "threshold": {
+        "type": "proportional",
+        "value": 0.25
+      },
+      "nearbyActivity": [
+        {
+          "id": "e1",
+          "ts": "2026-05-01T10:00:00.000Z",
+          "type": "endpoint.call",
+          "category": "endpoint",
+          "label": "resolve-cast",
+          "endpointSlug": "resolve-cast",
+          "collectionId": "",
+          "ok": true,
+          "sessionId": "s1",
+          "relativeSeconds": -5,
+          "payload": {
+            "status": 200,
+            "timingMs": 12,
+            "method": "POST"
+          }
+        }
+      ],
+      "sessionContext": {
+        "sessionId": "s1",
+        "startedAt": "2026-05-01T10:00:00.000Z",
+        "endedAt": "2026-05-01T10:45:00.000Z",
+        "relativeSeconds": 5
+      }
+    }
+  ]
+}

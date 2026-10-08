@@ -1,0 +1,97 @@
+{
+  "events": [
+    {
+      "id": "h1",
+      "ts": "2026-05-01T10:00:00.000Z",
+      "type": "session.heartbeat",
+      "category": "session",
+      "sessionId": "s1",
+      "payload": {
+        "sessionSeconds": 30,
+        "fps": {
+          "average": 80,
+          "peak": 120,
+          "min": 60
+        }
+      }
+    },
+    {
+      "id": "h2",
+      "ts": "2026-05-01T10:01:00.000Z",
+      "type": "session.heartbeat",
+      "category": "session",
+      "sessionId": "s1",
+      "payload": {
+        "sessionSeconds": 90,
+        "fps": {
+          "average": 28,
+          "peak": 35,
+          "min": 18
+        }
+      }
+    },
+    {
+      "id": "h3",
+      "ts": "2026-05-01T10:02:00.000Z",
+      "type": "session.heartbeat",
+      "category": "session",
+      "sessionId": "s1",
+      "payload": {
+        "sessionSeconds": 150,
+        "fps": {
+          "average": 22,
+          "peak": 30,
+          "min": 15
+        }
+      }
+    },
+    {
+      "id": "ep1",
+      "ts": "2026-05-01T10:00:30.000Z",
+      "type": "endpoint.call",
+      "category": "endpoint",
+      "endpointSlug": "resolve-cast",
+      "sessionId": "s1",
+      "ok": true,
+      "payload": {
+        "status": 200
+      }
+    },
+    {
+      "id": "q1",
+      "ts": "2026-05-01T10:00:45.000Z",
+      "type": "endpoint.call",
+      "category": "endpoint",
+      "endpointSlug": "load-profile",
+      "sessionId": "s1",
+      "ok": true,
+      "payload": {
+        "status": 200
+      }
+    },
+    {
+      "id": "err1",
+      "ts": "2026-05-01T10:01:30.000Z",
+      "type": "error.runtime",
+      "category": "error",
+      "sessionId": "s1",
+      "label": "NullRef",
+      "payload": {
+        "severity": "error",
+        "message": "boom"
+      }
+    }
+  ],
+  "sessions": [
+    {
+      "sessionId": "s1",
+      "startedAt": "2026-05-01T10:00:00.000Z",
+      "endedAt": "2026-05-01T10:05:00.000Z",
+      "performance": {
+        "fpsAverage": 50,
+        "fpsPeak": 120,
+        "fpsMin": 15
+      }
+    }
+  ]
+}

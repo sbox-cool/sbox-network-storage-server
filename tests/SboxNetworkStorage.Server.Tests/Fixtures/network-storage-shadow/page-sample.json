@@ -1,0 +1,8 @@
+{
+  "slug": "welcome",
+  "title": "Welcome to My Project",
+  "pageType": "markdown",
+  "statusLevel": "published",
+  "contentMd": "# Welcome\n\nThis is a sample page for testing.",
+  "updatedAt": "2026-06-02T10:00:00.000Z"
+}

@@ -1,0 +1,595 @@
+{
+  "schemaVersion": 1,
+  "description": "Error handling: credentials, unknown projects, oversized payloads, invalid ids and malformed input.",
+  "scenarios": [
+    {
+      "name": "errors-credentials",
+      "description": "Bad keys and wrong key types.",
+      "source": "Editor/SyncToolApi.cs; Code/Core/NetworkStorageHttp.cs",
+      "steps": [
+        {
+          "id": "manage-bad-secret",
+          "method": "GET",
+          "path": "/v3/manage/${projectId}/validate",
+          "headers": {
+            "x-api-key": "sbox_sk_not-a-real-key",
+            "x-public-key": "${publicKey}"
+          },
+          "expect": {
+            "status": 401,
+            "requiredFields": [
+              "$.error"
+            ]
+          }
+        },
+        {
+          "id": "manage-public-key-as-secret",
+          "method": "PUT",
+          "path": "/v3/manage/${projectId}/collections",
+          "headers": {
+            "x-api-key": "${publicKey}",
+            "x-public-key": "${publicKey}"
+          },
+          "body": [
+            {
+              "id": "inventory",
+              "name": "inventory",
+              "description": "Per-player item stacks.",
+              "collectionType": "per-steamid",
+              "accessMode": "public",
+              "maxRecords": 1,
+              "allowRecordDelete": false,
+              "requireSaveVersion": false,
+              "rateLimitAction": "reject",
+              "rateLimits": {
+                "mode": "none"
+              },
+              "schema": {
+                "items": {
+                  "type": "array",
+                  "default": [],
+                  "items": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          ],
+          "expect": {
+            "status": 401,
+            "requiredFields": [
+              "$.error"
+            ]
+          }
+        },
+        {
+          "id": "manage-no-key",
+          "method": "GET",
+          "path": "/v3/manage/${projectId}/endpoints",
+          "expect": {
+            "status": 401,
+            "requiredFields": [
+              "$.error"
+            ]
+          }
+        },
+        {
+          "id": "storage-bad-key",
+          "method": "GET",
+          "path": "/v3/storage/${projectId}/players/${steamId}",
+          "headers": {
+            "x-public-key": "sbox_ns_00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+            "x-steam-id": "${steamId}",
+            "x-sbox-token": "parity-placeholder-token",
+            "x-ns-client-type": "game"
+          },
+          "query": {
+            "apiKey": "sbox_ns_00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+          },
+          "expect": {
+            "status": 401,
+            "requiredFields": [
+              "$.error"
+            ]
+          }
+        },
+        {
+          "id": "storage-no-key",
+          "method": "GET",
+          "path": "/v3/storage/${projectId}/players/${steamId}",
+          "expect": {
+            "status": 401,
+            "requiredFields": [
+              "$.error"
+            ]
+          }
+        },
+        {
+          "id": "endpoint-bad-key",
+          "method": "POST",
+          "path": "/v3/endpoints/${projectId}/load-profile",
+          "headers": {
+            "x-public-key": "sbox_ns_00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+            "x-steam-id": "${steamId}",
+            "x-sbox-token": "parity-placeholder-token",
+            "x-ns-client-type": "game"
+          },
+          "query": {
+            "apiKey": "sbox_ns_00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+          },
+          "body": {
+            "security": {
+              "configVersion": "",
+              "clientMode": "legacy",
+              "authSessions": "disabled",
+              "encryptedRequests": "disabled",
+              "revisionId": 0,
+              "revisionOutdated": false
+            },
+            "_endpointSlug": "load-profile"
+          },
+          "expect": {
+            "status": 401,
+            "requiredFields": [
+              "$.error"
+            ]
+          }
+        },
+        {
+          "id": "endpoint-no-key",
+          "method": "POST",
+          "path": "/v3/endpoints/${projectId}/load-profile",
+          "body": {
+            "security": {
+              "configVersion": "",
+              "clientMode": "legacy",
+              "authSessions": "disabled",
+              "encryptedRequests": "disabled",
+              "revisionId": 0,
+              "revisionOutdated": false
+            },
+            "_endpointSlug": "load-profile"
+          },
+          "expect": {
+            "status": 401,
+            "requiredFields": [
+              "$.error"
+            ]
+          }
+        },
+        {
+          "id": "values-bad-key",
+          "method": "GET",
+          "path": "/v3/values/${projectId}",
+          "headers": {
+            "x-public-key": "sbox_ns_00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+          },
+          "query": {
+            "apiKey": "sbox_ns_00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+          },
+          "expect": {
+            "status": 401,
+            "requiredFields": [
+              "$.error"
+            ]
+          }
+        },
+        {
+          "id": "query-bad-key",
+          "method": "GET",
+          "path": "/v3/queries/${projectId}/top_miners",
+          "headers": {
+            "x-public-key": "sbox_ns_00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+          },
+          "query": {
+            "apiKey": "sbox_ns_00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+          },
+          "expect": {
+            "status": 401,
+            "requiredFields": [
+              "$.error"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "errors-missing-project",
+      "description": "Requests for a project that does not exist.",
+      "source": "docs 09-error-codes",
+      "steps": [
+        {
+          "id": "manage-validate",
+          "method": "GET",
+          "path": "/v3/manage/proj_000000000000000000000000/validate",
+          "headers": {
+            "x-api-key": "${secretKey}",
+            "x-public-key": "${publicKey}"
+          },
+          "expect": {
+            "status": 401,
+            "requiredFields": [
+              "$.error"
+            ]
+          }
+        },
+        {
+          "id": "values",
+          "method": "GET",
+          "path": "/v3/values/proj_000000000000000000000000",
+          "headers": {
+            "x-public-key": "${publicKey}"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "expect": {
+            "status": 401,
+            "requiredFields": [
+              "$.error"
+            ]
+          }
+        },
+        {
+          "id": "security-config",
+          "method": "GET",
+          "path": "/v3/security-config/proj_000000000000000000000000",
+          "expect": {
+            "status": 404,
+            "requiredFields": [
+              "$.error"
+            ]
+          }
+        },
+        {
+          "id": "document",
+          "method": "GET",
+          "path": "/v3/storage/proj_000000000000000000000000/players/${steamId}",
+          "headers": {
+            "x-public-key": "${publicKey}",
+            "x-steam-id": "${steamId}",
+            "x-sbox-token": "parity-placeholder-token",
+            "x-ns-client-type": "game"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "expect": {
+            "status": 401,
+            "requiredFields": [
+              "$.error"
+            ]
+          }
+        },
+        {
+          "id": "endpoint",
+          "method": "POST",
+          "path": "/v3/endpoints/proj_000000000000000000000000/load-profile",
+          "headers": {
+            "x-public-key": "${publicKey}",
+            "x-steam-id": "${steamId}",
+            "x-sbox-token": "parity-placeholder-token",
+            "x-ns-client-type": "game"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "body": {
+            "security": {
+              "configVersion": "",
+              "clientMode": "legacy",
+              "authSessions": "disabled",
+              "encryptedRequests": "disabled",
+              "revisionId": 0,
+              "revisionOutdated": false
+            },
+            "_endpointSlug": "load-profile"
+          },
+          "expect": {
+            "status": 401,
+            "requiredFields": [
+              "$.error"
+            ]
+          }
+        },
+        {
+          "id": "query",
+          "method": "GET",
+          "path": "/v3/queries/proj_000000000000000000000000/top_miners",
+          "headers": {
+            "x-public-key": "${publicKey}"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "expect": {
+            "status": 401,
+            "requiredFields": [
+              "$.error"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "errors-oversized-payloads",
+      "description": "Oversized request bodies.",
+      "source": "docs 13-quotas-and-usage",
+      "steps": [
+        {
+          "id": "append-oversized",
+          "method": "POST",
+          "path": "/v3/storage/${projectId}/leaderboard_global/append",
+          "headers": {
+            "x-public-key": "${publicKey}",
+            "x-api-key": "${secretKey}"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "generatedBody": {
+            "bytes": 1200000,
+            "field": "blob"
+          },
+          "expect": {
+            "status": 413,
+            "requiredFields": [
+              "$.error"
+            ]
+          }
+        },
+        {
+          "id": "document-oversized",
+          "method": "POST",
+          "path": "/v3/storage/${projectId}/players/oversized-doc",
+          "headers": {
+            "x-public-key": "${publicKey}",
+            "x-api-key": "${secretKey}"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "generatedBody": {
+            "bytes": 2200000,
+            "field": "blob"
+          },
+          "expect": {
+            "status": 413,
+            "requiredFields": [
+              "$.error"
+            ]
+          }
+        },
+        {
+          "id": "endpoint-oversized",
+          "method": "POST",
+          "path": "/v3/endpoints/${projectId}/save-profile",
+          "headers": {
+            "x-public-key": "${publicKey}",
+            "x-steam-id": "${steamId}",
+            "x-sbox-token": "parity-placeholder-token",
+            "x-ns-client-type": "game"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "generatedBody": {
+            "bytes": 1200000,
+            "field": "playerName"
+          },
+          "expect": {
+            "status": 413,
+            "requiredFields": [
+              "$.error"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "errors-invalid-input",
+      "description": "Malformed bodies, invalid ids and unknown routes.",
+      "source": "Code/Storage/NetworkStorageCollections.cs EscapeRouteSegment",
+      "steps": [
+        {
+          "id": "document-malformed-json",
+          "method": "POST",
+          "path": "/v3/storage/${projectId}/players/${steamId}",
+          "headers": {
+            "x-public-key": "${publicKey}",
+            "x-steam-id": "${steamId}",
+            "x-sbox-token": "parity-placeholder-token",
+            "x-ns-client-type": "game"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "rawBody": "{\"playerName\": ",
+          "contentType": "application/json",
+          "expect": {
+            "status": 400,
+            "requiredFields": [
+              "$.error"
+            ]
+          }
+        },
+        {
+          "id": "document-null-body",
+          "method": "POST",
+          "path": "/v3/storage/${projectId}/players/${steamId}",
+          "headers": {
+            "x-public-key": "${publicKey}",
+            "x-steam-id": "${steamId}",
+            "x-sbox-token": "parity-placeholder-token",
+            "x-ns-client-type": "game"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "rawBody": "null",
+          "contentType": "application/json",
+          "expect": {
+            "status": 400,
+            "requiredFields": [
+              "$.error"
+            ]
+          }
+        },
+        {
+          "id": "document-invalid-collection-id",
+          "method": "GET",
+          "path": "/v3/storage/${projectId}/..%2F..%2Fetc/${steamId}",
+          "headers": {
+            "x-public-key": "${publicKey}",
+            "x-steam-id": "${steamId}",
+            "x-sbox-token": "parity-placeholder-token",
+            "x-ns-client-type": "game"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "expect": {
+            "status": 404,
+            "requiredFields": [
+              "$.error"
+            ]
+          }
+        },
+        {
+          "id": "document-encoded-key",
+          "method": "GET",
+          "path": "/v3/storage/${projectId}/players/a%2Fb",
+          "headers": {
+            "x-public-key": "${publicKey}",
+            "x-steam-id": "${steamId}",
+            "x-sbox-token": "parity-placeholder-token",
+            "x-ns-client-type": "game"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "expect": {
+            "status": 404,
+            "requiredFields": [
+              "$.error"
+            ]
+          }
+        },
+        {
+          "id": "endpoint-malformed-json",
+          "method": "POST",
+          "path": "/v3/endpoints/${projectId}/save-profile",
+          "headers": {
+            "x-public-key": "${publicKey}",
+            "x-steam-id": "${steamId}",
+            "x-sbox-token": "parity-placeholder-token",
+            "x-ns-client-type": "game"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "rawBody": "{not json",
+          "contentType": "application/json",
+          "expect": {
+            "status": 400,
+            "requiredFields": [
+              "$.error"
+            ]
+          }
+        },
+        {
+          "id": "endpoint-invalid-slug",
+          "method": "POST",
+          "path": "/v3/endpoints/${projectId}/Bad%20Slug!",
+          "headers": {
+            "x-public-key": "${publicKey}",
+            "x-steam-id": "${steamId}",
+            "x-sbox-token": "parity-placeholder-token",
+            "x-ns-client-type": "game"
+          },
+          "query": {
+            "apiKey": "${publicKey}"
+          },
+          "body": {
+            "security": {
+              "configVersion": "",
+              "clientMode": "legacy",
+              "authSessions": "disabled",
+              "encryptedRequests": "disabled",
+              "revisionId": 0,
+              "revisionOutdated": false
+            },
+            "_endpointSlug": "Bad Slug!"
+          },
+          "expect": {
+            "status": 404,
+            "requiredFields": [
+              "$.error"
+            ]
+          }
+        },
+        {
+          "id": "preflight-malformed-json",
+          "method": "POST",
+          "path": "/v3/manage/${projectId}/sync/preflight",
+          "headers": {
+            "x-api-key": "${secretKey}",
+            "x-public-key": "${publicKey}"
+          },
+          "rawBody": "{\"endpoints\": [",
+          "contentType": "application/json",
+          "expect": {
+            "status": 400,
+            "requiredFields": [
+              "$.error"
+            ]
+          }
+        },
+        {
+          "id": "manage-unknown-mutation",
+          "method": "POST",
+          "path": "/v3/manage/${projectId}/does-not-exist",
+          "headers": {
+            "x-api-key": "${secretKey}",
+            "x-public-key": "${publicKey}",
+            "Content-Type": "application/json"
+          },
+          "body": {},
+          "expect": {
+            "status": 200
+          }
+        },
+        {
+          "id": "unknown-v3-route",
+          "method": "GET",
+          "path": "/v3/nothing-here",
+          "expect": {
+            "status": 404,
+            "requiredFields": [
+              "$.error"
+            ]
+          }
+        },
+        {
+          "id": "storage-root",
+          "method": "GET",
+          "path": "/v3/storage",
+          "expect": {
+            "status": 404,
+            "requiredFields": [
+              "$.error"
+            ]
+          }
+        },
+        {
+          "id": "deploy-canary",
+          "method": "GET",
+          "path": "/v3/storage/deploy-canary/ping",
+          "expect": {
+            "status": 200
+          }
+        }
+      ]
+    }
+  ]
+}
