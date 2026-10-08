@@ -361,6 +361,75 @@ curl -fsSL https://github.com/sbox-cool/sbox-network-storage-server/releases/lat
   | sudo env SBOX_NS_PROJECT="My Game" SBOX_NS_TUNNEL=1 sh
 ```
 
+### Free hosted name with your own IP (sboxns.com)
+
+If your server already has a public IP address, you can get a free name such
+as `abcdefgh2345.n1.sboxns.com` that points straight at it. Players connect
+directly to your server over HTTPS (no proxy in between) using a free Let's
+Encrypt certificate. No website account, payment or domain is needed.
+
+Requirements:
+
+- A public IPv4 or IPv6 address on this machine (or a router that forwards to it).
+- Port **443** (HTTPS) and your HTTP port (`server.listen`, default 8080) open to
+  the internet. The HTTP port must not be bound to `127.0.0.1`.
+- The server running while you enable the name: the registry checks that the
+  address really belongs to this server by fetching a signed proof from
+  `http://<your IP>:<HTTP port>/.well-known/sbox-ns/dns-proof/...`.
+- Accepting the [Let's Encrypt subscriber agreement](https://letsencrypt.org/repository/)
+  and giving a contact email for the certificate.
+
+Steps:
+
+```sh
+sbox-ns start                     # or: sbox-ns service start
+sbox-ns dns enable --accept-letsencrypt-terms --email you@example.com
+sbox-ns service restart
+sbox-ns dns status
+sbox-ns doctor
+```
+
+`dns enable` detects your public address automatically. To publish a specific
+address instead, pass `--ipv4 203.0.113.5` and/or `--ipv6 2001:db8::5`; this
+turns off automatic address updates. With automatic updates on, the server
+checks its public address every 10 minutes and updates the name when it changes.
+
+Enabling sets `server.public_url` to `https://<name>.nN.sboxns.com`,
+`tls.mode = "acme"` and `tls.acme_domain` to that name in
+`conf.d/zzzzz-dns.toml`. `tls.https_listen` stays `0.0.0.0:443`. Nothing changes
+if any step fails. The name uses the same identity key as tunnels
+(`<config dir>/secrets/identity_ecdsa_p256.pem`); keep and back it up.
+
+What is public: the name resolves to your IP address, so anyone who knows the
+name can see the IP. Use tunnel mode if you want to keep the IP hidden.
+
+| | Own IP (`dns enable`) | Tunnel (`tunnel enable`) |
+| --- | --- | --- |
+| Traffic path | Direct to your server | Through Cloudflare |
+| Your IP | Public | Hidden |
+| Needs public IP and open ports | Yes (443 and HTTP port) | No |
+| Extra software | None | cloudflared |
+| Certificate | Let's Encrypt on your server | Cloudflare |
+
+Only one mode can be enabled at a time; disable the other first.
+
+Limits: until sboxns.com is accepted on the Public Suffix List, the registry
+allows only a limited number of new names per week across all servers, and a
+few new names per hour from one address. If the limit is reached, `dns enable`
+reports when to retry. Updating or re-enabling an existing name is not
+affected by the weekly cap.
+
+To remove the name:
+
+```sh
+sbox-ns dns disable
+sbox-ns service restart
+```
+
+Disable deletes the DNS records and restores the public URL and TLS settings
+that were in effect before enable. The identity is kept, so a later enable
+gets the same name back.
+
 ### Optional security and update email notices
 
 Interactive setup offers an email prompt; blank input and non-interactive

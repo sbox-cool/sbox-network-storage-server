@@ -9,12 +9,12 @@ public sealed record TunnelRegistration(string Hostname, string TunnelToken);
 public sealed class TunnelRegistryClient(HttpClient http)
 {
     public const string DefaultRegistry = "https://sboxcool.com/api/network-storage/tunnels";
-    public static Uri ValidateRegistry(string value)
+    public static Uri ValidateRegistry(string value, string label = "tunnel registry")
     {
         if (!Uri.TryCreate(value, UriKind.Absolute, out var uri) || !string.IsNullOrEmpty(uri.UserInfo)
             || !string.IsNullOrEmpty(uri.Fragment) || !string.IsNullOrEmpty(uri.Query)
             || (uri.Scheme != "https" && !(uri.Scheme == "http" && IsLoopback(uri.Host))))
-            throw new InvalidOperationException("The tunnel registry must be HTTPS (HTTP is allowed only on loopback for local testing).");
+            throw new InvalidOperationException($"The {label} must be HTTPS (HTTP is allowed only on loopback for local testing).");
         return uri;
     }
 

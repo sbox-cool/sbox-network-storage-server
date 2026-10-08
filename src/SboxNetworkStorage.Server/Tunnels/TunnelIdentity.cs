@@ -10,6 +10,9 @@ namespace SboxNetworkStorage.Server.Tunnels;
 public sealed record TunnelRequest(string PublicKeySpki, string Action, string Name, long Timestamp,
     string Nonce, int LocalPort, string Signature);
 
+public sealed record DnsRequest(string PublicKeySpki, string Action, string Name, long Timestamp,
+    string Nonce, string Ipv4, string Ipv6, int Port, string Signature);
+
 public sealed class TunnelIdentity : IDisposable
 {
     private readonly ECDsa _key;
@@ -34,10 +37,24 @@ public sealed class TunnelIdentity : IDisposable
             TunnelFiles.WriteSecret(path, generated.ExportPkcs8PrivateKeyPem(), overwrite: false);
         }
         TunnelFiles.Restrict(path);
+        return Load(File.ReadAllText(path));
+    }
+
+    /// <summary>Loads an existing identity without creating or re-permissioning it; null when no key file exists.</summary>
+    public static TunnelIdentity? LoadExisting(string path)
+    {
+        string pem;
+        try { pem = File.ReadAllText(path); }
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException) { return null; }
+        return Load(pem);
+    }
+
+    private static TunnelIdentity Load(string pem)
+    {
         var key = ECDsa.Create();
         try
         {
-            key.ImportFromPem(File.ReadAllText(path));
+            key.ImportFromPem(pem);
             // Public-only PEM is not a usable identity.
             _ = key.ExportParameters(true);
             return new TunnelIdentity(key);
@@ -72,6 +89,28 @@ public sealed class TunnelIdentity : IDisposable
             DSASignatureFormat.IeeeP1363FixedFieldConcatenation);
         return new(Convert.ToBase64String(PublicKeySpki), action, Name, time, nonce, localPort, Convert.ToBase64String(signature));
     }
+
+    public static byte[] DnsPayload(string action, string name, long timestamp, string nonce, string ipv4, string ipv6, int port)
+        => Encoding.UTF8.GetBytes($"sbox-ns-dns-v1\n{action}\n{name}\n{timestamp.ToString(CultureInfo.InvariantCulture)}\n{nonce}\n{ipv4}\n{ipv6}\n{port.ToString(CultureInfo.InvariantCulture)}");
+
+    public static byte[] DnsProofPayload(string name, string nonce)
+        => Encoding.UTF8.GetBytes($"sbox-ns-dns-proof-v1\n{name}\n{nonce}");
+
+    public DnsRequest SignDns(string action, string ipv4, string ipv6, int port, long? timestamp = null, string? nonce = null)
+    {
+        if (action is not ("register" or "update" or "delete") || port is < 1 or > 65535)
+            throw new ArgumentException("Invalid DNS action or port.");
+        var time = timestamp ?? DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        nonce ??= Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
+        var signature = _key.SignData(DnsPayload(action, Name, time, nonce, ipv4, ipv6, port), HashAlgorithmName.SHA256,
+            DSASignatureFormat.IeeeP1363FixedFieldConcatenation);
+        return new(Convert.ToBase64String(PublicKeySpki), action, Name, time, nonce, ipv4, ipv6, port, Convert.ToBase64String(signature));
+    }
+
+    /// <summary>Signs only the domain-separated ownership proof payload, never caller-chosen bytes.</summary>
+    public string SignDnsProof(string nonce)
+        => Convert.ToBase64String(_key.SignData(DnsProofPayload(Name, nonce), HashAlgorithmName.SHA256,
+            DSASignatureFormat.IeeeP1363FixedFieldConcatenation));
 
     public void Dispose() => _key.Dispose();
 }

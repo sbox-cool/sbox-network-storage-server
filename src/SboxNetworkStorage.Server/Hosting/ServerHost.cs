@@ -10,6 +10,7 @@ using SboxNetworkStorage.Server.Routing;
 using SboxNetworkStorage.Server.Updates;
 using SboxNetworkStorage.Server.Telemetry;
 using SboxNetworkStorage.Server.Tunnels;
+using SboxNetworkStorage.Server.SignedDns;
 using SboxNetworkStorage.Storage.Relational;
 
 namespace SboxNetworkStorage.Server.Hosting;
@@ -68,6 +69,8 @@ public static class ServerHost
         builder.Services.AddHostedService<UpdateCheckService>();
         builder.Services.AddSingleton<TunnelConnectorState>();
         builder.Services.AddHostedService<TunnelConnectorService>();
+        builder.Services.AddDnsProof();
+        builder.Services.AddHostedService<DnsAddressService>();
         builder.Services.AddHostedService(sp => new UsageTelemetryService(config,
             sp.GetRequiredService<INetworkStorageStoreAdmin>(), sp.GetRequiredService<ILogger<UsageTelemetryService>>()));
 
@@ -93,6 +96,7 @@ public static class ServerHost
         app.UseResponseCompression();
 
         app.MapServerInfo();
+        app.MapDnsProof();
         app.MapAuthSessions();
         app.MapQueries();
         app.MapRecords();

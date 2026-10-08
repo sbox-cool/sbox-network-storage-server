@@ -19,6 +19,8 @@ public sealed class TunnelManager(TunnelRegistryClient registry, CloudflaredInst
                 && value.Source == SettingSource.Flag)
                 throw new InvalidOperationException("Remove listener/public URL flags before changing tunnel state.");
         config = Reload(config);
+        if (config.GetBoolean("dns.enabled"))
+            throw new InvalidOperationException("A hosted DNS name is enabled. Run `sbox-ns dns disable` first; tunnel and DNS names cannot be used together.");
         EnsureWritable(config);
         var enabled = config.GetBoolean("tunnel.enabled");
         if (enabled && !File.Exists(IdentityPath(config)))

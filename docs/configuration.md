@@ -147,9 +147,12 @@ security_signing_key_file = "secrets/security_signing_key.pem"
 
 ### Hosted tunnel and notice settings
 
-These keys also belong to `server.toml`. Use `tunnel enable|disable` rather
-than manually changing tunnel state: the CLI atomically manages
-`conf.d/zzzz-tunnel.toml`, including the loopback listener and public URL.
+These keys also belong to `server.toml`. Use `tunnel enable|disable` and
+`dns enable|disable` rather than manually changing tunnel or DNS state: the CLI
+atomically manages `conf.d/zzzz-tunnel.toml` (loopback listener and public URL)
+and `conf.d/zzzzz-dns.toml` (public URL and Let's Encrypt settings). Disabling
+DNS removes its overrides from `zzzzz-dns.toml`, so the values in effect before
+enable apply again. Tunnel and DNS modes cannot be enabled at the same time.
 
 | Key | Default | Meaning |
 | --- | --- | --- |
@@ -161,6 +164,15 @@ than manually changing tunnel state: the CLI atomically manages
 | `tunnel.previous_listen` | empty | Original listener restored by disable |
 | `tunnel.previous_public_url` | empty | Original public URL restored by disable |
 | `tunnel.previous_tls_mode` | `off` | Original TLS mode restored by disable |
+| `dns.enabled` | `false` | Hosted `<name>.nN.sboxns.com` DNS name pointing at this server's own IP; use `dns enable` / `dns disable` |
+| `dns.registry` | `https://sboxcool.com/api/network-storage/dns` | Signed DNS registry API; HTTPS required except loopback testing |
+| `dns.hostname` | empty | Assigned hostname, managed by `dns enable` |
+| `dns.ipv4` | empty | Published IPv4 address, managed by `dns enable` and the address updater |
+| `dns.ipv6` | empty | Published IPv6 address, managed by `dns enable` and the address updater |
+| `dns.auto_address` | `true` | Check the public address every 10 minutes and update the name when it changes; `dns enable --ipv4/--ipv6` sets it to `false` |
+| `dns.previous_public_url` | empty | Public URL in effect before `dns enable` (restored by disable) |
+| `dns.previous_tls_mode` | `off` | TLS mode in effect before `dns enable` (restored by disable) |
+| `dns.previous_acme_domain` | empty | ACME domain in effect before `dns enable` (restored by disable) |
 | `notices.registry` | `https://sboxcool.com/api/network-storage/notices` | Optional notice API; no request without explicit opt-in |
 | `notices.email` | empty | Last registered email, not authoritative consent; use `register` to subscribe/remove |
 | `telemetry.enabled` | `false` | Send anonymous usage statistics once a day; use `telemetry enable` / `telemetry disable` |

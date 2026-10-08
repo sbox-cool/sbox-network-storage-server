@@ -56,6 +56,62 @@ public sealed class TunnelIdentityTests
         Assert.Throws<InvalidOperationException>(() => new TunnelIdentity(key));
     }
 
+    [Fact]
+    public void DNS_payloads_are_the_exact_contract_bytes()
+    {
+        Assert.Equal("sbox-ns-dns-v1\nregister\nltjff6ym5cjs\n1791417600\n00112233445566778899aabbccddeeff\n203.0.113.5\n2001:db8::5\n8080",
+            System.Text.Encoding.UTF8.GetString(TunnelIdentity.DnsPayload("register", "ltjff6ym5cjs", 1791417600,
+                "00112233445566778899aabbccddeeff", "203.0.113.5", "2001:db8::5", 8080)));
+        Assert.Equal("sbox-ns-dns-v1\ndelete\nltjff6ym5cjs\n1791417600\n00112233445566778899aabbccddeeff\n\n\n8080",
+            System.Text.Encoding.UTF8.GetString(TunnelIdentity.DnsPayload("delete", "ltjff6ym5cjs", 1791417600,
+                "00112233445566778899aabbccddeeff", "", "", 8080)));
+        Assert.Equal("sbox-ns-dns-proof-v1\nltjff6ym5cjs\n00112233445566778899aabbccddeeff",
+            System.Text.Encoding.UTF8.GetString(TunnelIdentity.DnsProofPayload("ltjff6ym5cjs", "00112233445566778899aabbccddeeff")));
+    }
+
+    [Fact]
+    public void DNS_request_and_proof_signatures_verify_like_the_registry()
+    {
+        using var identity = new TunnelIdentity(ECDsa.Create(ECCurve.NamedCurves.nistP256));
+        var request = identity.SignDns("update", "203.0.113.5", "", 8080, 1791417600, "00112233445566778899aabbccddeeff");
+        // Registry algorithm: import SPKI, require canonical re-export, derive name, verify P1363 over the canonical payload.
+        var spki = Convert.FromBase64String(request.PublicKeySpki);
+        using var key = ECDsa.Create();
+        key.ImportSubjectPublicKeyInfo(spki, out var consumed);
+        Assert.Equal(spki.Length, consumed);
+        Assert.Equal(spki, key.ExportSubjectPublicKeyInfo());
+        Assert.Equal(request.Name, TunnelIdentity.DeriveName(spki));
+        var signature = Convert.FromBase64String(request.Signature);
+        Assert.Equal(64, signature.Length);
+        Assert.True(key.VerifyData(TunnelIdentity.DnsPayload("update", request.Name, 1791417600, request.Nonce, "203.0.113.5", "", 8080),
+            signature, HashAlgorithmName.SHA256, DSASignatureFormat.IeeeP1363FixedFieldConcatenation));
+        Assert.False(key.VerifyData(TunnelIdentity.DnsPayload("update", request.Name, 1791417600, request.Nonce, "203.0.113.6", "", 8080),
+            signature, HashAlgorithmName.SHA256, DSASignatureFormat.IeeeP1363FixedFieldConcatenation));
+        var proof = Convert.FromBase64String(identity.SignDnsProof(request.Nonce));
+        Assert.True(key.VerifyData(TunnelIdentity.DnsProofPayload(request.Name, request.Nonce), proof, HashAlgorithmName.SHA256,
+            DSASignatureFormat.IeeeP1363FixedFieldConcatenation));
+        // A proof can never be replayed as a signed registry request.
+        Assert.False(key.VerifyData(TunnelIdentity.DnsPayload("update", request.Name, 1791417600, request.Nonce, "203.0.113.5", "", 8080),
+            proof, HashAlgorithmName.SHA256, DSASignatureFormat.IeeeP1363FixedFieldConcatenation));
+        Assert.Throws<ArgumentException>(() => identity.SignDns("transfer", "203.0.113.5", "", 8080));
+    }
+
+    [Theory]
+    [InlineData("ltjff6ym5cjs.n1.sboxns.com", true)]
+    [InlineData("ltjff6ym5cjs.n10.sboxns.com", true)]
+    [InlineData("ltjff6ym5cjs.sboxns.com", false)]
+    [InlineData("ltjff6ym5cjs.n1.sboxns.com.evil.test", false)]
+    [InlineData("ltjff6ym5cjs.n1.evil.test", false)]
+    [InlineData("https://ltjff6ym5cjs.n1.sboxns.com", false)]
+    [InlineData("other2345678.n1.sboxns.com", false)]
+    [InlineData("ltjff6ym5cjs.n1234.sboxns.com", false)]
+    [InlineData("LTJFF6YM5CJS.n1.sboxns.com", false)]
+    public void DNS_hostname_must_be_this_identity_under_an_sboxns_zone(string hostname, bool allowed)
+    {
+        if (allowed) Assert.Equal(hostname, SboxNetworkStorage.Server.SignedDns.DnsRegistryClient.ValidateHostname(hostname, "ltjff6ym5cjs"));
+        else Assert.Throws<InvalidDataException>(() => SboxNetworkStorage.Server.SignedDns.DnsRegistryClient.ValidateHostname(hostname, "ltjff6ym5cjs"));
+    }
+
     [Theory]
     [InlineData("https://ltjff6ym5cjs.sboxns.com")]
     [InlineData("ltjff6ym5cjs.sboxns.com")]

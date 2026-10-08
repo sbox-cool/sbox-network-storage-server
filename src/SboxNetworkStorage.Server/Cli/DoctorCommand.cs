@@ -69,6 +69,7 @@ public static class DoctorCommand
         var tunnel = TunnelConnectorState.Read(config);
         Report(!tunnel.Enabled ? Outcome.Pass : tunnel.ConnectorState == "connected" ? Outcome.Pass : Outcome.Warn,
             "tunnel", $"{(tunnel.Enabled ? tunnel.Hostname : "disabled")}; connector {tunnel.ConnectorState}; cloudflared {tunnel.ConnectorVersion}");
+        await CheckDnsAsync(config, Report);
         if (tlsMode == "off")
         {
             var publicHttps = Uri.TryCreate(config.GetString("server.public_url"), UriKind.Absolute, out var publicUri) && publicUri.Scheme == "https";
@@ -126,6 +127,32 @@ public static class DoctorCommand
             : "anonymous usage statistics disabled (opt-in: `sbox-ns telemetry enable`)");
 
         return failures == 0 ? CliApp.Ok : CliApp.Failure;
+    }
+
+    /// <summary>Warns when the hosted DNS name does not (yet) resolve to every configured address.</summary>
+    private static async Task CheckDnsAsync(EffectiveConfig config, Action<Outcome, string, string> report)
+    {
+        if (!config.GetBoolean("dns.enabled"))
+        {
+            report(Outcome.Pass, "dns", "hosted DNS name disabled");
+            return;
+        }
+        var hostname = config.GetString("dns.hostname");
+        var expected = new[] { config.GetString("dns.ipv4"), config.GetString("dns.ipv6") }
+            .Where(a => a.Length > 0).Select(IPAddress.Parse).ToArray();
+        try
+        {
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            var resolved = await Dns.GetHostAddressesAsync(hostname, timeout.Token);
+            var missing = expected.Where(a => !resolved.Contains(a)).ToArray();
+            report(missing.Length == 0 ? Outcome.Pass : Outcome.Warn, "dns", missing.Length == 0
+                ? $"{hostname} resolves to {string.Join(", ", expected.Select(a => a.ToString()))}"
+                : $"{hostname} resolves to {(resolved.Length == 0 ? "nothing" : string.Join(", ", resolved.Select(a => a.ToString())))}, expected {string.Join(", ", expected.Select(a => a.ToString()))} (DNS changes can take a few minutes)");
+        }
+        catch (Exception ex) when (ex is SocketException or OperationCanceledException)
+        {
+            report(Outcome.Warn, "dns", $"{hostname} could not be resolved ({ex.Message}); DNS changes can take a few minutes");
+        }
     }
 
     private static Outcome PortStatus(ListenAddress address)

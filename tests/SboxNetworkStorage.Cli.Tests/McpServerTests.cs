@@ -44,6 +44,9 @@ public sealed class McpServerTests
         Assert.Contains("tunnel_status", names);
         Assert.Contains("tunnel_enable", names);
         Assert.DoesNotContain("tunnel_disable", names);
+        Assert.Contains("dns_status", names);
+        Assert.DoesNotContain("dns_enable", names);
+        Assert.DoesNotContain("dns_disable", names);
         Assert.DoesNotContain(names, n => n.Contains("delete") || n.Contains("restore") || n.Contains("import") || n.Contains("revoke"));
     }
 

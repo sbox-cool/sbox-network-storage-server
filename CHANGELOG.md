@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Free hosted name with your own IP: `sbox-ns dns enable|status|disable` publishes a
+  signed `<name>.nN.sboxns.com` A/AAAA record pointing directly at the server, with a
+  Let's Encrypt certificate, automatic public-address updates every 10 minutes, an
+  ownership proof endpoint at `/.well-known/sbox-ns/dns-proof/{nonce}`, a `doctor`
+  DNS check and a read-only `dns_status` MCP tool. Tunnel and DNS modes are exclusive.
+
 ## [0.3.0] - 2026-10-08
 
 ### Added

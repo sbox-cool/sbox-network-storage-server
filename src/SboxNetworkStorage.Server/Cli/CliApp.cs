@@ -35,6 +35,13 @@ public static class CliApp
           tunnel status [--json]        Show the name, registry and supervised connector state (no secrets)
           tunnel disable [--json]       Delete the hosted name and restore previous listener/public URL; restart afterward
 
+        Free hosted name with your own IP (optional, no account required)
+          dns enable [--ipv4 IP] [--ipv6 IP] --accept-letsencrypt-terms --email ADDRESS
+                                        Publish <name>.nN.sboxns.com pointing at this server (needs a public IP,
+                                        ports 443 and the HTTP port open, and the server running); restart afterward
+          dns status [--json]           Show the hosted name, published addresses and registry
+          dns disable                   Delete the hosted name and restore the previous public URL/TLS; restart afterward
+
         Optional security notices
           register --email ADDRESS       Request security/update notices (email confirmation required)
           register --remove              Unsubscribe this install; no automatic reporting
@@ -115,6 +122,7 @@ public static class CliApp
                 "quickstart" => await QuickstartCommand.RunAsync(context),
                 "mcp" => await McpServer.RunStdioAsync(context),
                 "tunnel" => await TunnelCommands.RunAsync(context),
+                "dns" => await DnsCommands.RunAsync(context),
                 "register" => await NoticeCommands.RunAsync(context),
                 "telemetry" => await TelemetryCommands.RunAsync(context),
                 "config" => ConfigCommands.Run(context),

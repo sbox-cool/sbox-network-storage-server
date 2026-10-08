@@ -307,6 +307,26 @@ public static class ConfigLoader
                 issues.Add(Issue("tunnel.previous_listen", "Enabled tunnels require the saved listener to restore on disable."));
         }
 
+        try { _ = SignedDns.DnsRegistryClient.ValidateRegistry(S("dns.registry")); }
+        catch (InvalidOperationException ex) { issues.Add(Issue("dns.registry", ex.Message)); }
+        if ((bool)values["dns.enabled"].Value)
+        {
+            var hostname = S("dns.hostname");
+            if ((bool)values["tunnel.enabled"].Value)
+                issues.Add(Issue("dns.enabled", "dns.enabled and tunnel.enabled cannot both be true; disable one of them."));
+            if (!SignedDns.DnsRegistryClient.IsHostname(hostname))
+                issues.Add(Issue("dns.hostname", "dns.hostname must look like <name>.n1.sboxns.com."));
+            else if (S("server.public_url") != $"https://{hostname}" || S("tls.mode") != "acme" || S("tls.acme_domain") != hostname)
+                issues.Add(Issue("dns.enabled", "Enabled DNS names require server.public_url = https://<dns.hostname>, tls.mode = acme and tls.acme_domain = <dns.hostname>."));
+            try
+            {
+                if (SignedDns.DnsRegistryClient.NormalizeAddress(S("dns.ipv4"), System.Net.Sockets.AddressFamily.InterNetwork).Length == 0
+                    && SignedDns.DnsRegistryClient.NormalizeAddress(S("dns.ipv6"), System.Net.Sockets.AddressFamily.InterNetworkV6).Length == 0)
+                    issues.Add(Issue("dns.enabled", "Enabled DNS names require dns.ipv4 or dns.ipv6."));
+            }
+            catch (ArgumentException ex) { issues.Add(Issue("dns.enabled", ex.Message)); }
+        }
+
         switch (S("tls.mode"))
         {
             case "certificate" when string.IsNullOrWhiteSpace(S("tls.certificate_path")) || string.IsNullOrWhiteSpace(S("tls.key_path")):
