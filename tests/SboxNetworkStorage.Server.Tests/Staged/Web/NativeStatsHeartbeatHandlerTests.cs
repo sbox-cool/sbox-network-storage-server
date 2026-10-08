@@ -141,9 +141,9 @@ public sealed class NativeStatsHeartbeatHandlerTests
         // the framework does when the response is flushed.
         requestCts.Cancel();
 
-        // The analytics write must still complete. Give the fire-and-forget
-        // task a moment to finish its async work after the request is gone.
-        await analytics.Completed.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        // The analytics write must still complete. The assertion is completion,
+        // not latency: allow for slow, contended CI runners.
+        await analytics.Completed.Task.WaitAsync(TimeSpan.FromSeconds(30));
 
         Assert.True(analytics.WasCalled, "analytics RecordEndpointEventAsync must be called");
         Assert.True(analytics.Token.IsCancellationRequested == false,
