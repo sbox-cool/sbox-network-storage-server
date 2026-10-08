@@ -3,6 +3,9 @@
 #   irm https://github.com/sbox-cool/sbox-network-storage-server/releases/latest/download/install.ps1 | iex
 #
 # Environment variables:
+#   SBOX_NS_PROJECT      Configure and create/reuse this project, then print the game configuration.
+#   SBOX_NS_PUBLIC_URL   Optional public URL used with SBOX_NS_PROJECT.
+#   SBOX_NS_TUNNEL       Set to 1 to enable the hosted HTTPS tunnel after quickstart/setup.
 #   SBOX_NS_VERSION      Install this version (for example 0.3.0 or v0.3.0) instead of the latest release.
 #   SBOX_NS_PRERELEASE   Set to 1 to resolve the newest release including prereleases.
 #   SBOX_NS_NO_SETUP     Set to 1 to skip running `sbox-ns setup`.
@@ -133,7 +136,15 @@ function Install-SboxNs {
     $exe = Join-Path $installDir $binName
     $dirArgs = @('--config-dir', $configDir, '--data-dir', $dataDir)
     $configured = $false
-    if (Test-Path (Join-Path $configDir 'server.toml')) {
+    $quickstartOut = ''
+    if ($env:SBOX_NS_PROJECT) {
+        $quickstartArgs = @('quickstart', $env:SBOX_NS_PROJECT) + $dirArgs
+        if ($env:SBOX_NS_PUBLIC_URL) { $quickstartArgs += @('--public-url', $env:SBOX_NS_PUBLIC_URL) }
+        $quickstartOut = (& $exe @quickstartArgs | Out-String)
+        if ($LASTEXITCODE -ne 0) { throw 'quickstart failed; service was not started' }
+        $configured = $true
+    }
+    elseif (Test-Path (Join-Path $configDir 'server.toml')) {
         Write-Host "Existing configuration found in $configDir; keeping it."
         $configured = $true
     }
@@ -146,6 +157,21 @@ function Install-SboxNs {
         }
         else {
             $configured = $true
+        }
+    }
+
+    $tunnelUrl = ''
+    if ($env:SBOX_NS_TUNNEL -eq '1') {
+        if (-not $configured) { throw 'SBOX_NS_TUNNEL=1 requires setup or SBOX_NS_PROJECT.' }
+        & $exe tunnel enable @dirArgs
+        if ($LASTEXITCODE -ne 0) { throw 'tunnel enable failed; service was not started' }
+        $tunnelUrl = (& $exe config get server.public_url @dirArgs | Out-String).Trim()
+        if ($LASTEXITCODE -ne 0) { throw 'cannot read tunnel public URL' }
+        if ($quickstartOut) {
+            $quickstartOut = [regex]::Replace($quickstartOut,
+                '(NetworkStorage\.Configure\( "[^"]+", "[^"]+", ")[^"]+(" \);)',
+                [System.Text.RegularExpressions.MatchEvaluator] { param($match) $match.Groups[1].Value + $tunnelUrl + $match.Groups[2].Value })
+            $quickstartOut = [regex]::Replace($quickstartOut, '(?m)^Replace <this-host>.*\r?\n|^    sbox-ns config set server.public_url.*\r?\n', '')
         }
     }
 
@@ -169,12 +195,20 @@ function Install-SboxNs {
         Write-Host "  $step. Or run as a service:  sbox-ns service install $quotedDirs; sbox-ns service start"
         $step++
     }
-    Write-Host "  $step. Create a project:     sbox-ns project create `"My Game`" $quotedDirs"
-    $step++
-    Write-Host "  $step. Create API keys:      sbox-ns key create <projectId> --type public $quotedDirs"
-    Write-Host "                            sbox-ns key create <projectId> --type secret $quotedDirs"
-    $step++
-    Write-Host "  $step. Point your game at http://<this-host>:8080 (see docs/client-setup.md)"
+    if ($quickstartOut) {
+        Write-Host ''
+        Write-Host $quickstartOut
+    }
+    else {
+        Write-Host "  $step. Create a project and keys: sbox-ns quickstart `"My Game`" $quotedDirs"
+        $step++
+        if ($tunnelUrl) {
+            Write-Host "  $step. Point your game at $tunnelUrl (see docs/client-setup.md)"
+        }
+        else {
+            Write-Host "  $step. Point your game at http://<this-host>:8080 (see docs/client-setup.md)"
+        }
+    }
     Write-Host ''
     Write-Host "Docs: https://github.com/$repo#readme"
 }

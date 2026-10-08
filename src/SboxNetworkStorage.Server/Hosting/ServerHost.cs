@@ -8,6 +8,7 @@ using SboxNetworkStorage.Server.Middleware;
 using SboxNetworkStorage.Server.Owner;
 using SboxNetworkStorage.Server.Routing;
 using SboxNetworkStorage.Server.Updates;
+using SboxNetworkStorage.Server.Tunnels;
 using SboxNetworkStorage.Storage.Relational;
 
 namespace SboxNetworkStorage.Server.Hosting;
@@ -54,11 +55,18 @@ public static class ServerHost
         {
             // Only loopback proxies (the default) are trusted, so clients cannot spoof their address.
             o.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+            o.KnownNetworks.Clear();
+            o.KnownProxies.Clear();
+            o.KnownProxies.Add(System.Net.IPAddress.Loopback);
+            o.KnownProxies.Add(System.Net.IPAddress.IPv6Loopback);
+            o.ForwardLimit = 1;
         });
         builder.Services.AddNetworkStorageServer(config);
         builder.Services.AddOwnerManagement(config);
         builder.Services.AddSingleton<UpdateNoticeState>();
         builder.Services.AddHostedService<UpdateCheckService>();
+        builder.Services.AddSingleton<TunnelConnectorState>();
+        builder.Services.AddHostedService<TunnelConnectorService>();
 
         builder.Host.UseDefaultServiceProvider(o =>
         {

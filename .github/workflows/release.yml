@@ -36,15 +36,15 @@ jobs:
           dotnet-version: 8.0.x
       - name: Require approved stable reference
         shell: bash
-        env:
-          STABLE_PARITY_RESULTS_URL: ${{ secrets.STABLE_PARITY_RESULTS_URL }}
         run: |
-          if [ -z "$STABLE_PARITY_RESULTS_URL" ]; then
-            echo "::error::Release blocked: configure STABLE_PARITY_RESULTS_URL with an approved stable-server run of this exact corpus. Cross-driver parity is not managed parity."
+          # Approved managed-service recording of this exact corpus, committed by
+          # review after the Record live parity workflow. Cross-driver parity is not managed parity.
+          if [ ! -s tests/parity/stable-reference.json ]; then
+            echo "::error::Release blocked: commit an approved managed-service recording as tests/parity/stable-reference.json (see Record live parity workflow)."
             exit 1
           fi
           mkdir -p TestResults
-          curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' "$STABLE_PARITY_RESULTS_URL" --output TestResults/stable.json
+          cp tests/parity/stable-reference.json TestResults/stable.json
       - name: Replay candidate HTTP corpus
         run: bash scripts/smoke.sh --out TestResults/candidate.json
       - name: Compare against approved stable reference

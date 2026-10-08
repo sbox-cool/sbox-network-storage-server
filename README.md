@@ -42,7 +42,9 @@ works the same way it does with the managed service.
 - **Owner dashboard:** one-time remote login links, CSRF-protected login, projects,
   API keys, a data browser and portable server exports. No signup or payment.
 - **Agent tools:** idempotent project quickstart and an allowlisted stdio MCP server.
-- **No telemetry, no auto-update:** the server only shows a notice when a new release exists.
+- **Optional hosted HTTPS:** a stable self-certifying `sboxns.com` name, without a domain purchase or signup.
+- **No server usage telemetry or auto-update:** optional email notices require consent.
+  The optional Cloudflare connector has its own crash reporting.
 
 ## Quickstart (about 60 seconds)
 
@@ -116,6 +118,11 @@ and open its single-use link. Use an SSH tunnel for plain HTTP or HTTPS for
 remote access. The dashboard includes a collection/record browser and a server
 export download. [Admin panel guide](docs/admin-panel.md).
 
+For HTTPS without your own domain, run `sbox-ns tunnel enable` and restart the
+server. It binds HTTP to loopback and prints your hosted HTTPS URL.
+`sbox-ns tunnel disable` restores the previous listener and TLS settings.
+See [hosted HTTPS and optional notices](docs/self-hosting.md#hosted-https-without-a-domain).
+
 Full guide: [docs/self-hosting.md](docs/self-hosting.md).
 
 ## Point your game at your server
@@ -180,6 +187,8 @@ Every key with its default: [docs/configuration.md](docs/configuration.md).
 | `sbox-ns export [--out FILE] [--no-secrets]` / `import <FILE> [--config]` | Portable, driver-neutral server backup and restore ([guide](docs/export.md)) |
 | `sbox-ns admin login-link [--public-url URL]` | Create a short-lived, single-use owner sign-in or setup link |
 | `sbox-ns mcp` | Serve allowlisted management tools over stdio ([guide](docs/mcp.md)) |
+| `sbox-ns tunnel enable\|status\|disable` | Manage the optional hosted HTTPS connector |
+| `sbox-ns register --email ADDRESS` / `register --remove` | Opt in to confirmed security/update email notices or remove the subscription |
 | `sbox-ns project create <name>\|list\|delete <projectId>` | Manage projects |
 | `sbox-ns key create <projectId> --type public\|secret [--label L]` | Create an API key |
 | `sbox-ns key list <projectId>` / `key revoke <projectId> <key>` | List and revoke API keys |

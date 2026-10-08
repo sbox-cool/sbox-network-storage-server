@@ -145,6 +145,31 @@ storage_encryption_key_file = "secrets/storage_encryption_key"
 security_signing_key_file = "secrets/security_signing_key.pem"
 ```
 
+### Hosted tunnel and notice settings
+
+These keys also belong to `server.toml`. Use `tunnel enable|disable` rather
+than manually changing tunnel state: the CLI atomically manages
+`conf.d/zzzz-tunnel.toml`, including the loopback listener and public URL.
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `tunnel.enabled` | `false` | Start the supervised connector after server restart |
+| `tunnel.registry` | `https://sboxcool.com/api/network-storage/tunnels` | Signed registry API; HTTPS required except loopback testing |
+| `tunnel.name` | empty | Derived identity name, managed by enable |
+| `tunnel.hostname` | empty | Assigned public hostname, managed by enable |
+| `tunnel.local_port` | `8080` | HTTP loopback origin port, managed by enable |
+| `tunnel.previous_listen` | empty | Original listener restored by disable |
+| `tunnel.previous_public_url` | empty | Original public URL restored by disable |
+| `tunnel.previous_tls_mode` | `off` | Original TLS mode restored by disable |
+| `notices.registry` | `https://sboxcool.com/api/network-storage/notices` | Optional notice API; no request without explicit opt-in |
+| `notices.email` | empty | Last registered email, not authoritative consent; use `register` to subscribe/remove |
+
+Identity and connector credentials are separate private files under
+`secrets/`, not TOML values. Notice removal uses the private
+`<data dir>/install-id` file. See the
+[hosted HTTPS and notices guide](self-hosting.md#hosted-https-without-a-domain).
+
+
 ## database.toml
 
 ```toml

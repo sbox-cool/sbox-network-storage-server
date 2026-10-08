@@ -2,6 +2,7 @@ using SboxNetworkStorage.Contracts.Diagnostics;
 using SboxNetworkStorage.Server.Hosting;
 using SboxNetworkStorage.Server.Routing;
 using SboxNetworkStorage.Server.Updates;
+using SboxNetworkStorage.Server.Tunnels;
 using SboxNetworkStorage.Storage.Relational;
 
 namespace SboxNetworkStorage.Server.Endpoints;
@@ -13,7 +14,7 @@ public static class ServerInfoEndpoints
 
     public static IEndpointRouteBuilder MapServerInfo(this IEndpointRouteBuilder endpoints)
     {
-        endpoints.MapGet("/v3/server-info", (UpdateNoticeState updates, INetworkStorageStoreAdmin store) =>
+        endpoints.MapGet("/v3/server-info", (UpdateNoticeState updates, INetworkStorageStoreAdmin store, TunnelConnectorState tunnel) =>
             {
                 var notice = updates.Current;
                 return Results.Json(new
@@ -23,7 +24,8 @@ public static class ServerInfoEndpoints
                     version = BuildInfo.Version,
                     apiVersions = ApiVersions,
                     database = store.ProviderName,
-                    capabilities = new[] { "records", "global-records", "endpoints", "workflows", "queries", "game-values", "rate-limits", "auth-sessions", "analytics", "package-sync" },
+                    capabilities = new[] { "records", "global-records", "endpoints", "workflows", "queries", "game-values", "rate-limits", "auth-sessions", "analytics", "package-sync", "https-tunnel" },
+                    tunnel = tunnel.Current,
                     update = notice is null
                         ? null
                         : new

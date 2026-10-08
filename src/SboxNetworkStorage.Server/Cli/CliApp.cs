@@ -30,6 +30,15 @@ public static class CliApp
           doctor                        Check config, database, port, TLS, disk and updates
           version                       Print the version
 
+        HTTPS tunnel (optional, no account required)
+          tunnel enable [--json]        Register an HTTPS name and bind the origin to loopback; restart afterward
+          tunnel status [--json]        Show the name, registry and supervised connector state (no secrets)
+          tunnel disable [--json]       Delete the hosted name and restore previous listener/public URL; restart afterward
+
+        Optional security notices
+          register --email ADDRESS       Request security/update notices (email confirmation required)
+          register --remove              Unsubscribe this install; no automatic reporting
+
         Configuration
           config path                   Print the config folder
           config show [--show-secrets]  Print every effective setting and where it came from
@@ -100,6 +109,8 @@ public static class CliApp
                 "setup" => await SetupCommand.RunAsync(context),
                 "quickstart" => await QuickstartCommand.RunAsync(context),
                 "mcp" => await McpServer.RunStdioAsync(context),
+                "tunnel" => await TunnelCommands.RunAsync(context),
+                "register" => await NoticeCommands.RunAsync(context),
                 "config" => ConfigCommands.Run(context),
                 "db" => await DatabaseCommands.RunAsync(context),
                 "export" => await ExportCommands.ExportAsync(context),

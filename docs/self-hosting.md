@@ -252,7 +252,7 @@ Edit the TOML files and restart to apply changes.
 
 ### Projects and API keys
 
-There is no web dashboard yet. Create projects and keys with the CLI, then
+Use the owner dashboard or create projects and keys with the CLI, then
 enter them in the s&box editor (see [client-setup.md](client-setup.md)):
 
 ```sh
@@ -308,6 +308,85 @@ HTTPS on port 443 needs either root, the `CAP_NET_BIND_SERVICE` capability
 
 Which URL types s&box game clients can reach is untested; see
 [client-setup.md](client-setup.md#client-reachability).
+
+### Hosted HTTPS without a domain
+
+Hosted names are optional. They do not require a website account, payment or a
+domain purchase. Enabling a name accepts the
+[hosted-name acceptable-use policy](https://sboxcool.com/network-storage/hosted-names/acceptable-use).
+Operators can disable names for abuse; this does not delete your local data.
+
+```sh
+sbox-ns tunnel enable
+sbox-ns service restart
+sbox-ns tunnel status
+sbox-ns doctor
+```
+
+The CLI creates a private P-256 identity, derives a stable 12-character name,
+and downloads the SHA-256-verified official cloudflared 2026.10.0 binary.
+Keep `<config dir>/secrets/identity_ecdsa_p256.pem`: replacing it changes the name.
+The connector token remains in `<config dir>/secrets/tunnel_token`, never in
+CLI arguments, public server-info or registry database rows. Back up the config
+as secret material. On Linux, root administration preserves the installed
+config directory's UID/GID for private assets and connector files.
+
+Enabling writes `conf.d/zzzz-tunnel.toml`, binds HTTP to `127.0.0.1` on your
+existing HTTP port, disables local TLS and sets `server.public_url` to the
+hosted HTTPS URL. Restart before using it. Keep the direct HTTP port closed in
+your firewall; verify a remote request to the server IP cannot reach it.
+Only local connector traffic is trusted for forwarded HTTPS headers, so owner
+and antiforgery cookies retain HTTPS `__Host-` protection.
+
+The server supervises the child with bounded restart backoff, redacts its
+free-form output, and reports connection state in `doctor`, `tunnel status`
+and server-info. It never auto-updates cloudflared. The official optional
+cloudflared dependency includes Cloudflare crash reporting; the server's
+no-usage-telemetry policy does not describe that third-party process.
+
+```sh
+sbox-ns tunnel disable
+sbox-ns service restart
+```
+
+Disable removes the hosted tunnel/DNS route and restores the listener,
+public URL and TLS mode captured before enable. It keeps the identity so a
+later enable derives the same name. Re-enable recovers a missing local token.
+Do not manually override the managed tunnel settings.
+
+After releases are available, a fresh service install can opt in before start:
+
+```sh
+curl -fsSL https://github.com/sbox-cool/sbox-network-storage-server/releases/latest/download/install.sh \
+  | sudo env SBOX_NS_PROJECT="My Game" SBOX_NS_TUNNEL=1 sh
+```
+
+No release is currently published; the approved managed-server parity
+recording remains a mandatory release prerequisite.
+
+### Optional security and update email notices
+
+Interactive setup offers an email prompt; blank input and non-interactive
+setup send no request and create no install ID. Registration is independent
+of tunnels and always optional:
+
+```sh
+sbox-ns register --email you@example.com
+sbox-ns register --remove
+```
+
+Registration sends only email, installed version and a random install ID to
+the website notice service. No game data, project IDs or API keys are sent.
+Open the confirmation email within 48 hours; its link is single-use. No
+security/update notices are sent before confirmation. Every notice includes
+an unsubscribe link; CLI removal also removes pending confirmations.
+
+Keep `<data dir>/install-id` private: it is the removal capability. Copy it
+separately when moving an installation if you want to preserve CLI removal;
+portable server archives do not include this data-directory file. Editing
+`notices.email` does not subscribe or unsubscribe. No marketing or billing
+integration is involved.
+
 
 ## Run
 

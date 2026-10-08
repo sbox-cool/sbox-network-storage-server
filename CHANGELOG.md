@@ -36,6 +36,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Portable config and driver-neutral database export/import, including a
   CSRF-protected dashboard download and explicit secret inclusion controls.
 - Short-lived, single-use owner login links and a collection/record data browser.
+- Optional self-certifying `sboxns.com` HTTPS names, signed registry ownership,
+  checksum-pinned cloudflared downloads and supervised connector status.
+- `tunnel enable|status|disable`, MCP tunnel status/enable, and
+  `SBOX_NS_TUNNEL=1` installer opt-in; previous listener and TLS settings are restored on disable.
+- Optional `register --email` double-opt-in security/update notices,
+  single-use expiring confirmation and email/CLI unsubscribe.
 
 ### Fixed
 

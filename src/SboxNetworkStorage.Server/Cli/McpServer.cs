@@ -54,6 +54,8 @@ public sealed class McpServer
         new("server_status", "Run sbox-ns doctor: config validity, database reachability, port, TLS, disk, schema version and update status.",
             Schema(), _ => ["doctor"]),
         new("version", "Print the installed sbox-ns version.", Schema(), _ => ["version"]),
+        new("tunnel_status", "Show hosted HTTPS tunnel name and connector state without credentials.", Schema(), _ => ["tunnel", "status", "--json"]),
+        new("tunnel_enable", "Register or reuse a hosted HTTPS address, install verified cloudflared, and bind to loopback. Restart the server afterward. Tunnel disable is CLI-only because it revokes the public address.", Schema(), _ => ["tunnel", "enable", "--json"]),
         new("quickstart", "Configure the server if needed, create or reuse a project by name, ensure public and secret keys, and return the C# NetworkStorage.Configure line for the game. Safe to re-run; the secret key is only returned when newly created.",
             Schema(("name", "string", "Project name, e.g. \"My Game\".", true),
                    ("publicUrl", "string", "Address players use, e.g. https://ns.example.com (only applied on first configuration).", false)),

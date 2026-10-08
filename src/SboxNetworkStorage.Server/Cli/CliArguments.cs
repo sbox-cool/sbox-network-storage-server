@@ -5,7 +5,7 @@ public sealed class CliArguments
 {
     private static readonly HashSet<string> BooleanFlags = new(StringComparer.Ordinal)
     {
-        "non-interactive", "check", "follow", "f", "help", "h", "json", "yes", "y", "show-secrets", "force", "no-secrets", "config"
+        "non-interactive", "check", "follow", "f", "help", "h", "json", "yes", "y", "show-secrets", "force", "no-secrets", "config", "remove"
     };
 
     private readonly Dictionary<string, string> _options = new(StringComparer.Ordinal);

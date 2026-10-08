@@ -3,6 +3,7 @@ using System.Net.Sockets;
 using SboxNetworkStorage.Server.Configuration;
 using SboxNetworkStorage.Server.Hosting;
 using SboxNetworkStorage.Server.Updates;
+using SboxNetworkStorage.Server.Tunnels;
 using SboxNetworkStorage.Storage.Relational;
 
 namespace SboxNetworkStorage.Server.Cli;
@@ -65,9 +66,15 @@ public static class DoctorCommand
         ListenAddress.TryParse(config.GetString("server.listen"), out var listen);
         Report(PortStatus(listen), "http port", PortDetail(listen));
         var tlsMode = config.GetString("tls.mode");
+        var tunnel = TunnelConnectorState.Read(config);
+        Report(!tunnel.Enabled ? Outcome.Pass : tunnel.ConnectorState == "connected" ? Outcome.Pass : Outcome.Warn,
+            "tunnel", $"{(tunnel.Enabled ? tunnel.Hostname : "disabled")}; connector {tunnel.ConnectorState}; cloudflared {tunnel.ConnectorVersion}");
         if (tlsMode == "off")
         {
-            Report(Outcome.Warn, "tls", "off (plain HTTP). Reachability from s&box games over plain HTTP is untested.");
+            var publicHttps = Uri.TryCreate(config.GetString("server.public_url"), UriKind.Absolute, out var publicUri) && publicUri.Scheme == "https";
+            Report(publicHttps ? Outcome.Pass : Outcome.Warn, "tls", publicHttps
+                ? "HTTPS at trusted loopback reverse proxy; origin is HTTP"
+                : "off (plain HTTP). Reachability from s&box games over plain HTTP is untested.");
         }
         else
         {

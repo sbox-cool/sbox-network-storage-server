@@ -41,6 +41,9 @@ public sealed class McpServerTests
         var names = response["result"]!["tools"]!.AsArray().Select(t => t!["name"]!.GetValue<string>()).ToList();
         Assert.Contains("quickstart", names);
         Assert.Contains("server_status", names);
+        Assert.Contains("tunnel_status", names);
+        Assert.Contains("tunnel_enable", names);
+        Assert.DoesNotContain("tunnel_disable", names);
         Assert.DoesNotContain(names, n => n.Contains("delete") || n.Contains("restore") || n.Contains("import") || n.Contains("revoke"));
     }
 

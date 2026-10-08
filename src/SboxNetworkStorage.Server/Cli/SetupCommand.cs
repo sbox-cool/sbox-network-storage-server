@@ -101,6 +101,7 @@ public static class SetupCommand
             Console.WriteLine($"Database ready (schema version {result.ToVersion}).");
             await AdminCommands.ConfigureDuringSetupAsync(context, written, services, interactive);
         }
+        await NoticeCommands.ConfigureDuringSetupAsync(context, interactive);
 
         Console.WriteLine();
         Console.WriteLine($"Configuration written to {written.ConfigDirectory}");

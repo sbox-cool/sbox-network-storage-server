@@ -283,6 +283,30 @@ public static class ConfigLoader
                 : new ConfigIssue(origin, 0, message);
         }
 
+        try { _ = Tunnels.TunnelRegistryClient.ValidateRegistry(S("tunnel.registry")); }
+        catch (InvalidOperationException ex) { issues.Add(Issue("tunnel.registry", ex.Message)); }
+        if ((long)values["tunnel.local_port"].Value is < 1 or > 65535)
+            issues.Add(Issue("tunnel.local_port", "tunnel.local_port must be between 1 and 65535."));
+        if ((bool)values["tunnel.enabled"].Value)
+        {
+            var name = S("tunnel.name");
+            if (name.Length != 12 || name.Any(c => c is not (>= 'a' and <= 'z') and not (>= '2' and <= '7')))
+                issues.Add(Issue("tunnel.name", "tunnel.name must be 12 lowercase base32 characters."));
+            try
+            {
+                var url = Tunnels.TunnelRegistryClient.PublicUrl(S("tunnel.hostname"), name);
+                if (S("server.public_url") != url)
+                    issues.Add(Issue("server.public_url", "Enabled tunnels require their exact HTTPS public URL."));
+            }
+            catch (InvalidDataException ex) { issues.Add(Issue("tunnel.hostname", ex.Message)); }
+            if (!ListenAddress.TryParse(S("server.listen"), out var origin)
+                || origin.Address is null || !System.Net.IPAddress.IsLoopback(origin.Address)
+                || origin.Port != (long)values["tunnel.local_port"].Value || S("tls.mode") != "off")
+                issues.Add(Issue("tunnel.enabled", "Enabled tunnels require a loopback HTTP origin and tls.mode = off."));
+            if (!ListenAddress.TryParse(S("tunnel.previous_listen"), out _))
+                issues.Add(Issue("tunnel.previous_listen", "Enabled tunnels require the saved listener to restore on disable."));
+        }
+
         switch (S("tls.mode"))
         {
             case "certificate" when string.IsNullOrWhiteSpace(S("tls.certificate_path")) || string.IsNullOrWhiteSpace(S("tls.key_path")):

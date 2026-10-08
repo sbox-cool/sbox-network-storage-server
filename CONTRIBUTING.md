@@ -106,11 +106,14 @@ No managed goldens are committed without an authorized, reviewed stable run.
 specific scenario, step, response path and reviewed reason, not suppress bugs.
 
 CI runs SQLite HTTP smoke on Linux/macOS/Windows and PostgreSQL smoke plus strict
-cross-driver comparison on Linux. Release additionally requires the secret
-`STABLE_PARITY_RESULTS_URL`: an HTTPS download URL for an approved stable-server
-run of this exact corpus. Without it the stable-parity job fails explicitly;
-neither binaries nor images publish. SQLite/PostgreSQL agreement alone is **not**
-proof of managed-service parity.
+cross-driver comparison on Linux. Release additionally requires
+`tests/parity/stable-reference.json`: an approved managed-service run of this exact
+corpus. Produce it with the **Record live parity** workflow (needs the
+`PARITY_PROVISION_TOKEN` secret; each run provisions a fresh fixture project on
+sboxcool.com), review the uploaded diff, and commit `stable.json` under that name.
+Re-record whenever the corpus changes. Without the file the stable-parity job fails
+explicitly; neither binaries nor images publish. SQLite/PostgreSQL agreement alone
+is **not** proof of managed-service parity.
 
 #### Upstream and fixture prerequisites
 

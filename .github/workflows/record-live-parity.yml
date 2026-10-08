@@ -1,0 +1,82 @@
+name: Record live parity
+
+# Records the HTTP parity corpus against the managed service (api.sboxcool.com)
+# on a freshly provisioned fixture project, records the candidate build, and
+# diffs them with the reviewed allow-list. Approval is a human act: review the
+# uploaded diff, then commit stable.json as tests/parity/stable-reference.json.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: record-live-parity
+  cancel-in-progress: false
+
+env:
+  DOTNET_NOLOGO: "true"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "true"
+  LIVE_TARGET: https://api.sboxcool.com
+  PROVISION_URL: https://sboxcool.com/api/ops/parity-provision
+
+jobs:
+  record:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - run: dotnet build SboxNetworkStorage.sln -c Release
+
+      - name: Record managed service on a fresh fixture project
+        shell: bash
+        env:
+          PARITY_PROVISION_TOKEN: ${{ secrets.PARITY_PROVISION_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${PARITY_PROVISION_TOKEN:-}" ]; then
+            echo "::error::Set the PARITY_PROVISION_TOKEN repository secret."
+            exit 1
+          fi
+          mkdir -p TestResults
+          fixture="$(mktemp)"
+          trap 'rm -f "$fixture"' EXIT
+          status=""
+          for attempt in 1 2 3 4; do
+            status="$(curl -sS --max-time 90 -o "$fixture" -w '%{http_code}' -X POST "$PROVISION_URL" \
+              -H "Authorization: Bearer $PARITY_PROVISION_TOKEN" -H 'Content-Type: application/json' -d '{}')" || status=000
+            [ "$status" = 200 ] && break
+            echo "Provision attempt $attempt answered HTTP $status; retrying."
+            sleep $((30 * attempt))
+          done
+          [ "$status" = 200 ] || { echo "::error::Fixture provisioning failed (HTTP $status)."; exit 1; }
+          project="$(jq -r .projectId "$fixture")"
+          public="$(jq -r .publicKey "$fixture")"
+          secret="$(jq -r .secretKey "$fixture")"
+          echo "::add-mask::$public"
+          echo "::add-mask::$secret"
+          echo "Fixture project: $project"
+          # Live failing corpus expectations is data, not a job failure; the diff decides.
+          dotnet tools/SboxNetworkStorage.Parity/bin/Release/net8.0/sbox-ns-parity.dll run \
+            --target "$LIVE_TARGET" --project-id "$project" --public-key "$public" --secret-key "$secret" \
+            --out TestResults/stable.json || true
+          test -s TestResults/stable.json
+
+      - name: Record candidate build
+        run: bash scripts/smoke.sh --no-build --out TestResults/candidate.json
+
+      - name: Diff against reviewed allow-list
+        run: |
+          dotnet tools/SboxNetworkStorage.Parity/bin/Release/net8.0/sbox-ns-parity.dll diff \
+            --stable TestResults/stable.json --candidate TestResults/candidate.json \
+            --allow tests/parity/intentional-differences.json | tee TestResults/diff.txt
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: live-parity-recording
+          path: TestResults/
+          if-no-files-found: ignore

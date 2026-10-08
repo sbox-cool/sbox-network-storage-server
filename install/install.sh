@@ -11,6 +11,7 @@
 #   SBOX_NS_PROJECT      Configure non-interactively (SQLite), create or reuse this project with
 #                        public and secret keys, and print the line to add to your game.
 #   SBOX_NS_PUBLIC_URL   Address players use, e.g. https://ns.example.com (used with SBOX_NS_PROJECT).
+#   SBOX_NS_TUNNEL       Set to 1 for a hosted HTTPS name after quickstart/setup and before service start.
 #   SBOX_NS_VERSION      Install this version (for example 0.3.0 or v0.3.0) instead of the latest release.
 #   SBOX_NS_PRERELEASE   Set to 1 to resolve the newest release including prereleases.
 #   SBOX_NS_NO_SETUP     Set to 1 to skip running `sbox-ns setup`.
@@ -259,6 +260,27 @@ main() {
         configured=1
     else
         configured=0
+    fi
+
+    if [ "${SBOX_NS_TUNNEL:-0}" = "1" ]; then
+        [ "$configured" -eq 1 ] || die "SBOX_NS_TUNNEL=1 requires setup or SBOX_NS_PROJECT."
+        say "Enabling the verified HTTPS tunnel..."
+        # shellcheck disable=SC2086 # $dirs is intentionally split into flags
+        "$ns" tunnel enable $dirs || die "tunnel enable failed; service was not started"
+        # shellcheck disable=SC2086
+        tunnel_url=$("$ns" config get server.public_url $dirs) || die "cannot read tunnel public URL"
+        if [ -n "$quickstart_out" ]; then
+            # Preserve any newly created secret key, but replace the buffered pre-tunnel game URL.
+            quickstart_out=$(printf '%s\n' "$quickstart_out" | while IFS= read -r line; do
+                case "$line" in
+                    *NetworkStorage.Configure*)
+                        printf '%s", "%s" );\n' "${line%\", \"*}" "$tunnel_url"
+                        ;;
+                    "Replace <this-host>"*|"    sbox-ns config set server.public_url"*) ;;
+                    *) printf '%s\n' "$line" ;;
+                esac
+            done)
+        fi
     fi
 
     if [ "$service_layout" -eq 1 ]; then
