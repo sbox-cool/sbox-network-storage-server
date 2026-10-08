@@ -143,6 +143,10 @@ session_secret_file = "secrets/auth_session_secret"
 storage_encryption_key_file = "secrets/storage_encryption_key"
 # RSA private key (PEM) that signs the security config game clients download.
 security_signing_key_file = "secrets/security_signing_key.pem"
+# Key id published with the signed security config. Empty (default) derives it
+# from the public key. Set it to the previous server's key id when moving a
+# project here with its signing key, so game clients keep accepting the config.
+security_signing_key_id = ""
 ```
 
 ### Hosted tunnel and notice settings
@@ -243,16 +247,18 @@ CREATE DATABASE sbox_ns OWNER sbox_ns;
 ## updates.toml
 
 ```toml
-# sbox Network Storage Server: update notices.
-# The server never updates itself. It only tells you when a release is available.
-# Install updates with: sbox-ns update   (undo with: sbox-ns rollback)
+# sbox Network Storage Server: update notices and opt-in unattended updates.
+# Manual: sbox-ns update   (undo with: sbox-ns rollback)
+# Unattended: sudo sbox-ns service install --auto-update (see self-hosting.md, "Automatic updates")
 
 [updates]
 # Check for new releases in the background and show a notice in the logs and
 # in `sbox-ns doctor`. Set to false to disable all outbound update checks.
 check = true
 
-# Release feed. If unreachable, the GitHub Releases API for github_repo is used.
+# Release feed, requested as <feed_url>?channel=<channel>. If unreachable, the
+# newest stable GitHub release of github_repo is used for notices and manual
+# updates (never for unattended updates).
 feed_url = "https://sboxcool.com/api/network-storage/releases/latest"
 github_repo = "sbox-cool/sbox-network-storage-server"
 
@@ -261,6 +267,22 @@ interval_hours = 24
 
 # Also notify about prereleases (versions with a "-" suffix, for example 0.4.0-rc.1).
 include_prereleases = false
+
+# "stable": releases promoted after soaking on the official canary server.
+# "canary": every release as soon as it is published.
+channel = "stable"
+
+# Install releases unattended (`sbox-ns update --auto`, run every 15 minutes by
+# sbox-ns-update.timer). With several instances on one host, all must opt in.
+auto_install = false
+
+# UTC window "HH:MM-HH:MM" in which unattended updates may start. The end is
+# exclusive; "22:00-02:00" wraps midnight and "00:00-24:00" is always open.
+window = "03:00-05:00"
+
+# Hours a release must have been on its channel before an unattended install.
+# -1 = channel default: 24 on stable, 0 on canary.
+min_release_age_hours = -1
 ```
 
 ## conf.d

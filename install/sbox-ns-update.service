@@ -1,0 +1,20 @@
+# Unattended sbox-ns updates, started by sbox-ns-update.timer.
+# Installed as /etc/systemd/system/sbox-ns-update.service by `sbox-ns service install --auto-update`
+# (or install.sh with SBOX_NS_AUTO_UPDATE=1). Runs as root because it replaces the binary and
+# restarts the sbox-ns units. It installs nothing unless every instance sets
+# updates.auto_install = true, and only inside updates.window. See docs/self-hosting.md.
+#
+# Exit codes: 0 updated or nothing to do, 1 failed and rolled back, 2 configuration problem,
+# 3 failed and the rollback did not complete, 4 release feed unavailable.
+
+[Unit]
+Description=sbox Network Storage Server unattended update
+Documentation=https://github.com/sbox-cool/sbox-network-storage-server/blob/main/docs/self-hosting.md
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/sbox-ns update --auto --all-instances
+TimeoutStartSec=30min
+Nice=10

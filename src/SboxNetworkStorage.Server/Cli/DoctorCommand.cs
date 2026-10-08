@@ -119,6 +119,8 @@ public static class DoctorCommand
             }
         }
 
+        CheckUnattendedUpdates(config, Report);
+
         var publicUrl = config.GetString("server.public_url");
         Report(string.IsNullOrWhiteSpace(publicUrl) ? Outcome.Warn : Outcome.Pass, "public url",
             string.IsNullOrWhiteSpace(publicUrl) ? "server.public_url is not set" : publicUrl);
@@ -127,6 +129,41 @@ public static class DoctorCommand
             : "anonymous usage statistics disabled (opt-in: `sbox-ns telemetry enable`)");
 
         return failures == 0 ? CliApp.Ok : CliApp.Failure;
+    }
+
+    /// <summary>Reports the unattended-update settings, the last recorded update and the instances sharing this binary.</summary>
+    private static void CheckUnattendedUpdates(EffectiveConfig config, Action<Outcome, string, string> report)
+    {
+        var settings = AutoUpdateSettings.FromConfig(config);
+        report(Outcome.Pass, "auto update", settings.AutoInstall
+            ? $"on: channel {settings.Channel}, window {settings.Window}, minimum release age {settings.MinReleaseAgeHours} h"
+            : $"off (channel {settings.Channel}); opt in with `sbox-ns service install --auto-update`");
+
+        IReadOnlyList<ServerInstance> instances = OperatingSystem.IsLinux() ? ServerInstances.Enumerate() : [];
+        if (instances.All(i => i.Config.ConfigDirectory != config.ConfigDirectory))
+        {
+            instances = [new ServerInstance(ServerInstance.DefaultName, ServerInstances.DefaultUnit, config), .. instances];
+        }
+
+        foreach (var instance in instances)
+        {
+            var record = instance.Config.IsValid ? UpdateRecord.Read(instance.Config) : null;
+            var label = instances.Count > 1 ? $"update {instance.Name}" : "last update";
+            if (!instance.Config.IsValid)
+            {
+                report(Outcome.Fail, label, $"invalid config in {instance.Config.ConfigDirectory}: {string.Join("; ", instance.Config.Issues)}");
+            }
+            else if (record is not null)
+            {
+                report(record.IsFailed ? Outcome.Warn : Outcome.Pass, label, record.IsFailed
+                    ? $"{record.FromVersion} -> {record.ToVersion} FAILED at {record.UpdatedAt:u} and was rolled back: {record.Reason}"
+                    : $"{record.FromVersion} -> {record.ToVersion} at {record.UpdatedAt:u} ({record.Mode ?? "manual"})");
+            }
+            else if (instances.Count > 1)
+            {
+                report(Outcome.Pass, label, $"no update recorded ({instance.Unit}, {instance.Config.ConfigDirectory})");
+            }
+        }
     }
 
     /// <summary>Warns when the hosted DNS name does not (yet) resolve to every configured address.</summary>

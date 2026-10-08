@@ -1,0 +1,222 @@
+name: Canary verify
+
+# Hourly gate between the canary and stable release channels.
+#
+# 1. Reads the version the official canary instance runs (/v3/server-info) and the version
+#    the canary channel publishes (release feed, ?channel=canary).
+# 2. Replays the HTTP parity corpus against the canary's fixture project and diffs it with the
+#    approved managed-service recording (tests/parity/stable-reference.json) plus the reviewed
+#    allow-list, exactly like the release gate and "Record live parity".
+# 3. When the diff passes and the version has been on the canary channel for at least
+#    SOAK_HOURS (measured from the feed's promotedAt), promotes it to the stable channel.
+#
+# Any parity difference, an unreachable canary/feed, a canary stuck on an older version after
+# UPDATE_GRACE_HOURS (failed or rolled-back update) or a refused promotion fails the run.
+#
+# Configuration: variable OSS_CANARY_URL (canary base URL); secrets OSS_CANARY_PROJECT_ID,
+# OSS_CANARY_PUBLIC_KEY, OSS_CANARY_SECRET_KEY (fixture project on the canary) and
+# OSS_RELEASE_OPS_TOKEN (bearer token for the release-channel ops endpoint).
+# Optional automatic official deployment: secret OSS_WEBSITE_DISPATCH_TOKEN with
+# repository-dispatch permission and variable OSS_WEBSITE_REPOSITORY (owner/repo).
+# Without these, promotion still succeeds; deploy the website workflow manually.
+
+on:
+  schedule:
+    - cron: "23 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: canary-verify
+  cancel-in-progress: false
+
+env:
+  DOTNET_NOLOGO: "true"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "true"
+  FEED_URL: https://sboxcool.com/api/network-storage/releases/latest
+  PROMOTE_URL: https://sboxcool.com/api/ops/oss-release-channels/stable
+  SOAK_HOURS: "24"
+  UPDATE_GRACE_HOURS: "2"
+  PARITY: tools/SboxNetworkStorage.Parity/bin/Release/net8.0/sbox-ns-parity.dll
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve canary and channel versions
+        id: canary
+        shell: bash
+        env:
+          CANARY_URL: ${{ vars.OSS_CANARY_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CANARY_URL:-}" ]; then
+            echo "::error::Set the OSS_CANARY_URL repository variable to the canary base URL."
+            exit 1
+          fi
+          fetch() { curl -fsS --max-time 30 --retry 3 --retry-delay 10 --retry-all-errors "$1"; }
+          running="$(fetch "${CANARY_URL%/}/v3/server-info" | jq -r '.version // empty')"
+          canary_feed="$(fetch "$FEED_URL?channel=canary")"
+          channel_version="$(jq -r '.version // empty' <<<"$canary_feed")"
+          promoted_at="$(jq -r '.promotedAt // empty' <<<"$canary_feed")"
+          stable_feed="$(fetch "$FEED_URL?channel=stable")"
+          stable_version="$(jq -r '.version // empty' <<<"$stable_feed")"
+          if [ "$(jq -r '.held // false' <<<"$canary_feed")" = true ] || [ "$(jq -r '.held // false' <<<"$stable_feed")" = true ]; then
+            echo "::error::Canary or stable channel is held; automatic promotion is disabled."
+            exit 1
+          fi
+          if [ -z "$running" ] || [ -z "$channel_version" ] || [ -z "$promoted_at" ]; then
+            echo "::error::Missing data: canary runs '$running', canary channel publishes '$channel_version' (promotedAt '$promoted_at')."
+            exit 1
+          fi
+
+          age_hours=$(( ( $(date -u +%s) - $(date -u -d "$promoted_at" +%s) ) / 3600 ))
+          echo "Canary runs $running; canary channel publishes $channel_version since $promoted_at (${age_hours} h); stable is $stable_version."
+          skip=false
+          if [ "$running" != "$channel_version" ]; then
+            if [ "$age_hours" -ge "$UPDATE_GRACE_HOURS" ]; then
+              echo "::error::The canary still runs $running, ${age_hours} h after $channel_version reached the canary channel. Its unattended update failed or was rolled back: check updates/last-update.json and 'sbox-ns doctor' on the canary."
+              exit 1
+            fi
+            echo "::notice::Waiting for the canary to install $channel_version (${age_hours} h since promotion)."
+            skip=true
+          fi
+
+          soaked=false
+          [ "$age_hours" -ge "$SOAK_HOURS" ] && soaked=true
+          {
+            echo "skip=$skip"
+            echo "version=$running"
+            echo "soaked=$soaked"
+            echo "age_hours=$age_hours"
+            echo "stable=$stable_version"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-dotnet@v4
+        if: steps.canary.outputs.skip != 'true'
+        with:
+          dotnet-version: 8.0.x
+      - if: steps.canary.outputs.skip != 'true'
+        run: dotnet build SboxNetworkStorage.sln -c Release
+
+      - name: Replay corpus against the canary
+        if: steps.canary.outputs.skip != 'true'
+        shell: bash
+        env:
+          CANARY_URL: ${{ vars.OSS_CANARY_URL }}
+          PROJECT_ID: ${{ secrets.OSS_CANARY_PROJECT_ID }}
+          PUBLIC_KEY: ${{ secrets.OSS_CANARY_PUBLIC_KEY }}
+          SECRET_KEY: ${{ secrets.OSS_CANARY_SECRET_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${PROJECT_ID:-}" ] || [ -z "${PUBLIC_KEY:-}" ] || [ -z "${SECRET_KEY:-}" ]; then
+            echo "::error::Set the OSS_CANARY_PROJECT_ID, OSS_CANARY_PUBLIC_KEY and OSS_CANARY_SECRET_KEY secrets."
+            exit 1
+          fi
+          if [ ! -s tests/parity/stable-reference.json ]; then
+            echo "::error::tests/parity/stable-reference.json is missing; nothing to compare the canary with."
+            exit 1
+          fi
+          echo "::add-mask::$PUBLIC_KEY"
+          echo "::add-mask::$SECRET_KEY"
+          mkdir -p TestResults
+          # Failing corpus expectations are data, not a job failure; the diff decides.
+          dotnet "$PARITY" run \
+            --target "${CANARY_URL%/}" --project-id "$PROJECT_ID" --public-key "$PUBLIC_KEY" --secret-key "$SECRET_KEY" \
+            --out TestResults/canary.json || true
+          test -s TestResults/canary.json
+
+      - name: Diff against approved reference and allow-list
+        if: steps.canary.outputs.skip != 'true'
+        shell: bash
+        run: |
+          set -o pipefail
+          dotnet "$PARITY" diff \
+            --stable tests/parity/stable-reference.json --candidate TestResults/canary.json \
+            --allow tests/parity/intentional-differences.json | tee TestResults/diff.txt
+
+      - name: Promote to stable
+        if: steps.canary.outputs.skip != 'true' && steps.canary.outputs.soaked == 'true' && steps.canary.outputs.stable != steps.canary.outputs.version
+        shell: bash
+        env:
+          CANARY_URL: ${{ vars.OSS_CANARY_URL }}
+          OSS_RELEASE_OPS_TOKEN: ${{ secrets.OSS_RELEASE_OPS_TOKEN }}
+          VERSION: ${{ steps.canary.outputs.version }}
+          OSS_WEBSITE_DISPATCH_TOKEN: ${{ secrets.OSS_WEBSITE_DISPATCH_TOKEN }}
+          OSS_WEBSITE_REPOSITORY: ${{ vars.OSS_WEBSITE_REPOSITORY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${OSS_RELEASE_OPS_TOKEN:-}" ]; then
+            echo "::error::Set the OSS_RELEASE_OPS_TOKEN repository secret."
+            exit 1
+          fi
+          # The verified build must still be the one running: never promote a version that changed mid-run.
+          after="$(curl -fsS --max-time 30 "${CANARY_URL%/}/v3/server-info" | jq -r '.version // empty')"
+          if [ "$after" != "$VERSION" ]; then
+            echo "::error::The canary changed from $VERSION to '$after' during verification; not promoting."
+            exit 1
+          fi
+          # Re-check the control plane too: an operator hold or newer candidate wins.
+          fresh_canary="$(curl -fsS --max-time 30 "$FEED_URL?channel=canary")"
+          fresh_stable="$(curl -fsS --max-time 30 "$FEED_URL?channel=stable")"
+          fresh_version="$(jq -r '.version // empty' <<<"$fresh_canary")"
+          fresh_since="$(jq -r '.promotedAt // empty' <<<"$fresh_canary")"
+          if [ "$fresh_version" != "$VERSION" ] || [ -z "$fresh_since" ] \
+            || [ "$(jq -r '.held // false' <<<"$fresh_canary")" = true ] \
+            || [ "$(jq -r '.held // false' <<<"$fresh_stable")" = true ]; then
+            echo "::error::Release channel changed or was held during verification; not promoting."
+            exit 1
+          fi
+          if [ $(( $(date -u +%s) - $(date -u -d "$fresh_since" +%s) )) -lt $(( SOAK_HOURS * 3600 )) ]; then
+            echo "::error::Canary promotion time changed; the required soak is not complete."
+            exit 1
+          fi
+          body="$(jq -cn --arg version "$VERSION" '{version: $version}')"
+          response="$(mktemp)"
+          status="$(curl -sS --max-time 60 -o "$response" -w '%{http_code}' -X POST "$PROMOTE_URL" \
+            -H "Authorization: Bearer $OSS_RELEASE_OPS_TOKEN" -H 'Content-Type: application/json' -d "$body")" || status=000
+          cat "$response"; echo
+          if [ "${status:0:1}" != "2" ]; then
+            echo "::error::Promoting $VERSION to stable failed (HTTP $status)."
+            exit 1
+          fi
+          echo "::notice::Promoted $VERSION to the stable channel."
+          if [ -n "${OSS_WEBSITE_DISPATCH_TOKEN:-}" ]; then
+            if [[ ! "${OSS_WEBSITE_REPOSITORY:-}" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
+              echo "::error::Set OSS_WEBSITE_REPOSITORY to owner/repo for automatic official deployment."
+              exit 1
+            fi
+            dispatch="$(jq -cn --arg version "$VERSION" '{event_type:"oss-release-promoted",client_payload:{version:$version,channel:"stable"}}')"
+            curl -fsS --max-time 60 -X POST "https://api.github.com/repos/$OSS_WEBSITE_REPOSITORY/dispatches" \
+              -H "Authorization: Bearer $OSS_WEBSITE_DISPATCH_TOKEN" \
+              -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" \
+              -H "Content-Type: application/json" -d "$dispatch"
+            echo "::notice::Requested official deployment for $VERSION."
+          else
+            echo "::notice::No OSS_WEBSITE_DISPATCH_TOKEN configured; run the website official deployment workflow manually."
+          fi
+
+      - name: Report soak state
+        if: steps.canary.outputs.skip != 'true' && (steps.canary.outputs.soaked != 'true' || steps.canary.outputs.stable == steps.canary.outputs.version)
+        shell: bash
+        env:
+          VERSION: ${{ steps.canary.outputs.version }}
+          AGE: ${{ steps.canary.outputs.age_hours }}
+          STABLE: ${{ steps.canary.outputs.stable }}
+        run: |
+          if [ "$STABLE" = "$VERSION" ]; then
+            echo "::notice::$VERSION passes parity on the canary and is already stable."
+          else
+            echo "::notice::$VERSION passes parity on the canary; ${AGE} h of ${SOAK_HOURS} h soak done, not promoted yet."
+          fi
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: canary-verify
+          path: TestResults/
+          if-no-files-found: ignore

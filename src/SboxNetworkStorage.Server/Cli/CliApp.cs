@@ -70,6 +70,8 @@ public static class CliApp
           export [--out FILE] [--no-secrets]   Write the whole server (data + config) to one .tar.gz
           import <FILE> [--config] [--force]   Restore an export into the configured database
                                         (--config also restores config and secrets; --force merges into a non-empty database)
+          import <FILE> --verify-only   Validate an archive (format, row counts, rows, owner/workspace contract)
+                                        in a throwaway database; writes nothing to this server
 
         Local owner
           admin create [--username NAME] [--password-file FILE]
@@ -88,12 +90,21 @@ public static class CliApp
 
         Service
           service install|uninstall     Register sbox-ns as a system service (systemd, launchd, Windows)
+          service install --instance NAME --port PORT [--auto-update]
+                                        Add instance NAME (unit sbox-ns@NAME, /etc/sbox-ns/NAME, /var/lib/sbox-ns/NAME,
+                                        listening on 127.0.0.1:PORT); Linux, as root
+          service install --auto-update Also install the sbox-ns-update timer and set updates.auto_install = true
+          service uninstall --instance NAME
           service start|stop|restart|status
           logs [-f]                     Show service logs
 
-        Updates (never automatic)
+        Updates (unattended only when updates.auto_install = true)
           update [--check] [--version X.Y.Z]   Check for or install a release
-          rollback                      Restore the binary and database from before the last update
+          update --auto [--all-instances]      Unattended update for updates.channel inside updates.window; every
+                                        instance is health-checked and all are rolled back on any failure
+                                        (exit 0 done/nothing to do, 1 rolled back, 2 config, 3 rollback incomplete,
+                                        4 feed unavailable)
+          rollback [--all-instances]    Restore the binary and database(s) from before the last update
 
         Global options
           --config-dir DIR   Config folder (default: NS_CONFIG_DIR, /etc/sbox-ns, or <install dir>/config)

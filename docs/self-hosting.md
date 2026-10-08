@@ -368,6 +368,26 @@ as `abcdefgh2345.n1.sboxns.com` that points straight at it. Players connect
 directly to your server over HTTPS (no proxy in between) using a free Let's
 Encrypt certificate. No website account, payment or domain is needed.
 
+**Dependency notice.** Signed DNS registration and public-IP updates require
+the sboxcool registry. Existing names resolve through Bunny DNS; player traffic
+goes directly to your server and is not tunneled. The separate tunnel mode
+sends traffic through Cloudflare. These optional hosted dependencies have no
+reliability guarantee: a registry outage prevents registration/address changes,
+and DNS, certificate or tunnel-provider outages can affect reachability.
+
+The installer can opt in after starting the service (never before the registry's
+HTTP ownership proof). Open the public HTTP port and 443 first:
+
+```sh
+curl -fsSL https://github.com/sbox-cool/sbox-network-storage-server/releases/latest/download/install.sh \
+  | sudo env SBOX_NS_PROJECT="My Game" SBOX_NS_DNS=1 \
+    SBOX_NS_ACME_EMAIL="you@example.com" SBOX_NS_ACCEPT_LETSENCRYPT_TERMS=1 sh
+```
+
+On Windows the same environment variables require an elevated PowerShell
+installer. Without a supported service installation, start the server yourself
+and use `dns enable` below. DNS and tunnel opt-ins are mutually exclusive.
+
 Requirements:
 
 - A public IPv4 or IPv6 address on this machine (or a router that forwards to it).
@@ -591,9 +611,10 @@ test a restore now and then.
 
 ## Updates
 
-The server never updates itself. When a new release is published it prints a
-notice in the logs and in `sbox-ns doctor`, including whether the release fixes
-a security issue or needs a database migration.
+Unless you opt in to [automatic updates](#automatic-updates), the server never
+updates itself. When a new release is published it prints a notice in the logs
+and in `sbox-ns doctor`, including whether the release fixes a security issue or
+needs a database migration.
 
 ```sh
 sbox-ns update --check            # show the latest version and release notes link
@@ -623,8 +644,115 @@ check = false
 
 Set `include_prereleases = true` to also be notified about prereleases.
 
-The update check requests `https://sboxcool.com/api/network-storage/releases/latest`
-and falls back to the GitHub Releases API.
+The update check requests
+`https://sboxcool.com/api/network-storage/releases/latest?channel=<updates.channel>`
+and falls back to the newest stable release on GitHub when the feed is unreachable.
+
+### Automatic updates
+
+Off by default. On Linux with systemd, opt in with:
+
+```sh
+sudo sbox-ns service install --auto-update     # or install.sh with SBOX_NS_AUTO_UPDATE=1
+```
+
+This sets `updates.auto_install = true` and installs `sbox-ns-update.timer`
+([`install/sbox-ns-update.timer`](../install/sbox-ns-update.timer)), which
+runs `sbox-ns update --auto --all-instances` as root every 15 minutes (spread
+by up to 5 minutes). A run installs nothing unless all of these hold:
+
+- every instance on the host has `updates.auto_install = true`;
+- the current UTC time is inside `updates.window` (default `"03:00-05:00"`;
+  the start is inclusive, the end exclusive, `"22:00-02:00"` wraps midnight,
+  `"00:00-24:00"` is always open);
+- the release feed answers for `updates.channel` and offers a newer version.
+  Unattended runs use only the feed, never the GitHub fallback, so channel
+  promotion and holds always apply. They never downgrade;
+- the version has been on its channel for `updates.min_release_age_hours`
+  (`-1`, the default, means 24 hours on `stable` and 0 on `canary`), measured
+  from the feed's `promotedAt` (or the release's `publishedAt`);
+- that version has not already failed an unattended install on this host
+  (install it by hand with `sbox-ns update --version X.Y.Z` to retry).
+
+**Channels.** `canary` receives every new release as soon as it is published.
+`stable` receives a release only after it has run on the official canary
+server for at least 24 hours and passed the managed-service parity corpus
+there. sboxcool can hold a channel at a version (for example to stop a bad
+release); the feed then keeps offering the held version.
+The hourly `.github/workflows/canary-verify.yml` gate uses `OSS_CANARY_URL`,
+fixture credential secrets `OSS_CANARY_PROJECT_ID`, `OSS_CANARY_PUBLIC_KEY`,
+`OSS_CANARY_SECRET_KEY`, and `OSS_RELEASE_OPS_TOKEN`. It refuses automatic
+promotion while either channel is held. After a successful stable promotion,
+optional secret `OSS_WEBSITE_DISPATCH_TOKEN` and variable
+`OSS_WEBSITE_REPOSITORY` (`owner/repo`) send `oss-release-promoted` to the
+website's official deployment workflow; without them deployment is manual.
+
+
+**What a run does.** It downloads the release, verifies `SHA256SUMS` (and the
+cosign signature when `cosign` is installed), then for every instance sharing
+the binary: stops the running instances, backs up each database
+(`pre-<version>` in `<data dir>/backups`), swaps the binary (keeping
+`sbox-ns.previous`), runs `db migrate` for each instance, starts the instances
+that were running, and waits up to 120 seconds for each `/health` to answer
+200 with the new version.
+
+**Rollback.** If any step fails, the run puts the previous binary back,
+restores every database backup taken in that run, starts the instances again,
+checks they report the old version, and records `failed` with the reason in
+each instance's `<data dir>/updates/last-update.json` (shown by `sbox-ns
+doctor`). After a successful run, `sbox-ns rollback --all-instances` undoes it.
+If a service cannot be stopped during recovery, no database or binary is
+restored underneath it; the run exits 3 and preserves the backup files for
+operator recovery. Linux migrations run as the instance's configured service
+user so newly created SQLite files remain writable by the service.
+
+| Exit code of `update --auto` | Meaning |
+| --- | --- |
+| 0 | Updated and healthy, or nothing to do (the reason is printed) |
+| 1 | The update failed and every instance was rolled back, or it failed before anything changed (download or verification) |
+| 2 | Configuration problem: an invalid config, or instances that disagree on `updates.channel`/`updates.window` |
+| 3 | The update failed and the rollback did not complete: check `sbox-ns doctor` and the logs now |
+| 4 | The release feed was unreachable or invalid; nothing changed |
+
+Follow runs with `journalctl -u sbox-ns-update`. Turn unattended updates off
+with `sbox-ns config set updates.auto_install false` (or
+`systemctl disable --now sbox-ns-update.timer`).
+
+**What can still go wrong.**
+
+- Migrations are forward-only. A rollback restores the database backup taken
+  just before the update, so it only works with that backup in place: keep
+  enough disk space for one backup per instance.
+- Data written after an update is lost when the update is rolled back: with
+  `sbox-ns rollback`, everything since the update; with an automatic rollback,
+  whatever players wrote to instances already restarted on the new version
+  during the health checks (at most a few minutes).
+- A release can pass the health check and still misbehave for your game.
+  Stay on `stable`, and pick a window when few players are online: every
+  instance is unavailable while it updates (usually well under a minute).
+- PostgreSQL backups and restores need `pg_dump` and `pg_restore` on the host.
+
+### Several instances on one host
+
+Each instance has its own config folder, data folder and port, and runs as the
+systemd unit `sbox-ns@<name>` ([`install/sbox-ns@.service`](../install/sbox-ns@.service)):
+Use `--all-instances` for automated updates and rollbacks when another
+registered instance shares the binary; selecting only one is refused.
+
+```sh
+sudo sbox-ns service install --instance alpha --port 8101 --auto-update
+sudo systemctl start sbox-ns@alpha
+```
+
+This creates `/etc/sbox-ns/alpha` (keeping existing files) and
+`/var/lib/sbox-ns/alpha`, sets `server.listen = "127.0.0.1:8101"` (put a
+reverse proxy in front), and enables the unit. Use
+`--config-dir /etc/sbox-ns/alpha --data-dir /var/lib/sbox-ns/alpha` with other
+commands to address the instance. All instances share `/usr/local/bin/sbox-ns`,
+so they are updated together and must use the same `updates.channel` and
+`updates.window`; `--all-instances` covers `/etc/sbox-ns/server.toml` (the
+default instance, unit `sbox-ns`) and every `/etc/sbox-ns/<name>/server.toml`.
+Each instance needs its own database (or PostgreSQL schema).
 
 ## Uninstall
 

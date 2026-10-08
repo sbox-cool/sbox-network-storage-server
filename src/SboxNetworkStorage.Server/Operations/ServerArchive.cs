@@ -267,7 +267,7 @@ public static class ServerArchive
         }
     }
 
-    private static Dictionary<string, long> ExpectedDataCounts(ExportManifest manifest, out HashSet<string> requiredEntries)
+    internal static Dictionary<string, long> ExpectedDataCounts(ExportManifest manifest, out HashSet<string> requiredEntries)
     {
         if (manifest.WorkspaceObjects < 0 || manifest.Memberships < 0 || manifest.Projects is null)
         {

@@ -14,6 +14,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Let's Encrypt certificate, automatic public-address updates every 10 minutes, an
   ownership proof endpoint at `/.well-known/sbox-ns/dns-proof/{nonce}`, a `doctor`
   DNS check and a read-only `dns_status` MCP tool. Tunnel and DNS modes are exclusive.
+- Opt-in unattended updates: `sbox-ns update --auto [--all-instances]`, run every 15
+  minutes by the new `sbox-ns-update.timer` (`sbox-ns service install --auto-update`,
+  or install.sh `SBOX_NS_AUTO_UPDATE=1`). Settings `updates.auto_install` (default
+  off), `updates.channel` (`stable`/`canary`), `updates.window` (UTC) and
+  `updates.min_release_age_hours`. Every instance sharing the binary is backed up,
+  migrated, restarted and health-checked (`/health` reports the new version within
+  120 s); any failure restores the binary and every database backup and records
+  `failed` in `last-update.json`. Exit codes 0/1/2/3/4 are documented.
+- Release channels: the release feed is requested with `?channel=`, honours held
+  channels, and the new `canary-verify` workflow promotes canary releases to stable
+  after a 24 h soak and a passing managed-service parity diff on the official canary.
+- Several instances per host: `sbox-ns service install --instance NAME --port PORT`
+  with the `sbox-ns@.service` template unit; `rollback --all-instances`; `doctor`
+  shows unattended-update settings and each instance's last update.
+- `auth.security_signing_key_id` keeps a migrated server's security-config key id.
+- `sbox-ns import FILE --verify-only` validates an archive (including archives
+  produced outside sbox-ns; contract in docs/export.md) in a throwaway database.
+- install.sh `SBOX_NS_CHANNEL` installs the channel's version and sets `updates.channel`.
+- Installer signed-DNS opt-in (`SBOX_NS_DNS=1` with explicit Let's Encrypt email
+  and terms acceptance) starts the service before ownership proof/registration.
+  Installers disclose the registry/Bunny DNS and direct-player-traffic dependency,
+  the separate Cloudflare tunnel path, and the absence of reliability guarantees.
+- Automatic recovery refuses database/binary restoration if a service cannot
+  be stopped; Linux migrations retain service-user ownership. Canary promotion
+  refuses held channels and re-checks channel state before promotion.
 
 ## [0.3.0] - 2026-10-08
 

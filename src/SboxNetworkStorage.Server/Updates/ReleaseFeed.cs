@@ -7,7 +7,11 @@ using SboxNetworkStorage.Server.Hosting;
 
 namespace SboxNetworkStorage.Server.Updates;
 
-/// <summary>Contents of the <c>release.json</c> asset attached to every GitHub Release.</summary>
+/// <summary>
+/// Contents of the <c>release.json</c> asset attached to every GitHub Release. The
+/// sboxcool.com feed returns the same shape plus <c>channel</c>, <c>promotedAt</c>
+/// (when the version entered that channel) and <c>held</c> (the channel is frozen at this version).
+/// </summary>
 public sealed record ReleaseInfo(
     [property: JsonPropertyName("version")] string Version,
     [property: JsonPropertyName("minUpgradableFrom")] string? MinUpgradableFrom,
@@ -15,7 +19,10 @@ public sealed record ReleaseInfo(
     [property: JsonPropertyName("security")] bool Security,
     [property: JsonPropertyName("changelogUrl")] string? ChangelogUrl,
     [property: JsonPropertyName("publishedAt")] DateTimeOffset? PublishedAt,
-    [property: JsonPropertyName("prerelease")] bool Prerelease = false);
+    [property: JsonPropertyName("prerelease")] bool Prerelease = false,
+    [property: JsonPropertyName("channel")] string? Channel = null,
+    [property: JsonPropertyName("promotedAt")] DateTimeOffset? PromotedAt = null,
+    [property: JsonPropertyName("held")] bool Held = false);
 
 /// <summary>A <c>major.minor.patch[-prerelease]</c> version with SemVer precedence.</summary>
 public sealed record SemanticVersion(int Major, int Minor, int Patch, string? Prerelease) : IComparable<SemanticVersion>
@@ -78,8 +85,8 @@ public sealed record SemanticVersion(int Major, int Minor, int Patch, string? Pr
 }
 
 /// <summary>
-/// Resolves the latest release: the sboxcool.com feed first, then the GitHub
-/// Releases API. Requests carry only the current version and platform.
+/// Resolves the latest release: the sboxcool.com feed for <c>updates.channel</c> first,
+/// then the GitHub Releases API. Requests carry only the channel, current version and platform.
 /// </summary>
 public sealed class ReleaseFeed(HttpClient http, EffectiveConfig config)
 {
@@ -95,7 +102,22 @@ public sealed class ReleaseFeed(HttpClient http, EffectiveConfig config)
 
     public string GitHubRepository => config.GetString("updates.github_repo");
 
-    /// <summary>Latest release allowed by <c>updates.include_prereleases</c>, or a specific tag.</summary>
+    public string Channel => config.GetString("updates.channel");
+
+    /// <summary><c>updates.feed_url</c> with <c>channel=&lt;updates.channel&gt;</c> added to its query.</summary>
+    public string FeedUrl
+    {
+        get
+        {
+            var url = config.GetString("updates.feed_url");
+            return $"{url}{(url.Contains('?') ? '&' : '?')}channel={Uri.EscapeDataString(Channel)}";
+        }
+    }
+
+    /// <summary>
+    /// Latest release allowed by <c>updates.include_prereleases</c>, or a specific tag. When the
+    /// feed is unreachable the newest GitHub stable release is used, whatever the channel.
+    /// </summary>
     public async Task<ReleaseInfo> GetReleaseAsync(string? specificVersion, CancellationToken ct)
     {
         var includePrereleases = config.GetBoolean("updates.include_prereleases");
@@ -103,19 +125,40 @@ public sealed class ReleaseFeed(HttpClient http, EffectiveConfig config)
         {
             try
             {
-                var fromFeed = await http.GetFromJsonAsync<ReleaseInfo>(config.GetString("updates.feed_url"), JsonOptions, ct);
-                if (fromFeed is not null && SemanticVersion.TryParse(fromFeed.Version, out _))
-                {
-                    return fromFeed;
-                }
+                return await GetFromFeedAsync(ct);
             }
-            catch (Exception ex) when (ex is HttpRequestException or JsonException or TaskCanceledException)
+            catch (Exception ex) when (ex is HttpRequestException or JsonException or TaskCanceledException or InvalidDataException)
             {
                 // Fall through to GitHub.
             }
         }
 
         return await GetFromGitHubAsync(specificVersion, includePrereleases, ct);
+    }
+
+    /// <summary>
+    /// The release the feed publishes for <c>updates.channel</c>, with no GitHub fallback.
+    /// Unattended installs use only this, so channel promotion and holds always apply.
+    /// </summary>
+    public async Task<ReleaseInfo> GetFromFeedAsync(CancellationToken ct)
+    {
+        var fromFeed = await http.GetFromJsonAsync<ReleaseInfo>(FeedUrl, JsonOptions, ct);
+        if (fromFeed is null || !SemanticVersion.TryParse(fromFeed.Version, out _))
+        {
+            throw new InvalidDataException($"the release feed {FeedUrl} returned no valid version");
+        }
+
+        if (fromFeed.Channel is not null && fromFeed.Channel != Channel)
+        {
+            throw new InvalidDataException($"the release feed answered for channel '{fromFeed.Channel}', not '{Channel}'");
+        }
+
+        if (fromFeed.Prerelease || !SemanticVersion.TryParse(fromFeed.Version, out var version) || version.Prerelease is not null)
+        {
+            throw new InvalidDataException("release channels must publish a non-prerelease version");
+        }
+
+        return fromFeed;
     }
 
     private async Task<ReleaseInfo> GetFromGitHubAsync(string? specificVersion, bool includePrereleases, CancellationToken ct)

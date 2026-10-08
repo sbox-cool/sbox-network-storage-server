@@ -16,7 +16,9 @@ public static class ServiceCommands
         var sub = context.RequirePositional(1, "install|uninstall|start|stop|restart|status");
         return sub switch
         {
+            "install" when context.Args.Option("instance") is { } instance => await InstanceServiceCommands.InstallAsync(context, instance),
             "install" => await InstallAsync(context),
+            "uninstall" when context.Args.Option("instance") is { } instance => await InstanceServiceCommands.UninstallAsync(instance),
             "uninstall" => await UninstallAsync(),
             "start" => await ControlAsync("start"),
             "stop" => await ControlAsync("stop"),
@@ -59,6 +61,11 @@ public static class ServiceCommands
         var config = context.LoadValidConfig();
         var binary = Environment.ProcessPath ?? throw new CliException("cannot determine the sbox-ns executable path");
         var arguments = $"start --config-dir \"{config.ConfigDirectory}\" --data-dir \"{config.DataDirectory}\"";
+        var autoUpdate = context.Args.Flag("auto-update");
+        if (autoUpdate && !OperatingSystem.IsLinux())
+        {
+            throw new CliException("--auto-update needs systemd (Linux); run `sbox-ns update` by hand on this platform", CliApp.Usage);
+        }
 
         if (OperatingSystem.IsLinux())
         {
@@ -68,6 +75,14 @@ public static class ServiceCommands
             await RunAsync("systemctl", ["daemon-reload"]);
             await RunAsync("systemctl", ["enable", ServiceName]);
             Console.WriteLine($"Installed {SystemdUnitPath} (runs as {user}). Start it with: sbox-ns service start");
+            if (autoUpdate)
+            {
+                var selection = config.ConfigDirectory == ConfigPaths.LinuxServiceConfigDir
+                    ? "--all-instances"
+                    : $"--config-dir {config.ConfigDirectory} --data-dir {config.DataDirectory}";
+                return await InstanceServiceCommands.EnableAutoUpdateAsync(binary, config.ConfigDirectory, selection);
+            }
+
             return CliApp.Ok;
         }
 
@@ -238,7 +253,7 @@ public static class ServiceCommands
 
     private static bool IsRoot() => !OperatingSystem.IsWindows() && Environment.UserName == "root";
 
-    private static void RequireRoot()
+    internal static void RequireRoot()
     {
         if (!IsRoot())
         {
@@ -246,7 +261,7 @@ public static class ServiceCommands
         }
     }
 
-    private static async Task<int> RunAsync(string file, IReadOnlyList<string> arguments, bool inherit = false)
+    internal static async Task<int> RunAsync(string file, IReadOnlyList<string> arguments, bool inherit = false)
     {
         var start = new ProcessStartInfo(file) { UseShellExecute = false };
         foreach (var argument in arguments)

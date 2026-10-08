@@ -24,8 +24,8 @@ public static class ServerHost
         Directory.CreateDirectory(config.DataDirectory);
         var secrets = ServerSecrets.EnsureAndLoad(config, path => Console.WriteLine($"Generated secret file {path}"));
 
-        // The security-config signer reads its key from the process environment.
-        Environment.SetEnvironmentVariable("NETWORK_STORAGE_SECURITY_CONFIG_PRIVATE_KEY", secrets.SecuritySigningKeyPem);
+        // The security-config signer reads its key and key id from the process environment.
+        SecurityConfigEnvironment.Apply(config, secrets);
 
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions
         {

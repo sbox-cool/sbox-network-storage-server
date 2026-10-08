@@ -6,6 +6,9 @@
 #   SBOX_NS_PROJECT      Configure and create/reuse this project, then print the game configuration.
 #   SBOX_NS_PUBLIC_URL   Optional public URL used with SBOX_NS_PROJECT.
 #   SBOX_NS_TUNNEL       Set to 1 to enable the hosted HTTPS tunnel after quickstart/setup.
+#   SBOX_NS_DNS          Set to 1 for signed DNS (elevated installer starts the service before registration).
+#   SBOX_NS_ACME_EMAIL   Certificate contact email for SBOX_NS_DNS=1.
+#   SBOX_NS_ACCEPT_LETSENCRYPT_TERMS Set to 1 to accept the Let's Encrypt subscriber agreement.
 #   SBOX_NS_TELEMETRY    Set to 1 to opt in to anonymous usage statistics after quickstart/setup
 #                        (off by default; preview with `sbox-ns telemetry preview`).
 #   SBOX_NS_VERSION      Install this version (for example 0.3.0 or v0.3.0) instead of the latest release.
@@ -25,6 +28,15 @@ Set-StrictMode -Version Latest
 function Install-SboxNs {
     $repo = 'sbox-cool/sbox-network-storage-server'
     $binName = 'sbox-ns.exe'
+    if ($env:SBOX_NS_DNS -eq '1') {
+        if ($env:SBOX_NS_TUNNEL -eq '1') { throw 'SBOX_NS_DNS and SBOX_NS_TUNNEL cannot both be enabled.' }
+        if (-not $env:SBOX_NS_ACME_EMAIL -or $env:SBOX_NS_ACCEPT_LETSENCRYPT_TERMS -ne '1') {
+            throw 'SBOX_NS_DNS=1 requires SBOX_NS_ACME_EMAIL and SBOX_NS_ACCEPT_LETSENCRYPT_TERMS=1.'
+        }
+    }
+    Write-Host 'Optional hosted dependencies: signed DNS registration and IP updates require the sboxcool registry.'
+    Write-Host 'Existing DNS names resolve via Bunny; player traffic goes directly to your server, not through a tunnel.'
+    Write-Host 'Tunnel traffic uses Cloudflare. These optional services have no reliability guarantee.'
 
     # Windows PowerShell 5.1 defaults to older TLS versions.
     [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
@@ -59,6 +71,9 @@ function Install-SboxNs {
 
     $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
         [Security.Principal.WindowsBuiltInRole]::Administrator)
+    if ($env:SBOX_NS_DNS -eq '1' -and -not $isAdmin) {
+        throw 'SBOX_NS_DNS=1 requires an elevated installer to start the service before registration.'
+    }
     if ($isAdmin) {
         $installDir = Join-Path $env:ProgramFiles 'sbox-ns'
         $pathScope = 'Machine'
@@ -181,6 +196,26 @@ function Install-SboxNs {
         if (-not $configured) { throw 'SBOX_NS_TELEMETRY=1 requires setup or SBOX_NS_PROJECT.' }
         & $exe telemetry enable @dirArgs
         if ($LASTEXITCODE -ne 0) { throw 'telemetry enable failed; service was not started' }
+    }
+
+    if ($env:SBOX_NS_DNS -eq '1') {
+        if (-not $configured) { throw 'SBOX_NS_DNS=1 requires setup or SBOX_NS_PROJECT.' }
+        & $exe service install @dirArgs
+        if ($LASTEXITCODE -ne 0) { throw 'DNS registration requires service installation.' }
+        & $exe service start
+        if ($LASTEXITCODE -ne 0) { throw 'DNS registration requires the service to start successfully first.' }
+        & $exe dns enable @dirArgs --accept-letsencrypt-terms --email $env:SBOX_NS_ACME_EMAIL
+        if ($LASTEXITCODE -ne 0) { throw 'DNS registration failed; the service remains running without the new DNS configuration.' }
+        & $exe service restart @dirArgs
+        if ($LASTEXITCODE -ne 0) { throw 'DNS configured but service restart failed.' }
+        $tunnelUrl = (& $exe config get server.public_url @dirArgs | Out-String).Trim()
+        if ($LASTEXITCODE -ne 0) { throw 'cannot read DNS public URL' }
+        if ($quickstartOut) {
+            $quickstartOut = [regex]::Replace($quickstartOut,
+                '(NetworkStorage\.Configure\( "[^"]+", "[^"]+", ")[^"]+(" \);)',
+                [System.Text.RegularExpressions.MatchEvaluator] { param($match) $match.Groups[1].Value + $tunnelUrl + $match.Groups[2].Value })
+            $quickstartOut = [regex]::Replace($quickstartOut, '(?m)^Replace <this-host>.*\r?\n|^    sbox-ns config set server.public_url.*\r?\n', '')
+        }
     }
 
     $quotedDirs = "--config-dir `"$configDir`" --data-dir `"$dataDir`""

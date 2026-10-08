@@ -1,3 +1,6 @@
+using System.Formats.Tar;
+using System.IO.Compression;
+using System.Text;
 using Microsoft.Extensions.DependencyInjection;
 using SboxNetworkStorage.Application.Workspace;
 using SboxNetworkStorage.Domain.Workspace;
@@ -72,6 +75,74 @@ public sealed class ExportCommandsTests : IDisposable
         var error = await Assert.ThrowsAsync<CliException>(() => ExportCommands.ImportAsync(Context(target, "import", bogus)));
 
         Assert.Contains("archive", error.Message);
+    }
+
+    [Fact]
+    public async Task Verify_only_accepts_an_sbox_ns_export_without_touching_the_target()
+    {
+        var source = CreateServerFolders("old");
+        Assert.Equal(CliApp.Ok, await ProjectCommands.RunProjectAsync(Context(source, "project", "create", "Checked Game")));
+        var projectId = (await ProjectsAsync(source)).Single().Id;
+        Assert.Equal(CliApp.Ok, await ProjectCommands.RunKeyAsync(Context(source, "key", "create", projectId, "--type", "secret")));
+        var archive = Path.Combine(_root, "checked.tar.gz");
+        Assert.Equal(CliApp.Ok, await ExportCommands.ExportAsync(Context(source, "export", "--out", archive)));
+
+        var target = (Config: Path.Combine(_root, "absent", "config"), Data: Path.Combine(_root, "absent", "data"));
+        Assert.Equal(CliApp.Ok, await ExportCommands.ImportAsync(Context(target, "import", archive, "--verify-only")));
+
+        Assert.False(Directory.Exists(Path.Combine(_root, "absent")));
+    }
+
+    [Fact]
+    public async Task Verify_only_accepts_a_hosted_style_archive_that_follows_the_contract()
+    {
+        var archive = WriteExternalArchive("1", "network-storage/users/1/proj1/collections.json", "1");
+
+        Assert.Equal(CliApp.Ok, await ExportCommands.ImportAsync(Context(CreateServerFolders("unused"), "import", archive, "--verify-only")));
+    }
+
+    [Theory]
+    [InlineData("42", "network-storage/users/1/proj1/collections.json", "1", "memberships must have user_id")]
+    [InlineData("1", "network-storage/users/42/proj1/collections.json", "1", "network-storage/users/1/")]
+    [InlineData("1", "network-storage/users/1/other/collections.json", "1", "not in the manifest")]
+    [InlineData("1", "elsewhere/collections.json", "1", "under network-storage/")]
+    [InlineData("1", "network-storage/users/1/proj1/collections.json", "42", "API keys must have user_id")]
+    public async Task Verify_only_rejects_archives_that_break_the_single_owner_contract(string memberUser, string workspacePath, string keyUser, string expected)
+    {
+        var archive = WriteExternalArchive(memberUser, workspacePath, keyUser);
+
+        var error = await Assert.ThrowsAsync<CliException>(() => ExportCommands.ImportAsync(Context(CreateServerFolders("unused"), "import", archive, "--verify-only")));
+
+        Assert.Contains(expected, error.Message);
+    }
+
+    /// <summary>A minimal archive as an external exporter would write it (docs/export.md, "Archive contract").</summary>
+    private string WriteExternalArchive(string memberUser, string workspacePath, string keyUser)
+    {
+        var path = Path.Combine(_root, $"external-{Guid.NewGuid():N}.tar.gz");
+        var entries = new (string Name, string Content)[]
+        {
+            ("manifest.json", """
+                {"format":"sbox-ns-export","formatVersion":1,"sboxNsVersion":"sboxcool-hosted test","schemaVersion":1,"provider":"scylladb",
+                 "createdAt":"2026-10-09T00:00:00Z","includesConfig":false,"includesSecrets":false,"workspaceObjects":1,"memberships":1,
+                 "projects":[{"id":"proj1","counts":{"project":1,"api-keys":1}}]}
+                """),
+            ("data/workspace-objects.jsonl", $$"""{"path":"{{workspacePath}}","content":"[]"}""" + "\n"),
+            ("data/memberships.jsonl", $$"""{"user_id":"{{memberUser}}","project_id":"proj1","role":"owner","created_at_unix_ms":1760000000000}""" + "\n"),
+            ("data/projects/proj1/project.jsonl", """{"payload":{"id":"proj1","name":"Migrated","storageOwnerUserId":"1"}}""" + "\n"),
+            ("data/projects/proj1/api-keys.jsonl", $$"""{"api_key":"sbox_ns_pub_test","user_id":"{{keyUser}}","key_type":"public","key_hash":"","key_identifier":"","label":"game","enabled":true,"permissions_json":null,"version":1}""" + "\n"),
+        };
+        using (var file = File.Create(path))
+        using (var gzip = new GZipStream(file, CompressionLevel.Fastest))
+        using (var tar = new TarWriter(gzip, TarEntryFormat.Pax))
+        {
+            foreach (var (name, content) in entries)
+            {
+                tar.WriteEntry(new PaxTarEntry(TarEntryType.RegularFile, name) { DataStream = new MemoryStream(Encoding.UTF8.GetBytes(content)) });
+            }
+        }
+
+        return path;
     }
 
     private (string Config, string Data) CreateServerFolders(string name)

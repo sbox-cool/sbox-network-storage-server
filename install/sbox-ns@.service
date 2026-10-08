@@ -1,0 +1,41 @@
+# systemd template unit for named sbox Network Storage Server instances.
+# Installed as /etc/systemd/system/sbox-ns@.service by
+# `sbox-ns service install --instance <name> --port <port>`; each instance runs as sbox-ns@<name>
+# with config in /etc/sbox-ns/<name> and data in /var/lib/sbox-ns/<name>.
+# All instances share the /usr/local/bin/sbox-ns binary, so they are updated together
+# (`sbox-ns update --auto --all-instances`). Local overrides: `systemctl edit sbox-ns@<name>`.
+
+[Unit]
+Description=sbox Network Storage Server (%i)
+Documentation=https://github.com/sbox-cool/sbox-network-storage-server
+Wants=network-online.target
+After=network-online.target postgresql.service
+
+[Service]
+Type=simple
+User=sbox-ns
+ExecStart=/usr/local/bin/sbox-ns start --config-dir /etc/sbox-ns/%i --data-dir /var/lib/sbox-ns/%i
+WorkingDirectory=/var/lib/sbox-ns/%i
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+Environment=DOTNET_BUNDLE_EXTRACT_BASE_DIR=/var/lib/sbox-ns/%i/.net
+Environment=DOTNET_CLI_TELEMETRY_OPTOUT=1
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+ReadWritePaths=/var/lib/sbox-ns/%i /etc/sbox-ns/%i
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target

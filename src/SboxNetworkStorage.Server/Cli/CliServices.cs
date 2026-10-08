@@ -10,7 +10,7 @@ public static class CliServices
     {
         Directory.CreateDirectory(config.DataDirectory);
         var secrets = ServerSecrets.EnsureAndLoad(config, path => Console.WriteLine($"Generated secret file {path}"));
-        Environment.SetEnvironmentVariable("NETWORK_STORAGE_SECURITY_CONFIG_PRIVATE_KEY", secrets.SecuritySigningKeyPem);
+        SecurityConfigEnvironment.Apply(config, secrets);
 
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>

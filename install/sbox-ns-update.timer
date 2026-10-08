@@ -1,0 +1,14 @@
+# Runs sbox-ns-update.service every 15 minutes (spread by up to 5 minutes).
+# Installed as /etc/systemd/system/sbox-ns-update.timer by `sbox-ns service install --auto-update`.
+# Disable unattended updates with: systemctl disable --now sbox-ns-update.timer
+
+[Unit]
+Description=Run sbox-ns unattended updates every 15 minutes
+
+[Timer]
+OnCalendar=*:0/15
+RandomizedDelaySec=300
+Persistent=false
+
+[Install]
+WantedBy=timers.target

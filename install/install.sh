@@ -12,10 +12,20 @@
 #                        public and secret keys, and print the line to add to your game.
 #   SBOX_NS_PUBLIC_URL   Address players use, e.g. https://ns.example.com (used with SBOX_NS_PROJECT).
 #   SBOX_NS_TUNNEL       Set to 1 for a hosted HTTPS name after quickstart/setup and before service start.
+#   SBOX_NS_DNS          Set to 1 for a signed DNS name pointing directly to your public IP.
+#                        Requires a running systemd service, public HTTP/443 ports, and the two
+#                        Let's Encrypt variables below. Registration happens after service start.
+#   SBOX_NS_ACME_EMAIL   Certificate contact email for SBOX_NS_DNS=1.
+#   SBOX_NS_ACCEPT_LETSENCRYPT_TERMS Set to 1 to accept the Let's Encrypt subscriber agreement.
 #   SBOX_NS_TELEMETRY    Set to 1 to opt in to anonymous usage statistics after quickstart/setup
 #                        (off by default; preview with `sbox-ns telemetry preview`).
 #   SBOX_NS_VERSION      Install this version (for example 0.3.0 or v0.3.0) instead of the latest release.
 #   SBOX_NS_PRERELEASE   Set to 1 to resolve the newest release including prereleases.
+#   SBOX_NS_CHANNEL      Release channel: stable or canary. Without SBOX_NS_VERSION the version comes from
+#                        the sboxcool.com release feed for that channel (GitHub latest if the feed is down),
+#                        and updates.channel is set in the configuration.
+#   SBOX_NS_AUTO_UPDATE  Set to 1 to install the sbox-ns-update timer with the service and set
+#                        updates.auto_install = true (Linux with systemd, as root). Off by default.
 #   SBOX_NS_NO_SETUP     Set to 1 to skip running `sbox-ns setup`.
 #   SBOX_NS_NO_SERVICE   Set to 1 to skip `sbox-ns service install` on systemd hosts.
 #   GITHUB_TOKEN         Optional token used for GitHub API requests (avoids rate limits).
@@ -32,6 +42,7 @@ BIN_NAME="sbox-ns"
 SERVICE_USER="sbox-ns"
 LINUX_CONFIG_DIR="/etc/sbox-ns"
 LINUX_DATA_DIR="/var/lib/sbox-ns"
+FEED_URL="https://sboxcool.com/api/network-storage/releases/latest"
 
 say() {
     printf '%s\n' "$*"
@@ -103,6 +114,15 @@ resolve_version() {
         return
     fi
 
+    if [ -n "${SBOX_NS_CHANNEL:-}" ] && [ "${SBOX_NS_PRERELEASE:-0}" != "1" ]; then
+        _version="$(http_get "$FEED_URL?channel=$SBOX_NS_CHANNEL" - 2>/dev/null | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | sed -n '1p')" || _version=""
+        if [ -n "$_version" ]; then
+            printf '%s\n' "${_version#v}"
+            return
+        fi
+        warn "release feed unavailable for channel $SBOX_NS_CHANNEL; using the latest GitHub release"
+    fi
+
     if [ "${SBOX_NS_PRERELEASE:-0}" = "1" ]; then
         _url="https://api.github.com/repos/$REPO/releases?per_page=1"
     else
@@ -163,11 +183,38 @@ ensure_service_user() {
     fi
 }
 
+rewrite_game_url() {
+    # Keep secret-key output, but replace the buffered quickstart URL.
+    game_url_suffix='", "*'
+    while IFS= read -r line; do
+        case "$line" in
+            *NetworkStorage.Configure*) printf '%s", "%s" );\n' "${line%$game_url_suffix}" "$1" ;;
+            "Replace <this-host>"*|"    sbox-ns config set server.public_url"*) ;;
+            *) printf '%s\n' "$line" ;;
+        esac
+    done
+}
+
 main() {
     if [ "${1:-}" = "--print-platform" ]; then
         host_platform
         return
     fi
+
+    case "${SBOX_NS_CHANNEL:-stable}" in
+        stable | canary) ;;
+        *) die "SBOX_NS_CHANNEL must be stable or canary (got '$SBOX_NS_CHANNEL')" ;;
+    esac
+    if [ "${SBOX_NS_DNS:-0}" = "1" ]; then
+        [ "${SBOX_NS_TUNNEL:-0}" != "1" ] || die "SBOX_NS_DNS and SBOX_NS_TUNNEL cannot both be enabled."
+        [ -n "${SBOX_NS_ACME_EMAIL:-}" ] && [ "${SBOX_NS_ACCEPT_LETSENCRYPT_TERMS:-0}" = "1" ] \
+            || die "SBOX_NS_DNS=1 requires SBOX_NS_ACME_EMAIL and SBOX_NS_ACCEPT_LETSENCRYPT_TERMS=1."
+        is_root && has_systemd && [ "${SBOX_NS_NO_SERVICE:-0}" != "1" ] \
+            || die "SBOX_NS_DNS=1 requires root and the systemd service; otherwise start the server and run 'sbox-ns dns enable' manually."
+    fi
+    say "Optional hosted dependencies: signed DNS registration and IP updates require the sboxcool registry."
+    say "Existing DNS names resolve via Bunny; player traffic goes directly to your server, not through a tunnel."
+    say "Tunnel traffic uses Cloudflare. These optional services have no reliability guarantee."
 
     platform="$(host_platform)"
     os="${platform%%-*}"
@@ -273,15 +320,7 @@ main() {
         tunnel_url=$("$ns" config get server.public_url $dirs) || die "cannot read tunnel public URL"
         if [ -n "$quickstart_out" ]; then
             # Preserve any newly created secret key, but replace the buffered pre-tunnel game URL.
-            quickstart_out=$(printf '%s\n' "$quickstart_out" | while IFS= read -r line; do
-                case "$line" in
-                    *NetworkStorage.Configure*)
-                        printf '%s", "%s" );\n' "${line%\", \"*}" "$tunnel_url"
-                        ;;
-                    "Replace <this-host>"*|"    sbox-ns config set server.public_url"*) ;;
-                    *) printf '%s\n' "$line" ;;
-                esac
-            done)
+            quickstart_out=$(printf '%s\n' "$quickstart_out" | rewrite_game_url "$tunnel_url")
         fi
     fi
 
@@ -291,20 +330,58 @@ main() {
         "$ns" telemetry enable $dirs || die "telemetry enable failed; service was not started"
     fi
 
+    if [ -n "${SBOX_NS_CHANNEL:-}" ]; then
+        if [ "$configured" -eq 1 ]; then
+            # shellcheck disable=SC2086 # $dirs is intentionally split into flags
+            "$ns" config set updates.channel "$SBOX_NS_CHANNEL" $dirs || die "could not set updates.channel"
+        else
+            warn "SBOX_NS_CHANNEL: no configuration yet; set it after setup with '$BIN_NAME config set updates.channel $SBOX_NS_CHANNEL $dirs'"
+        fi
+    fi
+
+    auto_update_flag=""
+    if [ "${SBOX_NS_AUTO_UPDATE:-0}" = "1" ]; then
+        auto_update_flag="--auto-update"
+    fi
+
     if [ "$service_layout" -eq 1 ]; then
         chown -R "$SERVICE_USER:$SERVICE_USER" "$config_dir" "$data_dir"
         chmod 0750 "$config_dir" "$data_dir"
     fi
 
     service_installed=0
+    service_running=0
     if [ "$service_layout" -eq 1 ] && [ "$configured" -eq 1 ] && has_systemd && [ "${SBOX_NS_NO_SERVICE:-0}" != "1" ]; then
         say "Installing systemd service"
         # shellcheck disable=SC2086 # $dirs is intentionally split into flags
-        if "$ns" service install $dirs; then
+        if "$ns" service install $dirs $auto_update_flag; then
             service_installed=1
-            "$ns" service start || warn "service start failed; check '$BIN_NAME logs'"
+            if "$ns" service start; then
+                service_running=1
+            else
+                warn "service start failed; check '$BIN_NAME logs'"
+            fi
         else
-            warn "service install failed; run '$BIN_NAME service install $dirs' manually"
+            warn "service install failed; run '$BIN_NAME service install $dirs $auto_update_flag' manually"
+        fi
+    fi
+
+    if [ -n "$auto_update_flag" ] && [ "$service_installed" -ne 1 ]; then
+        warn "SBOX_NS_AUTO_UPDATE=1 needs the systemd service: run '$BIN_NAME service install $dirs --auto-update'"
+        warn "(or '$BIN_NAME service install --instance NAME --port PORT --auto-update' for named instances) as root"
+    fi
+
+    if [ "${SBOX_NS_DNS:-0}" = "1" ]; then
+        [ "$service_running" -eq 1 ] || die "DNS registration requires the service to start successfully first."
+        say "Service started. Registering the signed DNS name (the registry checks its HTTP proof)..."
+        # shellcheck disable=SC2086 # $dirs is intentionally split into flags
+        "$ns" dns enable $dirs --accept-letsencrypt-terms --email "$SBOX_NS_ACME_EMAIL" \
+            || die "DNS registration failed; the service remains running without the new DNS configuration."
+        "$ns" service restart || die "DNS configured but service restart failed; check '$BIN_NAME logs'."
+        # shellcheck disable=SC2086
+        dns_url=$("$ns" config get server.public_url $dirs) || die "cannot read DNS public URL"
+        if [ -n "$quickstart_out" ]; then
+            quickstart_out=$(printf '%s\n' "$quickstart_out" | rewrite_game_url "$dns_url")
         fi
     fi
 

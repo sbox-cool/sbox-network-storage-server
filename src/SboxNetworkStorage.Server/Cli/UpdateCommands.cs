@@ -2,7 +2,6 @@ using System.Diagnostics;
 using System.Formats.Tar;
 using System.IO.Compression;
 using System.Security.Cryptography;
-using System.Text.Json;
 using SboxNetworkStorage.Server.Configuration;
 using SboxNetworkStorage.Server.Hosting;
 using SboxNetworkStorage.Server.Operations;
@@ -11,15 +10,19 @@ using SboxNetworkStorage.Server.Updates;
 namespace SboxNetworkStorage.Server.Cli;
 
 /// <summary>
-/// Operator-initiated updates. Every update verifies the download, backs up the
-/// database, keeps the previous binary, and restores both if the migration fails.
+/// Updates. Every update verifies the download, backs up the database, keeps the
+/// previous binary, and restores both if the migration fails. <c>--auto</c> is the
+/// unattended path (<see cref="AutoUpdateCommand"/>).
 /// </summary>
 public static class UpdateCommands
 {
-    private sealed record UpdateRecord(string FromVersion, string ToVersion, string BinaryPath, string PreviousBinaryPath, string BackupPath, DateTimeOffset UpdatedAt);
-
     public static async Task<int> UpdateAsync(CliContext context)
     {
+        if (context.Args.Flag("auto"))
+        {
+            return await AutoUpdateCommand.RunAsync(context);
+        }
+
         var config = context.LoadValidConfig();
         using var http = ReleaseFeed.CreateHttpClient();
         var feed = new ReleaseFeed(http, config);
@@ -46,35 +49,14 @@ public static class UpdateCommands
             return CliApp.Ok;
         }
 
-        if (release.MinUpgradableFrom is { } minimum
-            && SemanticVersion.TryParse(minimum, out var min)
-            && SemanticVersion.TryParse(BuildInfo.Version, out var current)
-            && current.CompareTo(min) < 0)
-        {
-            throw new CliException($"{release.Version} cannot be installed directly over {BuildInfo.Version}. Install {minimum} first: sbox-ns update --version {minimum}");
-        }
-
+        RequireUpgradable(release);
         var binary = Environment.ProcessPath ?? throw new CliException("cannot determine the sbox-ns executable path");
         RequireStandaloneExecutable(binary);
+        using var updateLock = AcquireUpdateLock(binary);
         var work = Directory.CreateTempSubdirectory("sbox-ns-update-");
         try
         {
-            var archiveName = $"sbox-ns-{release.Version}-{BuildInfo.RuntimeIdentifier}{(OperatingSystem.IsWindows() ? ".zip" : ".tar.gz")}";
-            var archive = Path.Combine(work.FullName, archiveName);
-            Console.WriteLine($"Downloading {archiveName}...");
-            await DownloadAsync(http, feed.AssetUrl(release.Version, archiveName), archive);
-            var sums = Path.Combine(work.FullName, "SHA256SUMS");
-            await DownloadAsync(http, feed.AssetUrl(release.Version, "SHA256SUMS"), sums);
-            VerifyChecksum(archive, archiveName, sums);
-            await VerifySignatureAsync(http, feed, release.Version, sums, work.FullName);
-
-            var extracted = Path.Combine(work.FullName, "extracted");
-            Extract(archive, extracted);
-            var newBinary = Path.Combine(extracted, Path.GetFileName(binary));
-            if (!File.Exists(newBinary))
-            {
-                throw new CliException($"{archiveName} does not contain {Path.GetFileName(binary)}");
-            }
+            var newBinary = await StageReleaseAsync(http, feed, release.Version, binary, work.FullName);
 
             var serviceInstalled = ServiceCommands.IsInstalled();
             if (serviceInstalled)
@@ -93,7 +75,7 @@ public static class UpdateCommands
                 Console.WriteLine($"Database backed up to {backup}");
                 File.Copy(binary, previous, overwrite: true);
                 replacementAttempted = true;
-                ReplaceBinary(newBinary, binary);
+                BinarySwap.Replace(newBinary, binary);
 
                 var migrate = await RunBinaryAsync(binary, ["db", "migrate", "--config-dir", config.ConfigDirectory, "--data-dir", config.DataDirectory]);
                 if (migrate != 0)
@@ -101,14 +83,14 @@ public static class UpdateCommands
                     throw new CliException($"migration exited with code {migrate}");
                 }
 
-                WriteRecord(config, new UpdateRecord(BuildInfo.Version, release.Version, binary, previous, backup, DateTimeOffset.UtcNow));
+                UpdateRecord.Write(config, new UpdateRecord(BuildInfo.Version, release.Version, binary, previous, backup, DateTimeOffset.UtcNow, Mode: "manual"));
             }
             catch
             {
                 if (replacementAttempted)
                 {
                     Console.Error.WriteLine("Update failed; restoring the previous version and database backup.");
-                    ReplaceBinary(previous, binary);
+                    BinarySwap.Replace(previous, binary);
                     await DatabaseBackup.RestoreAsync(config, backup!, CancellationToken.None);
                 }
 
@@ -136,28 +118,21 @@ public static class UpdateCommands
 
     public static async Task<int> RollbackAsync(CliContext context)
     {
-        var config = context.LoadValidConfig();
-        var recordPath = RecordPath(config);
-        if (!File.Exists(recordPath))
+        if (context.Args.Flag("all-instances"))
         {
-            throw new CliException("no update to roll back (nothing recorded by `sbox-ns update`)");
+            return await AutoUpdateCommand.RollbackAllAsync(context);
         }
 
-        var record = JsonSerializer.Deserialize<UpdateRecord>(await File.ReadAllTextAsync(recordPath))!;
-        if (!File.Exists(record.PreviousBinaryPath) || !File.Exists(record.BackupPath))
+        var config = context.LoadValidConfig();
+        var record = UpdateRecord.Read(config) ?? throw new CliException("no update to roll back (nothing recorded by `sbox-ns update`)");
+        RequireRollbackable(record);
+        if (!File.Exists(record.PreviousBinaryPath) || record.BackupPath is null || !File.Exists(record.BackupPath))
         {
-            throw new CliException($"rollback files are missing ({record.PreviousBinaryPath}, {record.BackupPath})");
+            throw new CliException($"rollback files are missing ({record.PreviousBinaryPath}, {record.BackupPath ?? "no backup"})");
         }
 
         Console.WriteLine($"Rolling back {record.ToVersion} -> {record.FromVersion} and restoring {record.BackupPath}");
-        if (!context.Args.Flag("yes", "y"))
-        {
-            Console.Write("Data written since the update will be lost. Continue? [y/N] ");
-            if (!string.Equals(Console.ReadLine()?.Trim(), "y", StringComparison.OrdinalIgnoreCase))
-            {
-                throw new CliException("aborted");
-            }
-        }
+        ConfirmDataLoss(context);
 
         var serviceInstalled = ServiceCommands.IsInstalled();
         if (serviceInstalled)
@@ -165,9 +140,9 @@ public static class UpdateCommands
             await RequireServiceControlAsync("stop");
         }
 
-        ReplaceBinary(record.PreviousBinaryPath, record.BinaryPath);
+        BinarySwap.Replace(record.PreviousBinaryPath, record.BinaryPath);
         await DatabaseBackup.RestoreAsync(config, record.BackupPath, CancellationToken.None);
-        File.Delete(recordPath);
+        UpdateRecord.Delete(config);
         if (serviceInstalled)
         {
             await RequireServiceControlAsync("start");
@@ -177,12 +152,81 @@ public static class UpdateCommands
         return CliApp.Ok;
     }
 
+    internal static void RequireRollbackable(UpdateRecord record)
+    {
+        if (record.IsFailed)
+        {
+            throw new CliException($"the last update (to {record.ToVersion}) failed; automatic recovery was attempted. Check its recorded reason and service state before manual recovery: {record.Reason}");
+        }
+    }
+
+    internal static void ConfirmDataLoss(CliContext context)
+    {
+        if (context.Args.Flag("yes", "y"))
+        {
+            return;
+        }
+
+        Console.Write("Data written since the update will be lost. Continue? [y/N] ");
+        if (!string.Equals(Console.ReadLine()?.Trim(), "y", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new CliException("aborted");
+        }
+    }
+
     internal static void RequireStandaloneExecutable(string binary)
     {
         if (!string.Equals(Path.GetFileNameWithoutExtension(binary), "sbox-ns", StringComparison.OrdinalIgnoreCase))
         {
             throw new CliException("in-place updates require the installed self-contained sbox-ns executable; do not run update through dotnet");
         }
+    }
+
+    internal static void RequireUpgradable(ReleaseInfo release)
+    {
+        if (release.MinUpgradableFrom is { } minimum
+            && SemanticVersion.TryParse(minimum, out var min)
+            && SemanticVersion.TryParse(BuildInfo.Version, out var current)
+            && current.CompareTo(min) < 0)
+        {
+            throw new CliException($"{release.Version} cannot be installed directly over {BuildInfo.Version}. Install {minimum} first: sbox-ns update --version {minimum}");
+        }
+    }
+
+    /// <summary>Held for the whole update so a manual and an unattended update never swap the binary at once.</summary>
+    internal static FileStream AcquireUpdateLock(string binary)
+    {
+        try
+        {
+            return new FileStream(binary + ".update-lock", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None, 1, FileOptions.DeleteOnClose);
+        }
+        catch (IOException)
+        {
+            throw new CliException("another sbox-ns update is running; try again when it has finished");
+        }
+    }
+
+    /// <summary>Downloads, verifies (checksum, and signature when cosign is installed) and extracts a release; returns the new binary.</summary>
+    internal static async Task<string> StageReleaseAsync(HttpClient http, ReleaseFeed feed, string version, string binary, string work)
+    {
+        var archiveName = $"sbox-ns-{version}-{BuildInfo.RuntimeIdentifier}{(OperatingSystem.IsWindows() ? ".zip" : ".tar.gz")}";
+        var archive = Path.Combine(work, archiveName);
+        Console.WriteLine($"Downloading {archiveName}...");
+        await DownloadAsync(http, feed.AssetUrl(version, archiveName), archive);
+        var sums = Path.Combine(work, "SHA256SUMS");
+        await DownloadAsync(http, feed.AssetUrl(version, "SHA256SUMS"), sums);
+        VerifyChecksum(archive, archiveName, sums);
+        await VerifySignatureAsync(http, feed, version, sums, work);
+
+        var extracted = Path.Combine(work, "extracted");
+        Extract(archive, extracted);
+        var newBinary = Path.Combine(extracted, Path.GetFileName(binary));
+        if (!File.Exists(newBinary))
+        {
+            throw new CliException($"{archiveName} does not contain {Path.GetFileName(binary)}");
+        }
+
+        return newBinary;
     }
 
     private static async Task RequireServiceControlAsync(string action)
@@ -264,25 +308,6 @@ public static class UpdateCommands
         TarFile.ExtractToDirectory(gzip, destination, overwriteFiles: true);
     }
 
-    /// <summary>Atomically swaps <paramref name="source"/> into <paramref name="target"/>; works while the target is running.</summary>
-    private static void ReplaceBinary(string source, string target)
-    {
-        var staged = target + ".new";
-        File.Copy(source, staged, overwrite: true);
-        if (!OperatingSystem.IsWindows())
-        {
-            File.SetUnixFileMode(staged, File.GetUnixFileMode(target) | UnixFileMode.UserExecute | UnixFileMode.GroupExecute | UnixFileMode.OtherExecute);
-            File.Move(staged, target, overwrite: true);
-            return;
-        }
-
-        // Windows cannot overwrite a running executable but can rename it.
-        var old = target + ".old";
-        File.Delete(old);
-        File.Move(target, old);
-        File.Move(staged, target);
-    }
-
     private static async Task<int> RunBinaryAsync(string binary, IReadOnlyList<string> arguments)
     {
         var start = new ProcessStartInfo(binary) { UseShellExecute = false };
@@ -295,9 +320,4 @@ public static class UpdateCommands
         await process.WaitForExitAsync();
         return process.ExitCode;
     }
-
-    private static string RecordPath(EffectiveConfig config) => Path.Combine(config.DataDirectory, "updates", "last-update.json");
-
-    private static void WriteRecord(EffectiveConfig config, UpdateRecord record)
-        => ConfigFiles.WriteAtomically(RecordPath(config), JsonSerializer.Serialize(record, new JsonSerializerOptions { WriteIndented = true }));
 }

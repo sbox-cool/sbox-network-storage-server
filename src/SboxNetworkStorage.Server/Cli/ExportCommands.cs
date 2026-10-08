@@ -105,6 +105,11 @@ public static class ExportCommands
             throw new CliException($"{path} does not exist.");
         }
 
+        if (context.Args.Flag("verify-only"))
+        {
+            return await VerifyAsync(path);
+        }
+
         var options = new ImportOptions(Force: context.Args.Flag("force"), RestoreConfig: context.Args.Flag("config"));
         var config = context.LoadValidConfig();
         Console.WriteLine("Stop the server before importing (sbox-ns service stop).");
@@ -157,6 +162,31 @@ public static class ExportCommands
         }
 
         Console.WriteLine("Start the server again: sbox-ns service start");
+        return CliApp.Ok;
+    }
+
+    /// <summary><c>import --verify-only</c>: needs no configured server and writes nothing to one.</summary>
+    private static async Task<int> VerifyAsync(string path)
+    {
+        ImportResult result;
+        try
+        {
+            result = await ArchiveVerifier.VerifyAsync(path, CancellationToken.None);
+        }
+        catch (ExportArchiveException ex)
+        {
+            throw new CliException($"archive is not importable: {ex.Message}");
+        }
+
+        var manifest = result.Manifest;
+        Console.WriteLine($"Archive is importable: {manifest.Projects.Count} project(s), {result.RowsApplied} row(s) replayed into a throwaway database.");
+        Console.WriteLine($"  format {manifest.Format} v{manifest.FormatVersion}, written by sbox-ns {manifest.SboxNsVersion} from {manifest.Provider} at {manifest.CreatedAt:u}");
+        foreach (var project in manifest.Projects)
+        {
+            Console.WriteLine($"  {project.Id}: {string.Join(", ", project.Counts.Select(c => $"{c.Key} {c.Value}"))}");
+        }
+
+        Console.WriteLine($"  config files in archive: {result.ConfigFilesInArchive}; secrets included: {(manifest.IncludesSecrets ? "yes" : "no")}");
         return CliApp.Ok;
     }
 }

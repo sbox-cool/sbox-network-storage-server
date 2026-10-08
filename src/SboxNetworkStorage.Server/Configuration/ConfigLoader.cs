@@ -356,6 +356,16 @@ public static class ConfigLoader
             }
         }
 
+        if (!Updates.UpdateWindow.TryParse(S("updates.window"), out _))
+        {
+            issues.Add(Issue("updates.window", "'updates.window' must look like \"03:00-05:00\" (UTC, start and end differ; end may be 24:00)"));
+        }
+
+        if ((long)values["updates.min_release_age_hours"].Value < -1)
+        {
+            issues.Add(Issue("updates.min_release_age_hours", "'updates.min_release_age_hours' must be -1 (channel default) or 0 or more"));
+        }
+
         var discordUrl = S("alerts.discord.webhook_url");
         var discordUrlFile = S("alerts.discord.webhook_url_file");
         if (!string.IsNullOrWhiteSpace(discordUrl) && !string.IsNullOrWhiteSpace(discordUrlFile))

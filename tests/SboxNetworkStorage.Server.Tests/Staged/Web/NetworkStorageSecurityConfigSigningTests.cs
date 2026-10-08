@@ -3,6 +3,8 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using SboxNetworkStorage.Infrastructure.NetworkStorage;
+using SboxNetworkStorage.Server.Configuration;
+using SboxNetworkStorage.Server.Hosting;
 
 namespace SboxNetworkStorage.Server.Tests;
 
@@ -76,6 +78,39 @@ public sealed class NetworkStorageSecurityConfigSigningTests
         Assert.Equal(
             first.GetProperty("signing").GetProperty("keyId").GetString(),
             second.GetProperty("signing").GetProperty("keyId").GetString());
+    }
+
+    /// <summary>
+    /// auth.security_signing_key_id lets a server that took over a project keep publishing
+    /// the key id its game clients know; empty keeps the derived id. Kept in this class so it
+    /// never runs in parallel with the stability test above (the id lives in the process environment).
+    /// </summary>
+    [Fact]
+    public void Configured_signing_key_id_reaches_the_security_config()
+    {
+        var previousKeyId = Environment.GetEnvironmentVariable(SecurityConfigEnvironment.KeyIdVariable);
+        var currentKey = Environment.GetEnvironmentVariable(SecurityConfigEnvironment.PrivateKeyVariable) ?? string.Empty;
+        var folder = Path.Combine(Path.GetTempPath(), "sbox-ns-key-id-" + Guid.NewGuid().ToString("N"));
+        var secrets = new ServerSecretValues("session", new string('a', 64), currentKey);
+        try
+        {
+            Environment.SetEnvironmentVariable(SecurityConfigEnvironment.KeyIdVariable, null);
+            SecurityConfigEnvironment.Apply(ConfigLoader.Load(folder, folder, null, _ => null), secrets);
+            var derived = KeyId(NetworkStorageSecurityConfigBuilder.Build("demo-project", Project, DateTimeOffset.UnixEpoch));
+
+            var configured = ConfigLoader.Load(folder, folder,
+                new Dictionary<string, string> { ["auth.security_signing_key_id"] = "hosted-key-2026" }, _ => null);
+            SecurityConfigEnvironment.Apply(configured, secrets);
+
+            Assert.Equal("hosted-key-2026", KeyId(NetworkStorageSecurityConfigBuilder.Build("demo-project", Project, DateTimeOffset.UnixEpoch)));
+            Assert.NotEqual("hosted-key-2026", derived);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(SecurityConfigEnvironment.KeyIdVariable, previousKeyId);
+        }
+
+        static string? KeyId(JsonElement config) => config.GetProperty("signing").GetProperty("keyId").GetString();
     }
 
     /// <summary>

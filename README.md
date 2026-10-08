@@ -301,9 +301,12 @@ with `sbox-ns db restore` (stop the server first). Details: [docs/database.md](d
 
 ## Updates
 
-The server never updates itself. It checks for new releases (by default once a
-day) and shows a notice in the logs and in `sbox-ns doctor`,
-flagging security fixes and required migrations.
+By default the server never updates itself. It checks for new releases (by
+default once a day) and shows a notice in the logs and in `sbox-ns doctor`,
+flagging security fixes and required migrations. On Linux you can opt in to
+unattended updates inside a nightly window, with health checks and automatic
+rollback: `sudo sbox-ns service install --auto-update` (see
+[Automatic updates](docs/self-hosting.md#automatic-updates)).
 
 ```sh
 sbox-ns update --check   # is there a new version?
