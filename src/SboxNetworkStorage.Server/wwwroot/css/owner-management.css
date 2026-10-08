@@ -32,3 +32,8 @@ code { overflow-wrap: anywhere; font-size: .9em; }
 table { border-collapse: collapse; width: 100%; }
 th, td { text-align: left; vertical-align: top; padding: .8rem; border-bottom: 1px solid var(--border); }
 .actions { display: flex; flex-wrap: wrap; gap: .5rem; }
+pre.json { overflow: auto; max-height: 70vh; margin: 0; padding: 1rem; background: var(--bg); border: 1px solid var(--border); border-radius: .3rem; font-size: .9rem; white-space: pre; }
+.preview { color: var(--muted); }
+.search { display: flex; flex-wrap: wrap; align-items: flex-end; gap: .75rem; }
+.search label { flex: 1 1 18rem; margin-bottom: 0; }
+.pager { display: flex; align-items: center; gap: 1rem; margin-top: 1rem; color: var(--muted); }

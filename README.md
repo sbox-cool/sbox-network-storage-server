@@ -22,6 +22,8 @@ works the same way it does with the managed service.
 > between releases. Keep backups. A local-owner dashboard manages projects,
 > API keys and core settings at `/dashboard`. Full managed-dashboard and managed
 > project export/import parity are not established; use the editor Sync Tool for resources.
+> Release downloads are not available yet: publishing remains blocked until an
+> approved managed-server parity recording passes. Build from source meanwhile.
 
 ## Features
 
@@ -37,8 +39,9 @@ works the same way it does with the managed service.
 - **Two databases:** SQLite with zero configuration, or PostgreSQL with all tables in their own schema.
 - **One binary:** `sbox-ns` is both the server and its management CLI. Self-contained builds for
   Linux, macOS and Windows on x64 and arm64, plus a Docker image.
-- **Local owner:** database-backed owner identity, tokenized local first-run setup,
-  cookie login with CSRF protection, and `admin create|reset-password` recovery commands.
+- **Owner dashboard:** one-time remote login links, CSRF-protected login, projects,
+  API keys, a data browser and portable server exports. No signup or payment.
+- **Agent tools:** idempotent project quickstart and an allowlisted stdio MCP server.
 - **No telemetry, no auto-update:** the server only shows a notice when a new release exists.
 
 ## Quickstart (about 60 seconds)
@@ -54,6 +57,16 @@ curl -fsSL https://github.com/sbox-cool/sbox-network-storage-server/releases/lat
 Pipe through `sudo sh` on Linux for a systemd service install. The installer
 verifies the download checksum, installs `sbox-ns`, then runs the interactive
 `sbox-ns setup`.
+
+For a fresh Linux VPS, run as root to configure SQLite, create a project and
+keys, and start the systemd service without prompts:
+
+```sh
+curl -fsSL https://github.com/sbox-cool/sbox-network-storage-server/releases/latest/download/install.sh | SBOX_NS_PROJECT="My Game" sh
+```
+
+Set `SBOX_NS_PUBLIC_URL` to the HTTPS address players will use. On macOS or a
+non-root install, start the server with `sbox-ns start` after installation.
 
 Windows (PowerShell):
 
@@ -75,13 +88,15 @@ docker restart sbox-ns
 ### 2. Create a project and keys
 
 ```sh
-sbox-ns project create "My Game"                          # prints the project ID
-sbox-ns key create <projectId> --type public --label game
-sbox-ns key create <projectId> --type secret --label editor
+sbox-ns quickstart "My Game" --public-url https://ns.example.com
 ```
 
 Put the public key in your game. The secret key stays in the s&box editor
 Sync Tool and is shown only once when created.
+
+Quickstart can be rerun safely. Add `--json` for machine-readable project and
+key output; treat that output as a secret. Separate `project create` and `key
+create` commands remain available for manual provisioning.
 
 ### 3. Point your game at the server
 
@@ -96,10 +111,10 @@ on top of that base URL: [docs/game-client.md](docs/game-client.md).
 The server listens on plain HTTP port **8080** by default. HTTPS is optional:
 built-in Let's Encrypt, your own certificate, or a reverse proxy.
 `GET /health` reports whether the server is up.
-Open the one-time local `/setup?token=...` URL printed in the server log when no
-owner exists, or create one with `sbox-ns admin create`. After that, `/login`
-opens the local-owner dashboard. Use an SSH tunnel for remote initial setup and
-HTTPS for remote login. Details and management coverage limits are in the full guide.
+For remote owner setup or sign-in, run `sbox-ns admin login-link` on the server
+and open its single-use link. Use an SSH tunnel for plain HTTP or HTTPS for
+remote access. The dashboard includes a collection/record browser and a server
+export download. [Admin panel guide](docs/admin-panel.md).
 
 Full guide: [docs/self-hosting.md](docs/self-hosting.md).
 
@@ -158,9 +173,13 @@ Every key with its default: [docs/configuration.md](docs/configuration.md).
 | --- | --- |
 | `sbox-ns start [--listen ADDR]` | Run the server in the foreground |
 | `sbox-ns setup [--non-interactive ...]` | Create the configuration interactively, or from flags (`--database`, `--pg-host`, `--listen`, `--public-url`) |
+| `sbox-ns quickstart <name> [--public-url URL] [--json]` | Configure a new server and create or reuse a project and keys |
 | `sbox-ns config path\|show\|get <key>\|set <key> <value>\|validate\|edit` | Locate, inspect and edit configuration |
 | `sbox-ns db test\|status\|migrate` | Database connectivity, status and migrations |
 | `sbox-ns db backup [--output FILE]` / `db restore <FILE>` | Back up and restore (SQLite file copy; PostgreSQL via `pg_dump`/`pg_restore`) |
+| `sbox-ns export [--out FILE] [--no-secrets]` / `import <FILE> [--config]` | Portable, driver-neutral server backup and restore ([guide](docs/export.md)) |
+| `sbox-ns admin login-link [--public-url URL]` | Create a short-lived, single-use owner sign-in or setup link |
+| `sbox-ns mcp` | Serve allowlisted management tools over stdio ([guide](docs/mcp.md)) |
 | `sbox-ns project create <name>\|list\|delete <projectId>` | Manage projects |
 | `sbox-ns key create <projectId> --type public\|secret [--label L]` | Create an API key |
 | `sbox-ns key list <projectId>` / `key revoke <projectId> <key>` | List and revoke API keys |

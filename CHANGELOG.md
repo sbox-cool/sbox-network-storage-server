@@ -30,9 +30,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Versioned HTTP replay corpus and differential parity harness, CLI-driven SQLite
   and PostgreSQL smoke gates, and release blocking until an approved stable
   response recording reports zero unlisted differences.
+- Idempotent `quickstart` provisioning, JSON output and `SBOX_NS_PROJECT` /
+  `SBOX_NS_PUBLIC_URL` installer options for non-interactive VPS setup.
+- Allowlisted stdio MCP management tools for local agents or SSH access.
+- Portable config and driver-neutral database export/import, including a
+  CSRF-protected dashboard download and explicit secret inclusion controls.
+- Short-lived, single-use owner login links and a collection/record data browser.
 
 ### Fixed
 
+- Use `SameSite=Lax` for owner sessions so links from alerts retain sign-in;
+  antiforgery cookies remain Strict and unsafe dashboard requests require tokens.
+- Reject incomplete manifest-declared archive data before restoring it, and
+  refuse config destinations that traverse filesystem symlinks.
+- Return JSON-RPC errors for malformed MCP field types without terminating
+  the stdio session or dropping subsequent requests.
 - Restore production response compression ordering so usage metering records
   the compressed bytes actually transferred to clients.
 - Preserve inline comments and multiline-string boundaries when changing TOML settings.

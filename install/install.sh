@@ -3,7 +3,14 @@
 #
 #   curl -fsSL https://github.com/sbox-cool/sbox-network-storage-server/releases/latest/download/install.sh | sh
 #
+# One line from a fresh VPS to a running server with a project and keys:
+#
+#   curl -fsSL https://github.com/sbox-cool/sbox-network-storage-server/releases/latest/download/install.sh | SBOX_NS_PROJECT="My Game" sh
+#
 # Environment variables:
+#   SBOX_NS_PROJECT      Configure non-interactively (SQLite), create or reuse this project with
+#                        public and secret keys, and print the line to add to your game.
+#   SBOX_NS_PUBLIC_URL   Address players use, e.g. https://ns.example.com (used with SBOX_NS_PROJECT).
 #   SBOX_NS_VERSION      Install this version (for example 0.3.0 or v0.3.0) instead of the latest release.
 #   SBOX_NS_PRERELEASE   Set to 1 to resolve the newest release including prereleases.
 #   SBOX_NS_NO_SETUP     Set to 1 to skip running `sbox-ns setup`.
@@ -226,7 +233,20 @@ main() {
     dirs="--config-dir $config_dir --data-dir $data_dir"
     setup_cmd="$BIN_NAME setup $dirs"
 
-    if [ -f "$config_dir/server.toml" ]; then
+    quickstart_out=""
+    if [ -n "${SBOX_NS_PROJECT:-}" ]; then
+        say ""
+        say "Configuring the server and creating project \"$SBOX_NS_PROJECT\"..."
+        # quickstart configures non-interactively when no config exists and is safe to re-run.
+        if [ -n "${SBOX_NS_PUBLIC_URL:-}" ]; then
+            # shellcheck disable=SC2086 # $dirs is intentionally split into flags
+            quickstart_out=$("$ns" quickstart "$SBOX_NS_PROJECT" $dirs --public-url "$SBOX_NS_PUBLIC_URL") || die "quickstart failed; rerun: $BIN_NAME quickstart \"$SBOX_NS_PROJECT\" $dirs"
+        else
+            # shellcheck disable=SC2086 # $dirs is intentionally split into flags
+            quickstart_out=$("$ns" quickstart "$SBOX_NS_PROJECT" $dirs) || die "quickstart failed; rerun: $BIN_NAME quickstart \"$SBOX_NS_PROJECT\" $dirs"
+        fi
+        configured=1
+    elif [ -f "$config_dir/server.toml" ]; then
         say "Existing configuration found in $config_dir; keeping it."
         configured=1
     elif [ "${SBOX_NS_NO_SETUP:-0}" = "1" ]; then
@@ -292,12 +312,13 @@ main() {
     if [ "$service_layout" -eq 1 ]; then
         as_user="sudo -u $SERVICE_USER "
     fi
-    say "  $_step. Create a project:     $as_user$BIN_NAME project create \"My Game\" $dirs"
-    _step=$((_step + 1))
-    say "  $_step. Create API keys:      $as_user$BIN_NAME key create <projectId> --type public $dirs"
-    say "                            $as_user$BIN_NAME key create <projectId> --type secret $dirs"
-    _step=$((_step + 1))
-    say "  $_step. Point your game at http://<this-host>:8080 (see docs/client-setup.md)"
+    if [ -n "$quickstart_out" ]; then
+        say ""
+        say "$quickstart_out"
+    else
+        say "  $_step. Create a project and keys, and get the line for your game:"
+        say "                            $as_user$BIN_NAME quickstart \"My Game\" $dirs"
+    fi
 
     case ":$PATH:" in
         *":$bin_dir:"*) ;;

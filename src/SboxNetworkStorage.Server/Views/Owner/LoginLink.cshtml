@@ -1,0 +1,31 @@
+@model SboxNetworkStorage.Server.Owner.OwnerLoginLinkModel
+@{ Layout = "~/Views/Owner/_Layout.cshtml"; }
+<section class="card auth">
+    <h1>@(Model.CreatesOwner ? "Create the server owner" : "Sign in with login link")</h1>
+    @if (Model.Error is not null) { <p class="error" role="alert">@Model.Error</p> }
+    @if (Model.Token is not null)
+    {
+        <p>This single-use link was created on the server with <code>sbox-ns admin login-link</code>. If you did not run that command, close this page.</p>
+        <form method="post" action="/login/link">
+            @Html.AntiForgeryToken()
+            <input type="hidden" name="token" value="@Model.Token" />
+            @if (Model.CreatesOwner)
+            {
+                <p>No owner exists yet. Choose the owner credentials; the link is used up when the owner is created.</p>
+                <label>Username <input name="username" value="@Model.Username" required maxlength="64" autocomplete="username" /></label>
+                <label>Password <input name="password" type="password" required minlength="12" maxlength="1024" autocomplete="new-password" /></label>
+                <label>Confirm password <input name="confirmPassword" type="password" required minlength="12" maxlength="1024" autocomplete="new-password" /></label>
+                <button type="submit">Create owner and sign in</button>
+            }
+            else
+            {
+                <p>Continue to sign in as <strong>@Model.OwnerName</strong>. The link stops working once used.</p>
+                <button type="submit">Sign in</button>
+            }
+        </form>
+    }
+    else
+    {
+        <p><a href="/login">Go to the password login</a></p>
+    }
+</section>

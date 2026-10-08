@@ -87,12 +87,12 @@
 </section>
 <section class="card">
     <h2>Synced resources</h2>
-    <p>Use the existing editor sync tool with this server's base URL to author resources.</p>
+    <p>Use the existing editor sync tool with this server's base URL to author resources. <a href="@url/data">Browse stored records</a> (read-only, with JSON download per collection).</p>
     <h3>Collections</h3>
     <ul>@foreach (var collection in Model.Resources?.Collections ?? []) { <li><strong>@collection.Name</strong> · @collection.CollectionType · <code>@collection.Id</code> · @collection.Description</li> }</ul>
     <h3>Endpoints</h3>
     <ul>@foreach (var endpoint in Model.Resources?.Endpoints ?? []) { <li><strong>@endpoint.Name</strong> · @endpoint.Method <code>@endpoint.Slug</code> · @(endpoint.Enabled ? "Enabled" : "Disabled")</li> }</ul>
-    <p>Record browsing/editing, query/workflow/game-value authoring, analytics/log/error/usage views and managed project export/import are not available in this dashboard. No full dashboard parity claim is made.</p>
+    <p>Record editing, query/workflow/game-value authoring, analytics/log/error/usage views and managed project export/import are not available in this dashboard. No full dashboard parity claim is made.</p>
 </section>
 <section class="card danger-zone">
     <h2>Delete project</h2>

@@ -1,0 +1,50 @@
+@model SboxNetworkStorage.Server.Owner.OwnerDataRecordsModel
+@using SboxNetworkStorage.Server.Owner
+@{
+    Layout = "~/Views/Owner/_Layout.cshtml";
+    var collection = Model.Collection;
+    var dataUrl = "/dashboard/projects/" + Uri.EscapeDataString(Model.ProjectId) + "/data";
+    var url = OwnerDataController.CollectionUrl(Model.ProjectId, collection.Id);
+    string PageUrl(int page) => $"{url}?page={page}&size={Model.PageSize}" + (Model.Query is null ? "" : "&q=" + Uri.EscapeDataString(Model.Query));
+}
+<a href="@dataUrl">@Model.ProjectName · data browser</a>
+<h1>@collection.Name</h1>
+<p><code>@collection.Id</code> · @collection.Kind collection · @collection.RecordCount record(s) · <a href="@url/export" download>Download as JSON</a></p>
+<section class="card">
+    <form method="get" action="@url" class="search">
+        <label>Search keys <input name="q" value="@Model.Query" maxlength="@OwnerDataController.MaxQueryLength" placeholder="@(collection.Global ? "record id" : "player id or record key")" /></label>
+        <input type="hidden" name="size" value="@Model.PageSize" />
+        <button type="submit">Search</button>
+    </form>
+    @if (Model.Query is not null)
+    {
+        <p>@Model.MatchCount match(es) for <code>@Model.Query</code> · <a href="@url">Clear search</a></p>
+    }
+    @if (Model.Records.Count == 0)
+    {
+        <p>No records.</p>
+    }
+    else
+    {
+        <div class="table-scroll"><table>
+            <thead><tr><th>Key</th><th>Version</th><th>Changed</th><th>Size</th><th>Preview</th></tr></thead>
+            <tbody>
+            @foreach (var record in Model.Records)
+            {
+                <tr>
+                    <td><a href="@OwnerDataController.RecordUrl(Model.ProjectId, collection.Id, record.Key)"><code>@record.Key</code></a></td>
+                    <td>@record.Version</td>
+                    <td>@record.ChangedAt</td>
+                    <td>@record.SizeBytes B</td>
+                    <td><code class="preview">@record.Preview</code></td>
+                </tr>
+            }
+            </tbody>
+        </table></div>
+    }
+    <nav class="pager" aria-label="Pages">
+        @if (Model.Page > 1) { <a href="@PageUrl(Model.Page - 1)">Previous</a> }
+        <span>Page @Model.Page of @Model.PageCount</span>
+        @if (Model.Page < Model.PageCount) { <a href="@PageUrl(Model.Page + 1)">Next</a> }
+    </nav>
+</section>

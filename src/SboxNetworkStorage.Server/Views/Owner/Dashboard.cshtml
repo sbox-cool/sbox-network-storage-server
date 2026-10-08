@@ -24,8 +24,9 @@
         <button type="submit">Create project</button>
     </form>
 </section>
+@await Html.PartialAsync("~/Views/Owner/_ExportCard.cshtml")
 <aside class="notice">
     <h2>Management coverage</h2>
-    <p>This dashboard manages projects, API keys, project/security/player-key settings and lists synced collections and endpoints using the core services.</p>
-    <p>The managed dashboard's record browser/editors, query/workflow authoring, game-value editor, analytics, log/error/usage views and project export/import are not ported here. Full dashboard and managed project export/import parity are not established. Editor sync and the existing <code>/v3</code> APIs remain the resource management entry points; database backup/restore is not a managed project export/import replacement.</p>
+    <p>This dashboard manages projects, API keys, project/security/player-key settings, lists synced collections and endpoints, and offers a read-only record browser per project using the core services.</p>
+    <p>The managed dashboard's record editors, query/workflow authoring, game-value editor, analytics, log/error/usage views and project export/import are not ported here. Full dashboard and managed project export/import parity are not established. Editor sync and the existing <code>/v3</code> APIs remain the resource management entry points; database backup/restore is not a managed project export/import replacement.</p>
 </aside>

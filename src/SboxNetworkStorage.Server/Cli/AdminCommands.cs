@@ -8,7 +8,8 @@ public static class AdminCommands
 {
     public static async Task<int> RunAsync(CliContext context)
     {
-        var command = context.RequirePositional(1, "create|reset-password");
+        var command = context.RequirePositional(1, "create|reset-password|login-link");
+        if (command == "login-link") return await AdminLinkCommand.RunAsync(context);
         if (command is not ("create" or "reset-password")) throw new CliException($"Unknown admin command '{command}'.", CliApp.Usage);
         var config = context.LoadValidConfig();
         await using var services = CliServices.Build(config);
@@ -72,7 +73,7 @@ public static class AdminCommands
         {
             if (context.Args.Option("admin-password-file") is not null || Environment.GetEnvironmentVariable("NS_ADMIN_PASSWORD") is not null)
                 throw new CliException("--admin-username or NS_ADMIN_USERNAME is required when supplying an owner password.", CliApp.Usage);
-            Console.WriteLine("Owner not created yet. Start the server and open the local one-time /setup URL printed in its log.");
+            Console.WriteLine("Owner not created yet. Start the server, then run `sbox-ns admin login-link` and open the printed link (or the local one-time /setup URL in the server log).");
             return;
         }
         try

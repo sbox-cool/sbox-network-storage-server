@@ -13,10 +13,14 @@ public static class OwnerHostingExtensions
 {
     public const string Scheme = "LocalOwner";
     public const string StampClaim = "owner_stamp";
+    // Logical names; over HTTPS OwnerHostCookieMiddleware sends them as __Host- cookies. Never set a cookie Domain.
+    public const string AuthCookieName = "sbox-ns-owner";
+    public const string CsrfCookieName = "sbox-ns-csrf";
 
     public static IServiceCollection AddOwnerManagement(this IServiceCollection services, EffectiveConfig config)
     {
         services.AddScoped<OwnerAccountService>();
+        services.AddScoped<OwnerLoginLinkService>();
         services.AddSingleton<OwnerSetupToken>();
         var keys = Directory.CreateDirectory(Path.Combine(config.DataDirectory, "owner-cookie-keys"));
         if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(keys.FullName, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
@@ -25,9 +29,15 @@ public static class OwnerHostingExtensions
         {
             options.LoginPath = "/login";
             options.AccessDeniedPath = "/login";
-            options.Cookie.Name = "sbox-ns-owner";
+            options.Cookie.Name = AuthCookieName;
+            options.Cookie.Path = "/";
             options.Cookie.HttpOnly = true;
-            options.Cookie.SameSite = SameSiteMode.Strict;
+            // Lax, not Strict: owners follow links to the panel from Discord,
+            // email alerts and bookmarks, and Strict drops the session on every
+            // cross-site arrival. Lax still withholds the cookie from cross-site
+            // POSTs, iframes and subresources, every state-changing route is a
+            // POST behind the global antiforgery filter, and no GET mutates.
+            options.Cookie.SameSite = SameSiteMode.Lax;
             options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
             options.ExpireTimeSpan = TimeSpan.FromHours(8);
             options.SlidingExpiration = false;
@@ -45,7 +55,8 @@ public static class OwnerHostingExtensions
         services.AddAuthorization();
         services.AddAntiforgery(options =>
         {
-            options.Cookie.Name = "sbox-ns-csrf";
+            options.Cookie.Name = CsrfCookieName;
+            options.Cookie.Path = "/";
             options.Cookie.HttpOnly = true;
             options.Cookie.SameSite = SameSiteMode.Strict;
             options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
@@ -65,12 +76,13 @@ public static class OwnerHostingExtensions
     // Call after UseRouting and before endpoint execution.
     public static WebApplication UseOwnerManagement(this WebApplication app)
     {
+        app.UseMiddleware<OwnerHostCookieMiddleware>();
         app.UseAuthentication();
         app.UseAuthorization();
         app.UseRateLimiter();
         app.Use(async (context, next) =>
         {
-            if (context.Request.Path.StartsWithSegments("/dashboard") || context.Request.Path is { Value: "/login" or "/setup" })
+            if (context.Request.Path.StartsWithSegments("/dashboard") || context.Request.Path.StartsWithSegments("/login") || context.Request.Path == "/setup")
             {
                 context.Response.Headers.CacheControl = "no-store";
                 context.Response.Headers["Referrer-Policy"] = "no-referrer";
@@ -96,7 +108,7 @@ public sealed class OwnerSetupNotice(IServiceScopeFactory scopes, OwnerSetupToke
         var tls = config.GetString("tls.mode") != "off";
         ListenAddress.TryParse(config.GetString(tls ? "tls.https_listen" : "server.listen"), out var listen);
         var setupUrl = $"{(tls ? "https" : "http")}://localhost:{listen.Port}/setup?token={token.Value}";
-        logger.LogWarning("No owner account exists. Open this local one-time setup URL within two hours: {SetupUrl}. For remote servers use an SSH tunnel. With TLS use a hostname matching the certificate routed to loopback. Restart to rotate an expired token.", setupUrl);
+        logger.LogWarning("No owner account exists. Open this local one-time setup URL within two hours: {SetupUrl}. For remote servers run `sbox-ns admin login-link` on the server and open the printed link, or use an SSH tunnel. With TLS use a hostname matching the certificate routed to loopback. Restart to rotate an expired token.", setupUrl);
     }
     public Task StopAsync(CancellationToken ct) => Task.CompletedTask;
 }

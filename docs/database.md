@@ -119,9 +119,9 @@ sbox-ns db backup --output /backups/ns.bak
 sbox-ns db restore /backups/ns.bak       # stop the server first
 ```
 
-Backups are same-provider restores, not cross-provider migration. There is
-no built-in SQLite to PostgreSQL (or reverse) import; recreate resources
-from the editor Sync Tool against the new database.
+Backups are same-provider restores, not cross-provider migration. To move
+between SQLite and PostgreSQL (either way) or to another machine, use
+`sbox-ns export` and `sbox-ns import`; see [export.md](export.md).
 
 SQLite: the backup is a consistent file copy, safe while the server runs.
 Restore replaces the database file and keeps the replaced file as

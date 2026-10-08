@@ -1,0 +1,29 @@
+@model SboxNetworkStorage.Server.Owner.OwnerDataRecordModel
+@using SboxNetworkStorage.Server.Owner
+@{
+    Layout = "~/Views/Owner/_Layout.cshtml";
+    var collection = Model.Collection;
+    var record = Model.Record;
+    var collectionUrl = OwnerDataController.CollectionUrl(Model.ProjectId, collection.Id);
+    var recordUrl = OwnerDataController.RecordUrl(Model.ProjectId, collection.Id, record.Key);
+}
+<a href="@collectionUrl">@Model.ProjectName · @collection.Name</a>
+<h1>Record <code>@record.Key</code></h1>
+@if (Model.Error is not null) { <p class="error" role="alert">@Model.Error</p> }
+<p>@collection.Kind collection <code>@collection.Id</code> · version @record.Version · changed @record.ChangedAt · @record.SizeBytes B</p>
+<section class="card">
+    <h2>Payload</h2>
+    <pre class="json">@Model.PrettyJson</pre>
+</section>
+<section class="card danger-zone">
+    <h2>Delete record</h2>
+    <p>@(collection.Global
+        ? "This permanently removes the global record."
+        : "This writes a permanent deletion tombstone, exactly like a delete through the storage API; the player's game will see the record as missing.")
+        The deletion is recorded in the project audit log. Enter <code>@record.Key</code> to confirm.</p>
+    <form method="post" action="@recordUrl/delete">
+        @Html.AntiForgeryToken()
+        <label>Record key <input name="confirmation" required autocomplete="off" /></label>
+        <button type="submit" class="danger">Delete record</button>
+    </form>
+</section>

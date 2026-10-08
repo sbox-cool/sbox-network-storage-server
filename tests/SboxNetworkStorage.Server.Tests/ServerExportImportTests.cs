@@ -1,0 +1,515 @@
+using System.Formats.Tar;
+using System.IO.Compression;
+using System.Net;
+using System.Text;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
+using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.DependencyInjection;
+using SboxNetworkStorage.Server.Configuration;
+using SboxNetworkStorage.Server.Operations;
+using SboxNetworkStorage.Server.Owner;
+using SboxNetworkStorage.Server.Tests.Hosting;
+using SboxNetworkStorage.Storage.Relational;
+
+namespace SboxNetworkStorage.Server.Tests;
+
+/// <summary>
+/// Whole-server export/import (<c>sbox-ns export</c>/<c>import</c>, <c>POST /dashboard/export</c>):
+/// a round trip into a fresh database reproduces every exported resource, non-empty targets and
+/// newer archive formats are refused, and secrets stay out unless requested. Each test owns its host.
+/// </summary>
+public abstract class ServerExportImportTests<TFactory> : IDisposable
+    where TFactory : SelfHostFactory, new()
+{
+    private const string PlayerA = "76561198000000001";
+    private const string PlayerB = "76561198000000002";
+    private const string Collection = "inventory";
+    private static readonly CancellationToken Ct = CancellationToken.None;
+
+    private readonly TFactory factory = new();
+
+    protected ServerExportImportTests() => Skip.IfNot(factory.IsAvailable, factory.SkipReason);
+
+    public void Dispose() => factory.Dispose();
+
+    private INetworkStorageStore Source => factory.Services.GetRequiredService<INetworkStorageStore>();
+
+    [SkippableFact]
+    public async Task RoundTripIntoFreshDatabaseReproducesEveryResource()
+    {
+        var projectId = await SeedAsync();
+        var archive = await ExportAsync(Source, factory.Config, includeSecrets: false);
+        var target = await factory.NewStoreAsync();
+
+        var result = await ImportAsync(archive, target, factory.Config, new ImportOptions(Force: false, RestoreConfig: false));
+
+        Assert.Equal(ExportFormat.CurrentVersion, result.Manifest.FormatVersion);
+        Assert.Contains(result.Manifest.Projects, p => p.Id == projectId && p.Counts["records"] == 2);
+        Assert.Equal(result.Manifest.TotalRows, result.RowsApplied);
+        await AssertSameDataAsync(Source, target, projectId);
+    }
+
+    [SkippableFact]
+    public async Task RoundTripAcceptsUncountedEmptyListsAndAbsentSingletons()
+    {
+        const string projectId = "empty-import";
+        await Source.UpsertProjectAsync(projectId, Json(new { name = "Empty project" }), 1, Ct);
+        await Source.UpsertProjectMembershipAsync("1", projectId, "owner", 0, Ct);
+        var archive = await ExportAsync(Source, factory.Config, includeSecrets: false);
+        var target = await factory.NewStoreAsync();
+
+        var result = await ImportAsync(archive, target, factory.Config, new ImportOptions(false, false));
+
+        Assert.Equal(result.Manifest.TotalRows, result.RowsApplied);
+        Assert.Equal(Normalize(await Source.ReadProjectAsync(projectId, Ct)), Normalize(await target.ReadProjectAsync(projectId, Ct)));
+        Assert.Empty(await target.ListRecordsAsync(projectId, Collection, Ct));
+        Assert.Null(await target.ReadGameValuesAsync(projectId, Ct));
+    }
+
+    [SkippableFact]
+    public async Task ImportRefusesNonEmptyTargetUnlessForcedAndForcedImportIsIdempotent()
+    {
+        var projectId = await SeedAsync();
+        var archive = await ExportAsync(Source, factory.Config, includeSecrets: false);
+        var target = await factory.NewStoreAsync();
+        await ImportAsync(archive, target, factory.Config, new ImportOptions(false, false));
+
+        var refused = await Assert.ThrowsAsync<ExportArchiveException>(
+            () => ImportAsync(archive, target, factory.Config, new ImportOptions(Force: false, RestoreConfig: false)));
+        Assert.Contains(projectId, refused.Message);
+        Assert.Contains("--force", refused.Message);
+
+        await ImportAsync(archive, target, factory.Config, new ImportOptions(Force: true, RestoreConfig: false));
+        await AssertSameDataAsync(Source, target, projectId);
+    }
+
+    [SkippableFact]
+    public async Task ImportRefusesNewerFormatVersionBeforeWritingAnything()
+    {
+        var target = await factory.NewStoreAsync();
+        var manifest = JsonSerializer.SerializeToUtf8Bytes(new
+        {
+            format = ExportFormat.FormatName,
+            formatVersion = ExportFormat.CurrentVersion + 1,
+            sboxNsVersion = "99.0.0",
+        });
+        var archive = BuildArchive(
+            (ExportFormat.ManifestEntry, manifest),
+            (ExportFormat.WorkspaceObjectsEntry, Encoding.UTF8.GetBytes("{\"path\":\"network-storage/users/1/projects.json\",\"content\":\"[]\"}\n")));
+
+        var error = await Assert.ThrowsAsync<ExportArchiveException>(
+            () => ImportAsync(archive, target, factory.Config, new ImportOptions(Force: true, RestoreConfig: false)));
+
+        Assert.Contains($"format version {ExportFormat.CurrentVersion + 1}", error.Message);
+        Assert.Contains("Upgrade sbox-ns", error.Message);
+        Assert.Empty(await target.ListWorkspaceObjectsAsync(string.Empty, Ct));
+    }
+
+    [SkippableFact]
+    public async Task ImportRejectsArchivesWithoutLeadingManifestOrWithUnsafePaths()
+    {
+        var target = await factory.NewStoreAsync();
+        var noManifest = BuildArchive((ExportFormat.MembershipsEntry, Encoding.UTF8.GetBytes("\n")));
+        var traversal = BuildArchive(
+            (ExportFormat.ManifestEntry, await ManifestBytesAsync()),
+            ("config/../../escape.toml", Encoding.UTF8.GetBytes("x = 1\n")));
+
+        Assert.Contains("first entry", (await Assert.ThrowsAsync<ExportArchiveException>(
+            () => ImportAsync(noManifest, target, factory.Config, new ImportOptions(false, true)))).Message);
+        Assert.Contains("unsafe path", (await Assert.ThrowsAsync<ExportArchiveException>(
+            () => ImportAsync(traversal, target, factory.Config, new ImportOptions(false, true)))).Message);
+    }
+
+    [SkippableTheory]
+    [InlineData("records", true)]
+    [InlineData("records", false)]
+    [InlineData("workspace-objects", true)]
+    [InlineData("workspace-objects", false)]
+    [InlineData("memberships", true)]
+    [InlineData("memberships", false)]
+    public async Task ImportRejectsMissingDataBeforeChangingStoreOrConfig(string resource, bool omitEntry)
+    {
+        var projectId = await SeedAsync();
+        var sourceConfig = CreateConfigFolder("source");
+        var entries = ReadArchive(await ExportAsync(Source, sourceConfig, includeSecrets: true));
+        var name = resource switch
+        {
+            "workspace-objects" => ExportFormat.WorkspaceObjectsEntry,
+            "memberships" => ExportFormat.MembershipsEntry,
+            _ => ExportFormat.ProjectEntry(projectId, resource),
+        };
+        if (omitEntry)
+        {
+            Assert.True(entries.Remove(name));
+        }
+        else
+        {
+            var rows = Encoding.UTF8.GetString(entries[name]).Split('\n', StringSplitOptions.RemoveEmptyEntries);
+            Assert.NotEmpty(rows);
+            entries[name] = Encoding.UTF8.GetBytes(string.Join('\n', rows.Skip(1)) + "\n");
+        }
+
+        var archive = BuildArchive(entries.Select(entry => (entry.Key, entry.Value)).ToArray());
+        var targetConfig = CreateConfigFolder("target");
+        ConfigFiles.SetValue(targetConfig.ConfigDirectory, SettingDefinitions.Find("server.public_url")!, "https://keep.example.com");
+        var configBefore = ConfigSnapshot(targetConfig.ConfigDirectory);
+        var target = await factory.NewStoreAsync();
+        await target.PutWorkspaceObjectAsync("import-regression/keep.json", "{\"keep\":true}", Ct);
+        var workspaceBefore = await WorkspaceAsync(target);
+        var membershipsBefore = (await target.ListProjectsForUserAsync("1", Ct)).Select(row => Normalize(row)).ToArray();
+
+        var error = await Assert.ThrowsAsync<ExportArchiveException>(() =>
+            ImportAsync(archive, target, targetConfig, new ImportOptions(Force: true, RestoreConfig: true)));
+
+        Assert.Contains(name, error.Message);
+        Assert.Equal(workspaceBefore, await WorkspaceAsync(target));
+        Assert.Equal(membershipsBefore, (await target.ListProjectsForUserAsync("1", Ct)).Select(row => Normalize(row)).ToArray());
+        Assert.Null(await target.ReadProjectAsync(projectId, Ct));
+        Assert.Empty(await target.ListRecordsAsync(projectId, Collection, Ct));
+        Assert.Equal(configBefore, ConfigSnapshot(targetConfig.ConfigDirectory));
+    }
+
+    [SkippableTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ConfigRestoreRejectsSymlinkAncestorsWithoutOutsideMutation(bool linkRoot)
+    {
+        Skip.If(OperatingSystem.IsWindows(), "Creating symbolic links requires elevated permissions on Windows.");
+        var source = CreateConfigFolder("source");
+        var entries = ReadArchive(await ExportAsync(Source, source, includeSecrets: true));
+        entries["config/secrets/escape"] = Encoding.UTF8.GetBytes("archived secret");
+        var archive = BuildArchive(entries.Select(entry => (entry.Key, entry.Value)).ToArray());
+        var outside = CreateConfigFolder("outside");
+        ConfigFiles.SetValue(outside.ConfigDirectory, SettingDefinitions.Find("server.public_url")!, "https://outside.example.com");
+        File.WriteAllText(Path.Combine(outside.ConfigDirectory, "escape"), "keep outside file");
+        var outsideBefore = ConfigSnapshot(outside.ConfigDirectory);
+        var targetConfig = CreateConfigFolder("target");
+        ConfigFiles.SetValue(targetConfig.ConfigDirectory, SettingDefinitions.Find("server.public_url")!, "https://keep.example.com");
+        string link;
+        if (linkRoot)
+        {
+            link = Path.Combine(factory.Config.DataDirectory, "linked-config");
+            Directory.CreateSymbolicLink(link, outside.ConfigDirectory);
+            targetConfig = ConfigLoader.Load(link, targetConfig.DataDirectory, environment: _ => null);
+        }
+        else
+        {
+            link = Path.Combine(targetConfig.ConfigDirectory, "secrets");
+            Directory.Delete(link, recursive: true);
+            Directory.CreateSymbolicLink(link, outside.ConfigDirectory);
+        }
+
+        var serverBefore = File.ReadAllText(Path.Combine(targetConfig.ConfigDirectory, SettingDefinitions.ServerFile));
+        try
+        {
+            var target = await factory.NewStoreAsync();
+            var error = await Assert.ThrowsAsync<ExportArchiveException>(() =>
+                ImportAsync(archive, target, targetConfig, new ImportOptions(false, RestoreConfig: true)));
+
+            Assert.Equal(outsideBefore, ConfigSnapshot(outside.ConfigDirectory));
+            Assert.Equal(serverBefore, File.ReadAllText(Path.Combine(targetConfig.ConfigDirectory, SettingDefinitions.ServerFile)));
+            Assert.False(File.Exists(Path.Combine(targetConfig.ConfigDirectory, SettingDefinitions.ServerFile) + ConfigArchive.BackupSuffix));
+        }
+        finally
+        {
+            Directory.Delete(link);
+        }
+    }
+
+    [SkippableFact]
+    public async Task NoSecretsExcludesSecretsFolderAndBlanksInlineSecrets()
+    {
+        var config = CreateConfigFolder("source");
+        var withoutSecrets = ReadArchive(await ExportAsync(Source, config, includeSecrets: false));
+        var withSecrets = ReadArchive(await ExportAsync(Source, config, includeSecrets: true));
+
+        Assert.Contains("config/server.toml", withoutSecrets.Keys);
+        Assert.Contains("config/conf.d/10-local.toml", withoutSecrets.Keys);
+        Assert.DoesNotContain(withoutSecrets.Keys, name => name.StartsWith("config/secrets/", StringComparison.Ordinal));
+        var database = Encoding.UTF8.GetString(withoutSecrets["config/database.toml"]);
+        Assert.DoesNotContain("hunter2-database-password", database);
+        Assert.Contains("password = \"\"", database);
+        Assert.False(JsonDocument.Parse(withoutSecrets[ExportFormat.ManifestEntry]).RootElement.GetProperty("includesSecrets").GetBoolean());
+
+        Assert.Contains("config/secrets/storage_encryption_key", withSecrets.Keys);
+        Assert.Contains("config/secrets/auth_session_secret", withSecrets.Keys);
+        Assert.Contains("hunter2-database-password", Encoding.UTF8.GetString(withSecrets["config/database.toml"]));
+        Assert.True(JsonDocument.Parse(withSecrets[ExportFormat.ManifestEntry]).RootElement.GetProperty("includesSecrets").GetBoolean());
+    }
+
+    [SkippableFact]
+    public async Task ConfigRestoreKeepsTargetDatabaseSettingsAndWritesSecretsOwnerOnly()
+    {
+        var source = CreateConfigFolder("source");
+        var archive = await ExportAsync(Source, source, includeSecrets: true);
+        var targetConfig = CreateConfigFolder("target");
+        var targetDatabaseToml = File.ReadAllText(Path.Combine(targetConfig.ConfigDirectory, SettingDefinitions.DatabaseFile));
+        ConfigFiles.SetValue(targetConfig.ConfigDirectory, SettingDefinitions.Find("server.public_url")!, "https://new.example.com");
+
+        var result = await ImportAsync(archive, await factory.NewStoreAsync(), targetConfig, new ImportOptions(false, RestoreConfig: true));
+
+        Assert.NotEmpty(result.ConfigFilesWritten);
+        var key = Path.Combine(targetConfig.ConfigDirectory, "secrets", "storage_encryption_key");
+        Assert.Equal(File.ReadAllText(Path.Combine(source.ConfigDirectory, "secrets", "storage_encryption_key")), File.ReadAllText(key));
+        Assert.True(File.Exists(key + ConfigArchive.BackupSuffix));
+        Assert.Equal(File.ReadAllText(Path.Combine(source.ConfigDirectory, SettingDefinitions.ServerFile)),
+            File.ReadAllText(Path.Combine(targetConfig.ConfigDirectory, SettingDefinitions.ServerFile)));
+        Assert.Equal(targetDatabaseToml, File.ReadAllText(Path.Combine(targetConfig.ConfigDirectory, SettingDefinitions.DatabaseFile)));
+        Assert.Contains("hunter2-database-password", File.ReadAllText(Path.Combine(targetConfig.ConfigDirectory, ConfigArchive.ImportedDatabaseFile)));
+        if (!OperatingSystem.IsWindows())
+        {
+            Assert.Equal(UnixFileMode.UserRead | UnixFileMode.UserWrite, File.GetUnixFileMode(key));
+        }
+    }
+
+    [SkippableFact]
+    public async Task DashboardExportIsOwnerOnlyAntiforgeryProtectedAndAudited()
+    {
+        var projectId = await SeedAsync();
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            await scope.ServiceProvider.GetRequiredService<OwnerAccountService>().CreateAsync("owner", "initial-owner-password", Ct);
+        }
+
+        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        var anonymous = await client.PostAsync("/dashboard/export", Form(("includeSecrets", "false")));
+        Assert.Equal(HttpStatusCode.Redirect, anonymous.StatusCode);
+        Assert.StartsWith("http://localhost/login", anonymous.Headers.Location!.ToString());
+
+        var loginPage = await client.GetStringAsync("/login");
+        var login = await client.PostAsync("/login", Form(("username", "owner"), ("password", "initial-owner-password"), ("__RequestVerificationToken", Csrf(loginPage))));
+        Assert.Equal(HttpStatusCode.Redirect, login.StatusCode);
+        var dashboard = await client.GetStringAsync("/dashboard");
+        Assert.Contains("action=\"/dashboard/export\"", dashboard);
+
+        var noCsrf = await client.PostAsync("/dashboard/export", Form(("includeSecrets", "false")));
+        Assert.Equal(HttpStatusCode.BadRequest, noCsrf.StatusCode);
+
+        var download = await client.PostAsync("/dashboard/export", Form(("__RequestVerificationToken", Csrf(dashboard))));
+        Assert.Equal(HttpStatusCode.OK, download.StatusCode);
+        Assert.Equal("application/gzip", download.Content.Headers.ContentType!.MediaType);
+        Assert.Contains("attachment", download.Content.Headers.ContentDisposition!.ToString());
+        var entries = ReadArchive(await download.Content.ReadAsByteArrayAsync());
+        Assert.Equal(ExportFormat.ManifestEntry, entries.Keys.First());
+        var manifest = JsonDocument.Parse(entries[ExportFormat.ManifestEntry]).RootElement;
+        Assert.False(manifest.GetProperty("includesSecrets").GetBoolean());
+        Assert.Contains(ExportFormat.ProjectEntry(projectId, "records"), entries.Keys);
+
+        var audit = await Source.ListAuditLogsAsync(projectId, 50, Ct);
+        Assert.Contains(audit, row => row.GetProperty("action").GetString() == "server.export");
+
+        var target = await factory.NewStoreAsync();
+        using var stream = new MemoryStream(await download.Content.ReadAsByteArrayAsync());
+        await ServerArchive.ImportAsync(stream, target, factory.Config, new ImportOptions(false, false), Ct);
+        await AssertSameDataAsync(Source, target, projectId, ignoreAudit: true);
+    }
+
+    private async Task<string> SeedAsync()
+    {
+        var project = await factory.CreateProjectAsync("Export Game");
+        var p = project.ProjectId;
+        var store = Source;
+        await store.UpsertCollectionAsync(p, Collection, "Inventory", "private", Json(new { fields = new[] { "gold" } }), 3, Ct);
+        await store.UpsertRecordAsync(p, Collection, PlayerA, Json(new { gold = 120, name = "Ålice ✓" }), false, 5, Ct);
+        await store.UpsertRecordAsync(p, Collection, PlayerB, Json(new { gold = 0 }), true, 2, Ct);
+        await store.InsertLedgerEntryAsync(p, Collection, PlayerA, 1, Json(new { delta = 100 }), Ct);
+        await store.InsertLedgerEntryAsync(p, Collection, PlayerA, 2, Json(new { delta = 20 }), Ct);
+        await store.UpsertGlobalRecordAsync(p, Collection, "season-1", Json(new { top = PlayerA }), 4, Ct);
+        await store.UpsertEndpointAsync(p, "ep-1", "buy-item", "POST", true, Json(new { steps = 2 }), "hash-ep", 7, Ct);
+        await store.UpsertWorkflowAsync(p, "wf-1", "Grant", Json(new { steps = 1 }), "hash-wf", 2, Ct);
+        await store.UpsertQueryAsync(p, "q-1", "Top players", true, Json(new { limit = 10 }), 3, Ct);
+        await store.UpsertGameValuesAsync(p, Json(new[] { new { name = "speed", value = 10 } }), "hash-gv", 9, Ct);
+        await store.UpsertRateLimitRulesAsync(p, Json(new { perMinute = 60 }), 2, Ct);
+        await store.UpsertCheckpointCursorAsync(p, 42, "manifests/42.json", 3, Ct);
+        await store.UpsertPageAsync(p, "news", "News", "{\"blocks\":[]}", 1_000, 2_000, Ct);
+        await store.UpsertPlayerProfileAsync(p, PlayerA, "Alice", false, null, 5_000, 4_900, "sess-1", 30, 120, 3, "heartbeat",
+            "buy-item", "{\"kills\":2}", 5_000, Ct);
+        await store.InsertPlayerSessionAsync(p, PlayerA, "sess-1", 4_000, 4_900, null, "{\"fps\":60}", null, Ct);
+        await store.InsertPlayerAnalyticsEventV2Async(p, PlayerA, 4_100, "ev-1", "purchase", "economy", "Bought", "buy-item", Collection,
+            Json(new { item = "sword" }), Ct);
+        await store.InsertPlayerAnalyticsEventV2Async(p, PlayerA, 4_200, "ev-2", "purchase", "economy", "Bought", "buy-item", Collection,
+            Json(new { item = "shield" }), Ct);
+        await store.InsertAuditLogAsync(p, 3_000, "log-seed", "1", "test.seed", "{}", "{}", "{\"message\":\"seeded\"}", "", Ct);
+        await store.IncrementProjectUsageAsync(p, "2026-01", "2026-01-02", null, new UsageDelta(1, 1, 0, 0, 10, 20, 0, 5, 1, 4_321), Ct);
+        await store.PutWorkspaceObjectAsync($"network-storage/users/1/{p}/game-package.json", "{\"currentRevisionId\":3}", Ct);
+        return p;
+    }
+
+    private static async Task AssertSameDataAsync(INetworkStorageStore source, INetworkStorageStore target, string p, bool ignoreAudit = false)
+    {
+        const string Updated = "updated_at_unix_ms";
+        const string Created = "created_at_unix_ms";
+        Assert.Equal(await WorkspaceAsync(source), await WorkspaceAsync(target));
+        AssertRows(await source.ListProjectsForUserAsync("1", Ct), await target.ListProjectsForUserAsync("1", Ct));
+        Assert.Equal(Normalize(await source.ReadProjectAsync(p, Ct)), Normalize(await target.ReadProjectAsync(p, Ct)));
+        AssertRows(await source.ListCollectionsAsync(p, Ct), await target.ListCollectionsAsync(p, Ct), Updated);
+        AssertRows(await source.ListRecordsAsync(p, Collection, Ct), await target.ListRecordsAsync(p, Collection, Ct), Updated);
+        Assert.Equal(2, (await target.ListRecordsAsync(p, Collection, Ct)).Count);
+        AssertRows(await source.ListLedgerEntriesAsync(p, Collection, PlayerA, Ct), await target.ListLedgerEntriesAsync(p, Collection, PlayerA, Ct), Created);
+        AssertRows(await source.ListGlobalRecordsAsync(p, Collection, Ct), await target.ListGlobalRecordsAsync(p, Collection, Ct), Created);
+        AssertRows(await source.ListEndpointsAsync(p, Ct), await target.ListEndpointsAsync(p, Ct), Updated);
+        AssertRows(await source.ListWorkflowsAsync(p, Ct), await target.ListWorkflowsAsync(p, Ct), Updated);
+        AssertRows(await source.ListQueriesAsync(p, Ct), await target.ListQueriesAsync(p, Ct), Updated);
+        AssertRows(await source.ListApiKeysAsync(p, Ct), await target.ListApiKeysAsync(p, Ct), Updated);
+        Assert.Equal(2, (await target.ListApiKeysAsync(p, Ct)).Count);
+        AssertRows(await source.ListPagesAsync(p, Ct), await target.ListPagesAsync(p, Ct));
+        Assert.Equal(Normalize(await source.ReadGameValuesAsync(p, Ct), Updated), Normalize(await target.ReadGameValuesAsync(p, Ct), Updated));
+        Assert.Equal(Normalize(await source.ReadRateLimitRulesAsync(p, Ct), Updated), Normalize(await target.ReadRateLimitRulesAsync(p, Ct), Updated));
+        Assert.Equal(Normalize(await source.ReadCheckpointCursorAsync(p, Ct), Updated), Normalize(await target.ReadCheckpointCursorAsync(p, Ct), Updated));
+        AssertRows(await source.ReadProjectProfilesAsync(p, Ct), await target.ReadProjectProfilesAsync(p, Ct));
+        Assert.Equal(Normalize(await source.ReadPlayerSessionAsync(p, PlayerA, "sess-1", Ct)), Normalize(await target.ReadPlayerSessionAsync(p, PlayerA, "sess-1", Ct)));
+        AssertRows(await source.ListPlayerEventsAsync(p, PlayerA, 0, long.MaxValue, 100, Ct), await target.ListPlayerEventsAsync(p, PlayerA, 0, long.MaxValue, 100, Ct));
+        Assert.Equal(await source.ReadProjectStorageBytesAsync(p, Ct), await target.ReadProjectStorageBytesAsync(p, Ct));
+        if (!ignoreAudit)
+        {
+            AssertRows(await source.ListAuditLogsAsync(p, 100, Ct), await target.ListAuditLogsAsync(p, 100, Ct));
+        }
+    }
+
+    private static void AssertRows(IReadOnlyList<JsonElement> expected, IReadOnlyList<JsonElement> actual, params string[] ignore)
+    {
+        Assert.NotEmpty(expected);
+        Assert.Equal(expected.Select(row => Normalize(row, ignore)).Order(StringComparer.Ordinal),
+            actual.Select(row => Normalize(row, ignore)).Order(StringComparer.Ordinal));
+    }
+
+    private static string? Normalize(JsonElement? row, params string[] ignore)
+    {
+        if (row is not { } value)
+        {
+            return null;
+        }
+
+        var node = JsonNode.Parse(value.GetRawText());
+        if (node is JsonObject obj)
+        {
+            foreach (var name in ignore)
+            {
+                obj.Remove(name);
+            }
+        }
+
+        return node?.ToJsonString();
+    }
+
+    private static async Task<SortedDictionary<string, string>> WorkspaceAsync(INetworkStorageStore store)
+    {
+        var objects = new SortedDictionary<string, string>(StringComparer.Ordinal);
+        async Task WalkAsync(string directory)
+        {
+            foreach (var entry in await store.ListWorkspaceObjectsAsync(directory, Ct))
+            {
+                var path = directory.Length == 0 ? entry.Name : $"{directory}/{entry.Name}";
+                if (entry.IsDirectory)
+                {
+                    await WalkAsync(path);
+                }
+                else
+                {
+                    objects[path] = (await store.ReadWorkspaceObjectAsync(path, Ct))!;
+                }
+            }
+        }
+
+        await WalkAsync(string.Empty);
+        return objects;
+    }
+
+    private async Task<byte[]> ExportAsync(INetworkStorageStore store, EffectiveConfig config, bool includeSecrets)
+    {
+        var admin = factory.Services.GetRequiredService<INetworkStorageStoreAdmin>();
+        await using var staged = await ServerArchive.PrepareExportAsync(store, admin, config, includeSecrets, Ct);
+        using var buffer = new MemoryStream();
+        await staged.WriteToAsync(buffer, Ct);
+        return buffer.ToArray();
+    }
+
+    private static async Task<ImportResult> ImportAsync(byte[] archive, INetworkStorageStore target, EffectiveConfig config, ImportOptions options)
+    {
+        using var stream = new MemoryStream(archive);
+        return await ServerArchive.ImportAsync(stream, target, config, options, Ct);
+    }
+
+    private async Task<byte[]> ManifestBytesAsync()
+    {
+        var entries = ReadArchive(await ExportAsync(Source, factory.Config, includeSecrets: false));
+        return entries[ExportFormat.ManifestEntry];
+    }
+
+    /// <summary>A config folder with all four TOML files, a conf.d fragment, generated secrets and an inline database password.</summary>
+    private EffectiveConfig CreateConfigFolder(string name)
+    {
+        var root = Path.Combine(factory.Config.DataDirectory, "config-folders", name);
+        var configDirectory = Path.Combine(root, "config");
+        ConfigFiles.WriteAll(configDirectory, new Dictionary<string, object> { ["updates.check"] = false });
+        ConfigFiles.SetValue(configDirectory, SettingDefinitions.Find("database.postgres.password")!, "hunter2-database-password");
+        File.WriteAllText(Path.Combine(configDirectory, ConfigLoader.ConfDirectory, "10-local.toml"), "[logging]\nlevel = \"Warning\"\n");
+        var config = ConfigLoader.Load(configDirectory, Path.Combine(root, "data"), environment: _ => null);
+        Assert.True(config.IsValid, string.Join("; ", config.Issues));
+        ServerSecrets.EnsureAndLoad(config);
+        return config;
+    }
+
+    private static SortedDictionary<string, string> ConfigSnapshot(string directory)
+    {
+        var files = new SortedDictionary<string, string>(StringComparer.Ordinal);
+        foreach (var path in Directory.GetFiles(directory, "*", SearchOption.AllDirectories))
+        {
+            files[Path.GetRelativePath(directory, path)] = Convert.ToBase64String(File.ReadAllBytes(path));
+        }
+
+        return files;
+    }
+
+    private static byte[] BuildArchive(params (string Name, byte[] Content)[] entries)
+    {
+        using var buffer = new MemoryStream();
+        using (var gzip = new GZipStream(buffer, CompressionLevel.Fastest, leaveOpen: true))
+        using (var tar = new TarWriter(gzip, TarEntryFormat.Pax, leaveOpen: true))
+        {
+            foreach (var (name, content) in entries)
+            {
+                tar.WriteEntry(new PaxTarEntry(TarEntryType.RegularFile, name) { DataStream = new MemoryStream(content) });
+            }
+        }
+
+        return buffer.ToArray();
+    }
+
+    private static Dictionary<string, byte[]> ReadArchive(byte[] archive)
+    {
+        var entries = new Dictionary<string, byte[]>(StringComparer.Ordinal);
+        using var gzip = new GZipStream(new MemoryStream(archive), CompressionMode.Decompress);
+        using var tar = new TarReader(gzip);
+        while (tar.GetNextEntry() is { } entry)
+        {
+            using var content = new MemoryStream();
+            entry.DataStream?.CopyTo(content);
+            entries.Add(entry.Name, content.ToArray());
+        }
+
+        return entries;
+    }
+
+    private static JsonElement Json(object value) => JsonSerializer.SerializeToElement(value);
+
+    private static FormUrlEncodedContent Form(params (string Key, string Value)[] values)
+        => new(values.Select(value => new KeyValuePair<string, string>(value.Key, value.Value)));
+
+    private static string Csrf(string html)
+    {
+        var token = Regex.Match(html, "name=\"__RequestVerificationToken\"[^>]*value=\"([^\"]+)\"");
+        Assert.True(token.Success, "Expected an antiforgery token in the Razor form.");
+        return WebUtility.HtmlDecode(token.Groups[1].Value);
+    }
+}
+
+public sealed class SqliteServerExportImportTests : ServerExportImportTests<SqliteHostFactory>
+{
+}
+
+public sealed class PostgresServerExportImportTests : ServerExportImportTests<PostgresHostFactory>
+{
+}

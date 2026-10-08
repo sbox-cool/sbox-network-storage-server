@@ -1,5 +1,6 @@
 @using SboxNetworkStorage.Server.Updates
 @using SboxNetworkStorage.Server.Hosting
+@using SboxNetworkStorage.Server.Owner
 @inject UpdateNoticeState Updates
 <!doctype html>
 <html lang="en">
@@ -20,6 +21,14 @@
     }
 </header>
 <main>
+    @if (OwnerTransport.IsInsecureRemote(Context))
+    {
+        <aside class="notice security" role="alert">
+            <strong>This panel is served over plain HTTP</strong>
+            <p>Passwords, login links and the session cookie travel unencrypted between you and this server. HTTPS is recommended: set <code>tls.mode = "acme"</code>, put a TLS reverse proxy in front, or reach the panel through an SSH tunnel.</p>
+            <a href="@OwnerTransport.HttpsDocsUrl" rel="noreferrer">How to enable HTTPS</a>
+        </aside>
+    }
     @if (User.Identity?.IsAuthenticated == true && Updates.Current is { UpdateAvailable: true } update)
     {
         <aside class="@(update.Latest.Security ? "notice security" : "notice")" role="status">

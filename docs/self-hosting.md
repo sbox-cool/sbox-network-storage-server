@@ -27,6 +27,11 @@ as command-line arguments. Password files are read relative to the current
 working directory, with a final newline removed. Passwords must be 12–1024
 characters. Setup retains an existing account rather than overwriting it.
 
+For a remote server, the simplest first login is `sbox-ns admin login-link`.
+Run it on the server and open the printed single-use link; with no owner yet,
+the link opens owner creation. See [admin panel](admin-panel.md) for how the
+link works, HTTPS, and the data browser.
+
 On startup without an owner, the server log contains a local `/setup?token=...`
 URL, using the HTTP listener with TLS off or the HTTPS listener when
 certificate/ACME TLS is enabled. This random one-time capability expires after
@@ -51,14 +56,18 @@ independent server instances/data directories is not supported.
 Runtime entry points:
 
 - `/login`: owner login, rate limited per client IP.
+- `/login/link`: single-use login links from `sbox-ns admin login-link`
+  (GET confirms, POST consumes), with the same rate limit.
 - `/dashboard`: list/create projects and view available update notices.
 - `/dashboard/projects/{projectId}`: project/security/player-key settings,
   create/enable/disable/revoke keys, synced collection/endpoint inventory, and
   confirmed permanent project deletion.
+- `/dashboard/projects/{projectId}/data`: read-only data browser with JSON
+  download per collection and confirmed, audited single-record deletion.
 - `POST /logout`: ends the current cookie session.
 
 All management mutations, login, setup and logout require ASP.NET antiforgery
-tokens. Owner cookies are HttpOnly, SameSite Strict and Secure on HTTPS; sessions
+tokens. Owner cookies are HttpOnly, SameSite Strict, and `__Host-` prefixed (Secure, no Domain) on HTTPS; sessions
 last eight hours without sliding renewal. Management pages are not cached and
 load an embedded external stylesheet, with no inline scripts or CSS. Use HTTPS
 for remote management; plain HTTP sends credentials in cleartext and should
@@ -76,12 +85,15 @@ sbox-ns admin reset-password --password-file /run/secrets/new-owner-password
 ```
 
 The dashboard reuses the extracted project/key/settings and audit services.
-The managed record browser/editors, query/workflow authoring, game-value editor,
+The managed record editors, query/workflow authoring, game-value editor,
 analytics/log/error/usage views and project export/import are **not ported**.
 Full dashboard parity and managed project export/import parity are **not
 established**. The existing editor and `/v3` management APIs are the resource
 entry points; `db backup/restore` is a whole-store recovery tool, not a substitute
 for managed project export/import.
+Moving the whole server to another machine or between SQLite and PostgreSQL
+is `sbox-ns export` / `sbox-ns import` (also **Export server** on the
+dashboard); see [export.md](export.md).
 
 
 ## Install

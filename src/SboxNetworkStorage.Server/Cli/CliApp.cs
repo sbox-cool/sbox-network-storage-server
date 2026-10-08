@@ -15,6 +15,13 @@ public static class CliApp
 
         Usage: sbox-ns <command> [options]
 
+        Get started
+          quickstart <name> [--public-url URL] [--json]
+                                        Configure (if needed), create the project and keys,
+                                        and print the line to add to your game. Safe to re-run.
+          mcp                           Serve the Model Context Protocol over stdio for coding agents
+                                        (e.g. command: ssh my-vps sbox-ns mcp)
+
         Server
           start                         Run the server in the foreground
           setup                         Create or update the config folder interactively
@@ -38,10 +45,17 @@ public static class CliApp
           db backup [--output FILE]     Back up the database
           db restore <FILE>             Restore a backup (stop the server first)
 
+        Export and import (move servers, switch SQLite <-> PostgreSQL; docs/export.md)
+          export [--out FILE] [--no-secrets]   Write the whole server (data + config) to one .tar.gz
+          import <FILE> [--config] [--force]   Restore an export into the configured database
+                                        (--config also restores config and secrets; --force merges into a non-empty database)
+
         Local owner
           admin create [--username NAME] [--password-file FILE]
           admin reset-password [--password-file FILE]
                                         Password input is hidden; NS_ADMIN_USERNAME / NS_ADMIN_PASSWORD also work
+          admin login-link [--minutes N]  Print a single-use owner login link (default 15, max 60 minutes);
+                                        creates the owner if none exists. Run on the server, e.g. over SSH
 
         Projects and API keys
           project create <name>         Create a project
@@ -84,8 +98,12 @@ public static class CliApp
                 "start" => await StartAsync(context),
                 "version" or "--version" => Version(),
                 "setup" => await SetupCommand.RunAsync(context),
+                "quickstart" => await QuickstartCommand.RunAsync(context),
+                "mcp" => await McpServer.RunStdioAsync(context),
                 "config" => ConfigCommands.Run(context),
                 "db" => await DatabaseCommands.RunAsync(context),
+                "export" => await ExportCommands.ExportAsync(context),
+                "import" => await ExportCommands.ImportAsync(context),
                 "admin" => await AdminCommands.RunAsync(context),
                 "project" => await ProjectCommands.RunProjectAsync(context),
                 "key" => await ProjectCommands.RunKeyAsync(context),

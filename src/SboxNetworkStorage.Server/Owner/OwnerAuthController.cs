@@ -1,4 +1,4 @@
-using System.Net;
+using System.Globalization;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
@@ -9,15 +9,20 @@ using SboxNetworkStorage.Server.Hosting;
 namespace SboxNetworkStorage.Server.Owner;
 
 public sealed record OwnerAuthModel(bool Setup, string? Token = null, string? Error = null, string? Username = null);
+public sealed record OwnerLoginLinkModel(string? Token, string? OwnerName, string? Error = null, string? Username = null)
+{
+    public bool CreatesOwner => Token is not null && OwnerName is null;
+}
 
 [EnableRateLimiting("owner-login")]
-public sealed class OwnerAuthController(OwnerAccountService accounts, OwnerSetupToken setupToken) : Controller
+public sealed class OwnerAuthController(OwnerAccountService accounts, OwnerSetupToken setupToken,
+    OwnerLoginLinkService loginLinks, ILogger<OwnerAuthController> logger) : Controller
 {
     [HttpGet("/login")]
     public async Task<IActionResult> Login(CancellationToken ct)
     {
         if (await accounts.GetAsync(ct) is null)
-            return View("~/Views/Owner/Auth.cshtml", new OwnerAuthModel(false, Error: "No owner exists yet. Use the local setup URL printed in the server log, or run sbox-ns admin create."));
+            return View("~/Views/Owner/Auth.cshtml", new OwnerAuthModel(false, Error: "No owner exists yet. On the server run sbox-ns admin login-link and open the printed link, or run sbox-ns admin create."));
         return View("~/Views/Owner/Auth.cshtml", new OwnerAuthModel(false));
     }
 
@@ -61,6 +66,49 @@ public sealed class OwnerAuthController(OwnerAccountService accounts, OwnerSetup
         }
     }
 
+    // GET never consumes the token, so link-preview bots and chat unfurlers cannot burn it.
+    [HttpGet("/login/link")]
+    public async Task<IActionResult> LoginLink([FromQuery] string? token, CancellationToken ct)
+    {
+        if (!await loginLinks.IsValidAsync(token, ct)) return LoginLinkRejected();
+        var owner = await accounts.GetAsync(ct);
+        return View(LoginLinkView, new OwnerLoginLinkModel(token, owner?.Username));
+    }
+
+    [HttpPost("/login/link")]
+    public async Task<IActionResult> LoginLink([FromForm] string? token, [FromForm] string? username,
+        [FromForm] string? password, [FromForm] string? confirmPassword, CancellationToken ct)
+    {
+        if (!await loginLinks.IsValidAsync(token, ct)) return LoginLinkRejected();
+        var owner = await accounts.GetAsync(ct);
+        if (owner is not null)
+        {
+            if (!await loginLinks.TryConsumeAsync(token, ct)) return LoginLinkRejected();
+        }
+        else
+        {
+            // Shell access proved authority, so this path may create the first owner remotely.
+            try
+            {
+                if (password != confirmPassword) throw new ArgumentException("Passwords do not match.");
+                OwnerAccountService.ValidateCredentials(username ?? string.Empty, password ?? string.Empty);
+                if (!await loginLinks.TryConsumeAsync(token, ct)) return LoginLinkRejected();
+                owner = await accounts.CreateAsync(username!, password!, ct);
+            }
+            catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
+            {
+                Response.StatusCode = StatusCodes.Status400BadRequest;
+                var stillValid = await loginLinks.IsValidAsync(token, ct);
+                return View(LoginLinkView, new OwnerLoginLinkModel(stillValid ? token : null, null,
+                    stillValid ? ex.Message : ex.Message + " This link has been used; run sbox-ns admin login-link again.", username));
+            }
+        }
+        logger.LogWarning("Owner '{Username}' signed in with a single-use login link from {RemoteAddress}.",
+            owner.Username, HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown");
+        await SignInAsync(owner);
+        return Redirect("/dashboard");
+    }
+
     [Authorize(AuthenticationSchemes = OwnerHostingExtensions.Scheme)]
     [HttpPost("/logout")]
     public async Task<IActionResult> Logout()
@@ -69,12 +117,21 @@ public sealed class OwnerAuthController(OwnerAccountService accounts, OwnerSetup
         return Redirect("/login");
     }
 
-    private bool IsLocal() => HttpContext.Connection.RemoteIpAddress is { } address && IPAddress.IsLoopback(address);
+    private const string LoginLinkView = "~/Views/Owner/LoginLink.cshtml";
+
+    private ViewResult LoginLinkRejected()
+    {
+        Response.StatusCode = StatusCodes.Status404NotFound;
+        return View(LoginLinkView, new OwnerLoginLinkModel(null, null,
+            "This login link is invalid, expired or already used. On the server run sbox-ns admin login-link for a new one."));
+    }
+
+    private bool IsLocal() => OwnerTransport.IsLoopback(HttpContext);
 
     private Task SignInAsync(OwnerAccount owner)
     {
         var identity = new ClaimsIdentity([
-            new Claim(ClaimTypes.NameIdentifier, NetworkStorageServices.LocalOwnerUserId.ToString(System.Globalization.CultureInfo.InvariantCulture)),
+            new Claim(ClaimTypes.NameIdentifier, NetworkStorageServices.LocalOwnerUserId.ToString(CultureInfo.InvariantCulture)),
             new Claim(ClaimTypes.Name, owner.Username),
             new Claim(OwnerHostingExtensions.StampClaim, owner.SecurityStamp)
         ], OwnerHostingExtensions.Scheme);

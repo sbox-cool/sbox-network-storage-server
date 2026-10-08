@@ -1,0 +1,34 @@
+@model SboxNetworkStorage.Server.Owner.OwnerDataModel
+@using SboxNetworkStorage.Server.Owner
+@{
+    Layout = "~/Views/Owner/_Layout.cshtml";
+    var projectUrl = "/dashboard/projects/" + Uri.EscapeDataString(Model.ProjectId);
+}
+<a href="@projectUrl">@Model.ProjectName</a>
+<h1>Data browser</h1>
+<p>Browse the records stored for project <code>@Model.ProjectId</code>. Record details offer confirmed deletion. Deleted (tombstoned) player records are not shown.</p>
+<section class="card">
+    <h2>Collections</h2>
+    @if (Model.Collections.Count == 0)
+    {
+        <p>No collections have been synced to this project yet.</p>
+    }
+    else
+    {
+        <div class="table-scroll"><table>
+            <thead><tr><th>Collection</th><th>Type</th><th>Records</th><th>Download</th></tr></thead>
+            <tbody>
+            @foreach (var collection in Model.Collections)
+            {
+                var url = OwnerDataController.CollectionUrl(Model.ProjectId, collection.Id);
+                <tr>
+                    <td><a href="@url">@collection.Name</a> <code>@collection.Id</code></td>
+                    <td>@collection.Kind</td>
+                    <td>@collection.RecordCount</td>
+                    <td><a href="@url/export" download>JSON</a></td>
+                </tr>
+            }
+            </tbody>
+        </table></div>
+    }
+</section>
