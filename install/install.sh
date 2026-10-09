@@ -249,7 +249,8 @@ secure_operator_config() {
 
 runtime_command() {
     if [ "$service_layout" -eq 1 ]; then
-        runuser -u "$SERVICE_USER" -- "$ns" "$@"
+        # The single-file binary unpacks itself on start; the service account cannot write root's HOME.
+        runuser -u "$SERVICE_USER" -- env "DOTNET_BUNDLE_EXTRACT_BASE_DIR=$data_dir/.net" "$ns" "$@"
     else
         "$ns" "$@"
     fi

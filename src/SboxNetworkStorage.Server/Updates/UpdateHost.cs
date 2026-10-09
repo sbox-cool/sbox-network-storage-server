@@ -103,7 +103,8 @@ public sealed class SystemUpdateHost : IUpdateHost
 
             if (!string.IsNullOrWhiteSpace(user.Output) && user.Output.Trim() != "root")
             {
-                return await RunAsync("runuser", ["-u", user.Output.Trim(), "--", binary, .. arguments], ct, TimeSpan.FromMinutes(20));
+                var extractDirectory = "DOTNET_BUNDLE_EXTRACT_BASE_DIR=" + Path.Combine(instance.Config.DataDirectory, ".net");
+                return await RunAsync("runuser", ["-u", user.Output.Trim(), "--", "env", extractDirectory, binary, .. arguments], ct, TimeSpan.FromMinutes(20));
             }
         }
 

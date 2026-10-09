@@ -18,6 +18,9 @@ internal static class RuntimeCommand
         start.ArgumentList.Add("-u");
         start.ArgumentList.Add(RuntimeIdentity.ServiceAccount);
         start.ArgumentList.Add("--");
+        // A single-file build unpacks itself on start; the service account cannot write the caller's HOME.
+        start.ArgumentList.Add("env");
+        start.ArgumentList.Add("DOTNET_BUNDLE_EXTRACT_BASE_DIR=" + Path.Combine(config.DataDirectory, ".net"));
         start.ArgumentList.Add(binary);
         for (var index = 0; index < arguments.Count; index++)
         {
