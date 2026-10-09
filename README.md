@@ -1,40 +1,61 @@
 # sbox Network Storage Server: open-source, self-hosted s&box game backend
 
-**No sboxcool signup. No payment to sboxcool. No mandatory telemetry, email
-registration or sharing of player data with sboxcool.** Run your own Network
-Storage backend with SQLite or PostgreSQL, keeping collections and runtime
-player records in the database you operate.
+**Your server. Your data. No sboxcool signup, payment, or mandatory telemetry.**
+One self-contained `sbox-ns` binary runs player saves, leaderboards, endpoints
+and workflows on your own machine or VPS, with SQLite or PostgreSQL.
 
-Use an existing server or a small Linux VPS, for example approximately **$5/month
-paid to your VPS provider**, not sboxcool. Prices and capacity vary by provider,
-hardware and game workload; this is not a guaranteed player count or performance
-claim. You operate hosting, backups, updates and access control.
+**Try it without installing:** explore the read-only
+[live demo](https://demo.sboxns.com) running generated sample data.
+No login needed; every change is disabled server-side.
 
-**sbox Network Storage Server** stores s&box player saves, inventories, stats,
-leaderboards and shared world data, and runs server-side endpoints and workflows.
-It is an open-source alternative to Firebase or PlayFab built for s&box games.
-Use the existing Network Storage library: change its project credentials and
-base URL, not your game's storage API calls.
+## Why self-host
+
+- **Stable address, movable server.** Opt in to a free `sboxns.com` name and
+  your game keeps one HTTPS URL while the server underneath can move: point
+  the name at a new IP and players reconnect with no game update. Use a
+  Cloudflare Tunnel when you have no open ports, signed DNS when you have a
+  public IP, or your own domain and certificate instead.
+- **Same game code.** The existing Network Storage library only needs your
+  project credentials and base URL. Secret keys stay in editor tooling and
+  trusted servers, never in published games.
+- **Owner dashboard, no hosted account.** Browse records, author collections
+  and endpoints, read analytics and logs, and export portable project
+  archives from `/dashboard` on your own server.
+
+## Gallery
+
+Real screenshots. The first two are the public
+[demo](https://demo.sboxns.com); the last two are an owner's own server.
+Click any thumbnail for the full image.
+
+| | |
+| --- | --- |
+| <a href="docs/images/demo-dashboard.png"><img src="docs/images/demo-dashboard.png" width="400" alt="Demo project dashboard"></a><br>**Project dashboard** with generated sample data | <a href="docs/images/demo-player-records.png"><img src="docs/images/demo-player-records.png" width="400" alt="Demo player records"></a><br>**Player records** with levels, coins and quests |
+| <a href="docs/images/owner-record-editor.png"><img src="docs/images/owner-record-editor.png" width="400" alt="Record editor"></a><br>**Record editor** with schema validation and conflict protection | <a href="docs/images/owner-resources.png"><img src="docs/images/owner-resources.png" width="400" alt="Endpoint authoring"></a><br>**Backend authoring** with the same compiler as editor sync |
 
 ## Quickstart: Linux VPS to s&box game
 
-### 1. Install the server, create a project and get HTTPS
-
-On your Linux VPS with systemd, run:
+On your Linux VPS with systemd, one command installs the server, creates
+**My Game** with API keys, gives it a free HTTPS name and starts the service.
+No open ports are needed for the tunnel path:
 
 ```sh
 curl -fsSL https://github.com/sbox-cool/sbox-network-storage-server/releases/latest/download/install.sh \
   | sudo env SBOX_NS_PROJECT="My Game" SBOX_NS_TUNNEL=1 sh
 ```
 
-The installer verifies the release checksum, installs the self-contained
-`sbox-ns` binary, configures SQLite, creates or reuses **My Game** with public
-and secret API keys, enables a stable **`https://<name>.sboxns.com`** address,
-and installs and starts the systemd service. Save the printed project ID,
-public key, editor secret key and `NetworkStorage.Configure(...)` line.
-A newly created secret key is shown only once; keep it private.
-Linux service configuration lives in `/etc/sbox-ns/`, with data in
-`/var/lib/sbox-ns/`.
+With a public IP and open ports 80/443, choose signed DNS instead: players
+connect straight to your server, and the name follows your IP when it moves.
+
+```sh
+curl -fsSL https://github.com/sbox-cool/sbox-network-storage-server/releases/latest/download/install.sh \
+  | sudo env SBOX_NS_PROJECT="My Game" SBOX_NS_DNS=1 \
+    SBOX_NS_ACME_EMAIL="you@example.com" SBOX_NS_ACCEPT_LETSENCRYPT_TERMS=1 sh
+```
+
+Save the printed project ID, public key, editor secret key and
+`NetworkStorage.Configure(...)` line. A new secret key is shown only once.
+Service files live in `/etc/sbox-ns/`, data in `/var/lib/sbox-ns/`.
 
 **The HTTPS tunnel is optional, and is explicitly enabled by this command.**
 It needs no domain purchase, sboxcool account or payment, but traffic passes
@@ -151,23 +172,11 @@ collection records, resource definitions and portable exports:
 
 ### Owner dashboard
 
-Real screenshots from a running server with isolated demonstration data.
-No sboxcool account, subscription or hosted dashboard is required.
-
-![Self-hosted owner workspace with two game projects](docs/images/owner-overview.png)
-
-**Edit player and global records.** Schema validation and atomic conflict checks
-prevent a stale owner form from overwriting a newer game save. Browse collections,
-create records, edit JSON or confirm a deletion.
-
-![Player save editor with live JSON data and conflict protection](docs/images/owner-record-editor.png)
-
-**Author your backend.** Manage collections, endpoints, workflows, queries and
-game values using the same compiler as editor sync. Source-backed YAML/JSON
-metadata is preserved. Analytics, audit/request logs, errors and usage show
-actual stored runtime data.
-
-![Endpoint authoring with a live player-read definition](docs/images/owner-resources.png)
+The local-owner dashboard at `/dashboard` manages projects, keys, settings,
+collection records, resource definitions and portable exports:
+[admin panel guide](docs/admin-panel.md), [backup/export guide](docs/export.md).
+For remote sign-in, run `sbox-ns admin login-link` on the server and open its
+single-use link over HTTPS or an SSH tunnel. `GET /health` reports health.
 
 **Move a project.** Download its private archive and import it on another
 self-hosted SQLite or PostgreSQL instance. The original project ID is retained;
@@ -185,7 +194,9 @@ and update your server base URL.
 - **Two databases:** zero-config SQLite or PostgreSQL with a dedicated schema.
 - **One binary:** server and operator CLI, self-contained release builds for
   Linux, macOS and Windows, plus a Docker image.
-- **No auto-update:** release notices do not install updates.
+- **Opt-in automatic updates:** off by default. `sbox-ns update` installs a
+  release manually; `update --auto` with a channel and UTC window enables
+  gated unattended updates with backup, health checks and rollback.
 - **Optional usage statistics:** off by default. If enabled, reports include a
   random statistics-only ID, platform/version, installation flags, uptime and
   aggregate project/player counts—not player records or database contents.
