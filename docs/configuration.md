@@ -197,6 +197,10 @@ acme_domain = ""
 acme_email = ""
 acme_accept_terms = false
 
+# Send Strict-Transport-Security on HTTPS responses when TLS is enabled.
+# Plain-HTTP installs never send it.
+hsts = true
+
 [logging]
 # Trace, Debug, Information, Warning, Error
 level = "Information"

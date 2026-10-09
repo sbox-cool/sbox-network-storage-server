@@ -85,6 +85,7 @@ public static class ServerHost
         RouteOwnershipBootstrap.Seed(app.Services.GetRequiredService<IRouteOwnershipRegistry>());
 
         app.UseForwardedHeaders();
+        app.UseMiddleware<HstsMiddleware>();
         app.UseMiddleware<RequestBodyBufferingMiddleware>(256 * 1024, 1126L * 1024 * 1024);
         app.UseMiddleware<CorrelationIdMiddleware>();
         app.UseMiddleware<ExceptionHandlingMiddleware>();
