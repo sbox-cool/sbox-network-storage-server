@@ -117,8 +117,8 @@
           "expect": {
             "status": 200,
             "equals": {
-              "$.ops[0].value": 25,
-              "$.ops[1].value": "Updated By Ops"
+              "$.gold": 275,
+              "$.playerName": "Updated By Ops"
             }
           }
         },

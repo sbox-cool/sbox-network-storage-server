@@ -456,8 +456,14 @@ public sealed partial class ManagementMutationCandidateHandler : INetworkStorage
             return ValidationFailedResult("rate-limit-rules", error);
         }
 
+        // The documented shape wraps the array ({rules: [...]}); the store and
+        // every reader expect the bare array. Normalize on write.
+        var rules = doc.RootElement;
+        if (rules.ValueKind == JsonValueKind.Object && rules.TryGetProperty("rules", out var nested)
+            && nested.ValueKind == JsonValueKind.Array)
+            rules = nested;
         var version = NextVersion();
-        await _store.UpsertRateLimitRulesAsync(projectId, doc.RootElement, version, request.CancellationToken);
+        await _store.UpsertRateLimitRulesAsync(projectId, rules, version, request.CancellationToken);
 
         return ProductionOkResult(new { ok = true, source = "candidate", resourceKind = "rate-limit-rules", action = "upsert" });
     }

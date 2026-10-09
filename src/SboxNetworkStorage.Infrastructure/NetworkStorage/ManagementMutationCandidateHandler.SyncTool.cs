@@ -57,9 +57,13 @@ public sealed partial class ManagementMutationCandidateHandler
             return PatchFailure(kind, null, ManagementMutationConstants.ValidationFailedCode, parseError);
         using (document)
         {
-            if (document.RootElement.ValueKind != JsonValueKind.Object
-                || !document.RootElement.TryGetProperty(kind, out var incoming)
-                || incoming.ValueKind != JsonValueKind.Object)
+            // The Sync Tool single-resource push sends the resource itself; bulk
+            // shapes may nest it under the kind. Accept both.
+            var incoming = document.RootElement;
+            if (incoming.ValueKind == JsonValueKind.Object && incoming.TryGetProperty(kind, out var nested)
+                && nested.ValueKind == JsonValueKind.Object && !incoming.TryGetProperty("id", out _))
+                incoming = nested;
+            if (incoming.ValueKind != JsonValueKind.Object)
                 return PatchFailure(kind, null, ManagementMutationConstants.ValidationFailedCode, $"Body must contain a {kind} object.");
 
             if (!NetworkStorageSourceResourceCompiler.TryCompile(incoming, kind, out var compiled, out var compileError))

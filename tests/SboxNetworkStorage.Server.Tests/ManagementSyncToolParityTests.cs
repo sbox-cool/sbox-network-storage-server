@@ -115,7 +115,7 @@ public sealed class ManagementSyncToolParityTests
         Assert.Equal(HttpStatusCode.OK, workflow.Status);
         Assert.Equal("setup", workflow.Body.GetProperty("resourceId").GetString());
 
-        var missing = await SendAsync(client, SyncTool(HttpMethod.Patch, p, "endpoints", project, """{"slug":"no_wrapper"}"""));
+        var missing = await SendAsync(client, SyncTool(HttpMethod.Patch, p, "endpoints", project, """{"foo":"bar"}"""));
         Assert.Equal(HttpStatusCode.BadRequest, missing.Status);
         Assert.Equal("VALIDATION_FAILED", missing.Body.GetProperty("error").GetString());
 
