@@ -31,10 +31,23 @@ public sealed class UpdateState(string root, FolderTrust trust)
     {
         if (!Directory.Exists(root))
         {
-            Directory.CreateDirectory(root, OperatingSystem.IsWindows() ? default : UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            CreatePrivateDirectory(root);
         }
 
         trust.Require(root, "update state folder");
+    }
+
+    // The overload that takes a Unix mode throws on Windows even for a default mode.
+    private static void CreatePrivateDirectory(string path)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            Directory.CreateDirectory(path);
+        }
+        else
+        {
+            Directory.CreateDirectory(path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
     }
 
     /// <summary>The recorded update of <paramref name="instanceName"/>, or null. Null as well when the folder is not readable by this user.</summary>
@@ -61,7 +74,7 @@ public sealed class UpdateState(string root, FolderTrust trust)
     {
         Ensure();
         var path = RecordPath(instanceName);
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!, OperatingSystem.IsWindows() ? default : UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        CreatePrivateDirectory(Path.GetDirectoryName(path)!);
         ConfigFiles.WriteAtomically(path, JsonSerializer.Serialize(record, WriteOptions));
     }
 

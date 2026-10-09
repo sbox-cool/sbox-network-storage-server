@@ -21,11 +21,13 @@ jobs:
       - name: Publish native service binary
         run: dotnet publish src/SboxNetworkStorage.Server -c Release -r linux-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o "$RUNNER_TEMP/server"
       - name: Install and exercise rendered units
+        env:
+          DOTNET_BUNDLE_EXTRACT_BASE_DIR: /var/tmp/sbox-ns-extract
         run: |
           sudo systemd-sysusers "$PWD/install/sbox-ns.sysusers.conf"
           sudo install -m 0755 "$RUNNER_TEMP/server/sbox-ns" /usr/local/bin/sbox-ns
-          sudo sbox-ns setup --non-interactive --database sqlite --listen 127.0.0.1:8080
-          sudo sbox-ns service install
+          sudo -E sbox-ns setup --non-interactive --database sqlite --listen 127.0.0.1:8080
+          sudo -E sbox-ns service install
           sudo systemd-analyze verify /etc/systemd/system/sbox-ns.service
           sudo systemd-analyze security --offline=yes --threshold=2.0 /etc/systemd/system/sbox-ns.service
           sudo systemctl start sbox-ns
