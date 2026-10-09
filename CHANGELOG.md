@@ -20,9 +20,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   unauthenticated requests do not generate usage rows.
 
 ### Changed
-- 0.6.0 runtime: .NET 10, a non-root chiseled container, signed release manifests,
+- 0.5.1 runtime: .NET 10, a non-root chiseled container, signed release manifests,
   CycloneDX SBOMs and release provenance verification.
-- 0.7.0 data plane: cached project metadata, bounded batched analytics, atomic
+- 0.5.2 data plane: cached project metadata, bounded batched analytics, atomic
   endpoint writes and SQLite indexes; request and error logs retain events that
   share a timestamp. Analytics retention defaults to 90 days.
 - Built-in legacy player repair and leaderboard projections are opt-in for new
