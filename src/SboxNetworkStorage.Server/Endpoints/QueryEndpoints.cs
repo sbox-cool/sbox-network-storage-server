@@ -5,24 +5,24 @@ using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using SboxNetworkStorage.Domain.Workspace;
 using SboxNetworkStorage.Application.NetworkStorage;
-using SboxNetworkStorage.Contracts.Diagnostics;
 using SboxNetworkStorage.Infrastructure.NetworkStorage.Storage;
-using SboxNetworkStorage.Server.Routing;
+using SboxNetworkStorage.Server.Middleware;
+
 
 namespace SboxNetworkStorage.Server.Endpoints;
 
 /// <summary>
-/// Native .NET Network Storage query API endpoints — the cutover of the Bun
+/// Native .NET Network Storage query API endpoints — the cutover of the legacy server
 /// <c>controllers/queries-controller.js</c> <c>routeQueryApi</c> handler to
 /// ASP.NET Core. Serves <c>GET /v3/queries/{projectId}/{queryId}</c> (and the
 /// <c>/v1</c> + <c>/api/storage</c> aliases) directly via
-/// <see cref="NativeQueryExecutor"/> over ScyllaDB, so query traffic no longer
-/// proxies to the legacy Bun storage runtime.
+/// <see cref="NativeQueryExecutor"/> over the store, so query traffic no longer
+/// proxies to the legacy server storage runtime.
 ///
-/// <para>Wire-contract parity with Bun: success responses are HTTP 200 with
+/// <para>Wire-contract parity with legacy server: success responses are HTTP 200 with
 /// <c>{ ok, query, queryId, queryName, generatedAt, lastran, ttl, updatedAt,
 /// ...resultFields }</c>; errors use HTTP status codes + <c>{ error: { code,
-/// message } }</c> matching the Bun handler exactly.</para>
+/// message } }</c> matching the legacy server handler exactly.</para>
 /// </summary>
 public static class QueryEndpoints
 {
@@ -42,14 +42,12 @@ public static class QueryEndpoints
         foreach (var prefix in V3V1Prefixes)
         {
             endpoints.MapGet($"{prefix}/{{projectId}}/{{queryId}}", ExecuteQueryAsync)
-                .WithDisplayName($"Network Storage query API ({prefix})")
-                .WithRouteOwner(RouteOwner.DotNetNative, "ASP.NET Core native Network Storage query execution (no Bun proxy)");
+                .WithDisplayName($"Network Storage query API ({prefix})");
         }
 
         // /api/storage/{projectId}/queries/{queryId} alias
         endpoints.MapGet("/api/storage/{projectId}/queries/{queryId}", ExecuteQueryAsync)
-            .WithDisplayName("Network Storage query API (api/storage alias)")
-            .WithRouteOwner(RouteOwner.DotNetNative, "ASP.NET Core native Network Storage query execution via /api/storage alias (no Bun proxy)");
+            .WithDisplayName("Network Storage query API (api/storage alias)");
 
         return endpoints;
     }
@@ -85,6 +83,8 @@ public static class QueryEndpoints
             return;
         }
 
+        NetworkStorageUsageContext.SetAuthenticated(context, projectId);
+
         if (!access.Project.Enabled)
         {
             await QueryErrorAsync(context, requestId, StatusCodes.Status403Forbidden, "DISABLED", "Project disabled.");
@@ -102,9 +102,9 @@ public static class QueryEndpoints
             return;
         }
 
-        // ── Read the query definition from ScyllaDB ──
-        var scyllaStore = context.RequestServices.GetRequiredService<INetworkStorageStore>();
-        var queryRow = await scyllaStore.ReadQueryAsync(projectId, queryId, context.RequestAborted);
+        // ── Read the query definition from the store ──
+        var networkStore = context.RequestServices.GetRequiredService<INetworkStorageStore>();
+        var queryRow = await networkStore.ReadQueryAsync(projectId, queryId, context.RequestAborted);
         if (!queryRow.HasValue)
         {
             await QueryErrorAsync(context, requestId, StatusCodes.Status404NotFound, "NOT_FOUND", "Query not found.");
@@ -162,7 +162,7 @@ public static class QueryEndpoints
 
         if (result is null)
         {
-            // Query not found in ScyllaDB (definition_json missing or empty).
+            // Query not found in the store (definition_json missing or empty).
             await QueryErrorAsync(context, requestId, StatusCodes.Status404NotFound, "NOT_FOUND", "Query not found.");
             return;
         }
@@ -201,7 +201,6 @@ public static class QueryEndpoints
             context.Response.Headers["Cache-Control"] = "no-store, max-age=0";
         }
 
-        context.Response.Headers["X-Sboxcool-Route-Owner"] = RouteOwner.DotNetNative.ToDisplayName();
         context.Response.StatusCode = StatusCodes.Status200OK;
         context.Response.ContentType = "application/json; charset=utf-8";
         await context.Response.WriteAsJsonAsync(body, JsonOptions, context.RequestAborted);
@@ -329,7 +328,6 @@ public static class QueryEndpoints
 
     private static async Task QueryErrorAsync(HttpContext context, string requestId, int status, string code, string message)
     {
-        context.Response.Headers["X-Sboxcool-Route-Owner"] = RouteOwner.DotNetNative.ToDisplayName();
         context.Response.StatusCode = status;
         context.Response.ContentType = "application/json; charset=utf-8";
         await context.Response.WriteAsJsonAsync(new
@@ -375,3 +373,4 @@ public static class QueryEndpoints
         public string? Code => Source == "SECRET_KEY_INVALID" ? "SECRET_KEY_INVALID" : null;
     }
 }
+

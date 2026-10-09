@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Microsoft.Extensions.Caching.Memory;
 using SboxNetworkStorage.Application.NetworkStorage;
 using SboxNetworkStorage.Domain.Workspace;
 using SboxNetworkStorage.Infrastructure.NetworkStorage;
@@ -9,7 +10,7 @@ namespace SboxNetworkStorage.Server.Tests;
 /// <summary>
 /// The stats heartbeat is a ~2s-interval best-effort presence ping. A slow or
 /// unavailable store must never hold the worker or emit a 500 (the source of the
-/// <c>POST /v3/storage/*/stats/heartbeat</c> 15s Bunny-write TaskCanceledException).
+/// <c>POST /v3/storage/*/stats/heartbeat</c> 15s workspace-write TaskCanceledException).
 /// </summary>
 public sealed class NativeStatsHeartbeatHandlerTests
 {
@@ -18,12 +19,37 @@ public sealed class NativeStatsHeartbeatHandlerTests
     private const string SteamId = "76561198000000000";
 
     private static NativeStatsHeartbeatHandler Handler(INetworkStorageDataPlane dataPlane, IPlayerAnalyticsService? analytics = null) =>
-        new(new FakeResolver(ApiKey, ProjectId), dataPlane, analytics ?? new CapturingAnalyticsService());
+        Handler(dataPlane, analytics, new HeartbeatFailureThrottle(Bounded(), TimeProvider.System));
+
+    private static NativeStatsHeartbeatHandler Handler(
+        INetworkStorageDataPlane dataPlane, IPlayerAnalyticsService? analytics, HeartbeatFailureThrottle throttle) =>
+        new(new FakeResolver(ApiKey, ProjectId), dataPlane, analytics ?? new CapturingAnalyticsService(),
+            throttle, new HeartbeatAnalyticsGate(Bounded()));
+
+    private static MemoryCache Bounded() => new(new MemoryCacheOptions { SizeLimit = 100 });
+
+    [Fact]
+    public async Task RotatingSteamIds_WithAWrongKey_ShareOneThrottleBucket()
+    {
+        var handler = Handler(new FakeDataPlane(), null, new HeartbeatFailureThrottle(Bounded(), TimeProvider.System));
+        for (var i = 0; i < 30; i++)
+        {
+            var failed = await handler.RunAsync(ProjectId, "wrong-key", $"7656119800000{i:D4}", null, CancellationToken.None, clientIp: "203.0.113.9");
+            Assert.Equal(401, failed.StatusCode);
+        }
+
+        var blocked = await handler.RunAsync(ProjectId, "wrong-key", "76561198999999999", null, CancellationToken.None, clientIp: "203.0.113.9");
+        Assert.Equal(429, blocked.StatusCode);
+
+        // Another address, and a correct key from the blocked address's project, are judged separately.
+        var otherIp = await handler.RunAsync(ProjectId, ApiKey, SteamId, null, CancellationToken.None, clientIp: "203.0.113.10");
+        Assert.Equal(200, otherIp.StatusCode);
+    }
 
     [Fact]
     public async Task SuccessfulWrite_ReturnsPersistedTrue()
     {
-        var result = await Handler(new FakeDataPlane()).ExecuteAsync(ProjectId, ApiKey, SteamId, null, CancellationToken.None);
+        var result = await Handler(new FakeDataPlane()).RunAsync(ProjectId, ApiKey, SteamId, null, CancellationToken.None);
 
         Assert.Equal(200, result.StatusCode);
         var json = JsonSerializer.SerializeToElement(result.Body);
@@ -34,7 +60,7 @@ public sealed class NativeStatsHeartbeatHandlerTests
     [Fact]
     public async Task StoreWriteFailure_DegradesToSoftOkNot500()
     {
-        var result = await Handler(new FakeDataPlane(throwOnWrite: true)).ExecuteAsync(ProjectId, ApiKey, SteamId, null, CancellationToken.None);
+        var result = await Handler(new FakeDataPlane(throwOnWrite: true)).RunAsync(ProjectId, ApiKey, SteamId, null, CancellationToken.None);
 
         // Best-effort: a store failure must NOT become a 500; it returns a fast soft-ok.
         Assert.Equal(200, result.StatusCode);
@@ -46,28 +72,28 @@ public sealed class NativeStatsHeartbeatHandlerTests
     [Fact]
     public async Task MissingApiKey_Returns401()
     {
-        var result = await Handler(new FakeDataPlane()).ExecuteAsync(ProjectId, null, SteamId, null, CancellationToken.None);
+        var result = await Handler(new FakeDataPlane()).RunAsync(ProjectId, null, SteamId, null, CancellationToken.None);
         Assert.Equal(401, result.StatusCode);
     }
 
     [Fact]
     public async Task MissingSteamId_Returns400()
     {
-        var result = await Handler(new FakeDataPlane()).ExecuteAsync(ProjectId, ApiKey, null, null, CancellationToken.None);
+        var result = await Handler(new FakeDataPlane()).RunAsync(ProjectId, ApiKey, null, null, CancellationToken.None);
         Assert.Equal(400, result.StatusCode);
     }
 
     [Fact]
-    public async Task Heartbeat_RecordKey_PassesScyllaValidation_AndPersists()
+    public async Task Heartbeat_RecordKey_PassesStoreValidation_AndPersists()
     {
         // Regression (2026-06-21): the handler keyed the player-stats record as
-        // "{steamId}.json" (a Bunny-era filename). After the ScyllaDB cutover the
+        // "{steamId}.json" (a workspace-era filename). After the store cutover the
         // data plane rejects any record key containing '.', so every heartbeat
         // read+write threw ArgumentException and the handler returned
         // persisted:false — silently freezing player-stats. The no-op FakeDataPlane
-        // hid this; ValidatingDataPlane mirrors ScyllaDbResourceStore.ValidateRecordKey.
+        // hid this; ValidatingDataPlane mirrors INetworkStorageStore.ValidateRecordKey.
         var plane = new ValidatingDataPlane();
-        var result = await Handler(plane).ExecuteAsync(ProjectId, ApiKey, SteamId, null, CancellationToken.None);
+        var result = await Handler(plane).RunAsync(ProjectId, ApiKey, SteamId, null, CancellationToken.None);
 
         var json = JsonSerializer.SerializeToElement(result.Body);
         Assert.True(
@@ -84,7 +110,7 @@ public sealed class NativeStatsHeartbeatHandlerTests
         // (IngestAsync gates on non-empty sessionId) and session rows went stale.
         // Fix: the handler synthesizes "hb:{steamId}" so heartbeats reattach.
         var analytics = new CapturingAnalyticsService();
-        await Handler(new FakeDataPlane(), analytics).ExecuteAsync(ProjectId, ApiKey, SteamId, null, CancellationToken.None);
+        await Handler(new FakeDataPlane(), analytics).RunAsync(ProjectId, ApiKey, SteamId, null, CancellationToken.None);
 
         Assert.Single(analytics.EndpointEvents);
         var evt = analytics.EndpointEvents[0];
@@ -104,7 +130,7 @@ public sealed class NativeStatsHeartbeatHandlerTests
         // session and playtime is accurate.
         var analytics = new CapturingAnalyticsService();
         var body = JsonSerializer.SerializeToElement(new { steamId = SteamId, sessionId = "sess-abc", sessionSeconds = 152909.5, @event = "heartbeat" });
-        await Handler(new FakeDataPlane(), analytics).ExecuteAsync(ProjectId, ApiKey, SteamId, body, CancellationToken.None);
+        await Handler(new FakeDataPlane(), analytics).RunAsync(ProjectId, ApiKey, SteamId, body, CancellationToken.None);
 
         var evt = Assert.Single(analytics.EndpointEvents);
         Assert.Equal("session.heartbeat", evt.EventType);
@@ -122,7 +148,7 @@ public sealed class NativeStatsHeartbeatHandlerTests
     {
         // fire-and-forget analytics write. The 200 response flushed and the
         // request completed immediately, RequestAborted fired, and the in-flight
-        // ScyllaDB write was cancelled before it committed. Over an hour of 30s
+        // The store write was cancelled before it committed. Over an hour of 30s
         // heartbeats, only the ones that completed fast enough landed; the rest
         // silently vanished — which is why the dashboard showed "last event 1h
         // ago" despite the client sending heartbeats continuously. The fix uses
@@ -135,7 +161,7 @@ public sealed class NativeStatsHeartbeatHandlerTests
         // CancellationToken is cancelled (as ASP.NET Core does when the response
         // completes and the request is torn down).
         using var requestCts = new CancellationTokenSource();
-        var result = await handler.ExecuteAsync(ProjectId, ApiKey, SteamId, null, requestCts.Token);
+        var result = await handler.RunAsync(ProjectId, ApiKey, SteamId, null, requestCts.Token);
         Assert.Equal(200, result.StatusCode);
         // Cancel the request token the moment the handler returns, exactly as
         // the framework does when the response is flushed.
@@ -169,7 +195,7 @@ public sealed class NativeStatsHeartbeatHandlerTests
             CancellationToken cancellationToken)
         {
             // First call is the join? No — handler emits heartbeat by default.
-            // Simulate a ScyllaDB round-trip that takes longer than the
+            // Simulate a store round-trip that takes longer than the
             // request lifetime (the realistic cause of the cancellation).
             Token = cancellationToken;
             EventType = eventType;
@@ -186,7 +212,7 @@ public sealed class NativeStatsHeartbeatHandlerTests
     {
         var analytics = new CapturingAnalyticsService();
         var body = JsonSerializer.SerializeToElement(new { steamId = SteamId, sessionId = "sess-join", @event = "join" });
-        await Handler(new FakeDataPlane(), analytics).ExecuteAsync(ProjectId, ApiKey, SteamId, body, CancellationToken.None);
+        await Handler(new FakeDataPlane(), analytics).RunAsync(ProjectId, ApiKey, SteamId, body, CancellationToken.None);
 
         var evt = Assert.Single(analytics.EndpointEvents);
         Assert.Equal("session.join", evt.EventType);
@@ -203,7 +229,7 @@ public sealed class NativeStatsHeartbeatHandlerTests
         // fps:60 must be forwarded (normalized to { average }); an object passes through.
         var analytics = new CapturingAnalyticsService();
         var body = JsonSerializer.SerializeToElement(new { steamId = SteamId, sessionId = "s", @event = "heartbeat", fps = 60 });
-        await Handler(new FakeDataPlane(), analytics).ExecuteAsync(ProjectId, ApiKey, SteamId, body, CancellationToken.None);
+        await Handler(new FakeDataPlane(), analytics).RunAsync(ProjectId, ApiKey, SteamId, body, CancellationToken.None);
 
         var evt = Assert.Single(analytics.EndpointEvents);
         Assert.NotNull(evt.Payload);
@@ -232,10 +258,10 @@ public sealed class NativeStatsHeartbeatHandlerTests
             => Task.CompletedTask;
     }
 
-    // Mirrors ScyllaDbResourceStore.ValidateRecordKey: the production data plane
+    // Mirrors INetworkStorageStore.ValidateRecordKey: the production data plane
     // throws on any record key outside ^[a-zA-Z0-9_:-]{1,256}$. The no-op
     // FakeDataPlane accepts every key and so hides record-key regressions; this
-    // one surfaces them the way real ScyllaDB does.
+    // one surfaces them the way real store does.
     private sealed class ValidatingDataPlane : INetworkStorageDataPlane
     {
         private static readonly System.Text.RegularExpressions.Regex RecordKeyPattern =
@@ -289,4 +315,18 @@ public sealed class NativeStatsHeartbeatHandlerTests
     public sealed record EndpointEventRecord(
         string ProjectId, string SteamId, string EndpointSlug,
         string EventType, IReadOnlyDictionary<string, object>? Payload);
+}
+
+internal static class HeartbeatHandlerTestExtensions
+{
+    /// <summary>Authenticates from the key, then runs the heartbeat, as the endpoint does.</summary>
+    public static async Task<NativeHeartbeatResult> RunAsync(
+        this NativeStatsHeartbeatHandler handler, string projectId, string? apiKey, string? steamId,
+        JsonElement? body, CancellationToken ct, string clientIp = "198.51.100.1")
+    {
+        var authentication = await handler.AuthenticateAsync(projectId, apiKey, clientIp, ct);
+        return authentication.Auth is { } auth
+            ? await handler.ExecuteAsync(projectId, auth, steamId, body, ct)
+            : authentication.Rejection!;
+    }
 }

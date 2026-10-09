@@ -39,8 +39,14 @@ public sealed class TunnelOperatingSystemTests
             Configure(configDirectory);
             foreach (var path in Directory.EnumerateFiles(configDirectory))
                 File.SetUnixFileMode(path, PrivateFile | UnixFileMode.GroupRead | UnixFileMode.OtherRead);
-            File.SetUnixFileMode(Path.Combine(configDirectory, ConfigLoader.ConfDirectory), PrivateDirectory);
-            foreach (var directory in new[] { configDirectory, dataDirectory })
+            // Like the installed layout: operator folders are root-owned and readable by the service group.
+            var confDirectory = Path.Combine(configDirectory, ConfigLoader.ConfDirectory);
+            File.SetUnixFileMode(confDirectory, PrivateDirectory | UnixFileMode.GroupRead | UnixFileMode.GroupExecute);
+            await RunAsync("/usr/bin/chown", ["--", "0:" + gid, confDirectory]);
+            // Runtime state lives in the data folder's state folder, which belongs to the service account.
+            var stateDirectory = Path.Combine(dataDirectory, StateLayout.FolderName);
+            Directory.CreateDirectory(stateDirectory);
+            foreach (var directory in new[] { configDirectory, dataDirectory, stateDirectory })
             {
                 File.SetUnixFileMode(directory, PrivateDirectory);
                 await RunAsync("/usr/bin/chown", ["--", uid + ":" + gid, directory]);
@@ -77,13 +83,15 @@ public sealed class TunnelOperatingSystemTests
                     }, TimeSpan.FromMinutes(2));
                 Assert.Matches(@"Passed:\s+1\b", childResult);
                 Assert.Equal(originalName, Load(configDirectory, dataDirectory).GetString("tunnel.name"));
-                // Both UID and GID must be preserved, not merely permissions widened.
+                // Everything the root-run command created belongs to the service account (both UID and GID),
+                // and nothing was written into the config folder.
                 foreach (var path in new[]
                 {
-                    configDirectory, Path.Combine(configDirectory, ".tunnel.lock"),
-                    Path.Combine(configDirectory, "secrets"), TunnelManager.IdentityPath(enabled), TunnelManager.TokenPath(enabled),
-                    Path.Combine(configDirectory, "connectors"), Path.GetDirectoryName(CloudflaredInstaller.ExecutablePath(configDirectory))!,
-                    CloudflaredInstaller.ExecutablePath(configDirectory), Path.Combine(configDirectory, ConfigLoader.ConfDirectory)
+                    enabled.StateDirectory, Path.Combine(enabled.StateDirectory, StateLayout.TunnelLockFile),
+                    enabled.SecretsDirectory, TunnelManager.IdentityPath(enabled), TunnelManager.TokenPath(enabled),
+                    enabled.ExecutablesDirectory, Path.GetDirectoryName(CloudflaredInstaller.ExecutablePath(enabled.ExecutablesDirectory))!,
+                    CloudflaredInstaller.ExecutablePath(enabled.ExecutablesDirectory), enabled.OverlayDirectory,
+                    Path.Combine(enabled.OverlayDirectory, TunnelManager.ManagedFile)
                 })
                     Assert.Equal(uid + ":" + gid, (await RunAsync("/usr/bin/stat", ["--format=%u:%g", "--", path])).Trim());
             }
@@ -110,8 +118,8 @@ public sealed class TunnelOperatingSystemTests
         Assert.Equal("test-token", File.ReadAllText(TunnelManager.TokenPath(enabled)));
         Assert.Equal(PrivateFile, File.GetUnixFileMode(TunnelManager.IdentityPath(enabled)));
         Assert.Equal(PrivateFile, File.GetUnixFileMode(TunnelManager.TokenPath(enabled)));
-        Assert.Equal(PrivateDirectory, File.GetUnixFileMode(Path.Combine(configDirectory, "secrets")));
-        await RunAsync(CloudflaredInstaller.ExecutablePath(configDirectory), []);
+        Assert.Equal(PrivateDirectory, File.GetUnixFileMode(enabled.SecretsDirectory));
+        await RunAsync(CloudflaredInstaller.ExecutablePath(enabled.ExecutablesDirectory), []);
 
         using var registryHttp = new HttpClient(new TunnelLifecycleTests.RegistryHandler());
         using var downloads = new HttpClient(new CloudflaredInstallerTests.BytesHandler(File.ReadAllBytes("/bin/true")));
@@ -120,7 +128,7 @@ public sealed class TunnelOperatingSystemTests
         Assert.True(reenabled.GetBoolean("tunnel.enabled"));
         Assert.Equal(expectedName, reenabled.GetString("tunnel.name"));
         Assert.Equal("test-token", File.ReadAllText(TunnelManager.TokenPath(reenabled)));
-        await RunAsync(CloudflaredInstaller.ExecutablePath(configDirectory), []);
+        await RunAsync(CloudflaredInstaller.ExecutablePath(reenabled.ExecutablesDirectory), []);
     }
 
     [UnixFact]

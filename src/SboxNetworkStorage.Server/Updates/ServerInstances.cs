@@ -42,6 +42,12 @@ public static partial class ServerInstances
 
     public static string DataDirectory(string dataRoot, string name) => Path.Combine(dataRoot, name);
 
+    /// <summary>The registered instance whose config folder is <paramref name="config"/>'s, otherwise the default instance.</summary>
+    public static ServerInstance ForConfig(EffectiveConfig config)
+        => (OperatingSystem.IsLinux() ? Enumerate() : [])
+            .FirstOrDefault(i => string.Equals(i.Config.ConfigDirectory, config.ConfigDirectory, StringComparison.Ordinal))
+            ?? new ServerInstance(ServerInstance.DefaultName, DefaultUnit, config);
+
     /// <summary>Enumerates instances under the given roots, sorted with the default instance first.</summary>
     public static IReadOnlyList<ServerInstance> Enumerate(string configRoot = ConfigPaths.LinuxServiceConfigDir,
         string dataRoot = ConfigPaths.LinuxServiceDataDir, Func<string, string?>? environment = null)

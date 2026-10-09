@@ -11,7 +11,7 @@ namespace SboxNetworkStorage.Infrastructure.NetworkStorage.Import;
 /// what already exists in the target, it (a) produces the preview conflict report
 /// and (b) resolves the export into an ordered list of write actions, applying
 /// per-resource resolution and id remapping. All decision-making lives here so it
-/// is unit-testable without a ScyllaDB cluster; the Scylla service only does I/O.
+/// is unit-testable without a store cluster; the store service only does I/O.
 /// </summary>
 internal static class ProjectImportPlanner
 {

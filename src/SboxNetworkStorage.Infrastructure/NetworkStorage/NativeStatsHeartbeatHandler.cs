@@ -1,45 +1,56 @@
-using System.Collections.Concurrent;
 using System.Text.Json;
 using SboxNetworkStorage.Application.NetworkStorage;
+using SboxNetworkStorage.Domain.Workspace;
 
 namespace SboxNetworkStorage.Infrastructure.NetworkStorage;
 
 /// <summary>
 /// Native heartbeat handler that writes player-stats through the
 /// <see cref="INetworkStorageDataPlane"/> and emits a session.heartbeat analytics
-/// event so the Game Analytics dashboard reflects live presence. When ScyllaDB
-/// is primary, writes are ScyllaDB-authoritative (fail-closed) with Bunny
-/// fallback on read miss; when not primary, the legacy Bunny data plane is used
-/// unchanged. Serves <c>POST /v3/storage/:projectId/stats/heartbeat</c>.
+/// event so the Game Analytics dashboard reflects live presence. Writes are
+/// store-authoritative (fail-closed) with workspace fallback on read miss.
+/// Serves <c>POST /v3/storage/:projectId/stats/heartbeat</c>.
 /// </summary>
 public sealed class NativeStatsHeartbeatHandler(
     IStorageApiKeyResolver apiKeyResolver,
     INetworkStorageDataPlane dataPlane,
-    IPlayerAnalyticsService analytics)
+    IPlayerAnalyticsService analytics,
+    HeartbeatFailureThrottle failureThrottle,
+    HeartbeatAnalyticsGate analyticsGate)
 {
     /// <summary>Collection ID for player-stats records in the data plane.</summary>
     private const string StatsCollectionId = "player-stats";
 
     /// <summary>
-    /// Analytics events are throttled to one flush per player per 10 seconds.
-    /// The game client sends heartbeats every ~2s; flushing an analytics event
-    /// on every heartbeat would write 30 events/minute/player to ScyllaDB
-    /// unnecessarily. The dashboard's <c>OnlineStaleSeconds</c> window is 60s,
-    /// so a 10s flush interval keeps presence fresh without flooding.
+    /// Validates the API key from the request headers before the body is read.
+    /// Failed attempts are counted per (client IP, project) and blocked once the
+    /// shared throttle trips, whatever Steam id the caller claims.
     /// </summary>
-    private static readonly TimeSpan AnalyticsFlushInterval = TimeSpan.FromSeconds(10);
-    private readonly ConcurrentDictionary<string, long> _lastAnalyticsFlushPerSteam = new();
-
-    public async Task<NativeHeartbeatResult> ExecuteAsync(
-        string projectId, string? apiKey, string? steamId, JsonElement? body, CancellationToken ct)
+    public async Task<HeartbeatAuthentication> AuthenticateAsync(
+        string projectId, string? apiKey, string clientIp, CancellationToken ct)
     {
+        if (failureThrottle.IsBlocked(clientIp, projectId))
+            return HeartbeatAuthentication.Reject(429, "RATE_LIMITED", "Too many failed attempts. Try again later.");
+
         if (string.IsNullOrEmpty(apiKey))
-            return new NativeHeartbeatResult(401, new { error = new { code = "UNAUTHORIZED", message = "Missing apiKey" } });
+        {
+            failureThrottle.RecordFailure(clientIp, projectId);
+            return HeartbeatAuthentication.Reject(401, "UNAUTHORIZED", "Missing apiKey");
+        }
 
         var auth = await apiKeyResolver.ResolveApiKeyAsync(apiKey, projectId, ct);
         if (auth is null || !auth.Enabled)
-            return new NativeHeartbeatResult(401, new { error = new { code = "UNAUTHORIZED", message = "Invalid or disabled API key" } });
+        {
+            failureThrottle.RecordFailure(clientIp, projectId);
+            return HeartbeatAuthentication.Reject(401, "UNAUTHORIZED", "Invalid or disabled API key");
+        }
 
+        return new HeartbeatAuthentication(auth, null);
+    }
+
+    public async Task<NativeHeartbeatResult> ExecuteAsync(
+        string projectId, StorageApiKeyAuthResult auth, string? steamId, JsonElement? body, CancellationToken ct)
+    {
         // Resolve steamId from body if not in query
         if (string.IsNullOrEmpty(steamId) && body is { ValueKind: JsonValueKind.Object } b)
         {
@@ -56,11 +67,11 @@ public sealed class NativeStatsHeartbeatHandler(
         // must never hold the request or surface a 500, so bound it tightly and
         // degrade to a soft response when the store is slow or unavailable.
         //
-        // The record key is the bare steamId. It MUST satisfy the ScyllaDB
+        // The record key is the bare steamId. It MUST satisfy the store
         // record-key grammar (^[a-zA-Z0-9_:-]{1,256}$, see
-        // ScyllaDbResourceStore.ValidateRecordKey) — no '.' is allowed. The
-        // legacy Bunny-era "{steamId}.json" filename carries a '.', so once
-        // ScyllaDB became the primary data plane every heartbeat read+write threw
+        // INetworkStorageStore.ValidateRecordKey) — no '.' is allowed. The
+        // legacy workspace-era "{steamId}.json" filename carries a '.', so with the
+        // store as the data plane every heartbeat read+write would throw
         // ArgumentException: the read missed (playtime reset to 2s) and the write
         // failed (persisted:false), silently freezing player-stats. Bare steamId
         // matches the key convention every other collection's records use.
@@ -74,8 +85,8 @@ public sealed class NativeStatsHeartbeatHandler(
         var persisted = false;
         try
         {
-            // Read existing stats through the data plane (ScyllaDB-first with
-            // Bunny fallback when primary, or Bunny-only when not primary).
+            // Read existing stats through the data plane (store-first with
+            // workspace fallback).
             JsonElement? existing = null;
             try
             {
@@ -120,7 +131,7 @@ public sealed class NativeStatsHeartbeatHandler(
             }
             merged["totalSeconds"] = totalSeconds;
 
-            // Write through the data plane (ScyllaDB-authoritative when primary,
+            // Write through the data plane (store-authoritative,
             // fail-closed: a write failure throws and the heartbeat degrades to
             // a soft response instead of silently persisting nowhere).
             var mergedElement = JsonSerializer.SerializeToElement(merged);
@@ -145,17 +156,9 @@ public sealed class NativeStatsHeartbeatHandler(
         // Best-effort: a failure is logged inside the ingester and never
         // propagates to the heartbeat response.
         //
-        // CRITICAL: use CancellationToken.None, NOT the request's ct. This is a
-        // fire-and-forget write that must outlive the HTTP request. The request's
-        // CancellationToken (context.RequestAborted) cancels the moment the 200
-        // response is flushed — using it here cancelled the ScyllaDB analytics
-        // write mid-commit, so heartbeats never landed in player_analytics_events
-        // and the dashboard showed no activity. The endpoint-execution path
-        // (EndpointExecutionEndpoints.ExecuteEndpointAsync) uses the same
-        // fire-and-forget + CancellationToken.None pattern for the same reason.
-        // The ingester swallows all non-cancellation exceptions, so there is no
-        // unhandled-task risk.
-        _ = EmitThrottledAnalyticsEventAsync(projectId, steamId, body, now, CancellationToken.None);
+        // The analytics service only queues the event for the background writer, so awaiting it
+        // never waits on the database and cannot fail the heartbeat.
+        await EmitThrottledAnalyticsEventAsync(projectId, steamId, body, ct);
 
         return new NativeHeartbeatResult(200, new
         {
@@ -170,15 +173,13 @@ public sealed class NativeStatsHeartbeatHandler(
 
     /// <summary>
     /// Fire-and-forget: emit a session.heartbeat analytics event at most once
-    /// per <see cref="AnalyticsFlushInterval"/> per player. The ingester writes
+    /// per <see cref="HeartbeatAnalyticsGate.Interval"/> per player. The ingester writes
     /// the event to player_analytics_events and upserts player_profiles
     /// (last_seen_unix_ms, is_online, last_heartbeat_unix_ms).
     /// </summary>
     private async Task EmitThrottledAnalyticsEventAsync(
-        string projectId, string steamId, JsonElement? body, DateTimeOffset now, CancellationToken ct)
+        string projectId, string steamId, JsonElement? body, CancellationToken ct)
     {
-        var nowMs = now.ToUnixTimeMilliseconds();
-
         // Honour the client's real session so heartbeats, the session.join and
         // (via the ingester's currentSessionId backfill) endpoint calls all group
         // into one coherent play session. Fall back to a stable per-player id only
@@ -196,14 +197,8 @@ public sealed class NativeStatsHeartbeatHandler(
 
         // Join/leave are once-per-session lifecycle signals — never throttle them.
         // Heartbeats flush at most once per player per interval.
-        var key = $"{projectId}:{steamId}";
-        if (eventType == "session.heartbeat")
-        {
-            if (_lastAnalyticsFlushPerSteam.TryGetValue(key, out var lastMs)
-                && nowMs - lastMs < (long)AnalyticsFlushInterval.TotalMilliseconds)
-                return;
-            _lastAnalyticsFlushPerSteam[key] = nowMs;
-        }
+        if (eventType == "session.heartbeat" && !analyticsGate.TryAcquire(projectId, steamId))
+            return;
 
         // Inner analytics payload. RecordEndpointEventAsync wraps this in the
         // event envelope itself, so keep the fields flat (no re-enveloping) — a
@@ -232,6 +227,8 @@ public sealed class NativeStatsHeartbeatHandler(
 
         try
         {
+            // The queued write is in-memory and non-blocking; use a non-cancellable token so a
+            // completed request cannot cancel the analytics event before the writer drains it.
             await analytics.RecordEndpointEventAsync(
                 projectId,
                 steamId,
@@ -239,13 +236,13 @@ public sealed class NativeStatsHeartbeatHandler(
                 eventType: eventType,
                 payload: payload,
                 trackedFieldDeltas: null,
-                cancellationToken: ct);
+                cancellationToken: CancellationToken.None);
         }
         catch
         {
             // Best-effort: analytics must never break the heartbeat path.
             // Reset the throttle so the next heartbeat retries.
-            if (eventType == "session.heartbeat") _lastAnalyticsFlushPerSteam.TryRemove(key, out _);
+            if (eventType == "session.heartbeat") analyticsGate.Release(projectId, steamId);
         }
     }
 
@@ -300,3 +297,11 @@ public sealed class NativeStatsHeartbeatHandler(
 }
 
 public sealed record NativeHeartbeatResult(int StatusCode, object Body);
+
+/// <summary>Outcome of <see cref="NativeStatsHeartbeatHandler.AuthenticateAsync"/>: the key, or the rejection to send.</summary>
+public sealed record HeartbeatAuthentication(StorageApiKeyAuthResult? Auth, NativeHeartbeatResult? Rejection)
+{
+    public static HeartbeatAuthentication Reject(int statusCode, string code, string message)
+        => new(null, new NativeHeartbeatResult(statusCode, new { error = new { code, message } }));
+}
+

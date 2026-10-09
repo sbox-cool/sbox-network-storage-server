@@ -16,7 +16,7 @@ public interface IStorageKeyCdnWriter
     Task WriteKeyIndexAsync(string projectId, CdnKeyIndex index, CancellationToken cancellationToken);
 }
 
-public sealed class StorageKeyCdnWriter(IBunnyWorkspaceClient bunnyWorkspaceClient, ILogger<StorageKeyCdnWriter> logger)
+public sealed class StorageKeyCdnWriter(IWorkspaceStore workspaceStore, ILogger<StorageKeyCdnWriter> logger)
     : IStorageKeyCdnWriter
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -62,7 +62,7 @@ public sealed class StorageKeyCdnWriter(IBunnyWorkspaceClient bunnyWorkspaceClie
     {
         var legacyPath = $"network-storage/keys/projects/{projectId}/sk_{identifier}.json";
 
-        var existing = await bunnyWorkspaceClient.GetRawAsync<Dictionary<string, object>>(legacyPath, cancellationToken);
+        var existing = await workspaceStore.GetRawAsync<Dictionary<string, object>>(legacyPath, cancellationToken);
         if (existing is null) return;
 
         foreach (var kv in updates)
@@ -70,7 +70,7 @@ public sealed class StorageKeyCdnWriter(IBunnyWorkspaceClient bunnyWorkspaceClie
             existing[kv.Key] = kv.Value;
         }
 
-        await bunnyWorkspaceClient.PutRawAsync(legacyPath, existing, cancellationToken);
+        await workspaceStore.PutRawAsync(legacyPath, existing, cancellationToken);
         _ = WriteNewPathRawAsync($"network-storage-api/keys/projects/{projectId}/sk_{identifier}.json", existing).ConfigureAwait(false);
     }
 
@@ -107,7 +107,7 @@ public sealed class StorageKeyCdnWriter(IBunnyWorkspaceClient bunnyWorkspaceClie
         var legacyPath = $"network-storage/keys/projects/{projectId}/_index.json";
         var newPath = $"network-storage-api/keys/projects/{projectId}/_index.json";
 
-        var data = await bunnyWorkspaceClient.GetRawAsync<Dictionary<string, JsonElement>>(legacyPath, cancellationToken);
+        var data = await workspaceStore.GetRawAsync<Dictionary<string, JsonElement>>(legacyPath, cancellationToken);
         if (data is not null && data.TryGetValue("keys", out var keysElement))
         {
             var keys = JsonSerializer.Deserialize<List<CdnKeyIndexEntry>>(keysElement.GetRawText(), JsonOptions);
@@ -118,7 +118,7 @@ public sealed class StorageKeyCdnWriter(IBunnyWorkspaceClient bunnyWorkspaceClie
         }
 
         // Fallback to new path (dual-write target).
-        data = await bunnyWorkspaceClient.GetRawAsync<Dictionary<string, JsonElement>>(newPath, cancellationToken);
+        data = await workspaceStore.GetRawAsync<Dictionary<string, JsonElement>>(newPath, cancellationToken);
         if (data is not null && data.TryGetValue("keys", out keysElement))
         {
             var keys = JsonSerializer.Deserialize<List<CdnKeyIndexEntry>>(keysElement.GetRawText(), JsonOptions);
@@ -149,9 +149,9 @@ public sealed class StorageKeyCdnWriter(IBunnyWorkspaceClient bunnyWorkspaceClie
     {
         for (var attempt = 1; attempt <= 2; attempt++)
         {
-            await bunnyWorkspaceClient.PutRawAsync(path, data, cancellationToken);
+            await workspaceStore.PutRawAsync(path, data, cancellationToken);
 
-            var readBack = await bunnyWorkspaceClient.GetRawAsync<Dictionary<string, object>>(path, cancellationToken);
+            var readBack = await workspaceStore.GetRawAsync<Dictionary<string, object>>(path, cancellationToken);
             if (readBack is not null)
             {
                 return;
@@ -165,14 +165,14 @@ public sealed class StorageKeyCdnWriter(IBunnyWorkspaceClient bunnyWorkspaceClie
 
     private async Task PutJsonAsync(string path, object data, CancellationToken cancellationToken)
     {
-        await bunnyWorkspaceClient.PutRawAsync(path, data, cancellationToken);
+        await workspaceStore.PutRawAsync(path, data, cancellationToken);
     }
 
     private async Task WriteNewPathAsync(string path, object data)
     {
         try
         {
-            await bunnyWorkspaceClient.PutRawAsync(path, data, CancellationToken.None);
+            await workspaceStore.PutRawAsync(path, data, CancellationToken.None);
         }
         catch (Exception ex)
         {
@@ -184,7 +184,7 @@ public sealed class StorageKeyCdnWriter(IBunnyWorkspaceClient bunnyWorkspaceClie
     {
         try
         {
-            await bunnyWorkspaceClient.PutRawAsync(path, data, CancellationToken.None);
+            await workspaceStore.PutRawAsync(path, data, CancellationToken.None);
         }
         catch (Exception ex)
         {
@@ -196,7 +196,7 @@ public sealed class StorageKeyCdnWriter(IBunnyWorkspaceClient bunnyWorkspaceClie
     {
         try
         {
-            await bunnyWorkspaceClient.DeleteRawAsync(path, cancellationToken);
+            await workspaceStore.DeleteRawAsync(path, cancellationToken);
         }
         catch
         {

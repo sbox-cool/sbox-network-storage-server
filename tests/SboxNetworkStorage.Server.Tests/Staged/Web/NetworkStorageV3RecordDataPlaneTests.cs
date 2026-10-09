@@ -15,8 +15,8 @@ namespace SboxNetworkStorage.Server.Tests;
 
 /// <summary>
 /// Covers the v3 single-record CRUD family: served natively through the
-/// ScyllaDB data plane when <c>Scylla:Primary</c> is on, and returning a native
-/// 404 (Bun decommissioned) when it is off. Also pins the route-precedence
+/// The store data plane when <c>store:Primary</c> is on, and returning a native
+/// 404 (legacy server decommissioned) when it is off. Also pins the route-precedence
 /// carve-out so the <c>{key}</c> parameter never captures the
 /// <c>append</c> / <c>analytics/events</c> sub-resources.
 /// </summary>
@@ -35,12 +35,12 @@ public abstract class NetworkStorageV3RecordDataPlaneTests<TFactory> : IClassFix
         _factory = factory;
     }
 
-    // PORT-ADAPTED: the self-hosted server is always Scylla:Primary (store-authoritative), and
+    // PORT-ADAPTED: the self-hosted server is always store:Primary (store-authoritative), and
     // each test gets a fresh database of the fixture's driver instead of an in-memory fake.
-    private HttpClient CreateClient(bool scyllaPrimary, INetworkStorageStore store) =>
+    private HttpClient CreateClient(bool storePrimary, INetworkStorageStore store) =>
         _factory.WithWebHostBuilder(builder =>
         {
-            Assert.True(scyllaPrimary);
+            Assert.True(storePrimary);
             builder.ConfigureServices(services =>
             {
                 services.RemoveAll<INetworkStorageStore>();
@@ -51,10 +51,10 @@ public abstract class NetworkStorageV3RecordDataPlaneTests<TFactory> : IClassFix
         }).CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
 
     [SkippableFact]
-    public async Task Primary_PostRecord_WritesToScyllaDataPlane()
+    public async Task Primary_PostRecord_WritesToStoreDataPlane()
     {
         var store = await _factory.NewStoreAsync();
-        using var client = CreateClient(scyllaPrimary: true, store);
+        using var client = CreateClient(storePrimary: true, store);
 
         using var response = await client.PostAsJsonAsync(
             $"/v3/storage/{ProjectId}/{Collection}/player-1?apiKey={ApiKey}",
@@ -65,12 +65,12 @@ public abstract class NetworkStorageV3RecordDataPlaneTests<TFactory> : IClassFix
     }
 
     [SkippableFact]
-    public async Task Primary_GetRecord_ReadsFromScyllaDataPlane()
+    public async Task Primary_GetRecord_ReadsFromStoreDataPlane()
     {
         var store = await _factory.NewStoreAsync();
         await store.UpsertRecordAsync(ProjectId, Collection, "player-2",
             JsonSerializer.SerializeToElement(new { hp = 50 }), deleted: false, version: 1, CancellationToken.None);
-        using var client = CreateClient(scyllaPrimary: true, store);
+        using var client = CreateClient(storePrimary: true, store);
 
         using var response = await client.GetAsync($"/v3/storage/{ProjectId}/{Collection}/player-2?apiKey={ApiKey}");
 
@@ -81,7 +81,7 @@ public abstract class NetworkStorageV3RecordDataPlaneTests<TFactory> : IClassFix
     public async Task Primary_GetMissingRecord_ReturnsNotFoundFromDataPlane()
     {
         var store = await _factory.NewStoreAsync();
-        using var client = CreateClient(scyllaPrimary: true, store);
+        using var client = CreateClient(storePrimary: true, store);
 
         using var response = await client.GetAsync($"/v3/storage/{ProjectId}/{Collection}/absent?apiKey={ApiKey}");
 
@@ -93,7 +93,7 @@ public abstract class NetworkStorageV3RecordDataPlaneTests<TFactory> : IClassFix
     public async Task Primary_AppendSubResource_IsServedNativelyNotCapturedByKeyRoute()
     {
         var store = await _factory.NewStoreAsync();
-        using var client = CreateClient(scyllaPrimary: true, store);
+        using var client = CreateClient(storePrimary: true, store);
 
         using var response = await client.PostAsJsonAsync(
             $"/v3/storage/{ProjectId}/{Collection}/append?apiKey={ApiKey}",
@@ -101,7 +101,7 @@ public abstract class NetworkStorageV3RecordDataPlaneTests<TFactory> : IClassFix
 
         // The literal `append` carve-out wins over `{key}` and is served by the
         // native append handler (registered by MapNetworkStorageGateway when
-        // Scylla:Primary is on). It is never written as a record keyed "append".
+        // store:Primary is on). It is never written as a record keyed "append".
         // Auth/project access fails without Postgres wired in this fixture, but
         // the important assertion is that the {key} route did not capture it.
         Assert.Null(await store.ReadRecordAsync(ProjectId, Collection, "append", CancellationToken.None));
@@ -111,7 +111,7 @@ public abstract class NetworkStorageV3RecordDataPlaneTests<TFactory> : IClassFix
     public async Task Primary_AnalyticsEvents_IsServedNativelyNotCapturedByKeyRoute()
     {
         var store = await _factory.NewStoreAsync();
-        using var client = CreateClient(scyllaPrimary: true, store);
+        using var client = CreateClient(storePrimary: true, store);
 
         using var response = await client.PostAsJsonAsync(
             $"/v3/storage/{ProjectId}/analytics/events?apiKey={ApiKey}",

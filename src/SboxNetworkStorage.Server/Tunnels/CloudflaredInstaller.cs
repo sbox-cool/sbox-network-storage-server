@@ -27,11 +27,12 @@ public sealed class CloudflaredInstaller(HttpClient http, CloudflaredAsset? asse
     public static CloudflaredAsset CurrentAsset => Asset(OperatingSystem.IsLinux() ? "linux" : OperatingSystem.IsMacOS() ? "osx" : "win",
         RuntimeInformation.ProcessArchitecture);
 
-    public static string ExecutablePath(string configDirectory)
-        => Path.Combine(configDirectory, "connectors", Version, OperatingSystem.IsWindows() ? "cloudflared.exe" : "cloudflared");
+    /// <param name="executablesDirectory"><see cref="Configuration.EffectiveConfig.ExecutablesDirectory"/>.</param>
+    public static string ExecutablePath(string executablesDirectory)
+        => Path.Combine(executablesDirectory, Version, OperatingSystem.IsWindows() ? "cloudflared.exe" : "cloudflared");
 
-    public Task<string> InstallAsync(string configDirectory, CancellationToken ct)
-        => InstallAsync(ExecutablePath(configDirectory), assetOverride ?? CurrentAsset, ct);
+    public Task<string> InstallAsync(string executablesDirectory, CancellationToken ct)
+        => InstallAsync(ExecutablePath(executablesDirectory), assetOverride ?? CurrentAsset, ct);
 
     public async Task<string> InstallAsync(string destination, CloudflaredAsset asset, CancellationToken ct)
     {
@@ -72,8 +73,8 @@ public sealed class CloudflaredInstaller(HttpClient http, CloudflaredAsset? asse
                 await using var existing = new FileStream(destination, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
                 await using var candidate = File.OpenRead(staged);
                 var existingHash = await SHA256.HashDataAsync(existing, ct);
-                var candidateHash = await SHA256.HashDataAsync(candidate, ct);
-                if (CryptographicOperations.FixedTimeEquals(existingHash, candidateHash))
+                var newHash = await SHA256.HashDataAsync(candidate, ct);
+                if (CryptographicOperations.FixedTimeEquals(existingHash, newHash))
                     return destination; // Windows cannot replace a running executable; identical pinned bytes need no replacement.
             }
             File.Move(staged, destination, overwrite: true);

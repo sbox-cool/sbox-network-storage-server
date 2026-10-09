@@ -9,13 +9,16 @@
     <PackageReference Include="xunit" Version="2.9.2" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
     <PackageReference Include="Xunit.SkippableFact" Version="1.4.13" />
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="8.0.1" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.12" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\SboxNetworkStorage.Storage\SboxNetworkStorage.Storage.csproj" />
     <ProjectReference Include="..\..\src\SboxNetworkStorage.Storage.Relational\SboxNetworkStorage.Storage.Relational.csproj" />
     <ProjectReference Include="..\..\src\SboxNetworkStorage.Storage.Sqlite\SboxNetworkStorage.Storage.Sqlite.csproj" />
     <ProjectReference Include="..\..\src\SboxNetworkStorage.Storage.Postgres\SboxNetworkStorage.Storage.Postgres.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="..\Support\InMemoryNetworkStorageStore*.cs" Link="Support\%(Filename)%(Extension)" />
   </ItemGroup>
   <ItemGroup>
     <Using Include="Xunit" />

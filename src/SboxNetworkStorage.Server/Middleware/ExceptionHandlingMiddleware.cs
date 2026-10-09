@@ -98,12 +98,11 @@ public sealed class ExceptionHandlingMiddleware(
         catch { /* best-effort */ }
 
         logger.LogError(exception,
-            "Unhandled exception method={Method} path={Path} classification={Classification} correlationId={CorrelationId} dependencyTimings={DependencyTimings}",
+            "Unhandled exception method={Method} path={Path} classification={Classification} correlationId={CorrelationId}",
             context.Request.Method,
             context.Request.Path.Value,
             captured.Classification,
-            correlationId,
-            DependencyTimingContext.Snapshot(context));
+            correlationId);
 
         if (context.Response.HasStarted)
         {

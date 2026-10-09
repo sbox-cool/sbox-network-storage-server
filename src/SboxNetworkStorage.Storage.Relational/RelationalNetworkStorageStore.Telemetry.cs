@@ -78,6 +78,14 @@ public abstract partial class RelationalNetworkStorageStore
             Int64("to_unix_ms", toUnixMs), Int64("from_unix_ms", fromUnixMs), Int32("limit", limit));
     }
 
+    public async Task<long> PurgeAnalyticsBeforeAsync(long beforeUnixMs, CancellationToken ct)
+    {
+        long deleted = 0;
+        foreach (var sql in new[] { _sql.PurgeAnalyticsEvents, _sql.PurgeProjectIssues, _sql.PurgeLegacyAnalytics })
+            deleted += await ExecuteCountAsync(sql, ct, Int64("before_unix_ms", beforeUnixMs));
+        return deleted;
+    }
+
     public Task<long> CountPlayerEventsAsync(string projectId, string steamId, CancellationToken ct)
     {
         V.Id(projectId); V.Id(steamId);
@@ -154,9 +162,7 @@ public abstract partial class RelationalNetworkStorageStore
     public Task InsertStorageErrorAsync(string projectId, long createdAtUnixMs, string errorId, string message, string? stackTrace, string? source, string? requestPath, string severity, CancellationToken ct)
     {
         V.Id(projectId);
-        // Keyed by (project_id, created_at_unix_ms) like production: two errors
-        // in the same millisecond overwrite each other.
-        return ExecuteAsync(_sql.UpsertStorageError, ct,
+        return ExecuteAsync(_sql.InsertStorageError, ct,
             Text("project_id", projectId), Int64("created_at_unix_ms", createdAtUnixMs), Text("error_id", errorId),
             Text("message", message), Text("stack_trace", stackTrace ?? string.Empty), Text("source", source ?? string.Empty),
             Text("request_path", requestPath ?? string.Empty), Text("severity", severity));
@@ -179,7 +185,7 @@ public abstract partial class RelationalNetworkStorageStore
     public Task InsertStorageRequestLogAsync(string projectId, long createdAtUnixMs, string method, string path, int statusCode, int durationMs, string? apiKeyIdentifier, CancellationToken ct)
     {
         V.Id(projectId);
-        return ExecuteAsync(_sql.UpsertStorageRequestLog, ct,
+        return ExecuteAsync(_sql.InsertStorageRequestLog, ct,
             Text("project_id", projectId), Int64("created_at_unix_ms", createdAtUnixMs), Text("method", method),
             Text("path", path), Int32("status_code", statusCode), Int32("duration_ms", durationMs),
             Text("api_key_identifier", apiKeyIdentifier ?? string.Empty));

@@ -6,7 +6,7 @@ using System.Text.RegularExpressions;
 namespace SboxNetworkStorage.Application.NetworkStorage.Endpoints;
 
 /// <summary>
-/// Faithful C# port of the Bun Network Storage endpoint expression engine
+/// Faithful C# port of the legacy server Network Storage endpoint expression engine
 /// (<c>tools/sbox/endpoint-expression.js</c>). Evaluates <c>{{template}}</c>
 /// strings, condition objects, math expressions, and rich aggregate expressions
 /// with the exact JavaScript semantics the live data plane relies on
@@ -27,7 +27,7 @@ namespace SboxNetworkStorage.Application.NetworkStorage.Endpoints;
 /// Parity with the JS engine is enforced by EndpointExpressionParityTests, which
 /// asserts identical output against a golden oracle generated from the JS engine.
 /// </summary>
-public static class EndpointExpression
+public static partial class EndpointExpression
 {
     private const int MaxTemplateLength = 10_000;
     private const int MaxPathDepth = 10;
@@ -141,7 +141,7 @@ public static class EndpointExpression
         string check = resolved;
         foreach (var fn in MathAllowedFunctions)
             check = check.Replace(fn, "");
-        if (Regex.IsMatch(check, "[a-zA-Z]"))
+        if (LetterPattern().IsMatch(check))
             throw new ExpressionException("Math expression contains invalid characters.");
 
         return ParseMathExpression(resolved);
@@ -299,6 +299,50 @@ public static class EndpointExpression
         return double.IsNaN(n) ? 0d : n;
     }
 
+    // ── Patterns ──────────────────────────────────────────────────────────────
+    // Every fixed pattern is source-generated with a 100 ms match timeout.
+
+    [GeneratedRegex("[a-zA-Z]", RegexOptions.None, 100)]
+    private static partial Regex LetterPattern();
+
+    [GeneratedRegex("^\\{\\{[^}]+\\}\\}$", RegexOptions.None, 100)]
+    private static partial Regex SingleTokenPattern();
+
+    [GeneratedRegex("^-?\\d+(\\.\\d+)?$", RegexOptions.None, 100)]
+    private static partial Regex NumberLiteralPattern();
+
+    [GeneratedRegex("^([a-zA-Z_][a-zA-Z0-9_]*)\\((.*)\\)$", RegexOptions.Singleline, 100)]
+    private static partial Regex FunctionTokenPattern();
+
+    [GeneratedRegex("\\b(filter|values|length|count|sum|avg|any|all|pluck|find|first)\\s*\\(", RegexOptions.None, 100)]
+    private static partial Regex AggregateCallPattern();
+
+    [GeneratedRegex("^(floor|ceil|round|min|max|abs|random|pow|log10|clamp|now|nowS|hour|dayOfWeek|diffMs|diffS)\\s*\\(", RegexOptions.None, 100)]
+    private static partial Regex MathFunctionPattern();
+
+    [GeneratedRegex("^(\\d+\\.?\\d*(?:[eE][+-]?\\d+)?)", RegexOptions.None, 100)]
+    private static partial Regex MathNumberPattern();
+
+    [GeneratedRegex("^([a-zA-Z_][a-zA-Z0-9_]*)\\(", RegexOptions.None, 100)]
+    private static partial Regex CallStartPattern();
+
+    [GeneratedRegex("^[a-zA-Z_][a-zA-Z0-9_]*(\\.[a-zA-Z_][a-zA-Z0-9_]*)*$", RegexOptions.None, 100)]
+    private static partial Regex PathPattern();
+
+    [GeneratedRegex("^\\s*([a-zA-Z_][a-zA-Z0-9_]*)\\s*=>\\s*(.+)\\s*$", RegexOptions.Singleline, 100)]
+    private static partial Regex LambdaPattern();
+
+    [GeneratedRegex("^[a-zA-Z_][a-zA-Z0-9_]*(\\.[a-zA-Z_][a-zA-Z0-9_.]*)*$", RegexOptions.None, 100)]
+    private static partial Regex DottedPathPattern();
+
+    [GeneratedRegex("\\b(length|count|sum|avg|any|all|min|max)\\s*\\(", RegexOptions.None, 100)]
+    private static partial Regex PreprocessedFunctionPattern();
+
+    /// <summary>
+    /// User-supplied matches patterns run with a 50 ms timeout and a bounded compiled-pattern LRU.
+    /// </summary>
+    private static readonly ExpressionRegexCache DynamicPatterns = new(capacity: 256, timeout: TimeSpan.FromMilliseconds(50));
+
     // ── Operators ─────────────────────────────────────────────────────────────
 
     private static readonly Dictionary<string, string> OpAliases = new(StringComparer.Ordinal)
@@ -313,6 +357,7 @@ public static class EndpointExpression
         ["not_exist"] = "not_exists", ["notexists"] = "not_exists",
         ["starts_with"] = "starts_with", ["startswith"] = "starts_with",
         ["not_starts_with"] = "not_starts_with", ["notstartswith"] = "not_starts_with",
+        ["matches"] = "matches",
     };
 
     public static string NormalizeOp(string op)
@@ -349,6 +394,7 @@ public static class EndpointExpression
                 return true;
             case "starts_with": return left is string sl && sl.StartsWith(JsToString(right), StringComparison.Ordinal);
             case "not_starts_with": return left is not string snl || !snl.StartsWith(JsToString(right), StringComparison.Ordinal);
+            case "matches": return DynamicPatterns.Match(JsToString(right), JsToString(left)).Success;
             default: throw new ExpressionException($"Unsupported operator: \"{op}\".");
         }
     }
@@ -360,7 +406,7 @@ public static class EndpointExpression
         string fieldTemplate;
         if (fieldStr.Contains("{{", StringComparison.Ordinal))
         {
-            var isSingleToken = Regex.IsMatch(fieldStr, "^\\{\\{[^}]+\\}\\}$");
+            var isSingleToken = SingleTokenPattern().IsMatch(fieldStr);
             if (isSingleToken)
             {
                 fieldTemplate = fieldStr;
@@ -538,7 +584,7 @@ public static class EndpointExpression
     {
         if (string.IsNullOrEmpty(defaultExpr)) return JsUndefined.Value;
         var trimmed = defaultExpr.Trim();
-        if (Regex.IsMatch(trimmed, "^-?\\d+(\\.\\d+)?$")) return double.Parse(trimmed, CultureInfo.InvariantCulture);
+        if (NumberLiteralPattern().IsMatch(trimmed)) return double.Parse(trimmed, CultureInfo.InvariantCulture);
         if (trimmed == "true") return true;
         if (trimmed == "false") return false;
         if (trimmed == "null") return null;
@@ -552,7 +598,7 @@ public static class EndpointExpression
 
     private static (bool Matched, object? Value) ResolveHelperToken(string token, IDictionary<string, object?> context)
     {
-        var match = Regex.Match(token, "^([a-zA-Z_][a-zA-Z0-9_]*)\\((.*)\\)$", RegexOptions.Singleline);
+        var match = FunctionTokenPattern().Match(token);
         if (!match.Success) return (false, null);
         var name = match.Groups[1].Value;
         var rawArgs = match.Groups[2].Value;
@@ -560,6 +606,11 @@ public static class EndpointExpression
 
         switch (name)
         {
+            case "matches":
+                if (rawArgList.Count != 2) throw new ExpressionException("matches() requires an input and a pattern.");
+                return (true, DynamicPatterns.Match(
+                    JsToString(ResolveHelperArg(rawArgList[1], context, false)),
+                    JsToString(ResolveHelperArg(rawArgList[0], context, false))).Success);
             case "coalesce":
             case "default":
             {
@@ -651,7 +702,7 @@ public static class EndpointExpression
         if (arg == "true") return true;
         if (arg == "false") return false;
         if (arg == "null") return null;
-        if (Regex.IsMatch(arg, "^-?\\d+(\\.\\d+)?$")) return double.Parse(arg, CultureInfo.InvariantCulture);
+        if (NumberLiteralPattern().IsMatch(arg)) return double.Parse(arg, CultureInfo.InvariantCulture);
         var helper = ResolveHelperToken(arg, context);
         if (helper.Matched) return helper.Value;
         var value = GetNestedValue(context, arg);
@@ -694,7 +745,7 @@ public static class EndpointExpression
                 if (!argsStr.Contains(',') || HasNestedComma(argsStr))
                 {
                     if (argsStr.Contains("{{", StringComparison.Ordinal) ||
-                        Regex.IsMatch(argsStr, "\\b(filter|values|length|count|sum|avg|any|all|pluck|find|first)\\s*\\("))
+                        AggregateCallPattern().IsMatch(argsStr))
                     {
                         var fullCall = $"{funcName}({argsStr})";
                         var value = EvaluateExpression(fullCall, context);
@@ -726,8 +777,12 @@ public static class EndpointExpression
 
     private static FunctionCall? FindFunctionCall(string expr, string funcName)
     {
-        var match = Regex.Match(expr, $"\\b{Regex.Escape(funcName)}\\s*\\(");
-        if (!match.Success) return null;
+        Match? match = null;
+        foreach (Match candidate in PreprocessedFunctionPattern().Matches(expr))
+        {
+            if (candidate.Groups[1].Value == funcName) { match = candidate; break; }
+        }
+        if (match is null) return null;
         var start = match.Index;
         var openParen = start + match.Length - 1;
         var depth = 1;
@@ -799,7 +854,7 @@ public static class EndpointExpression
         {
             SkipWs();
             var rest = input[pos..];
-            var funcMatch = Regex.Match(rest, "^(floor|ceil|round|min|max|abs|random|pow|log10|clamp|now|nowS|hour|dayOfWeek|diffMs|diffS)\\s*\\(");
+            var funcMatch = MathFunctionPattern().Match(rest);
             if (funcMatch.Success)
             {
                 var funcName = funcMatch.Groups[1].Value;
@@ -822,7 +877,7 @@ public static class EndpointExpression
                 pos++;
                 return val;
             }
-            var numMatch = Regex.Match(input[pos..], "^(\\d+\\.?\\d*(?:[eE][+-]?\\d+)?)");
+            var numMatch = MathNumberPattern().Match(input[pos..]);
             if (numMatch.Success)
             {
                 pos += numMatch.Length;
@@ -888,7 +943,7 @@ public static class EndpointExpression
 
     private static TopLevelFunction? ParseTopLevelFunction(string expr)
     {
-        var match = Regex.Match(expr, "^([a-zA-Z_][a-zA-Z0-9_]*)\\(");
+        var match = CallStartPattern().Match(expr);
         if (!match.Success) return null;
         var name = match.Groups[1].Value;
         var rest = expr[(match.Index + name.Length)..];
@@ -1042,7 +1097,7 @@ public static class EndpointExpression
     {
         var expr = collectionExpr.Trim();
         var unquoted = StripQuotes(expr);
-        if (Regex.IsMatch(unquoted, "^[a-zA-Z_][a-zA-Z0-9_]*(\\.[a-zA-Z_][a-zA-Z0-9_]*)*$"))
+        if (PathPattern().IsMatch(unquoted))
         {
             var value = ResolveNestedPath(unquoted, context);
             if (!IsUndefined(value)) return value;
@@ -1137,7 +1192,7 @@ public static class EndpointExpression
         var unquoted = StripQuotes(expr);
         var selectorContext = Extend(context, "item", item);
 
-        if (Regex.IsMatch(unquoted, "^[a-zA-Z_][a-zA-Z0-9_]*(\\.[a-zA-Z_][a-zA-Z0-9_]*)*$"))
+        if (PathPattern().IsMatch(unquoted))
         {
             if (unquoted.StartsWith("item.", StringComparison.Ordinal)) return ResolveNestedPath(unquoted, selectorContext);
             var itemValue = GetNestedValue(item, unquoted);
@@ -1207,7 +1262,7 @@ public static class EndpointExpression
 
     private static Lambda ParseLambda(string lambdaStr)
     {
-        var match = Regex.Match(lambdaStr, "^\\s*([a-zA-Z_][a-zA-Z0-9_]*)\\s*=>\\s*(.+)\\s*$", RegexOptions.Singleline);
+        var match = LambdaPattern().Match(lambdaStr);
         if (!match.Success) throw new ExpressionException($"Invalid lambda expression: \"{lambdaStr}\". Expected \"param => body\".");
         return new Lambda(match.Groups[1].Value, match.Groups[2].Value.Trim());
     }
@@ -1332,8 +1387,8 @@ public static class EndpointExpression
         if (expr == "true") return true;
         if (expr == "false") return false;
         if (expr == "null") return null;
-        if (Regex.IsMatch(expr, "^-?\\d+(\\.\\d+)?$")) return double.Parse(expr, CultureInfo.InvariantCulture);
-        if (Regex.IsMatch(expr, "^[a-zA-Z_][a-zA-Z0-9_]*(\\.[a-zA-Z_][a-zA-Z0-9_.]*)*$"))
+        if (NumberLiteralPattern().IsMatch(expr)) return double.Parse(expr, CultureInfo.InvariantCulture);
+        if (DottedPathPattern().IsMatch(expr))
             return ResolveNestedPath(expr, context);
         throw new ExpressionException($"Unexpected expression token: \"{Truncate(expr, 30)}\"");
     }

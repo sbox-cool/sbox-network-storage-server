@@ -6,21 +6,21 @@ using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using SboxNetworkStorage.Application.NetworkStorage;
 using SboxNetworkStorage.Application.NetworkStorage.AuthSessions;
-using SboxNetworkStorage.Contracts.Diagnostics;
-using SboxNetworkStorage.Server.Routing;
+
+using SboxNetworkStorage.Server.Hosting;
 using SboxNetworkStorage.Server.Middleware;
 
 namespace SboxNetworkStorage.Server.Endpoints;
 
 /// <summary>
-/// Native .NET Network Storage auth-session endpoints — the cutover of the Bun
+/// Native .NET Network Storage auth-session endpoints — the cutover of the legacy server
 /// <c>controllers/endpoint-modules/session-routes.js</c> handlers to ASP.NET Core.
 /// Serves <c>POST /v{1,3}/{auth-sessions,sessions}/{projectId}/{create,refresh,reauth,revoke}</c>
 /// directly (stateless HMAC tokens via <see cref="INetworkStorageAuthSessionService"/>,
 /// s&amp;box player auth via <see cref="ISboxAuthVerifier"/>), so authenticated
-/// session traffic no longer proxies to the legacy Bun storage runtime.
+/// session traffic no longer proxies to the legacy server storage runtime.
 ///
-/// <para>Wire-contract parity with Bun: every response is HTTP 200 with the logical
+/// <para>Wire-contract parity with legacy server: every response is HTTP 200 with the logical
 /// status in the body (<c>{ ok, status, ... }</c>) and an <c>X-Request-Id</c> header;
 /// game clients branch on <c>body.ok</c>, not the HTTP status code.</para>
 /// </summary>
@@ -53,17 +53,13 @@ public static partial class AuthSessionEndpoints
         foreach (var prefix in RoutePrefixes)
         {
             endpoints.MapPost($"{prefix}/{{projectId}}/create", CreateAsync)
-                .WithDisplayName($"Network Storage auth session create ({prefix})")
-                .WithRouteOwner(RouteOwner.DotNetNative, "ASP.NET Core native Network Storage auth session create (no Bun proxy)");
+                .WithDisplayName($"Network Storage auth session create ({prefix})");
             endpoints.MapPost($"{prefix}/{{projectId}}/refresh", RefreshAsync)
-                .WithDisplayName($"Network Storage auth session refresh ({prefix})")
-                .WithRouteOwner(RouteOwner.DotNetNative, "ASP.NET Core native Network Storage auth session refresh (no Bun proxy)");
+                .WithDisplayName($"Network Storage auth session refresh ({prefix})");
             endpoints.MapPost($"{prefix}/{{projectId}}/reauth", ReauthAsync)
-                .WithDisplayName($"Network Storage auth session reauth ({prefix})")
-                .WithRouteOwner(RouteOwner.DotNetNative, "ASP.NET Core native Network Storage auth session reauth (no Bun proxy)");
+                .WithDisplayName($"Network Storage auth session reauth ({prefix})");
             endpoints.MapPost($"{prefix}/{{projectId}}/revoke", RevokeAsync)
-                .WithDisplayName($"Network Storage auth session revoke ({prefix})")
-                .WithRouteOwner(RouteOwner.DotNetNative, "ASP.NET Core native Network Storage auth session revoke (no Bun proxy)");
+                .WithDisplayName($"Network Storage auth session revoke ({prefix})");
         }
         return endpoints;
     }
@@ -223,7 +219,8 @@ public static partial class AuthSessionEndpoints
             context.Request.Headers["x-proxy-signature"].FirstOrDefault(),
             apiKey ?? string.Empty,
             projectId,
-            endpointSlug);
+            endpointSlug,
+            ClientAddress.Resolve(context));
     }
 
     private static async Task<JsonElement?> ReadBodyAsync(HttpContext context)
@@ -323,7 +320,6 @@ public static partial class AuthSessionEndpoints
     private static async Task WriteJsonAsync(HttpContext context, string requestId, Dictionary<string, object?> body)
     {
         context.Response.Headers["X-Request-Id"] = requestId;
-        context.Response.Headers["X-Sboxcool-Route-Owner"] = RouteOwner.DotNetNative.ToDisplayName();
         context.Response.StatusCode = StatusCodes.Status200OK;
         await context.Response.WriteAsJsonAsync(body, JsonOptions);
     }
@@ -349,7 +345,7 @@ public static partial class AuthSessionEndpoints
     internal static bool IsPlausibleSteamId(string value)
         => !string.IsNullOrEmpty(value) && PlausibleSteamId().IsMatch(value.Trim());
 
-    [GeneratedRegex("^[79][0-9]{3,16}$")]
+    [GeneratedRegex("^[79][0-9]{3,16}$", RegexOptions.None, 100)]
     private static partial Regex PlausibleSteamId();
 
     private readonly record struct SessionProject(bool Ok, string? ErrorCode, string? ErrorDetail, long UserId, string ProjectId, int TtlSeconds)
@@ -357,3 +353,4 @@ public static partial class AuthSessionEndpoints
         public static SessionProject Fail(string code, string? detail) => new(false, code, detail, 0, string.Empty, 0);
     }
 }
+

@@ -107,16 +107,35 @@ curl -fsSL https://github.com/sbox-cool/sbox-network-storage-server/releases/lat
 The installer:
 
 1. Detects your OS and CPU (x64 or arm64).
-2. Downloads the release archive and `SHA256SUMS` from GitHub Releases and
-   aborts if the checksum does not match.
+2. Validates the resolved version, downloads the release archive, `SHA256SUMS`
+   and `SHA256SUMS.p256.sig` over HTTPS, verifies the checksum manifest's
+   ECDSA P-256/SHA-256 signature with a pinned current or rotation public key,
+   and only then checks the archive hash. Missing/invalid signatures and hash
+   mismatches abort before extraction or binary replacement. Redirects to HTTP
+   are refused by both curl and wget.
 3. Installs `sbox-ns`:
-   - as root on Linux: `/usr/local/bin/sbox-ns`, config in `/etc/sbox-ns/`,
-     data in `/var/lib/sbox-ns/`, owned by a new `sbox-ns` system user;
+   - as root on Linux: `/usr/local/bin/sbox-ns`, operator config in `/etc/sbox-ns/`
+     (`root:sbox-ns`, directories `0750`, files `0640`, read-only to the service),
+     data and runtime state in `/var/lib/sbox-ns/` owned by the stable `sbox-ns`
+     system user (created with `systemd-sysusers`, or `useradd`/`adduser` as a fallback);
    - otherwise: `~/.local/share/sbox-ns/` linked into `~/.local/bin/sbox-ns`
      (or `/opt/sbox-ns/` linked into `/usr/local/bin` as root on macOS).
-4. Runs `sbox-ns setup` interactively if a terminal is attached, otherwise
-   prints the command to run.
-5. On Linux root installs with systemd, runs `sbox-ns service install` and `sbox-ns service start`.
+4. On a Linux upgrade, runs the verified new binary's `layout migrate` before
+   setup, unit installation or service startup. The new binary is installed
+   first because older releases do not have the migration command; rendered
+   units must use the permanent installed binary path.
+5. Runs `sbox-ns setup` interactively if a terminal is attached, otherwise
+   prints the command to run. Linux setup and quickstart run as root because
+   they write operator configuration; runtime state is created with the service
+   identity. Tunnel, DNS and telemetry enablement run through `runuser -u sbox-ns`.
+   No recursive config-to-service-user ownership transfer is performed.
+6. On Linux root installs with systemd, runs `sbox-ns service install` and `sbox-ns service start`.
+
+Linux/macOS signature verification requires `openssl` on `PATH`; install it
+with `sudo apt-get install openssl`, `sudo dnf install openssl` or
+`brew install openssl`. Linux root installs also require `runuser` from
+`util-linux`. Generated secrets, managed configuration overlays and cloudflared
+live in `/var/lib/sbox-ns/state/{secrets,conf.d,bin}`, not `/etc/sbox-ns`.
 
 Installer options are environment variables:
 
@@ -126,6 +145,7 @@ Installer options are environment variables:
 | `SBOX_NS_PRERELEASE=1` | allow the newest prerelease |
 | `SBOX_NS_NO_SETUP=1` | skip `sbox-ns setup` |
 | `SBOX_NS_NO_SERVICE=1` | skip `sbox-ns service install` |
+| `SBOX_NS_INSECURE_SKIP_SIGNATURE=1` | **DANGEROUS:** manual install only; explicitly disables release signature authentication, prints a loud warning, and still checks archive hashes |
 | `GITHUB_TOKEN=...` | authenticate GitHub API calls (rate limits) |
 
 For a system service on Linux, run the installer as root:
@@ -133,6 +153,17 @@ For a system service on Linux, run the installer as root:
 ```sh
 curl -fsSL https://github.com/sbox-cool/sbox-network-storage-server/releases/latest/download/install.sh | sudo sh
 ```
+
+The insecure signature override is never appropriate for unattended updates:
+the installer refuses it with `SBOX_NS_AUTO_UPDATE=1`, and `sbox-ns update --auto`
+also refuses it. Without that explicit override, missing pinned keys fail
+closed; the installer never downloads a key from the same release it verifies.
+Maintainers supply the actual current and next P-256 public keys in
+[`Updates/release-signing-keys.pub`](../src/SboxNetworkStorage.Server/Updates/release-signing-keys.pub)
+and run `sh scripts/pin-release-keys.sh` (Python 3 and OpenSSL required) before
+shipping installers. The script validates and synchronizes those keys; it
+does not generate replacement keys. Until the owner supplies the public keys,
+the empty trust set deliberately refuses installation.
 
 ### Windows
 
@@ -142,9 +173,14 @@ In PowerShell (as administrator to install for all users into Program Files):
 irm https://github.com/sbox-cool/sbox-network-storage-server/releases/latest/download/install.ps1 | iex
 ```
 
-The script verifies the download with `Get-FileHash`, installs to
-`%ProgramFiles%\sbox-ns\` (administrator) or `%LOCALAPPDATA%\Programs\sbox-ns\`,
-adds it to `PATH` and runs `sbox-ns setup`.
+The script authenticates `SHA256SUMS.p256.sig` before checking the archive with
+`Get-FileHash`, installs to `%ProgramFiles%\sbox-ns\` (administrator) or
+`%LOCALAPPDATA%\Programs\sbox-ns\`, adds it to `PATH` and runs `sbox-ns setup`.
+Windows PowerShell 5.1 needs no extra module: verification uses `ECDsaCng`
+with pinned `EccPublicBlob` keys, converting the DER signature to IEEE P1363.
+HTTPS-to-HTTP redirects, unsafe version strings, missing signatures, invalid
+signatures and hash mismatches are refused. The same explicitly warned
+manual-only insecure override is available; it is not the default.
 
 ### Docker
 
@@ -161,9 +197,11 @@ docker restart sbox-ns
 docker exec -it sbox-ns /app/sbox-ns project create "My Game"
 ```
 
-The image runs as a non-root user, reads config from `/config` and stores data
-in `/data`. Any setting can also be passed as an `NS_` environment variable,
-for example `-e NS_DATABASE__PROVIDER=postgres`.
+The image uses the .NET 10 chiseled runtime, runs as non-root UID 1654, reads
+config from `/config` and stores data in `/data`. It has no shell; use
+`docker exec <container> /app/sbox-ns ...` for operator commands. Any setting
+can also be passed as an `NS_` environment variable, for example
+`-e NS_DATABASE__PROVIDER=postgres`.
 
 Docker Compose with PostgreSQL:
 
@@ -204,24 +242,39 @@ volumes:
 
 ### Manual install
 
-Download `sbox-ns-<version>-<platform>.tar.gz` (or `.zip` on Windows) and
-`SHA256SUMS` from the [releases page](https://github.com/sbox-cool/sbox-network-storage-server/releases),
-verify, extract and run:
+Download `sbox-ns-<version>-<platform>.tar.gz` (or `.zip` on Windows),
+`SHA256SUMS` and `SHA256SUMS.p256.sig` from the
+[releases page](https://github.com/sbox-cool/sbox-network-storage-server/releases).
+Authenticate the manifest first, using a current or rotation public key
+obtained from a previously trusted checkout or installer—not from the archive
+being verified. Save one trusted PEM key block as `release-key.pub`; OpenSSL's
+`-verify` reads one key, so try the other pinned key separately during rotation.
+Proceed only after one key successfully verifies:
 
 ```sh
-sha256sum --check --ignore-missing SHA256SUMS
-tar -xzf sbox-ns-<version>-linux-x64.tar.gz
-./sbox-ns setup
+openssl dgst -sha256 -verify release-key.pub -signature SHA256SUMS.p256.sig SHA256SUMS &&
+sha256sum --check --ignore-missing SHA256SUMS &&
+tar -xzf sbox-ns-<version>-linux-x64.tar.gz &&
+./sbox-ns setup &&
 ./sbox-ns start
 ```
 
-`SHA256SUMS` is signed with Sigstore keyless signing. To verify the signature:
+Every release ships `SHA256SUMS.p256.sig`, an ECDSA P-256 signature of
+`SHA256SUMS` made with a key whose public half is pinned in the binary and in
+the install scripts
+([`release-signing-keys.pub`](../src/SboxNetworkStorage.Server/Updates/release-signing-keys.pub)).
+`sbox-ns update` and the install scripts refuse a release with a missing or
+invalid signature. The installer never treats a checksum downloaded alongside
+an archive as proof of authenticity.
+
+`SHA256SUMS` is also signed with Sigstore keyless signing, pinned to the release
+workflow on a version tag:
 
 ```sh
 cosign verify-blob SHA256SUMS \
   --signature SHA256SUMS.sig \
   --certificate SHA256SUMS.pem \
-  --certificate-identity-regexp '^https://github.com/sbox-cool/sbox-network-storage-server/\.github/workflows/release\.yml@refs/tags/v' \
+  --certificate-identity-regexp '^https://github\.com/sbox-cool/sbox-network-storage-server/\.github/workflows/release\.yml@refs/tags/v.+$' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
@@ -229,7 +282,7 @@ cosign verify-blob SHA256SUMS \
 
 `sbox-ns setup` asks for the database (SQLite or PostgreSQL), the listen
 address and the public URL, writes `server.toml`, `database.toml` and
-`updates.toml`, generates the server secrets in `<config dir>/secrets/`
+`updates.toml`, generates the server secrets in `<data dir>/state/secrets/`
 (auth session secret, storage encryption key, security signing key) and runs
 database migrations. `sbox-ns start` also generates any missing secret, so a
 Docker container works without running setup first. For scripted installs:
@@ -325,13 +378,14 @@ sbox-ns doctor
 
 The CLI creates a private P-256 identity, derives a stable 12-character name,
 and downloads the SHA-256-verified official cloudflared 2026.10.0 binary.
-Keep `<config dir>/secrets/identity_ecdsa_p256.pem`: replacing it changes the name.
-The connector token remains in `<config dir>/secrets/tunnel_token`, never in
-CLI arguments, public server-info or registry database rows. Back up the config
-as secret material. On Linux, root administration preserves the installed
-config directory's UID/GID for private assets and connector files.
+Keep `<data dir>/state/secrets/identity_ecdsa_p256.pem`: replacing it changes the name.
+The connector token remains in `<data dir>/state/secrets/tunnel_token`, never in
+CLI arguments, public server-info or registry database rows. Back up the state
+folder as secret material. On Linux, a root-run command creates the identity, token
+and connector files as the state folder's owner (the service user) and writes
+nothing into the config folder.
 
-Enabling writes `conf.d/zzzz-tunnel.toml`, binds HTTP to `127.0.0.1` on your
+Enabling writes `state/conf.d/zzzz-tunnel.toml`, binds HTTP to `127.0.0.1` on your
 existing HTTP port, disables local TLS and sets `server.public_url` to the
 hosted HTTPS URL. Restart before using it. Keep the direct HTTP port closed in
 your firewall; verify a remote request to the server IP cannot reach it.
@@ -416,9 +470,9 @@ checks its public address every 10 minutes and updates the name when it changes.
 
 Enabling sets `server.public_url` to `https://<name>.nN.sboxns.com`,
 `tls.mode = "acme"` and `tls.acme_domain` to that name in
-`conf.d/zzzzz-dns.toml`. `tls.https_listen` stays `0.0.0.0:443`. Nothing changes
+`state/conf.d/zzzzz-dns.toml`. `tls.https_listen` stays `0.0.0.0:443`. Nothing changes
 if any step fails. The name uses the same identity key as tunnels
-(`<config dir>/secrets/identity_ecdsa_p256.pem`); keep and back it up.
+(`<data dir>/state/secrets/identity_ecdsa_p256.pem`); keep and back it up.
 
 What is public: the name resolves to your IP address, so anyone who knows the
 name can see the IP. Use tunnel mode if you want to keep the IP hidden.
@@ -541,21 +595,81 @@ sudo sbox-ns service uninstall
 
 On Linux the unit file is [`install/sbox-ns.service`](../install/sbox-ns.service):
 it runs as the `sbox-ns` user with systemd hardening, and only
-`/var/lib/sbox-ns` and `/etc/sbox-ns` are writable. To bind ports below 1024
-directly (for example `tls.mode = "acme"` on 80 and 443), run
-`systemctl edit sbox-ns` and add:
+`/var/lib/sbox-ns` is writable: `/etc/sbox-ns` is read-only to the service once the
+layout is migrated (see [Config and state folders](#config-and-state-folders)).
+`sudo sbox-ns service install` adds a managed drop-in granting only
+`CAP_NET_BIND_SERVICE` when an HTTP or enabled HTTPS listener uses a port below
+1024. Re-running installation, or `sudo sbox-ns service restart`, updates that
+drop-in after a listener change; high-port listeners run with no capabilities.
+
+The default sandbox uses `SystemCallFilter=@system-service` and
+`ProtectProc=invisible`. If a verified runtime or connector needs a relaxation,
+use `sudo systemctl edit sbox-ns` (or `sbox-ns@<name>`), never edit the generated
+unit. Reset the specific setting in your operator drop-in:
 
 ```ini
 [Service]
-AmbientCapabilities=CAP_NET_BIND_SERVICE
-CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+SystemCallFilter=
+ProtectProc=default
 ```
+
+Relax only the setting that caused a journal denial, then run
+`sudo systemctl daemon-reload && sudo systemctl restart sbox-ns`. Such overrides
+reduce isolation and are not the shipped baseline.
 
 ### Health checks
 
 - `GET /health` returns 200 when the server and database are up; use it for
   load balancers, uptime monitors and container health checks.
 - `GET /v3/server-info` returns the server version and basic information.
+
+## Config and state folders
+
+The server separates what an operator edits from what it writes itself:
+
+| Folder | Holds | Owner and mode on a Linux service install |
+| --- | --- | --- |
+| `/etc/sbox-ns` (`/etc/sbox-ns/<name>`) | `server.toml`, `database.toml`, `updates.toml`, `alerts.toml`, your `conf.d/` drop-ins, operator-provided secrets such as a database password file | `root:sbox-ns`, folders `0750`, files `0640`; not in the unit's `ReadWritePaths` |
+| `/var/lib/sbox-ns/state` (`/var/lib/sbox-ns/<name>/state`) | generated secrets, tunnel identity and token, the managed overlays in `conf.d/`, the `cloudflared` binary, the telemetry ID, the `.layout-version` marker | `sbox-ns`, folders `0700`, files `0600` |
+
+`sbox-ns setup`, `config set`, `adminpanel`, `register` and the other commands that
+edit operator files must run as root on a Linux service install; commands that create
+runtime state (`tunnel`, `dns`, `telemetry`, generated secrets) may run as root or as
+the service user and always leave the files owned by the service user. Generated
+secrets, the tunnel and DNS overlays and the connector binary are never written into
+the config folder. `sbox-ns config show` and `doctor` print which files were loaded.
+
+Hosts installed before the split keep working unchanged: until the marker
+`/var/lib/sbox-ns/state/.layout-version` exists, runtime files are read from and
+written to the config folder, and `doctor` and the server's startup log print a
+notice to run `sudo sbox-ns layout migrate`. That command (Linux, root) runs, in
+order:
+
+1. refuses to start while an update holds `<binary>.update-lock`;
+2. stops the instance units that are running;
+3. moves the runtime files out of each config folder into its state folder (a rename
+   inside a verified folder, falling back to copy and delete);
+4. sets the config folders to `root:<service group>` `0750` (files `0640`) and the
+   state folders to the service user, `0700` (files `0600`);
+5. moves each instance's `<data dir>/updates/last-update.json` and
+   `<binary>.previous` into the root-only update state (`/var/lib/sbox-ns-update`);
+6. re-renders the installed systemd units without the config folder in
+   `ReadWritePaths`;
+7. starts the units that were running;
+8. writes `.layout-version` last.
+
+Every step is safe to re-run, and a second run with the marker present changes
+nothing. If a step fails the command undoes what it did, restores ownership and modes,
+prints the exact commands to finish by hand, writes no marker and exits non-zero;
+until the runtime files are back in one place `doctor` reports the layout as
+partial. `sudo sbox-ns layout migrate --revert` moves the files back into the config
+folders (owned by the service user again, with the unit allowed to write them) and
+removes the marker, for example before running an older binary.
+
+`sbox-ns update --auto` runs the migration as its first step when the marker is
+missing, before it contacts the release feed, and `sbox-ns rollback` reverts the
+layout before it restores the previous binary, because older binaries expect their
+secrets in the config folder.
 
 ## Database
 
@@ -574,8 +688,8 @@ applications.
 
 ## Backups
 
-Back up the database **and** the config folder, including
-`<config dir>/secrets/`. Without the auth session secret, existing player
+Back up the database **and** the config folder, plus the state folder
+`<data dir>/state/` (it holds `secrets/`). Without the auth session secret, existing player
 sessions become invalid after a restore; without the storage encryption key,
 every secret API key stops working.
 
@@ -658,8 +772,8 @@ sudo sbox-ns service install --auto-update     # or install.sh with SBOX_NS_AUTO
 
 This sets `updates.auto_install = true` and installs `sbox-ns-update.timer`
 ([`install/sbox-ns-update.timer`](../install/sbox-ns-update.timer)), which
-runs `sbox-ns update --auto --all-instances` as root every 15 minutes (spread
-by up to 5 minutes). A run installs nothing unless all of these hold:
+runs `sbox-ns update --auto --all-instances` as root every hour (spread
+by up to 15 minutes). A run installs nothing unless all of these hold:
 
 - every instance on the host has `updates.auto_install = true`;
 - the current UTC time is inside `updates.window` (default `"03:00-05:00"`;
@@ -688,23 +802,33 @@ optional secret `OSS_WEBSITE_DISPATCH_TOKEN` and variable
 website's official deployment workflow; without them deployment is manual.
 
 
-**What a run does.** It downloads the release, verifies `SHA256SUMS` (and the
-cosign signature when `cosign` is installed), then for every instance sharing
-the binary: stops the running instances, backs up each database
-(`pre-<version>` in `<data dir>/backups`), swaps the binary (keeping
-`sbox-ns.previous`), runs `db migrate` for each instance, starts the instances
-that were running, and waits up to 120 seconds for each `/health` to answer
-200 with the new version.
+**What a run does.** It downloads the release, verifies the pinned-key
+signature of `SHA256SUMS` and then the archive checksum (and the cosign
+signature as an extra check when `cosign` is installed), then for every
+instance sharing the binary: stops the running instances, backs up each
+database (`pre-<version>` in `<data dir>/backups`), swaps the binary (keeping
+the previous one as `sbox-ns.previous`), runs `db migrate` for each instance,
+starts the instances that were running, and waits up to 120 seconds for each
+`/health` to answer 200 with the new version. Backups, restores and migrations
+run as the instance's service user; root only controls the services and swaps
+the binary. Before anything else, a run on a host that has not been migrated performs
+`sbox-ns layout migrate` (see [Config and state folders](#config-and-state-folders)).
+
+**Update state.** The updater keeps its records and the previous binary in
+`/var/lib/sbox-ns-update` (`root:root`, mode `0700`), never in a folder the
+service account can write. Rollback restores only the installed `sbox-ns`
+binary from that folder. The release repository, feed URL and signing keys are
+compiled into the binary; `updates.feed_url` and `updates.github_repo` are no
+longer settings. Unattended updates never honor `SBOX_NS_INSECURE_SKIP_SIGNATURE`.
 
 **Rollback.** If any step fails, the run puts the previous binary back,
 restores every database backup taken in that run, starts the instances again,
 checks they report the old version, and records `failed` with the reason in
-each instance's `<data dir>/updates/last-update.json` (shown by `sbox-ns
-doctor`). After a successful run, `sbox-ns rollback --all-instances` undoes it.
-If a service cannot be stopped during recovery, no database or binary is
+each instance's `last-update.json` in the update state folder (shown by
+`sbox-ns doctor`). After a successful run, `sbox-ns rollback --all-instances`
+undoes it. If a service cannot be stopped during recovery, no database or binary is
 restored underneath it; the run exits 3 and preserves the backup files for
-operator recovery. Linux migrations run as the instance's configured service
-user so newly created SQLite files remain writable by the service.
+operator recovery.
 
 | Exit code of `update --auto` | Meaning |
 | --- | --- |

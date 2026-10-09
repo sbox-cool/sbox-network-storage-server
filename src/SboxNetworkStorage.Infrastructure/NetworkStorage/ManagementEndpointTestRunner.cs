@@ -14,7 +14,7 @@ namespace SboxNetworkStorage.Infrastructure.NetworkStorage;
 /// </summary>
 public sealed class ManagementEndpointTestRunner(
     INetworkStorageStore store,
-    NativeEndpointShadowExecutor executor,
+    EndpointExecutor executor,
     IQueryValuesContextProvider? valuesProvider)
 {
     public const string DefaultSteamId = "76561198000000000";

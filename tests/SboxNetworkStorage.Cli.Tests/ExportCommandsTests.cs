@@ -55,8 +55,10 @@ public sealed class ExportCommandsTests : IDisposable
         var sourceKeys = await KeyCountAsync(source, projectId);
         Assert.NotEqual(0, sourceKeys);
         Assert.Equal(sourceKeys, await KeyCountAsync(target, projectId));
-        Assert.Equal(File.ReadAllText(Path.Combine(source.Config, "secrets", "storage_encryption_key")),
-            File.ReadAllText(Path.Combine(target.Config, "secrets", "storage_encryption_key")));
+        // Generated secrets live in the state folder, not the config folder, and travel with the export.
+        Assert.Equal(File.ReadAllText(Path.Combine(source.Data, "state", "secrets", "storage_encryption_key")),
+            File.ReadAllText(Path.Combine(target.Data, "state", "secrets", "storage_encryption_key")));
+        Assert.False(Directory.Exists(Path.Combine(target.Config, "secrets")));
         Assert.True(File.Exists(Path.Combine(target.Config, "database.toml.from-export")));
 
         var refused = await Assert.ThrowsAsync<CliException>(() => ExportCommands.ImportAsync(Context(target, "import", archive)));
@@ -155,11 +157,11 @@ public sealed class ExportCommandsTests : IDisposable
     private static CliContext Context((string Config, string Data) server, params string[] args)
         => new(CliArguments.Parse([.. args, "--config-dir", server.Config, "--data-dir", server.Data]));
 
-    private static async Task<IReadOnlyList<BunnyProject>> ProjectsAsync((string Config, string Data) server)
+    private static async Task<IReadOnlyList<WorkspaceProject>> ProjectsAsync((string Config, string Data) server)
     {
         await using var services = CliServices.Build(Load(server));
         await using var scope = services.CreateAsyncScope();
-        return await scope.ServiceProvider.GetRequiredService<IBunnyWorkspaceClient>()
+        return await scope.ServiceProvider.GetRequiredService<IWorkspaceStore>()
             .GetUserProjectsAsync(NetworkStorageServices.LocalOwnerUserId, CancellationToken.None);
     }
 

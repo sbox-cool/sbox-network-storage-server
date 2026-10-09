@@ -8,7 +8,7 @@ namespace SboxNetworkStorage.Storage.Relational;
 
 /// <summary>
 /// ADO.NET implementation of <see cref="INetworkStorageStore"/> shared by the
-/// SQLite and PostgreSQL drivers. Behavior mirrors the production ScyllaDB
+/// SQLite and PostgreSQL drivers. Behavior mirrors the production the store
 /// store: identical validation, row shapes, clustering order, overwrite
 /// semantics, and counter arithmetic. Ordinary writes remain unconditional;
 /// portable project restoration additionally exposes a single atomic transaction.
@@ -21,7 +21,9 @@ public abstract partial class RelationalNetworkStorageStore : INetworkStorageSto
     private readonly StoreSql _sql;
     private readonly int _maxPayloadBytes;
     private readonly TimeProvider _time;
-    private readonly AsyncLocal<DbTransaction?> _projectImport = new();
+
+    // Set only on the bound view returned by Bind; null on the shared singleton store.
+    private DbTransaction? _transaction;
 
     protected RelationalNetworkStorageStore(string tablePrefix, int maxPayloadBytes, TimeProvider? time, ILogger? logger)
     {
@@ -69,8 +71,8 @@ public abstract partial class RelationalNetworkStorageStore : INetworkStorageSto
     {
         StoreValidation.Id(projectId);
         ArgumentNullException.ThrowIfNull(restore);
-        if (_projectImport.Value is not null)
-            throw new InvalidOperationException("Project imports cannot be nested.");
+        if (_transaction is not null)
+            throw new InvalidOperationException("Project imports cannot run inside a transaction.");
 
         await using var connection = await OpenConnectionAsync(ct);
         await using var transaction = await connection.BeginTransactionAsync(ct);
@@ -79,19 +81,70 @@ public abstract partial class RelationalNetworkStorageStore : INetworkStorageSto
         if (await claim.ExecuteNonQueryAsync(ct) != 1)
             return false;
 
-        _projectImport.Value = transaction;
+        // Disposal rolls back an uncommitted transaction even when the caller's token is canceled.
+        await restore(Bind(transaction), ct);
+        ct.ThrowIfCancellationRequested();
+        await transaction.CommitAsync(ct);
+        return true;
+    }
+
+    /// <inheritdoc />
+    public async Task<IStoreTransaction> BeginTransactionAsync(CancellationToken ct)
+    {
+        if (_transaction is not null)
+            throw new InvalidOperationException("Transactions cannot be nested.");
+
+        var connection = await OpenConnectionAsync(ct);
         try
         {
-            await restore(this, ct);
-            ct.ThrowIfCancellationRequested();
-            await transaction.CommitAsync(ct);
-            return true;
+            var transaction = await connection.BeginTransactionAsync(ct);
+            return new StoreTransaction(Bind(transaction), connection, transaction);
         }
-        finally
+        catch
         {
-            // Disposal rolls back an uncommitted transaction even when the caller's token is canceled.
-            _projectImport.Value = null;
+            await connection.DisposeAsync();
+            throw;
         }
+    }
+
+    /// <summary>A shallow copy of this store whose every statement runs on <paramref name="transaction"/>.</summary>
+    private RelationalNetworkStorageStore Bind(DbTransaction transaction)
+    {
+        var view = (RelationalNetworkStorageStore)MemberwiseClone();
+        view._transaction = transaction;
+        return view;
+    }
+
+    private sealed class StoreTransaction(RelationalNetworkStorageStore view, DbConnection connection, DbTransaction transaction) : IStoreTransaction
+    {
+        public INetworkStorageStore Store => view;
+
+        public Task CommitAsync(CancellationToken ct) => transaction.CommitAsync(ct);
+
+        public async ValueTask DisposeAsync()
+        {
+            // Disposing an uncommitted transaction rolls it back.
+            await transaction.DisposeAsync();
+            await connection.DisposeAsync();
+        }
+    }
+
+    /// <summary>
+    /// A connection for one operation: the transaction's connection on a bound view (not owned, never disposed
+    /// here), otherwise a fresh pooled connection that is returned to the pool on dispose.
+    /// </summary>
+    private readonly struct Lease(DbConnection connection, DbTransaction? transaction, DbConnection? owned) : IAsyncDisposable
+    {
+        public DbConnection Connection => connection;
+        public DbTransaction? Transaction => transaction;
+        public ValueTask DisposeAsync() => owned is null ? ValueTask.CompletedTask : owned.DisposeAsync();
+    }
+
+    private async ValueTask<Lease> LeaseAsync(CancellationToken ct)
+    {
+        if (_transaction is { } transaction) return new Lease(transaction.Connection!, transaction, null);
+        var owned = await OpenConnectionAsync(ct);
+        return new Lease(owned, null, owned);
     }
 
     // ── command helpers ────────────────────────────────────────────────
@@ -120,36 +173,35 @@ public abstract partial class RelationalNetworkStorageStore : INetworkStorageSto
         return command;
     }
 
+    private static DbCommand Command(Lease lease, string sql, Arg[] args) => Command(lease.Connection, sql, args, lease.Transaction);
+
     private async Task ExecuteAsync(string sql, CancellationToken ct, params Arg[] args)
     {
-        var transaction = _projectImport.Value;
-        await using var owned = transaction is null ? await OpenConnectionAsync(ct) : null;
-        await using var command = Command(transaction?.Connection ?? owned!, sql, args, transaction);
+        await using var lease = await LeaseAsync(ct);
+        await using var command = Command(lease, sql, args);
         await command.ExecuteNonQueryAsync(ct);
     }
 
+    /// <summary>Runs on a connection obtained from <see cref="LeaseAsync"/>, joining the transaction when it is the transaction's connection.</summary>
     private async Task ExecuteAsync(DbConnection connection, string sql, CancellationToken ct, params Arg[] args)
     {
-        var transaction = _projectImport.Value;
         await using var command = Command(connection, sql, args,
-            ReferenceEquals(transaction?.Connection, connection) ? transaction : null);
+            ReferenceEquals(_transaction?.Connection, connection) ? _transaction : null);
         await command.ExecuteNonQueryAsync(ct);
     }
 
     private async Task<JsonElement?> QuerySingleAsync(string sql, Column[] columns, CancellationToken ct, params Arg[] args)
     {
-        var transaction = _projectImport.Value;
-        await using var owned = transaction is null ? await OpenConnectionAsync(ct) : null;
-        await using var command = Command(transaction?.Connection ?? owned!, sql, args, transaction);
+        await using var lease = await LeaseAsync(ct);
+        await using var command = Command(lease, sql, args);
         await using var reader = await command.ExecuteReaderAsync(CommandBehavior.SingleRow, ct);
         return await reader.ReadAsync(ct) ? RowJson.Read(reader, columns) : null;
     }
 
     private async Task<IReadOnlyList<JsonElement>> QueryListAsync(string sql, Column[] columns, CancellationToken ct, params Arg[] args)
     {
-        var transaction = _projectImport.Value;
-        await using var owned = transaction is null ? await OpenConnectionAsync(ct) : null;
-        await using var command = Command(transaction?.Connection ?? owned!, sql, args, transaction);
+        await using var lease = await LeaseAsync(ct);
+        await using var command = Command(lease, sql, args);
         await using var reader = await command.ExecuteReaderAsync(ct);
         var rows = new List<JsonElement>();
         while (await reader.ReadAsync(ct))
@@ -157,23 +209,39 @@ public abstract partial class RelationalNetworkStorageStore : INetworkStorageSto
         return rows;
     }
 
+    /// <summary>Reads the first column of the first row as UTF-8 bytes; <c>found</c> is false when no row exists.</summary>
+    private async Task<(bool Found, byte[]? Value)> QueryUtf8Async(string sql, CancellationToken ct, params Arg[] args)
+    {
+        await using var lease = await LeaseAsync(ct);
+        await using var command = Command(lease, sql, args);
+        await using var reader = await command.ExecuteReaderAsync(CommandBehavior.SingleRow, ct);
+        if (!await reader.ReadAsync(ct)) return (false, null);
+        return (true, reader.IsDBNull(0) ? null : reader.GetFieldValue<byte[]>(0));
+    }
+
+    private async Task<long> QueryInt64ScalarAsync(string sql, CancellationToken ct, params Arg[] args)
+    {
+        await using var lease = await LeaseAsync(ct);
+        await using var command = Command(lease, sql, args);
+        var value = await command.ExecuteScalarAsync(ct);
+        return value is null or DBNull ? 0 : Convert.ToInt64(value, System.Globalization.CultureInfo.InvariantCulture);
+    }
+
     /// <summary>Reads the first column of the first row as text; <c>found</c> is false when no row exists.</summary>
     private async Task<(bool Found, string? Value)> QueryTextAsync(string sql, CancellationToken ct, params Arg[] args)
     {
-        var transaction = _projectImport.Value;
-        await using var owned = transaction is null ? await OpenConnectionAsync(ct) : null;
-        await using var command = Command(transaction?.Connection ?? owned!, sql, args, transaction);
+        await using var lease = await LeaseAsync(ct);
+        await using var command = Command(lease, sql, args);
         await using var reader = await command.ExecuteReaderAsync(CommandBehavior.SingleRow, ct);
         if (!await reader.ReadAsync(ct)) return (false, null);
         return (true, reader.IsDBNull(0) ? null : reader.GetString(0));
     }
 
-    private async Task<long> QueryInt64ScalarAsync(string sql, CancellationToken ct, params Arg[] args)
+    /// <summary>Executes a statement and returns the number of rows it changed.</summary>
+    private async Task<int> ExecuteCountAsync(string sql, CancellationToken ct, params Arg[] args)
     {
-        var transaction = _projectImport.Value;
-        await using var owned = transaction is null ? await OpenConnectionAsync(ct) : null;
-        await using var command = Command(transaction?.Connection ?? owned!, sql, args, transaction);
-        var value = await command.ExecuteScalarAsync(ct);
-        return value is null or DBNull ? 0 : Convert.ToInt64(value, System.Globalization.CultureInfo.InvariantCulture);
+        await using var lease = await LeaseAsync(ct);
+        await using var command = Command(lease, sql, args);
+        return await command.ExecuteNonQueryAsync(ct);
     }
 }

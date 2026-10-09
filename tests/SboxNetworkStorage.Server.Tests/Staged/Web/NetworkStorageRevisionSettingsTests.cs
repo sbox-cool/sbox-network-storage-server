@@ -10,22 +10,22 @@ namespace SboxNetworkStorage.Server.Tests;
 
 public sealed class NetworkStorageRevisionSettingsTests
 {
-    private static NetworkStorageProjectService CreateService(FakeBunny bunny)
+    private static NetworkStorageProjectService CreateService(FakeWorkspace workspace)
         => new(
-            bunny,
-            bunnyStorageEnumerator: null!,
+            workspace,
+            workspaceStorageEnumerator: null!,
             new ConfigurationBuilder().Build(),
             keyCdnWriter: null!,
-            scyllaStore: new InMemoryNetworkStorageStore(),
+            networkStore: new InMemoryNetworkStorageStore(),
             NullLogger<NetworkStorageProjectService>.Instance);
 
     [Fact]
     public async Task UpdateProjectSettings_Revisions_PersistsRevisionPolicyFields()
     {
         var now = DateTimeOffset.UtcNow;
-        var bunny = new FakeBunny();
-        bunny.Projects.Add(new BunnyProject("proj_one", "One", null, true, now, now, null));
-        var service = CreateService(bunny);
+        var workspace = new FakeWorkspace();
+        workspace.Projects.Add(new WorkspaceProject("proj_one", "One", null, true, now, now, null));
+        var service = CreateService(workspace);
 
         await service.UpdateProjectSettingsAsync(
             42,
@@ -49,7 +49,7 @@ public sealed class NetworkStorageRevisionSettingsTests
             },
             CancellationToken.None);
 
-        var saved = Assert.Single(bunny.Projects);
+        var saved = Assert.Single(workspace.Projects);
         Assert.True(saved.RevisionEnforcementEnabled);
         Assert.Equal("force_upgrade", saved.RevisionEnforcementMode);
         Assert.Equal(120, saved.RevisionGracePeriodMinutes);
@@ -63,18 +63,18 @@ public sealed class NetworkStorageRevisionSettingsTests
         Assert.True(saved.RevisionShowPopupOnce);
         Assert.True(saved.RevisionTestOutdatedEditor);
         Assert.True(saved.RevisionTestOutdatedLive);
-        Assert.Single(bunny.ProjectSaves);
+        Assert.Single(workspace.ProjectSaves);
     }
 
-    private sealed class FakeBunny : IBunnyWorkspaceClient
+    private sealed class FakeWorkspace : IWorkspaceStore
     {
-        public List<BunnyProject> Projects { get; } = new();
-        public List<IReadOnlyList<BunnyProject>> ProjectSaves { get; } = new();
+        public List<WorkspaceProject> Projects { get; } = new();
+        public List<IReadOnlyList<WorkspaceProject>> ProjectSaves { get; } = new();
 
-        public Task<IReadOnlyList<BunnyProject>> GetUserProjectsAsync(long userId, CancellationToken cancellationToken)
-            => Task.FromResult<IReadOnlyList<BunnyProject>>(Projects.ToList());
+        public Task<IReadOnlyList<WorkspaceProject>> GetUserProjectsAsync(long userId, CancellationToken cancellationToken)
+            => Task.FromResult<IReadOnlyList<WorkspaceProject>>(Projects.ToList());
 
-        public Task SaveUserProjectsAsync(long userId, IReadOnlyList<BunnyProject> projects, CancellationToken cancellationToken)
+        public Task SaveUserProjectsAsync(long userId, IReadOnlyList<WorkspaceProject> projects, CancellationToken cancellationToken)
         {
             ProjectSaves.Add(projects);
             Projects.Clear();

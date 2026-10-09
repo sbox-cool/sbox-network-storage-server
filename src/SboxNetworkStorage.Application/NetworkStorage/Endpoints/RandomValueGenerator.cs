@@ -3,12 +3,12 @@ using System.Security.Cryptography;
 namespace SboxNetworkStorage.Application.NetworkStorage.Endpoints;
 
 /// <summary>
-/// C# port of the Bun random step's value generation (int, float, weighted, beta).
+/// C# port of the legacy server random step's value generation (int, float, weighted, beta).
 /// Uses <see cref="RandomNumberGenerator"/> for crypto-secure randomness.
 /// </summary>
 public static class RandomValueGenerator
 {
-    /// <summary>Uniform random integer in [min, max) — matches Bun's <c>randomInt(min, max)</c>.</summary>
+    /// <summary>Uniform random integer in [min, max) — matches legacy server's <c>randomInt(min, max)</c>.</summary>
     public static double RandomInt(double min, double max)
     {
         var lo = (long)Math.Floor(min);
@@ -17,7 +17,7 @@ public static class RandomValueGenerator
         return lo + (long)(RandomNumberGenerator.GetInt32(int.MaxValue) * (double)(hi - lo) / int.MaxValue);
     }
 
-    /// <summary>Uniform random float in [min, max] — matches Bun's <c>randomFloat(min, max)</c>.</summary>
+    /// <summary>Uniform random float in [min, max] — matches legacy server's <c>randomFloat(min, max)</c>.</summary>
     public static double RandomFloat(double min, double max)
     {
         var unit = RandomNumberGenerator.GetInt32(int.MaxValue) / (double)int.MaxValue;
@@ -27,7 +27,7 @@ public static class RandomValueGenerator
     /// <summary>
     /// Weighted random selection from items. Each item is a dictionary with a
     /// configurable weight field (default "weight"). Returns the selected item.
-    /// Matches Bun's <c>weightedSelect(items, weightField)</c>.
+    /// Matches legacy server's <c>weightedSelect(items, weightField)</c>.
     /// </summary>
     public static object? WeightedSelect(List<object?> items, string weightField = "weight")
     {
@@ -63,7 +63,7 @@ public static class RandomValueGenerator
 
     /// <summary>
     /// Beta-distributed float (alpha=1 → right-skewed, alpha=beta → bell-shaped).
-    /// Matches the Bun approximation: <c>betaOneN</c> and <c>betaSymmetric</c>.
+    /// Matches the legacy server approximation: <c>betaOneN</c> and <c>betaSymmetric</c>.
     /// </summary>
     public static double BetaSample(double alpha, double beta, double min, double max)
     {

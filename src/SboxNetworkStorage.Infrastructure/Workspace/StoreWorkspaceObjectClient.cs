@@ -11,7 +11,7 @@ namespace SboxNetworkStorage.Infrastructure.Workspace;
 /// configured <see cref="INetworkStorageStore"/> so one database backup holds
 /// all server state.
 /// </summary>
-public sealed class StoreWorkspaceObjectClient(INetworkStorageStore store) : IBunnyWorkspaceClient, IWorkspaceStorageEnumerator
+public sealed class StoreWorkspaceObjectClient(INetworkStorageStore store) : IWorkspaceStore, IWorkspaceStorageEnumerator
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
@@ -20,12 +20,12 @@ public sealed class StoreWorkspaceObjectClient(INetworkStorageStore store) : IBu
     private static string ProjectPath(long userId, string projectId, string resourcePath)
         => $"{UserRoot(userId)}/{projectId}/{resourcePath.TrimStart('/')}";
 
-    public async Task<IReadOnlyList<BunnyProject>> GetUserProjectsAsync(long userId, CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<WorkspaceProject>> GetUserProjectsAsync(long userId, CancellationToken cancellationToken)
     {
         var json = await store.ReadWorkspaceObjectAsync($"{UserRoot(userId)}/projects.json", cancellationToken);
         return json is null
-            ? Array.Empty<BunnyProject>()
-            : JsonSerializer.Deserialize<List<BunnyProject>>(json, JsonOptions) ?? [];
+            ? Array.Empty<WorkspaceProject>()
+            : JsonSerializer.Deserialize<List<WorkspaceProject>>(json, JsonOptions) ?? [];
     }
 
     public async Task<WorkspaceProjectUsage?> GetProjectUsageAsync(long userId, string projectId, string monthKey, CancellationToken cancellationToken)
@@ -51,7 +51,7 @@ public sealed class StoreWorkspaceObjectClient(INetworkStorageStore store) : IBu
         return usage with { Source = "retained-snapshot", LastUpdatedAt = flushedAt };
     }
 
-    public Task SaveUserProjectsAsync(long userId, IReadOnlyList<BunnyProject> projects, CancellationToken cancellationToken)
+    public Task SaveUserProjectsAsync(long userId, IReadOnlyList<WorkspaceProject> projects, CancellationToken cancellationToken)
         => store.PutWorkspaceObjectAsync($"{UserRoot(userId)}/projects.json", JsonSerializer.Serialize(projects, JsonOptions), cancellationToken);
 
     public async Task<T?> GetProjectResourceAsync<T>(long userId, string projectId, string resourcePath, CancellationToken cancellationToken)
@@ -78,11 +78,11 @@ public sealed class StoreWorkspaceObjectClient(INetworkStorageStore store) : IBu
     public Task DeleteRawAsync(string absolutePath, CancellationToken cancellationToken)
         => store.DeleteWorkspaceObjectAsync(absolutePath, cancellationToken);
 
-    public async Task<IReadOnlyList<BunnyStorageEntry>> ListProjectResourceAsync(long userId, string projectId, string resourcePath, CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<WorkspaceStorageEntry>> ListProjectResourceAsync(long userId, string projectId, string resourcePath, CancellationToken cancellationToken)
     {
         var entries = await store.ListWorkspaceObjectsAsync(ProjectPath(userId, projectId, resourcePath.TrimEnd('/')), cancellationToken);
         return entries
-            .Select(e => new BunnyStorageEntry(e.Name, e.IsDirectory, e.LastChanged, e.LengthBytes))
+            .Select(e => new WorkspaceStorageEntry(e.Name, e.IsDirectory, e.LastChanged, e.LengthBytes))
             .ToList();
     }
 }

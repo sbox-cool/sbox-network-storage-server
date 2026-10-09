@@ -1,6 +1,5 @@
-using SboxNetworkStorage.Contracts.Diagnostics;
 using SboxNetworkStorage.Server.Hosting;
-using SboxNetworkStorage.Server.Routing;
+
 using SboxNetworkStorage.Server.Updates;
 using SboxNetworkStorage.Server.Tunnels;
 using SboxNetworkStorage.Storage.Relational;
@@ -37,8 +36,7 @@ public static class ServerInfoEndpoints
                             checkedAt = notice.CheckedAt
                         }
                 });
-            })
-            .WithRouteOwner(RouteOwner.DotNetNative, "Self-hosted server identity, version and capabilities");
+            });
 
         endpoints.MapGet("/health", async (INetworkStorageStoreAdmin store, CancellationToken ct) =>
             {
@@ -51,8 +49,7 @@ public static class ServerInfoEndpoints
                 {
                     return Results.Json(new { status = "database-unavailable", version = BuildInfo.Version, database = store.ProviderName }, statusCode: StatusCodes.Status503ServiceUnavailable);
                 }
-            })
-            .WithRouteOwner(RouteOwner.DotNetNative, "Self-hosted liveness and database health");
+            });
 
         return endpoints;
     }

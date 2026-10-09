@@ -7,7 +7,7 @@ namespace SboxNetworkStorage.Server.Tests.NetworkStorage;
 /// <summary>
 /// Task 1.4 (fix-usage-and-query-telemetry): usage-counter store semantics on
 /// <see cref="InMemoryNetworkStorageStore"/> plus schema-migrator coverage for the V5
-/// usage tables. The fake mirrors the real ScyllaDB counter tables' additive
+/// usage tables. The fake mirrors the real store counter tables' additive
 /// merge behavior, so these tests pin the contract the tracker and read paths
 /// rely on.
 /// </summary>
@@ -113,13 +113,4 @@ public sealed class UsageMeteringStoreTests
         Assert.Equal(-150, Long(monthly!.Value, "storage_delta_bytes"));
     }
 
-    [Theory]
-    [InlineData("sboxcool", null, "sboxcool_usage")]
-    [InlineData("sboxcool", "  ", "sboxcool_usage")]
-    [InlineData("sboxcool", "billing_counters", "billing_counters")]
-    public void Effective_Usage_Keyspace_Defaults_To_Main_Keyspace_Suffix(string keyspace, string? configured, string expected)
-    {
-        var options = new ScyllaDbOptions { Keyspace = keyspace, UsageKeyspace = configured };
-        Assert.Equal(expected, options.EffectiveUsageKeyspace);
-    }
 }

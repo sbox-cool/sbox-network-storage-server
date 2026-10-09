@@ -1,7 +1,7 @@
 # systemd template unit for named sbox Network Storage Server instances.
-# Installed as /etc/systemd/system/sbox-ns@.service by
-# `sbox-ns service install --instance <name> --port <port>`; each instance runs as sbox-ns@<name>
-# with config in /etc/sbox-ns/<name> and data in /var/lib/sbox-ns/<name>.
+# Template for /etc/systemd/system/sbox-ns@.service. `sbox-ns service install --instance <name> --port <port>`
+# embeds this file, replaces the @PLACEHOLDER@ values (binary, user, group) and writes the result; each
+# instance runs as sbox-ns@<name> with config in /etc/sbox-ns/<name> and data in /var/lib/sbox-ns/<name>.
 # All instances share the /usr/local/bin/sbox-ns binary, so they are updated together
 # (`sbox-ns update --auto --all-instances`). Local overrides: `systemctl edit sbox-ns@<name>`.
 
@@ -13,28 +13,43 @@ After=network-online.target postgresql.service
 
 [Service]
 Type=simple
-User=sbox-ns
-ExecStart=/usr/local/bin/sbox-ns start --config-dir /etc/sbox-ns/%i --data-dir /var/lib/sbox-ns/%i
+User=@USER@
+Group=@GROUP@
+ExecStart=@BINARY@ start --config-dir /etc/sbox-ns/%i --data-dir /var/lib/sbox-ns/%i
 WorkingDirectory=/var/lib/sbox-ns/%i
 Restart=on-failure
 RestartSec=5
 TimeoutStopSec=30
+KillSignal=SIGTERM
 Environment=DOTNET_BUNDLE_EXTRACT_BASE_DIR=/var/lib/sbox-ns/%i/.net
 Environment=DOTNET_CLI_TELEMETRY_OPTOUT=1
 
-# Hardening
+# Hardening (same baseline as sbox-ns.service)
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
 PrivateDevices=true
+DevicePolicy=closed
 ProtectKernelTunables=true
 ProtectKernelModules=true
+ProtectKernelLogs=true
 ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+ProcSubset=pid
 RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
 LockPersonality=true
+RemoveIPC=true
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
-ReadWritePaths=/var/lib/sbox-ns/%i /etc/sbox-ns/%i
+SystemCallFilter=@system-service
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+AmbientCapabilities=
+ReadWritePaths=@READ_WRITE_PATHS@
 UMask=0027
 
 [Install]

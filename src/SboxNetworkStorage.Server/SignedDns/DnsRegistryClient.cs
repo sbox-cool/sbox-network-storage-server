@@ -16,7 +16,7 @@ public sealed partial class DnsRegistryClient(HttpClient http)
 
     public static Uri ValidateRegistry(string value) => TunnelRegistryClient.ValidateRegistry(value, "DNS registry");
 
-    [GeneratedRegex(@"^[a-z2-7]{12}\.n[0-9]{1,3}\.sboxns\.com$", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"^[a-z2-7]{12}\.n[0-9]{1,3}\.sboxns\.com$", RegexOptions.CultureInvariant, 100)]
     private static partial Regex HostnamePattern();
 
     /// <summary>True for any well-formed signed DNS hostname (<c>name.nN.sboxns.com</c>).</summary>

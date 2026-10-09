@@ -49,7 +49,7 @@ public sealed class TunnelConnectorService(EffectiveConfig config, TunnelConnect
                 var began = Stopwatch.GetTimestamp();
                 try
                 {
-                    var path = CloudflaredInstaller.ExecutablePath(config.ConfigDirectory);
+                    var path = CloudflaredInstaller.ExecutablePath(config.ExecutablesDirectory);
                     var token = File.ReadAllText(TunnelManager.TokenPath(config)).Trim();
                     if (token.Length == 0) throw new InvalidDataException("Missing tunnel token.");
                     TunnelFiles.Restrict(TunnelManager.TokenPath(config));

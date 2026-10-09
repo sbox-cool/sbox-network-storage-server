@@ -17,7 +17,7 @@ cd "$root"
 if ! $no_build; then
   dotnet build SboxNetworkStorage.sln -c Release
 fi
-server=(dotnet "$root/src/SboxNetworkStorage.Server/bin/Release/net8.0/sbox-ns.dll")
+server=(dotnet "$root/src/SboxNetworkStorage.Server/bin/Release/net10.0/sbox-ns.dll")
 if [[ -n "$binary" ]]; then
   if [[ "$binary" == *.dll ]]; then server=(dotnet "$binary"); else server=("$binary"); fi
 fi
@@ -54,7 +54,8 @@ parse_key() {
 public="$(cli key create "$project" --type public | parse_key)"
 secret="$(cli key create "$project" --type secret | parse_key)"
 if (exec 3<>/dev/tcp/127.0.0.1/$port) 2>/dev/null; then exec 3<&-; exec 3>&-; echo "Port $port is already in use by another server; refusing to run against a stale instance" >&2; exit 1; fi
-cli start > "$work/server.log" 2>&1 &
+# exec so $! is the server itself: a backgrounded shell function would leave the server running after cleanup kills the subshell.
+(exec "${server[@]}" start --config-dir "$work/config" --data-dir "$work/data" > "$work/server.log" 2>&1) &
 pid=$!
 healthy=false
 for ((i=0; i<120; i++)); do
@@ -65,4 +66,4 @@ done
 $healthy || { echo 'Server did not become healthy' >&2; exit 1; }
 args=(check --target "http://127.0.0.1:$port" --project-id "$project" --public-key "$public" --secret-key "$secret" --corpus "$root/tests/parity/corpus")
 if [[ -n "$out" ]]; then args+=(--out "$out"); fi
-dotnet "$root/tools/SboxNetworkStorage.Parity/bin/Release/net8.0/sbox-ns-parity.dll" "${args[@]}"
+dotnet "$root/tools/SboxNetworkStorage.Parity/bin/Release/net10.0/sbox-ns-parity.dll" "${args[@]}"

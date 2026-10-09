@@ -7,10 +7,10 @@ namespace SboxNetworkStorage.Server.Tests.NetworkStorage;
 
 /// <summary>
 /// Asserts the C# <see cref="EndpointExpression"/> port produces identical
-/// results to the authoritative Bun expression engine for every case in the
+/// results to the authoritative legacy server expression engine for every case in the
 /// golden oracle (endpoint-expression-oracle.json, generated from the JS engine
 /// by endpoint-expression-oracle.mjs). Any divergence fails the build — this is
-/// the parity gate guarding the Bun → .NET endpoint-execution cutover.
+/// the parity gate guarding the legacy server → .NET endpoint-execution cutover.
 /// </summary>
 public sealed class EndpointExpressionParityTests
 {
@@ -77,7 +77,7 @@ public sealed class EndpointExpressionParityTests
     //
     // `{{_hasSecretKey}} == true` is the documented way to gate dedicated-server
     // flows (00c-source-authoring.md: _hasSecretKey is a boolean). This syntax is
-    // NOT covered by the oracle (the Bun engine never supported it — it coerced
+    // NOT covered by the oracle (the legacy server engine never supported it — it coerced
     // the token to a number and compared 1 == "true", which is always false, so
     // the parity oracle cannot pin a sensible value for it). The .NET port
     // deliberately fixes the semantics: the check must honor the boolean's real
@@ -130,7 +130,7 @@ public sealed class EndpointExpressionParityTests
     public void StructuredFieldCheck_BooleanValue_HonorsBooleanValue()
     {
         // The documented structured form (field/op/value) must keep working — it
-        // is the form the docs and the Bun engine tests use.
+        // is the form the docs and the legacy server engine tests use.
         var withSecret = new Dictionary<string, object?> { ["_hasSecretKey"] = true };
         var withoutSecret = new Dictionary<string, object?> { ["_hasSecretKey"] = false };
 

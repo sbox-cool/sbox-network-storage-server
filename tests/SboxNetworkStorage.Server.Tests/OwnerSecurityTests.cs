@@ -127,7 +127,7 @@ public sealed class OwnerSecurityTests
     {
         var values = config.Values.ToDictionary(pair => pair.Key, pair => pair.Value);
         foreach (var item in overrides) values[item.Key] = values[item.Key] with { Value = item.Value };
-        return new EffectiveConfig { ConfigDirectory = config.ConfigDirectory, DataDirectory = config.DataDirectory,
+        return new EffectiveConfig { ConfigDirectory = config.ConfigDirectory, DataDirectory = config.DataDirectory, Layout = config.Layout,
             Values = values, LoadedFiles = config.LoadedFiles, Issues = [] };
     }
 }

@@ -11,11 +11,11 @@ namespace SboxNetworkStorage.Server.Middleware;
 /// passthrough response stream with no buffering), status, and semantic annotations
 /// set via <see cref="NetworkStorageUsageContext"/>.
 ///
-/// <para>Skips: non-data-plane paths (zero overhead), OPTIONS preflight, and
-/// 401 responses (legacy rule: usage is tracked only after auth succeeds).
-/// Unannotated data-plane requests fall back to the route-value
-/// <c>projectId</c> with GET⇒read / else write classification. Metering is
-/// strictly best-effort — it never throws into the pipeline.</para>
+/// <para>Skips: non-data-plane paths (zero overhead), OPTIONS preflight, 401
+/// responses, and every request whose handler did not annotate it after
+/// authenticating (unauthenticated traffic is never metered under a
+/// caller-chosen project). Metering is strictly best-effort — it never throws
+/// into the pipeline.</para>
 /// </summary>
 public sealed class NetworkStorageUsageMiddleware(
     RequestDelegate next,
@@ -74,24 +74,18 @@ public sealed class NetworkStorageUsageMiddleware(
             if (status == StatusCodes.Status401Unauthorized) return;
 
             var annotation = NetworkStorageUsageContext.Get(context);
-            if (annotation is { Suppressed: true }) return;
-
-            var projectId = annotation?.ProjectId ?? context.GetRouteValue("projectId") as string;
-            if (string.IsNullOrEmpty(projectId)) return;
-
-            var kind = annotation?.Kind
-                ?? (HttpMethods.IsGet(context.Request.Method) ? UsageKind.Read : UsageKind.Write);
+            if (annotation is null or { Suppressed: true }) return;
 
             tracker.Track(
-                projectId,
-                kind,
+                annotation.ProjectId,
+                annotation.Kind,
                 context.Request.Method,
                 bytesIn: bytesIn,
                 bytesOut: bytesOut,
                 durationMs: durationMs,
-                endpointSlug: annotation?.EndpointSlug,
+                endpointSlug: annotation.EndpointSlug,
                 isError: status >= StatusCodes.Status400BadRequest,
-                storageDeltaBytes: annotation?.StorageDeltaBytes ?? 0);
+                storageDeltaBytes: annotation.StorageDeltaBytes);
         }
         catch (Exception ex)
         {

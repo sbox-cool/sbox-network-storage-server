@@ -20,7 +20,7 @@ namespace SboxNetworkStorage.Server.Tests;
 /// ValidateOnBuild would NOT have caught this (it validates registered service
 /// graphs, not runtime concrete resolutions), and this repo cannot enable
 /// ValidateOnBuild anyway because it eagerly instantiates singletons at startup,
-/// which conflicts with the "unavailable Postgres/Scylla must never block host
+/// which conflicts with the "unavailable Postgres/store must never block host
 /// startup" invariant. So this test codifies the contract explicitly: every
 /// concrete type a Network Storage endpoint resolves from RequestServices MUST
 /// be resolvable from a request scope.
@@ -42,12 +42,12 @@ public abstract class NetworkStorageEndpointServiceResolutionTests<TFactory> : I
     public static TheoryData<Type> ConcreteTypesEndpointsResolve() => new()
     {
         // NetworkStorageGatewayEndpoints
-        typeof(ManagementMutationCandidateHandler), // ServeNativeManagementMutationAsync (the incident)
-        typeof(EndpointSlugReadCandidateHandler),   // ServeNativeEndpointSlugReadAsync
+        typeof(ManagementMutationHandler), // ServeNativeManagementMutationAsync (the incident)
+        typeof(EndpointSlugReadHandler),   // ServeNativeEndpointSlugReadAsync
         typeof(PackageSyncHandler),                 // ServeNativePackageSyncAsync
         typeof(NativeStatsHeartbeatHandler),        // ServeNativeStatsHeartbeatAsync
         // EndpointExecutionEndpoints
-        typeof(NativeEndpointShadowExecutor),
+        typeof(EndpointExecutor),
         // QueryEndpoints
         typeof(NativeQueryExecutor),
     };

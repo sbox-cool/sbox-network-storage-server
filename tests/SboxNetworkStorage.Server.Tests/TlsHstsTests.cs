@@ -20,7 +20,7 @@ public sealed class TlsHstsTests
         var values = factory.Config.Values.ToDictionary(pair => pair.Key, pair => pair.Value);
         values["tls.mode"] = values["tls.mode"] with { Value = mode };
         values["tls.hsts"] = values["tls.hsts"] with { Value = enabled };
-        var config = new EffectiveConfig { ConfigDirectory = factory.Config.ConfigDirectory, DataDirectory = factory.Config.DataDirectory,
+        var config = new EffectiveConfig { ConfigDirectory = factory.Config.ConfigDirectory, DataDirectory = factory.Config.DataDirectory, Layout = factory.Config.Layout,
             Values = values, LoadedFiles = factory.Config.LoadedFiles, Issues = [] };
         var context = new DefaultHttpContext();
         context.Request.Scheme = scheme;

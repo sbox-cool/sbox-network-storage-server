@@ -11,9 +11,9 @@ namespace SboxNetworkStorage.Server.Tests;
 
 /// <summary>
 /// Network Storage routes (e.g. the s&amp;box SyncTool's <c>POST /v3/manage/:projectId/package-sync</c>)
-/// terminate in ASP.NET Core and proxy to the hidden Bun storage-api worker. When that worker returns a
+/// terminate in ASP.NET Core and proxy to the hidden legacy server storage-api worker. When that worker returns a
 /// 500, the gateway forwards the status/body to the caller. The storage-api archives its own 500s into the
-/// Bun-owned <c>internal_errors</c> rows. The gateway MUST still capture proxied upstream 5xx into the .NET
+/// legacy server-owned <c>internal_errors</c> rows. The gateway MUST still capture proxied upstream 5xx into the .NET
 /// error archive (+ Discord alert) so the failure also carries .NET request context and fires the .NET alert.
 /// </summary>
 public abstract class NetworkStorageGatewayUpstreamErrorCaptureTests<TFactory> : IClassFixture<TFactory>
@@ -32,7 +32,7 @@ public abstract class NetworkStorageGatewayUpstreamErrorCaptureTests<TFactory> :
     [SkippableFact]
     public async Task Gateway_Returns404ForUnmatchedV3Paths_NoBunProxy()
     {
-        // The catch-all /v3/{**path} proxy to Bun is removed. Unmatched paths
+        // The catch-all /v3/{**path} proxy to legacy server is removed. Unmatched paths
         // return a native 404. This test verifies no proxy attempt is made.
         using var client = factory.CreateClient(new WebApplicationFactoryClientOptions
         {
@@ -44,14 +44,13 @@ public abstract class NetworkStorageGatewayUpstreamErrorCaptureTests<TFactory> :
             new StringContent("{}", Encoding.UTF8, "application/json"));
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
-        Assert.Equal(".NET native", response.Headers.GetValues("X-Sboxcool-Route-Owner").Single());
     }
 
     [SkippableFact]
     public async Task Gateway_NativeHandlerRequiresAuth()
     {
         // Native management routes (like package-sync) require API key auth.
-        // Without auth, they return 401 — no Bun proxy fallback.
+        // Without auth, they return 401 — no legacy server proxy fallback.
         using var client = factory.CreateClient(new WebApplicationFactoryClientOptions
         {
             AllowAutoRedirect = false,

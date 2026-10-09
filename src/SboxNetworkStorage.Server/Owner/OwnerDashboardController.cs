@@ -9,13 +9,13 @@ using SboxNetworkStorage.Server.Hosting;
 
 namespace SboxNetworkStorage.Server.Owner;
 
-public sealed record OwnerDashboardModel(IReadOnlyList<BunnyProject> Projects, string? Error = null);
-public sealed record OwnerProjectModel(BunnyProject Project, NetworkStorageProjectResources? Resources,
+public sealed record OwnerDashboardModel(IReadOnlyList<WorkspaceProject> Projects, string? Error = null);
+public sealed record OwnerProjectModel(WorkspaceProject Project, NetworkStorageProjectResources? Resources,
     IReadOnlyList<ApiKeyInfo> Keys, string? RawKey = null, string? Error = null);
 
 /// <summary>Standalone adaptation of the Network Storage project/settings/key management surface.</summary>
 [Authorize(AuthenticationSchemes = OwnerHostingExtensions.Scheme)]
-public sealed class OwnerDashboardController(INetworkStorageProjectService projects, IBunnyWorkspaceClient workspace,
+public sealed class OwnerDashboardController(INetworkStorageProjectService projects, IWorkspaceStore workspace,
     IAuditLogger audit) : Controller
 {
     private const long Owner = NetworkStorageServices.LocalOwnerUserId;
@@ -64,7 +64,7 @@ public sealed class OwnerDashboardController(INetworkStorageProjectService proje
     public async Task<IActionResult> Settings(string projectId, [FromForm] string? tab, CancellationToken ct)
     {
         if (await LoadProjectAsync(projectId, ct) is null) return NotFound();
-        if (tab is not ("project" or "security" or "player-keys" or "revisions")) return BadRequest("Unknown settings tab.");
+        if (tab is not ("project" or "security" or "player-keys" or "legacy-projections" or "revisions")) return BadRequest("Unknown settings tab.");
         var form = await Request.ReadFormAsync(ct);
         var values = form.ToDictionary(pair => pair.Key, pair => pair.Value.ToString(), StringComparer.Ordinal);
         if (tab == "project" && (values.GetValueOrDefault("name")?.Trim().Length is not (>= 1 and <= 64)

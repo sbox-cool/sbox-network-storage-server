@@ -6,7 +6,7 @@ using SboxNetworkStorage.Infrastructure.NetworkStorage.Storage;
 namespace SboxNetworkStorage.Infrastructure.NetworkStorage.Usage;
 
 /// <summary>
-/// Classification of a metered data-plane request. Mirrors the legacy Bun
+/// Classification of a metered data-plane request. Mirrors the legacy server
 /// tracker's <c>read | write | endpoint</c> types plus explicit query/auth
 /// buckets for the .NET route surface.
 /// </summary>
@@ -33,18 +33,22 @@ public readonly record struct NetworkStorageUsageTrackerSnapshot(
     DateTimeOffset? LastTrackedAt,
     DateTimeOffset? LastSuccessfulFlushAt,
     DateTimeOffset? LastFailedFlushAt,
-    DateTimeOffset? NextFlushRetryAt);
+    DateTimeOffset? NextFlushRetryAt,
+    long DroppedKeys);
 /// <summary>
 /// In-process buffered usage metering for the Network Storage data plane — the
-/// .NET port of the decommissioned Bun <c>tools/sbox/usage-tracker.js</c>.
+/// .NET port of the decommissioned legacy server <c>tools/sbox/usage-tracker.js</c>.
 /// <see cref="Track"/> accumulates per-(project, month, day, endpoint) deltas in
 /// memory; <see cref="FlushAsync(bool, CancellationToken)"/> drains them into the
-/// ScyllaDB counter tables (<c>project_usage_monthly/daily/endpoints</c>).
+/// The store counter tables (<c>project_usage_monthly/daily/endpoints</c>).
 ///
 /// <para>Failure semantics match legacy: a failed bucket flush re-merges the
 /// deltas into the live buffer and applies exponential backoff (30 s base,
-/// 5 min cap) before the next non-forced flush. A hard process crash loses at
-/// most one flush interval of telemetry — identical to the Bun tracker.</para>
+/// 5 min cap) before the next non-forced flush. A bucket the store rejects with
+/// <see cref="ArgumentException"/> can never succeed and is dropped instead. At most
+/// <c>maxPendingKeys</c> distinct keys are buffered; further new keys are
+/// dropped and counted. A hard process crash loses at most one flush interval of
+/// telemetry — identical to the legacy server tracker.</para>
 ///
 /// <para>Thread-safety: buckets are locked for the few field additions; a
 /// bucket being drained is marked <c>Draining</c> under its lock so a racing
@@ -55,10 +59,12 @@ public readonly record struct NetworkStorageUsageTrackerSnapshot(
 public sealed class NetworkStorageUsageTracker(
     IServiceScopeFactory scopeFactory,
     TimeProvider time,
-    ILogger<NetworkStorageUsageTracker> logger)
+    ILogger<NetworkStorageUsageTracker> logger,
+    int maxPendingKeys = NetworkStorageUsageTracker.DefaultMaxPendingKeys)
 {
     internal const int FlushIntervalSeconds = 30;
     internal const int MaxBufferKeys = 50;
+    public const int DefaultMaxPendingKeys = 10_000;
     private const long BackoffBaseMs = 30_000;
     private const long BackoffMaxMs = 5 * 60_000;
 
@@ -72,6 +78,7 @@ public sealed class NetworkStorageUsageTracker(
     private long _lastTrackedAtUnixMs;
     private long _lastSuccessfulFlushAtUnixMs;
     private long _lastFailedFlushAtUnixMs;
+    private long _droppedKeys;
 
 
     /// <summary>Number of distinct pending buckets (diagnostics/tests).</summary>
@@ -85,7 +92,8 @@ public sealed class NetworkStorageUsageTracker(
         FromUnixMilliseconds(Interlocked.Read(ref _lastTrackedAtUnixMs)),
         FromUnixMilliseconds(Interlocked.Read(ref _lastSuccessfulFlushAtUnixMs)),
         FromUnixMilliseconds(Interlocked.Read(ref _lastFailedFlushAtUnixMs)),
-        FromUnixMilliseconds(Interlocked.Read(ref _nextFlushAtUnixMs)));
+        FromUnixMilliseconds(Interlocked.Read(ref _nextFlushAtUnixMs)),
+        Interlocked.Read(ref _droppedKeys));
 
 
     /// <summary>
@@ -112,6 +120,12 @@ public sealed class NetworkStorageUsageTracker(
                 now.ToString("yyyy-MM"),
                 now.ToString("yyyy-MM-dd"),
                 endpointSlug ?? string.Empty);
+
+            if (_buffer.Count >= maxPendingKeys && !_buffer.ContainsKey(key))
+            {
+                Interlocked.Increment(ref _droppedKeys);
+                return;
+            }
 
             while (true)
             {
@@ -180,7 +194,7 @@ public sealed class NetworkStorageUsageTracker(
     public Task FlushAsync(CancellationToken ct = default) => FlushAsync(force: false, ct);
 
     /// <summary>
-    /// Drain all pending buckets into ScyllaDB. <paramref name="force"/> ignores
+    /// Drain all pending buckets into the store. <paramref name="force"/> ignores
     /// the failure backoff (used on shutdown). Single-flight: a concurrent call
     /// returns immediately. Never throws.
     /// </summary>
@@ -221,6 +235,12 @@ public sealed class NetworkStorageUsageTracker(
                             key.EndpointSlug.Length == 0 ? null : key.EndpointSlug,
                             delta, ct);
                         anySuccess = true;
+                    }
+                    catch (ArgumentException ex)
+                    {
+                        // The store rejected the key itself; retrying cannot succeed.
+                        Interlocked.Increment(ref _droppedKeys);
+                        logger.LogWarning(ex, "Usage bucket for {ProjectId} {Month} is invalid — dropped", key.ProjectId, key.Month);
                     }
                     catch (Exception ex)
                     {

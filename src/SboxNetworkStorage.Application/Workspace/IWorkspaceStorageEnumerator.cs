@@ -5,8 +5,8 @@ using System.Threading.Tasks;
 
 namespace SboxNetworkStorage.Application.Workspace;
 
-/// <summary>A single object returned by a Bunny edge-storage directory listing.</summary>
-public sealed record BunnyStorageEntry(
+/// <summary>A single object returned by a workspace edge-storage directory listing.</summary>
+public sealed record WorkspaceStorageEntry(
     string ObjectName,
     bool IsDirectory,
     DateTimeOffset? LastChanged = null,
@@ -14,9 +14,9 @@ public sealed record BunnyStorageEntry(
 
 /// <summary>
 /// Directory enumeration over the fast-edge workspace storage. Kept separate from
-/// <see cref="IBunnyWorkspaceClient"/> so adding listing does not force every existing
+/// <see cref="IWorkspaceStore"/> so adding listing does not force every existing
 /// test double to implement it. Used by the native player-analytics log/transaction/ledger
-/// scans, which mirror the legacy <c>listFiles</c> calls in the Bun data plane.
+/// scans, which mirror the legacy <c>listFiles</c> calls in the legacy server data plane.
 /// </summary>
 public interface IWorkspaceStorageEnumerator
 {
@@ -25,5 +25,5 @@ public interface IWorkspaceStorageEnumerator
     /// <c>network-storage/users/{userId}/{projectId}/</c>. Returns an empty list when the
     /// directory does not exist.
     /// </summary>
-    Task<IReadOnlyList<BunnyStorageEntry>> ListProjectResourceAsync(long userId, string projectId, string resourcePath, CancellationToken cancellationToken);
+    Task<IReadOnlyList<WorkspaceStorageEntry>> ListProjectResourceAsync(long userId, string projectId, string resourcePath, CancellationToken cancellationToken);
 }

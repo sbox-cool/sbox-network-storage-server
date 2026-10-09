@@ -3,7 +3,7 @@ namespace SboxNetworkStorage.Application.NetworkStorage;
 /// <summary>
 /// Provides the values context for Network Storage query execution — the
 /// flattened game-values + collection constants/tables that query expressions
-/// resolve against. Mirrors the Bun getQueryValuesContext + flattenGameValues path.
+/// resolve against. Mirrors the legacy server getQueryValuesContext + flattenGameValues path.
 /// </summary>
 public interface IQueryValuesContextProvider
 {

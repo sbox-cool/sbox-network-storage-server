@@ -7,20 +7,21 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using SboxNetworkStorage.Application.NetworkStorage;
+using SboxNetworkStorage.Infrastructure.NetworkStorage.Analytics;
 using SboxNetworkStorage.Infrastructure.NetworkStorage.Storage;
 
 namespace SboxNetworkStorage.Infrastructure.NetworkStorage;
 
 /// <summary>
-/// Native .NET port of the legacy Bun <c>observePlayerAnalytics</c>
+/// Native .NET port of the legacy server <c>observePlayerAnalytics</c>
 /// (<c>services/network-storage-player-analytics.js</c>) ingestion path. Emits
 /// normalized analytics events from the .NET data plane (endpoint execution,
 /// storage CRUD, the explicit analytics-events endpoint) and maintains the
 /// per-player profile/presence, per-player session, and project issues indexes
-/// in ScyllaDB — replacing the Bunny fast-edge index files
+/// in the store — replacing the workspace fast-edge index files
 /// (<c>analytics/recent.json</c>, <c>players/{steamId}.json</c>,
 /// <c>events/{steamId}/{date}.json</c>, <c>sessions/{steamId}/{sessionId}.json</c>,
-/// <c>issues|incidents/recent.json</c>) that Bun maintained.
+/// <c>issues|incidents/recent.json</c>) that legacy server maintained.
 ///
 /// All ingestion is best-effort: a failure is logged and swallowed so it never
 /// breaks the originating storage/endpoint operation.
@@ -51,34 +52,74 @@ public sealed class PlayerAnalyticsIngester(
     /// </summary>
     private static readonly JsonElement EmptyObjectElement = JsonDocument.Parse("{}").RootElement.Clone();
 
+    /// <summary>
+    /// Normalizes a storage event into the row-ready <see cref="AnalyticsEvent"/>, or null when it carries no
+    /// plausible player. Pure: no I/O, safe to call on the request thread.
+    /// </summary>
+    internal static AnalyticsEvent? Normalize(PlayerEventRequest request, long timestampMs)
+    {
+        // The legacy storage-CRUD path passes the player steamId as RecordKey.
+        var steamId = request.RecordKey;
+        if (string.IsNullOrWhiteSpace(steamId) || !IsPlausibleSteamId(steamId)) return null;
+
+        var payload = ToJsonElement(request.Payload);
+        var type = request.EventType;
+        var playerName = ReadString(payload, "playerName", "player_name") ?? string.Empty;
+        var sessionId = ReadString(payload, "sessionId", "session_id");
+        var label = ReadString(payload, "label") ?? DeriveLabel(type);
+        var source = NormalizeSource(ReadString(payload, "source"));
+        var endpointSlug = ReadString(payload, "endpointSlug", "endpoint_slug");
+        var innerPayload = ExtractObject(payload, "payload") ?? payload;
+
+        return new AnalyticsEvent(
+            request.ProjectId, steamId, type, label, source, endpointSlug,
+            request.CollectionId, sessionId, playerName, timestampMs, innerPayload, TrackedFieldDeltas: null);
+    }
+
+    /// <summary>Normalizes an endpoint-call event; null when it carries no plausible player. Pure.</summary>
+    internal static AnalyticsEvent? Normalize(
+        string projectId,
+        string steamId,
+        string endpointSlug,
+        string eventType,
+        IReadOnlyDictionary<string, object>? payload,
+        IReadOnlyList<TrackedFieldDelta>? trackedFieldDeltas,
+        long timestampMs)
+    {
+        if (string.IsNullOrWhiteSpace(steamId) || !IsPlausibleSteamId(steamId)) return null;
+
+        var payloadElement = payload is null
+            ? EmptyObjectElement
+            : JsonSerializer.SerializeToElement(payload, JsonOptions);
+        var label = payload is not null && payload.TryGetValue("label", out var l) && l is string s
+            ? s
+            : DeriveLabel(eventType);
+
+        return new AnalyticsEvent(
+            projectId, steamId, eventType, label,
+            Source: "network-storage-library",
+            EndpointSlug: endpointSlug,
+            CollectionId: null,
+            SessionId: payload is not null && payload.TryGetValue("sessionId", out var sid) && sid is string ss ? ss : null,
+            PlayerName: payload is not null && payload.TryGetValue("playerName", out var pn) && pn is string pns ? pns : string.Empty,
+            TimestampMs: timestampMs,
+            Payload: payloadElement,
+            TrackedFieldDeltas: trackedFieldDeltas?.ToArray());
+    }
+
     public async Task RecordEventAsync(PlayerEventRequest request, CancellationToken cancellationToken)
     {
         try
         {
-            // The legacy storage-CRUD path passes the player steamId as RecordKey.
-            var steamId = request.RecordKey;
-            if (string.IsNullOrWhiteSpace(steamId) || !IsPlausibleSteamId(steamId)) return;
+            if (Normalize(request, time.GetUtcNow().ToUnixTimeMilliseconds()) is not { } analyticsEvent) return;
 
-            var payload = ToJsonElement(request.Payload);
-            var type = request.EventType;
-            var ts = time.GetUtcNow().ToUnixTimeMilliseconds();
-            var playerName = ReadString(payload, "playerName", "player_name") ?? string.Empty;
-            var sessionId = ReadString(payload, "sessionId", "session_id");
-            var label = ReadString(payload, "label") ?? DeriveLabel(type);
-            var source = NormalizeSource(ReadString(payload, "source"));
-            var endpointSlug = ReadString(payload, "endpointSlug", "endpoint_slug");
-            var innerPayload = ExtractObject(payload, "payload") ?? payload;
-
-            await IngestAsync(
-                request.ProjectId, steamId, type, label, source, endpointSlug,
-                request.CollectionId, sessionId, playerName, ts, innerPayload,
-                trackedFieldDeltas: null, cancellationToken);
+            await IngestAsync(analyticsEvent, cancellationToken);
             if (failureTracker.RecordSuccess())
                 logger.LogInformation("Analytics ingestion recovered after sustained failure for project {ProjectId}", request.ProjectId);
         }
         catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
         {
-            logger.LogWarning(ex, "Failed to record player analytics event to ScyllaDB for project {ProjectId}", request.ProjectId);
+            logger.LogWarning(ex, "Failed to record player analytics event to Store for project {ProjectId}", request.ProjectId);
             if (failureTracker.RecordFailure())
                 _ = failureTracker.FireTransitionAlertAsync(request.ProjectId, failureTracker.ConsecutiveFailures, CancellationToken.None);
         }
@@ -93,61 +134,38 @@ public sealed class PlayerAnalyticsIngester(
         IReadOnlyList<TrackedFieldDelta>? trackedFieldDeltas,
         CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(steamId) || !IsPlausibleSteamId(steamId)) return;
         try
         {
-            var ts = time.GetUtcNow().ToUnixTimeMilliseconds();
-            var payloadElement = payload is null
-                ? EmptyObjectElement
-                : JsonSerializer.SerializeToElement(payload, JsonOptions);
-            var label = payload is not null && payload.TryGetValue("label", out var l) && l is string s
-                ? s
-                : DeriveLabel(eventType);
+            var analyticsEvent = Normalize(projectId, steamId, endpointSlug, eventType, payload, trackedFieldDeltas,
+                time.GetUtcNow().ToUnixTimeMilliseconds());
+            if (analyticsEvent is null) return;
 
-            await IngestAsync(
-                projectId, steamId, eventType, label,
-                source: "network-storage-library",
-                endpointSlug: endpointSlug,
-                collectionId: null,
-                sessionId: payload is not null && payload.TryGetValue("sessionId", out var sid) && sid is string ss ? ss : null,
-                playerName: payload is not null && payload.TryGetValue("playerName", out var pn) && pn is string pns ? pns : string.Empty,
-                ts: ts,
-                innerPayload: payloadElement,
-                trackedFieldDeltas: trackedFieldDeltas,
-                cancellationToken);
+            await IngestAsync(analyticsEvent, cancellationToken);
             if (failureTracker.RecordSuccess())
                 logger.LogInformation("Analytics ingestion recovered after sustained failure for project {ProjectId}", projectId);
         }
         catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
         {
-            logger.LogWarning(ex, "Failed to record endpoint analytics event to ScyllaDB for project {ProjectId} endpoint {Slug}", projectId, endpointSlug);
+            logger.LogWarning(ex, "Failed to record endpoint analytics event to Store for project {ProjectId} endpoint {Slug}", projectId, endpointSlug);
             if (failureTracker.RecordFailure())
                 _ = failureTracker.FireTransitionAlertAsync(projectId, failureTracker.ConsecutiveFailures, CancellationToken.None);
         }
     }
 
-    private async Task IngestAsync(
-        string projectId,
-        string steamId,
-        string type,
-        string label,
-        string source,
-        string? endpointSlug,
-        string? collectionId,
-        string? sessionId,
-        string playerName,
-        long ts,
-        JsonElement innerPayload,
-        IReadOnlyList<TrackedFieldDelta>? trackedFieldDeltas,
-        CancellationToken ct)
+    /// <summary>
+    /// Writes one event's rows (timeline event, profile, session, issue, tracked-field ledger entries) through
+    /// the store this ingester was created over. Throws on failure; the callers decide how to contain it.
+    /// </summary>
+    internal async Task IngestAsync(AnalyticsEvent analyticsEvent, CancellationToken ct)
     {
+        var (projectId, steamId, type, label, source, endpointSlug, collectionId, sessionId, playerName, ts, innerPayload, trackedFieldDeltas) = analyticsEvent;
         var category = EventCategory(type);
         // Backfill the session id from the player's active session for events
         // that arrive without one (e.g. endpoint.call from save-all/load-player,
         // whose request body carries no sessionId). Without this they are stored
         // under "no-session" and render as "Activity outside sessions" instead of
         // grouping with the heartbeats/joins of the same play session. Mirrors the
-        // Bun ingester, which stamps sessionless non-session events with the
+        // legacy server ingester, which stamps sessionless non-session events with the
         // profile's currentSessionId.
         if (string.IsNullOrEmpty(sessionId) && category != "session")
         {
@@ -399,7 +417,7 @@ public sealed class PlayerAnalyticsIngester(
             fpsMetrics, summaryJson: null, ct);
     }
 
-    // ── Normalization (faithful port of the Bun helpers) ─────────────
+    // ── Normalization (faithful port of the legacy server helpers) ─────────────
 
     private static string EventCategory(string type)
     {
@@ -433,7 +451,7 @@ public sealed class PlayerAnalyticsIngester(
         return parts.Length > 1 ? string.Join(' ', parts[1..]) : type;
     }
 
-    /// <summary>Strip stacks unless the event is an explicit error/diagnostic (parity with Bun boundAnalyticsPayload).</summary>
+    /// <summary>Strip stacks unless the event is an explicit error/diagnostic (parity with legacy server boundAnalyticsPayload).</summary>
     private static JsonElement BoundPayload(JsonElement payload, string category)
     {
         // An Undefined element (from a null payload) is not serializable — collapse
@@ -472,7 +490,8 @@ public sealed class PlayerAnalyticsIngester(
 
     private static JsonElement ToJsonElement(object? payload)
     {
-        if (payload is JsonElement je) return je;
+        // The writer may run after the request's JsonDocument has been disposed.
+        if (payload is JsonElement je) return je.Clone();
         if (payload is null) return EmptyObjectElement;
         return JsonSerializer.SerializeToElement(payload, JsonOptions);
     }

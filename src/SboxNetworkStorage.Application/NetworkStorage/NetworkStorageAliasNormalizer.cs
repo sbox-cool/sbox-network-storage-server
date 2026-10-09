@@ -33,7 +33,7 @@ public enum NetworkStorageAlias
 
 public static class NetworkStorageAliasExtensions
 {
-    /// <summary>Stable diagnostic token, kept identical to the historical shadow classifier tokens.</summary>
+    /// <summary>Stable diagnostic token, kept identical to the historical classifier tokens.</summary>
     public static string ToToken(this NetworkStorageAlias alias) => alias switch
     {
         NetworkStorageAlias.V3 => "v3",

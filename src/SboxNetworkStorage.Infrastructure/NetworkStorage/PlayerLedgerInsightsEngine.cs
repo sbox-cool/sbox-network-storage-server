@@ -313,11 +313,11 @@ internal static class PlayerLedgerInsightsEngine
 
     private static Dictionary<string, object?> SummarizeSeries(Series series, int totalPointCount, int omittedCount)
     {
-        var valueCandidates = new List<double>();
+        var valueSamples = new List<double>();
         foreach (var p in series.Points)
         {
-            if (p.Before is { } b && double.IsFinite(b)) valueCandidates.Add(b);
-            if (p.After is { } a && double.IsFinite(a)) valueCandidates.Add(a);
+            if (p.Before is { } b && double.IsFinite(b)) valueSamples.Add(b);
+            if (p.After is { } a && double.IsFinite(a)) valueSamples.Add(a);
         }
         var firstPoint = series.Points.Count > 0 ? series.Points[0] : null;
         var latestPoint = series.Points.Count > 0 ? series.Points[^1] : null;
@@ -333,8 +333,8 @@ internal static class PlayerLedgerInsightsEngine
         {
             ["firstValue"] = firstValue,
             ["latestValue"] = latestValue,
-            ["minValue"] = valueCandidates.Count > 0 ? valueCandidates.Min() : null,
-            ["maxValue"] = valueCandidates.Count > 0 ? valueCandidates.Max() : null,
+            ["minValue"] = valueSamples.Count > 0 ? valueSamples.Min() : null,
+            ["maxValue"] = valueSamples.Count > 0 ? valueSamples.Max() : null,
             ["totalIncrease"] = totalIncrease,
             ["totalDecrease"] = totalDecrease,
             ["netChange"] = totalIncrease + totalDecrease,

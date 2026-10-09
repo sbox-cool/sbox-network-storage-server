@@ -36,7 +36,7 @@ public sealed partial record PostgresStoreOptions
     /// <summary>Maximum accepted JSON payload size in UTF-8 bytes (production default: 64 KiB).</summary>
     public int MaxPayloadBytes { get; init; } = 64 * 1024;
 
-    [GeneratedRegex("^[A-Za-z_][A-Za-z0-9_]{0,62}$")]
+    [GeneratedRegex("^[A-Za-z_][A-Za-z0-9_]{0,62}$", RegexOptions.None, 100)]
     private static partial Regex SchemaPattern();
 
     /// <summary>Throws <see cref="ArgumentException"/> when the schema name is not a plain identifier.</summary>

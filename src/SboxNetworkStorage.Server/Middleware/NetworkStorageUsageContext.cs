@@ -30,9 +30,8 @@ public static class NetworkStorageUsageContext
     private const string ItemKey = "sboxcool.network-storage.usage";
 
     /// <summary>
-    /// Annotate the request. Call after API-key auth succeeds — unannotated
-    /// requests fall back to route-value projectId + method-based kind, and
-    /// 401 responses are never metered.
+    /// Annotate the request. Call after API-key auth succeeds — requests whose
+    /// handler never annotates them are not metered.
     /// </summary>
     public static void Set(HttpContext context, string projectId, UsageKind kind, string? endpointSlug = null)
     {
@@ -44,6 +43,14 @@ public static class NetworkStorageUsageContext
             EndpointSlug = endpointSlug,
         };
     }
+
+    /// <summary>
+    /// Annotate an authenticated request whose kind follows its HTTP method
+    /// (GET is a read, anything else a write). A more specific later
+    /// <see cref="Set"/> replaces it.
+    /// </summary>
+    public static void SetAuthenticated(HttpContext context, string projectId)
+        => Set(context, projectId, HttpMethods.IsGet(context.Request.Method) ? UsageKind.Read : UsageKind.Write);
 
     /// <summary>
     /// Mark the request as not-to-be-metered. A later successful

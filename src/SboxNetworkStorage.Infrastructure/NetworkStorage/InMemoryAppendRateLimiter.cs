@@ -9,13 +9,19 @@ namespace SboxNetworkStorage.Infrastructure.NetworkStorage;
 /// <summary>
 /// In-memory implementation of <see cref="IAppendRateLimiter"/>.
 /// Counters are per-process and reset at midnight UTC (the bucket string includes
-/// today's date). This matches the retired Bun runtime's behavior closely
-/// enough for the append carve-over; a distributed ScyllaDB-backed limiter can
+/// today's date). This matches the retired legacy server runtime's behavior closely
+/// enough for the append carve-over; a distributed the store-backed limiter can
 /// replace it when strict cross-node {@literal >}consistency is required.
 /// </summary>
-public sealed class InMemoryAppendRateLimiter : IAppendRateLimiter
+public sealed class InMemoryAppendRateLimiter(TimeProvider? time = null) : IAppendRateLimiter
 {
     private readonly ConcurrentDictionary<string, int> _counters = new(StringComparer.Ordinal);
+    private readonly TimeProvider _time = time ?? TimeProvider.System;
+    private readonly object _expiryGate = new();
+    private string? _currentDay;
+
+    /// <summary>Number of live counters; only the current UTC day's survive.</summary>
+    public int BucketCount => _counters.Count;
 
     public Task<AppendRateLimitResult> CheckAsync(
         string projectId,
@@ -25,12 +31,17 @@ public sealed class InMemoryAppendRateLimiter : IAppendRateLimiter
         string writerId,
         CancellationToken cancellationToken)
     {
+        // Serialize the rollover with increments: an in-flight previous-day request cannot recreate an
+        // expired bucket after the purge has completed.
+        lock (_expiryGate)
+        {
+        var today = _time.GetUtcNow().ToString("yyyy-MM-dd");
+        ExpireOtherDays(today);
         if (savesPerDay <= 0)
         {
             return Task.FromResult(AppendRateLimitResult.AllowedResult);
         }
 
-        var today = DateTimeOffset.UtcNow.ToString("yyyy-MM-dd");
         var scope = mode == "collection" || string.IsNullOrEmpty(writerId)
             ? $"c:{projectId}:{collectionId}:{today}"
             : $"p:{projectId}:{collectionId}:{writerId}:{today}";
@@ -48,5 +59,22 @@ public sealed class InMemoryAppendRateLimiter : IAppendRateLimiter
         }
 
         return Task.FromResult(AppendRateLimitResult.AllowedResult);
+        }
+    }
+
+    /// <summary>Counters of earlier days can never be hit again; drop them when the day rolls over.</summary>
+    private void ExpireOtherDays(string today)
+    {
+        if (Volatile.Read(ref _currentDay) == today) return;
+        lock (_expiryGate)
+        {
+            if (_currentDay == today) return;
+            var suffix = ":" + today;
+            foreach (var key in _counters.Keys)
+            {
+                if (!key.EndsWith(suffix, StringComparison.Ordinal)) _counters.TryRemove(key, out _);
+            }
+            Volatile.Write(ref _currentDay, today);
+        }
     }
 }

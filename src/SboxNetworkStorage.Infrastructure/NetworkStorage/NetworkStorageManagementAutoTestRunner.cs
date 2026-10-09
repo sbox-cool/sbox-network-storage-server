@@ -9,17 +9,17 @@ internal static class NetworkStorageManagementAutoTestRunner
 {
     private const string SyntheticSteamId = "76561198000000000";
 
-    public static async Task<NetworkStorageCandidateResult> RunAsync(
-        NetworkStorageCandidateRequest request,
+    public static async Task<NetworkStorageResult> RunAsync(
+        NetworkStorageRequest request,
         string projectId,
         long ownerUserId,
         string authDecision,
         INetworkStorageStore store,
-        NativeEndpointShadowExecutor? executor)
+        EndpointExecutor? executor)
     {
         if (executor is null)
         {
-            return NetworkStorageCandidateResult.Error(
+            return NetworkStorageResult.Error(
                 501,
                 "NATIVE_AUTO_TEST_UNAVAILABLE",
                 new
@@ -42,7 +42,7 @@ internal static class NetworkStorageManagementAutoTestRunner
 
         if (!string.IsNullOrWhiteSpace(requestedSlug) && candidates.Length == 0)
         {
-            return NetworkStorageCandidateResult.Error(
+            return NetworkStorageResult.Error(
                 400,
                 "ENDPOINT_NOT_FOUND",
                 new
@@ -93,11 +93,11 @@ internal static class NetworkStorageManagementAutoTestRunner
             var response = new Dictionary<string, object?> { ["ok"] = true };
             foreach (var property in single.EnumerateObject())
                 response[property.Name] = JsonElementToObject(property.Value);
-            return NetworkStorageCandidateResult.Ok(response, authDecision: authDecision);
+            return NetworkStorageResult.Ok(response, authDecision: authDecision);
         }
 
         var passed = results.Count(result => JsonSerializer.SerializeToElement(result).GetProperty("passed").GetBoolean());
-        return NetworkStorageCandidateResult.Ok(
+        return NetworkStorageResult.Ok(
             new
             {
                 ok = true,
@@ -108,7 +108,7 @@ internal static class NetworkStorageManagementAutoTestRunner
     }
 
     private static object BuildResult(
-        EndpointCandidate endpoint,
+        EndpointDefinition endpoint,
         bool passed,
         IReadOnlyList<string> errors,
         EndpointExecutionResult? execution) => new
@@ -123,7 +123,7 @@ internal static class NetworkStorageManagementAutoTestRunner
             result = execution is null ? null : new { status = execution.Status, body = execution.Body },
         };
 
-    private static EndpointCandidate? TryReadEndpoint(JsonElement row)
+    private static EndpointDefinition? TryReadEndpoint(JsonElement row)
     {
         var definition = ReadDefinition(row);
         if (definition is null)
@@ -133,7 +133,7 @@ internal static class NetworkStorageManagementAutoTestRunner
         if (string.IsNullOrWhiteSpace(slug))
             return null;
 
-        return new EndpointCandidate(
+        return new EndpointDefinition(
             slug,
             ReadString(row, "method") ?? ReadString(definition.Value, "method") ?? "POST",
             ReadBoolean(definition.Value, "deprecated"),
@@ -233,5 +233,5 @@ internal static class NetworkStorageManagementAutoTestRunner
         && value.TryGetProperty(propertyName, out var property)
         && property.ValueKind == JsonValueKind.True;
 
-    private readonly record struct EndpointCandidate(string Slug, string Method, bool Deprecated, JsonElement Definition);
+    private readonly record struct EndpointDefinition(string Slug, string Method, bool Deprecated, JsonElement Definition);
 }

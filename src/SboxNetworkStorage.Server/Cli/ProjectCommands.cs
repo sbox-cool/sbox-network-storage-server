@@ -17,7 +17,7 @@ public static class ProjectCommands
         await using var services = await OpenAsync(context);
         await using var scope = services.CreateAsyncScope();
         var projects = scope.ServiceProvider.GetRequiredService<INetworkStorageProjectService>();
-        var workspace = scope.ServiceProvider.GetRequiredService<IBunnyWorkspaceClient>();
+        var workspace = scope.ServiceProvider.GetRequiredService<IWorkspaceStore>();
         var ct = CancellationToken.None;
 
         switch (sub)
@@ -98,7 +98,7 @@ public static class ProjectCommands
         await using var scope = services.CreateAsyncScope();
         var projects = scope.ServiceProvider.GetRequiredService<INetworkStorageProjectService>();
         var ct = CancellationToken.None;
-        await RequireProjectAsync(scope.ServiceProvider.GetRequiredService<IBunnyWorkspaceClient>(), projectId, ct);
+        await RequireProjectAsync(scope.ServiceProvider.GetRequiredService<IWorkspaceStore>(), projectId, ct);
 
         switch (sub)
         {
@@ -158,7 +158,7 @@ public static class ProjectCommands
         return services;
     }
 
-    private static async Task RequireProjectAsync(IBunnyWorkspaceClient workspace, string projectId, CancellationToken ct)
+    private static async Task RequireProjectAsync(IWorkspaceStore workspace, string projectId, CancellationToken ct)
     {
         var projects = await workspace.GetUserProjectsAsync(Owner, ct);
         if (!projects.Any(p => string.Equals(p.Id, projectId, StringComparison.OrdinalIgnoreCase)))

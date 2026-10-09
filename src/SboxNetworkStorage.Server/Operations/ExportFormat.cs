@@ -45,7 +45,7 @@ public static partial class ExportFormat
 
     public static string DefaultFileName(DateTimeOffset createdAt) => $"sbox-ns-export-{createdAt:yyyyMMdd-HHmmss}{FileExtension}";
 
-    [GeneratedRegex("^[a-zA-Z0-9_-]{1,128}$")]
+    [GeneratedRegex("^[a-zA-Z0-9_-]{1,128}$", RegexOptions.None, 100)]
     private static partial Regex ProjectIdPattern();
 }
 

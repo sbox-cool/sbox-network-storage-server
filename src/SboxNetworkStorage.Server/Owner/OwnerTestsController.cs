@@ -22,7 +22,7 @@ public sealed record OwnerTestsModel(string ProjectId, string ProjectName, IRead
 /// </summary>
 [Authorize(AuthenticationSchemes = OwnerHostingExtensions.Scheme)]
 public sealed class OwnerTestsController(INetworkStorageProjectService projects, INetworkStorageStore store,
-    NativeEndpointShadowExecutor executor, IQueryValuesContextProvider valuesProvider, IAuditLogger audit) : Controller
+    EndpointExecutor executor, IQueryValuesContextProvider valuesProvider, IAuditLogger audit) : Controller
 {
     private const string Route = "/dashboard/projects/{projectId}/tests";
     private static readonly JsonSerializerOptions Indented = new() { WriteIndented = true };

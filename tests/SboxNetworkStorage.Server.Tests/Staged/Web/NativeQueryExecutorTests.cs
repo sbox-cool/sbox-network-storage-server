@@ -296,7 +296,7 @@ public sealed class NativeQueryExecutorTests
         Assert.Equal(30.0, result.Entries[0].Value);
     }
 
-    // ── Multi-source merge (previously fell back to Bun) ──
+    // ── Multi-source merge (previously fell back to legacy server) ──
 
     [Fact]
     public async Task ExecuteAsync_MultipleSources_MergesByKey()
@@ -336,7 +336,7 @@ public sealed class NativeQueryExecutorTests
         Assert.Equal(200.0, result.Entries[0].Value);
     }
 
-    // ── Computed fields (previously fell back to Bun) ──
+    // ── Computed fields (previously fell back to legacy server) ──
 
     [Fact]
     public async Task ExecuteAsync_ComputedFields_EvaluatesNatively()
@@ -375,7 +375,7 @@ public sealed class NativeQueryExecutorTests
         Assert.Equal(5.0, result.Entries[0].Value);
     }
 
-    // ── Object-valued config.field (previously fell back to Bun) ──
+    // ── Object-valued config.field (previously fell back to legacy server) ──
 
     [Fact]
     public async Task ExecuteAsync_ObjectValuedField_ResolvesNatively()
@@ -564,7 +564,7 @@ public sealed class NativeQueryExecutorTests
 
         public void AddQuery(string projectId, string queryId, Dictionary<string, object?> def)
         {
-            // Wrap in ScyllaDB row shape: { definition_json: <def>, requires_secret_key, name, ... }
+            // Wrap in the store row shape: { definition_json: <def>, requires_secret_key, name, ... }
             var row = new Dictionary<string, object?>
             {
                 ["query_id"] = queryId,

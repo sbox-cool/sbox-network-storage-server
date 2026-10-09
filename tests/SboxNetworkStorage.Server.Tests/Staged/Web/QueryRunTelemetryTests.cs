@@ -7,21 +7,21 @@ using Xunit;
 namespace SboxNetworkStorage.Server.Tests.NetworkStorage;
 
 /// <summary>
-/// Task 4.10 (fix-usage-and-query-telemetry): ScyllaQueryRunRecorder
+/// Task 4.10 (fix-usage-and-query-telemetry): StoreQueryRunRecorder
 /// throttle/force/cache-hit semantics, durationMs on performance, and
 /// InMemoryNetworkStorageStore query-run read paths.
 /// </summary>
 public sealed class QueryRunTelemetryTests
 {
-    private static (ScyllaQueryRunRecorder Recorder, InMemoryNetworkStorageStore Store) BuildRecorder()
+    private static (StoreQueryRunRecorder Recorder, InMemoryNetworkStorageStore Store) BuildRecorder()
     {
         var store = new InMemoryNetworkStorageStore();
         var services = new ServiceCollection();
         services.AddSingleton<INetworkStorageStore>(store);
         var provider = services.BuildServiceProvider();
-        var recorder = new ScyllaQueryRunRecorder(
+        var recorder = new StoreQueryRunRecorder(
             provider.GetRequiredService<IServiceScopeFactory>(),
-            NullLogger<ScyllaQueryRunRecorder>.Instance);
+            NullLogger<StoreQueryRunRecorder>.Instance);
         return (recorder, store);
     }
 

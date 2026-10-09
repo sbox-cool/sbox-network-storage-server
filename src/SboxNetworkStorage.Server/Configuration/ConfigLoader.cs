@@ -25,11 +25,66 @@ public sealed class EffectiveConfig
 {
     public required string ConfigDirectory { get; init; }
     public required string DataDirectory { get; init; }
+    public required ConfigLayout Layout { get; init; }
     public required IReadOnlyDictionary<string, ConfigValue> Values { get; init; }
     public required IReadOnlyList<string> LoadedFiles { get; init; }
     public required IReadOnlyList<ConfigIssue> Issues { get; init; }
 
+    /// <summary>Retired keys found in config files; they have no effect and are reported by <c>doctor</c>.</summary>
+    public IReadOnlyList<ConfigIssue> IgnoredSettings { get; init; } = [];
+
     public bool IsValid => Issues.Count == 0;
+
+    /// <summary>Folder for everything the server and CLI write at runtime (<c>&lt;data&gt;/state</c>).</summary>
+    public string StateDirectory => StateLayout.StateDirectory(DataDirectory);
+
+    /// <summary>Where runtime files live: the state folder in the state layout, the config folder in the legacy layout.</summary>
+    public string RuntimeDirectory => Layout == ConfigLayout.State ? StateDirectory : ConfigDirectory;
+
+    /// <summary>Generated secrets and the tunnel identity and token.</summary>
+    public string SecretsDirectory => Path.Combine(RuntimeDirectory, StateLayout.SecretsFolder);
+
+    /// <summary>Managed tunnel, DNS and telemetry overlays.</summary>
+    public string OverlayDirectory => Path.Combine(RuntimeDirectory, ConfigLoader.ConfDirectory);
+
+    /// <summary>Downloaded connector binaries.</summary>
+    public string ExecutablesDirectory => Path.Combine(RuntimeDirectory,
+        Layout == ConfigLayout.State ? StateLayout.ExecutablesFolder : StateLayout.LegacyExecutablesFolder);
+
+    /// <summary>The random ID used only for opt-in usage statistics.</summary>
+    public string TelemetryIdPath => Path.Combine(Layout == ConfigLayout.State ? StateDirectory : DataDirectory, Telemetry.UsageTelemetry.IdFileName);
+
+    /// <summary>
+    /// Creates the runtime folder (owner-only) and, in the state layout, the layout marker. Calling it on a fresh
+    /// install is what turns "no marker, nothing to migrate" into the recorded state layout.
+    /// </summary>
+    public void EnsureRuntimeDirectory()
+    {
+        if (Layout == ConfigLayout.Legacy)
+        {
+            Directory.CreateDirectory(ConfigDirectory);
+            return;
+        }
+
+        Directory.CreateDirectory(DataDirectory);
+        if (!Directory.Exists(StateDirectory))
+        {
+            if (OperatingSystem.IsWindows())
+            {
+                Directory.CreateDirectory(StateDirectory);
+            }
+            else
+            {
+                Directory.CreateDirectory(StateDirectory, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            }
+        }
+
+        var marker = StateLayout.MarkerPath(DataDirectory);
+        if (!File.Exists(marker))
+        {
+            ConfigFiles.WriteAtomically(marker, StateLayout.CurrentVersion + "\n");
+        }
+    }
 
     public string GetString(string key) => (string)Values[key].Value;
     public long GetInteger(string key) => (long)Values[key].Value;
@@ -45,8 +100,9 @@ public sealed class EffectiveConfig
 
 /// <summary>
 /// Loads the config folder: defaults, then server/database/updates.toml, then
-/// conf.d/*.toml in lexical order, then NS_ environment variables, then flags.
-/// Unknown keys, wrong types and invalid choices are reported with file and line.
+/// conf.d/*.toml in lexical order, then (state layout) the state overlay <c>state/conf.d/*.toml</c>, which may only set
+/// <see cref="StateLayout.IsAllowedOverlayKey"/> keys and wins for the keys it sets, then NS_ environment variables,
+/// then flags. Unknown keys, wrong types and invalid choices are reported with file and line.
 /// </summary>
 public static class ConfigLoader
 {
@@ -65,6 +121,7 @@ public static class ConfigLoader
             d => new ConfigValue(d, d.DefaultValue, SettingSource.Default, null),
             StringComparer.Ordinal);
         var issues = new List<ConfigIssue>();
+        var ignored = new List<ConfigIssue>();
         var loadedFiles = new List<string>();
 
         foreach (var file in SettingDefinitions.Files)
@@ -72,7 +129,7 @@ public static class ConfigLoader
             var path = Path.Combine(configDirectory, file);
             if (File.Exists(path))
             {
-                ApplyFile(path, file, SettingSource.File, values, issues, restrictToFile: file);
+                ApplyFile(path, file, SettingSource.File, values, issues, ignored, restrictToFile: file);
                 loadedFiles.Add(path);
             }
         }
@@ -82,7 +139,20 @@ public static class ConfigLoader
         {
             foreach (var path in Directory.GetFiles(confD, "*.toml").OrderBy(p => p, StringComparer.Ordinal))
             {
-                ApplyFile(path, Path.Combine(ConfDirectory, Path.GetFileName(path)), SettingSource.ConfD, values, issues, restrictToFile: null);
+                ApplyFile(path, Path.Combine(ConfDirectory, Path.GetFileName(path)), SettingSource.ConfD, values, issues, ignored, restrictToFile: null);
+                loadedFiles.Add(path);
+            }
+        }
+
+        var dataDirectory = ConfigPaths.ResolveDataDirectory(dataDirectoryFlag, ConfiguredDataDirectory(values, environment, flagOverrides), configDirectory);
+        var layout = StateLayout.Resolve(configDirectory, dataDirectory, AuthFileKeys.Select(key => (string)values[key].Value));
+        if (layout == ConfigLayout.State)
+        {
+            var overlay = Path.Combine(StateLayout.StateDirectory(dataDirectory), ConfDirectory);
+            foreach (var path in OverlayFiles(overlay))
+            {
+                var displayName = Path.Combine(StateLayout.FolderName, ConfDirectory, Path.GetFileName(path));
+                ApplyFile(path, displayName, SettingSource.ConfD, values, issues, ignored, restrictToFile: null, overlay: true);
                 loadedFiles.Add(path);
             }
         }
@@ -126,15 +196,47 @@ public static class ConfigLoader
 
         ValidateCombinations(values, issues);
 
-        var dataDirectory = ConfigPaths.ResolveDataDirectory(dataDirectoryFlag, (string)values["server.data_dir"].Value, configDirectory);
         return new EffectiveConfig
         {
             ConfigDirectory = configDirectory,
             DataDirectory = dataDirectory,
+            Layout = layout,
             Values = values,
             LoadedFiles = loadedFiles,
-            Issues = issues
+            Issues = issues,
+            IgnoredSettings = ignored
         };
+    }
+
+    private static readonly string[] AuthFileKeys = ["auth.session_secret_file", "auth.storage_encryption_key_file", "auth.security_signing_key_file"];
+
+    /// <summary><c>server.data_dir</c> as the environment and flags will leave it; the overlay cannot set it, so the layout can be resolved before the overlay loads.</summary>
+    private static string ConfiguredDataDirectory(
+        Dictionary<string, ConfigValue> values, Func<string, string?> environment, IReadOnlyDictionary<string, string>? flagOverrides)
+    {
+        var definition = values["server.data_dir"].Definition;
+        var configured = (string)values[definition.Key].Value;
+        if (environment(definition.EnvironmentVariable) is { } raw && TryConvert(definition, raw, out var fromEnvironment, out _))
+        {
+            configured = (string)fromEnvironment;
+        }
+
+        return flagOverrides is not null && flagOverrides.TryGetValue(definition.Key, out var flag) && TryConvert(definition, flag, out var fromFlag, out _)
+            ? (string)fromFlag
+            : configured;
+    }
+
+    private static IEnumerable<string> OverlayFiles(string folder)
+    {
+        try
+        {
+            return Directory.Exists(folder) ? Directory.GetFiles(folder, "*.toml").OrderBy(p => p, StringComparer.Ordinal).ToList() : [];
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // A user other than the service owner cannot read the state folder; it sees the operator files only.
+            return [];
+        }
     }
 
     private static void ApplyFile(
@@ -143,7 +245,9 @@ public static class ConfigLoader
         SettingSource source,
         Dictionary<string, ConfigValue> values,
         List<ConfigIssue> issues,
-        string? restrictToFile)
+        List<ConfigIssue> ignored,
+        string? restrictToFile,
+        bool overlay = false)
     {
         var text = File.ReadAllText(path);
         var document = Toml.Parse(text, path);
@@ -159,7 +263,7 @@ public static class ConfigLoader
 
         foreach (var keyValue in document.KeyValues)
         {
-            ApplyKeyValue(prefix: null, keyValue, displayName, source, values, issues, restrictToFile);
+            ApplyKeyValue(prefix: null, keyValue, displayName, source, values, issues, ignored, restrictToFile, overlay);
         }
 
         foreach (var table in document.Tables)
@@ -173,7 +277,7 @@ public static class ConfigLoader
             var tableName = KeyText(table.Name);
             foreach (var item in table.Items)
             {
-                ApplyKeyValue(tableName, item, displayName, source, values, issues, restrictToFile);
+                ApplyKeyValue(tableName, item, displayName, source, values, issues, ignored, restrictToFile, overlay);
             }
         }
     }
@@ -185,12 +289,27 @@ public static class ConfigLoader
         SettingSource source,
         Dictionary<string, ConfigValue> values,
         List<ConfigIssue> issues,
-        string? restrictToFile)
+        List<ConfigIssue> ignored,
+        string? restrictToFile,
+        bool overlay)
     {
         var line = keyValue.Span.Start.Line + 1;
         var leaf = KeyText(keyValue.Key);
         var fullKey = string.IsNullOrEmpty(prefix) ? leaf : $"{prefix}.{leaf}";
+        if (overlay && !StateLayout.IsAllowedOverlayKey(fullKey))
+        {
+            issues.Add(new ConfigIssue(displayName, line,
+                $"'{fullKey}' is not allowed in the state overlay; it may only set {string.Join(", ", StateLayout.OverlayKeyPatterns)}"));
+            return;
+        }
+
         var definition = SettingDefinitions.Find(fullKey);
+        if (definition is null && SettingDefinitions.RetiredKeys.Contains(fullKey))
+        {
+            ignored.Add(new ConfigIssue(displayName, line, $"'{fullKey}' is no longer configurable and is ignored"));
+            return;
+        }
+
         if (definition is null)
         {
             var suggestion = ClosestKey(fullKey);

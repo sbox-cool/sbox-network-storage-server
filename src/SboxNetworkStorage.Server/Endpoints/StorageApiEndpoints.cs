@@ -9,21 +9,29 @@ using Microsoft.Extensions.Logging.Abstractions;
 using SboxNetworkStorage.Application.NetworkStorage;
 using SboxNetworkStorage.Application.NetworkStorage.Endpoints;
 using SboxNetworkStorage.Application.Workspace;
-using SboxNetworkStorage.Contracts.Diagnostics;
 using SboxNetworkStorage.Domain.Workspace;
 using SboxNetworkStorage.Infrastructure.NetworkStorage.Storage;
 using SboxNetworkStorage.Infrastructure.Observability;
 using SboxNetworkStorage.Server.Middleware;
 using System.Text.RegularExpressions;
 using System.Linq;
-using SboxNetworkStorage.Server.Routing;
+
 using System.Threading;
 using System.Threading.Tasks;
 
 namespace SboxNetworkStorage.Server.Endpoints;
 
-public static class StorageApiEndpoints
+public static partial class StorageApiEndpoints
 {
+    [GeneratedRegex("^[0-9]{4,32}$", RegexOptions.None, 100)]
+    private static partial Regex NumericSteamId();
+
+    [GeneratedRegex(@"[^a-z0-9_\-\.]", RegexOptions.None, 100)]
+    private static partial Regex EventTypeInvalidChars();
+
+    [GeneratedRegex(@"^session[.:_-]", RegexOptions.None, 100)]
+    private static partial Regex SessionTypePrefix();
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -33,25 +41,21 @@ public static class StorageApiEndpoints
     public static IEndpointRouteBuilder MapStorageApi(this IEndpointRouteBuilder endpoints)
     {
         endpoints.MapGet("/api/storage/{projectId}/{collectionId}/{key}", GetRecordAsync)
-            .WithDisplayName("Storage API GET record")
-            .WithRouteOwner(RouteOwner.DotNetNative, "ASP.NET Core Network Storage record read");
+            .WithDisplayName("Storage API GET record");
 
         endpoints.MapPost("/api/storage/{projectId}/{collectionId}/{key}", PostRecordAsync)
-            .WithDisplayName("Storage API POST record")
-            .WithRouteOwner(RouteOwner.DotNetNative, "ASP.NET Core Network Storage record write");
+            .WithDisplayName("Storage API POST record");
 
         endpoints.MapDelete("/api/storage/{projectId}/{collectionId}/{key}", DeleteRecordAsync)
-            .WithDisplayName("Storage API DELETE record")
-            .WithRouteOwner(RouteOwner.DotNetNative, "ASP.NET Core Network Storage record delete");
+            .WithDisplayName("Storage API DELETE record");
 
         // Client save-failure report. Registered under /api/network-storage/* (NOT
         // /api/storage/*) so the live nginx routes it to the .NET website today —
-        // /api/storage/* is still proxied to the legacy Bun data plane until the
-        // ScyllaDB cutover. /api/* always reaches .NET post-cutover too, so this URL
+        // /api/storage/* is still proxied to the legacy server data plane until the
+        // The store cutover. /api/* always reaches .NET post-cutover too, so this URL
         // is stable across the migration.
         endpoints.MapPost("/api/network-storage/{projectId}/save-failure", PostSaveFailureAsync)
-            .WithDisplayName("Network Storage save-failure report")
-            .WithRouteOwner(RouteOwner.DotNetNative, "ASP.NET Core Network Storage client save-failure report");
+            .WithDisplayName("Network Storage save-failure report");
 
         return endpoints;
     }
@@ -59,7 +63,6 @@ public static class StorageApiEndpoints
     internal static async Task GetRecordAsync(HttpContext context)
     {
         var resolver = context.RequestServices.GetRequiredService<IStorageApiKeyResolver>();
-        var analytics = context.RequestServices.GetRequiredService<IPlayerAnalyticsService>();
         var projectId = (string?)context.GetRouteValue("projectId") ?? "";
         var collectionId = (string?)context.GetRouteValue("collectionId") ?? "";
         var recordKey = (string?)context.GetRouteValue("key") ?? "";
@@ -87,6 +90,8 @@ public static class StorageApiEndpoints
             return;
         }
 
+        NetworkStorageUsageContext.SetAuthenticated(context, projectId);
+
         // Direct collection-data API requires secret keys to hold collections execute.
         if (!ApiKeyPermissionPolicy.CanAccessCollectionData(auth))
         {
@@ -97,7 +102,7 @@ public static class StorageApiEndpoints
 
         // Malformed client identifiers (e.g. an encoded "..%2F..%2Fetc" collection
         // or "a%2Fb" key) can never address a stored record. Reject them here as
-        // 404 — matching the Bun observable outcome — instead of letting the
+        // 404 — matching the legacy server observable outcome — instead of letting the
         // store throw ArgumentException, which would misclassify client input as
         // a backend STORAGE_ERROR 500.
         var invalidIds = ValidateRecordIds(collectionId, recordKey);
@@ -107,15 +112,6 @@ public static class StorageApiEndpoints
             await context.Response.WriteAsJsonAsync(invalidIds, JsonOptions);
             return;
         }
-
-        // Record analytics event
-        _ = analytics.RecordEventAsync(new PlayerEventRequest(
-            ProjectId: projectId,
-            CollectionId: collectionId,
-            RecordKey: recordKey,
-            EventType: context.Request.Method.ToLower() switch { "post" => "record.write", "delete" => "record.delete", _ => "record.read" },
-            Payload: new { apiKey = MaskApiKey(apiKey) }
-        ), CancellationToken.None);
 
         var dataPlane = context.RequestServices.GetRequiredService<INetworkStorageDataPlane>();
         RecordReadResult read;
@@ -172,6 +168,8 @@ public static class StorageApiEndpoints
             return;
         }
 
+        NetworkStorageUsageContext.SetAuthenticated(context, projectId);
+
         // Direct collection-data API requires secret keys to hold collections execute.
         if (!ApiKeyPermissionPolicy.CanAccessCollectionData(auth))
         {
@@ -182,7 +180,7 @@ public static class StorageApiEndpoints
 
         // Malformed client identifiers (e.g. an encoded "..%2F..%2Fetc" collection
         // or "a%2Fb" key) can never address a stored record. Reject them here as
-        // 404 — matching the Bun observable outcome — instead of letting the
+        // 404 — matching the legacy server observable outcome — instead of letting the
         // store throw ArgumentException, which would misclassify client input as
         // a backend STORAGE_ERROR 500.
         var invalidIds = ValidateRecordIds(collectionId, recordKey);
@@ -194,11 +192,11 @@ public static class StorageApiEndpoints
         }
 
         // Record analytics event
-        _ = analytics.RecordEventAsync(new PlayerEventRequest(
+        await analytics.RecordEventAsync(new PlayerEventRequest(
             ProjectId: projectId,
             CollectionId: collectionId,
             RecordKey: recordKey,
-            EventType: context.Request.Method.ToLower() switch { "post" => "record.write", "delete" => "record.delete", _ => "record.read" },
+            EventType: "record.write",
             Payload: new { apiKey = MaskApiKey(apiKey) }
         ), CancellationToken.None);
 
@@ -335,6 +333,8 @@ public static class StorageApiEndpoints
             return;
         }
 
+        NetworkStorageUsageContext.SetAuthenticated(context, projectId);
+
         // Direct collection-data API requires secret keys to hold collections execute.
         if (!ApiKeyPermissionPolicy.CanAccessCollectionData(auth))
         {
@@ -345,7 +345,7 @@ public static class StorageApiEndpoints
 
         // Malformed client identifiers (e.g. an encoded "..%2F..%2Fetc" collection
         // or "a%2Fb" key) can never address a stored record. Reject them here as
-        // 404 — matching the Bun observable outcome — instead of letting the
+        // 404 — matching the legacy server observable outcome — instead of letting the
         // store throw ArgumentException, which would misclassify client input as
         // a backend STORAGE_ERROR 500.
         var invalidIds = ValidateRecordIds(collectionId, recordKey);
@@ -357,11 +357,11 @@ public static class StorageApiEndpoints
         }
 
         // Record analytics event
-        _ = analytics.RecordEventAsync(new PlayerEventRequest(
+        await analytics.RecordEventAsync(new PlayerEventRequest(
             ProjectId: projectId,
             CollectionId: collectionId,
             RecordKey: recordKey,
-            EventType: context.Request.Method.ToLower() switch { "post" => "record.write", "delete" => "record.delete", _ => "record.read" },
+            EventType: "record.delete",
             Payload: new { apiKey = MaskApiKey(apiKey) }
         ), CancellationToken.None);
 
@@ -387,8 +387,8 @@ public static class StorageApiEndpoints
     }
 
     // POST /v3/storage/{projectId}/{collectionId}/append
-    // Append a record to a global collection. Native ScyllaDB-backed replacement
-    // for the Bun `routeV3GlobalAppend` handler in `controllers/storage-v3-controller.js`.
+    // Append a record to a global collection. Native the store-backed replacement
+    // for the legacy server `routeV3GlobalAppend` handler in `controllers/storage-v3-controller.js`.
     internal static async Task AppendRecordAsync(HttpContext context)
     {
         var resolver = context.RequestServices.GetRequiredService<IStorageApiKeyResolver>();
@@ -423,6 +423,8 @@ public static class StorageApiEndpoints
             return;
         }
 
+        NetworkStorageUsageContext.SetAuthenticated(context, projectId);
+
         // Direct global append requires a secret key with collections execute permission.
         if (!string.Equals(auth.KeyType, "secret", StringComparison.OrdinalIgnoreCase)
             || !ApiKeyPermissionPolicy.HasPermission(auth, "collections", "x"))
@@ -445,15 +447,6 @@ public static class StorageApiEndpoints
             context.Response.StatusCode = StatusCodes.Status403Forbidden;
             await context.Response.WriteAsJsonAsync(new { error = "PROJECT_DISABLED" }, JsonOptions);
             return;
-        }
-
-        if (access.RequireSboxAuth)
-        {
-            // The legacy Bun runtime verifies s&box auth tokens for non-secret
-            // requests. A .NET sbox-auth shim is not yet wired, but secret keys
-            // bypass the check and are the only keys allowed for append anyway.
-            // Keep a response header so the gap is observable in client telemetry.
-            context.Response.Headers.Append("X-Sboxcool-SboxAuth", "bypassed-secret-key");
         }
 
         var resources = await projectService.GetProjectResourcesForOwnerAsync(access.StorageOwnerUserId, projectId, context.RequestAborted);
@@ -525,7 +518,7 @@ public static class StorageApiEndpoints
             return;
         }
 
-        // Build new record and write via ScyllaDB (global_records table).
+        // Build new record and write via the store (global_records table).
         var recordId = GenerateNetworkStorageId();
         var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 
@@ -553,7 +546,7 @@ public static class StorageApiEndpoints
 
         NetworkStorageUsageContext.AddStorageDelta(context, Encoding.UTF8.GetByteCount(record.GetRawText()));
 
-        _ = analytics.RecordEventAsync(new PlayerEventRequest(
+        await analytics.RecordEventAsync(new PlayerEventRequest(
             ProjectId: projectId,
             CollectionId: collectionId,
             RecordKey: recordId,
@@ -566,7 +559,7 @@ public static class StorageApiEndpoints
 
     /// <summary>
     /// POST /v3/storage/{projectId}/analytics/events and the /api/storage alias.
-    /// Records a player analytics event from the game client. Mirrors the Bun
+    /// Records a player analytics event from the game client. Mirrors the legacy server
     /// <c>routeStorageApiAnalyticsEvent</c> handler in
     /// <c>controllers/storage-modules/insights-routes.js</c>.
     /// </summary>
@@ -600,6 +593,8 @@ public static class StorageApiEndpoints
             return;
         }
 
+        NetworkStorageUsageContext.SetAuthenticated(context, projectId);
+
         var access = await projectService.ResolveProjectAccessAsync(auth.UserId, projectId, context.RequestAborted);
         if (access is null)
         {
@@ -613,14 +608,6 @@ public static class StorageApiEndpoints
             context.Response.StatusCode = StatusCodes.Status403Forbidden;
             await context.Response.WriteAsJsonAsync(new { error = "PROJECT_DISABLED" }, JsonOptions);
             return;
-        }
-
-        if (access.RequireSboxAuth)
-        {
-            // [KNOWN GAP] s&box auth token verification is not yet ported to .NET.
-            // The native candidates follow the same transitional behavior: the
-            // request is allowed through so live clients are not blocked.
-            context.Response.Headers.Append("X-Sboxcool-SboxAuth", "not-verified");
         }
 
         JsonElement body;
@@ -653,7 +640,7 @@ public static class StorageApiEndpoints
         var steamId = GetStringProperty(body, "steamId")
             ?? context.Request.Query["steamId"].FirstOrDefault()
             ?? "";
-        if (string.IsNullOrWhiteSpace(steamId) || !Regex.IsMatch(steamId, "^[0-9]{4,32}$"))
+        if (string.IsNullOrWhiteSpace(steamId) || !NumericSteamId().IsMatch(steamId))
         {
             context.Response.StatusCode = StatusCodes.Status400BadRequest;
             await context.Response.WriteAsJsonAsync(new { error = "INVALID_KEY", detail = "steamId is required and must be numeric." }, JsonOptions);
@@ -727,7 +714,7 @@ public static class StorageApiEndpoints
         }
         catch (Exception)
         {
-            // Best-effort storage, matching the Bun path which returns ok even on failure.
+            // Best-effort storage, matching the legacy server path which returns ok even on failure.
             await context.Response.WriteAsJsonAsync(new { ok = true, stored = false, reason = "storage_unavailable" }, JsonOptions);
         }
     }
@@ -773,13 +760,13 @@ public static class StorageApiEndpoints
     {
         if (string.IsNullOrWhiteSpace(raw)) return "";
         var trimmed = raw.Trim().ToLowerInvariant();
-        var normalized = System.Text.RegularExpressions.Regex.Replace(trimmed, @"[^a-z0-9_\-\.]", "-");
+        var normalized = EventTypeInvalidChars().Replace(trimmed, "-");
         return normalized[..Math.Min(normalized.Length, 80)];
     }
 
     private static string CategorizeSessionType(string normalized)
     {
-        var name = Regex.Replace(normalized, @"^session[.:_-]", "");
+        var name = SessionTypePrefix().Replace(normalized, "");
         if (name is "join" or "start" or "session_start") return "session.join";
         if (name is "leave" or "disconnect" or "end" or "session_end") return "session.leave";
         return "session.heartbeat";
@@ -823,6 +810,8 @@ public static class StorageApiEndpoints
             return;
         }
 
+        NetworkStorageUsageContext.SetAuthenticated(context, projectId);
+
         JsonElement body;
         try
         {
@@ -862,10 +851,10 @@ public static class StorageApiEndpoints
         }
 
         // Diagnostic telemetry for cause correlation. Network Storage analytics
-        // live in ScyllaDB (air-gapped from the website Postgres), same as every
+        // live in the store (air-gapped from the website Postgres), same as every
         // other record event.
         var analytics = context.RequestServices.GetRequiredService<IPlayerAnalyticsService>();
-        _ = analytics.RecordEventAsync(new PlayerEventRequest(
+        await analytics.RecordEventAsync(new PlayerEventRequest(
             ProjectId: projectId,
             CollectionId: report.CollectionId,
             RecordKey: report.RecordKey,

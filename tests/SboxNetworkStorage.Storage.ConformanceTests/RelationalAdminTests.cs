@@ -33,11 +33,11 @@ public abstract class RelationalAdminTests : IAsyncLifetime
     [SkippableFact]
     public async Task Fresh_database_reports_version_zero_and_requires_migration()
     {
-        Assert.Equal(1, Store.SupportedSchemaVersion);
+        Assert.True(Store.SupportedSchemaVersion >= 1);
         Assert.Equal(0, await Store.GetSchemaVersionAsync(Ct));
         var ex = await Assert.ThrowsAsync<SchemaMigrationRequiredException>(() => Store.EnsureSchemaCompatibleAsync(Ct));
         Assert.Equal(0, ex.DatabaseVersion);
-        Assert.Equal(1, ex.SupportedVersion);
+        Assert.Equal(Store.SupportedSchemaVersion, ex.SupportedVersion);
         Assert.Contains("sbox-ns db migrate", ex.Message);
     }
 
@@ -131,6 +131,68 @@ public sealed class SqliteAdminTests : RelationalAdminTests
         return Task.CompletedTask;
     }
 
+    [Fact]
+    public async Task Migration_opts_existing_projects_into_player_projections_and_leaves_new_ones_off()
+    {
+        await Store.MigrateAsync(Ct);
+        await RevertToVersion1Async("""
+            INSERT INTO projects (project_id, payload_json, version, updated_at_unix_ms) VALUES ('old1', '{"name":"Old"}', 1, 0), ('old2', '{}', 1, 0);
+            """);
+
+        var migration = await Store.MigrateAsync(Ct);
+
+        Assert.Equal([2, 3], migration.AppliedVersions);
+        var old = (await Store.ReadProjectAsync("old1", Ct))!.Value;
+        Assert.True(old.GetProperty("legacyPlayerProjections").GetBoolean());
+        Assert.Equal("Old", old.GetProperty("name").GetString());
+        Assert.True((await Store.ReadProjectAsync("old2", Ct))!.Value.GetProperty("legacyPlayerProjections").GetBoolean());
+
+        await Store.UpsertProjectAsync("fresh", System.Text.Json.JsonDocument.Parse("""{"name":"New"}""").RootElement.Clone(), 1, Ct);
+        Assert.False((await Store.ReadProjectAsync("fresh", Ct))!.Value.TryGetProperty("legacyPlayerProjections", out _));
+    }
+
+    /// <summary>
+    /// Puts a migrated database back into its version 1 shape (version 3 objects removed, original
+    /// WITHOUT ROWID log tables), then runs <paramref name="seed"/> against it.
+    /// </summary>
+    private async Task RevertToVersion1Async(string seed)
+    {
+        await using var connection = new SqliteConnection($"Data Source={_path};Pooling=False");
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            DROP INDEX ix_endpoints_project_slug;
+            DROP INDEX ix_api_keys_project_key_identifier;
+            DROP TABLE storage_errors;
+            DROP TABLE storage_request_log;
+            CREATE TABLE storage_errors (project_id TEXT NOT NULL, created_at_unix_ms INTEGER NOT NULL, error_id TEXT, message TEXT, stack_trace TEXT, source TEXT, request_path TEXT, severity TEXT, PRIMARY KEY (project_id, created_at_unix_ms DESC)) STRICT, WITHOUT ROWID;
+            CREATE TABLE storage_request_log (project_id TEXT NOT NULL, created_at_unix_ms INTEGER NOT NULL, method TEXT, path TEXT, status_code INTEGER, duration_ms INTEGER, api_key_identifier TEXT, PRIMARY KEY (project_id, created_at_unix_ms DESC)) STRICT, WITHOUT ROWID;
+            DELETE FROM schema_version WHERE version >= 2;
+            """ + seed;
+        await command.ExecuteNonQueryAsync();
+    }
+
+    [Fact]
+    public async Task Migration_v3_rebuilds_the_log_tables_keeping_existing_rows_and_adds_the_indexes()
+    {
+        await Store.MigrateAsync(Ct);
+        await RevertToVersion1Async("""
+            INSERT INTO storage_request_log (project_id, created_at_unix_ms, method, path, status_code, duration_ms, api_key_identifier) VALUES ('p1', 100, 'GET', '/a', 200, 3, 'pk'), ('p1', 200, 'POST', '/b', 500, 9, NULL), ('p2', 150, 'GET', '/c', 404, 1, NULL);
+            INSERT INTO storage_errors (project_id, created_at_unix_ms, error_id, message, stack_trace, source, request_path, severity) VALUES ('p1', 100, 'e1', 'boom', 'trace', 'worker', '/a', 'error');
+            """);
+
+        var migration = await Store.MigrateAsync(Ct);
+
+        Assert.Equal([2, 3], migration.AppliedVersions);
+        var log = await Store.ListStorageRequestLogAsync("p1", 10, Ct);
+        Assert.Equal(new[] { "/b", "/a" }, log.Select(r => Json.Str(r, "path")));
+        Json.Equal("""{"created_at_unix_ms":100,"method":"GET","path":"/a","status_code":200,"duration_ms":3,"api_key_identifier":"pk"}""", log[1]);
+        Assert.Single(await Store.ListStorageRequestLogAsync("p2", 10, Ct));
+        Json.Equal("""{"created_at_unix_ms":100,"error_id":"e1","message":"boom","stack_trace":"trace","source":"worker","request_path":"/a","severity":"error"}""", (await Store.ListStorageErrorsAsync("p1", 10, Ct)).Single());
+
+        await Store.InsertStorageRequestLogAsync("p1", 200, "GET", "/d", 200, 1, null, Ct); // same millisecond as a migrated row
+        Assert.Equal(3, (await Store.ListStorageRequestLogAsync("p1", 10, Ct)).Count);
+    }
     [Fact]
     public async Task Database_uses_wal_journal_and_target_is_the_file_path()
     {
@@ -236,3 +298,4 @@ public sealed class PostgresAdminTests : RelationalAdminTests
         Assert.Same(store, provider.GetRequiredService<INetworkStorageStoreAdmin>());
     }
 }
+

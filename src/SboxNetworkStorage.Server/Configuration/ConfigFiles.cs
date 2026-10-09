@@ -188,6 +188,6 @@ public static partial class ConfigFiles
         File.Move(temp, path, overwrite: true);
     }
 
-    [GeneratedRegex(@"^\s*\[\s*([A-Za-z0-9_.\-]+)\s*\]\s*(#.*)?$")]
+    [GeneratedRegex(@"^\s*\[\s*([A-Za-z0-9_.\-]+)\s*\]\s*(#.*)?$", RegexOptions.None, 100)]
     private static partial Regex TableHeader();
 }

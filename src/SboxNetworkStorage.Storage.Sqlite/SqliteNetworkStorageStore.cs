@@ -7,7 +7,7 @@ using SboxNetworkStorage.Storage.Relational;
 namespace SboxNetworkStorage.Storage.Sqlite;
 
 /// <summary>
-/// SQLite driver: one database file in WAL mode, a pooled connection per
+/// SQLite driver: one database file in WAL mode with <c>synchronous=NORMAL</c>, a pooled connection per
 /// operation (safe as a singleton under concurrent requests), and a busy
 /// timeout so concurrent writers queue instead of failing.
 /// </summary>
@@ -16,7 +16,7 @@ public sealed class SqliteNetworkStorageStore : RelationalNetworkStorageStore
     private readonly string _connectionString;
     private readonly string _openPragmas;
     private readonly string _databasePath;
-    private int _walEnsured;
+    private int _walWarned;
 
     public SqliteNetworkStorageStore(SqliteStoreOptions options, TimeProvider? time = null, ILogger<SqliteNetworkStorageStore>? logger = null)
         : base(string.Empty, (options ?? throw new ArgumentNullException(nameof(options))).MaxPayloadBytes, time, logger)
@@ -38,7 +38,8 @@ public sealed class SqliteNetworkStorageStore : RelationalNetworkStorageStore
             Pooling = true,
             DefaultTimeout = Math.Max(30, (options.BusyTimeoutMilliseconds / 1000) + 1),
         }.ToString();
-        _openPragmas = string.Create(CultureInfo.InvariantCulture, $"PRAGMA busy_timeout = {options.BusyTimeoutMilliseconds};");
+        _openPragmas = string.Create(CultureInfo.InvariantCulture,
+            $"PRAGMA synchronous = NORMAL; PRAGMA busy_timeout = {options.BusyTimeoutMilliseconds};");
     }
 
     public override string ProviderName => "sqlite";
@@ -56,21 +57,20 @@ public sealed class SqliteNetworkStorageStore : RelationalNetworkStorageStore
         try
         {
             await connection.OpenAsync(ct);
+            // Applied on every open. journal_mode=WAL is persistent in the file but cheap to re-assert;
+            // synchronous=NORMAL is per connection and is what makes WAL commits skip the per-commit fsync.
+            await using (var wal = connection.CreateCommand())
+            {
+                wal.CommandText = "PRAGMA journal_mode = WAL;";
+                var mode = Convert.ToString(await wal.ExecuteScalarAsync(ct), CultureInfo.InvariantCulture);
+                if (!string.Equals(mode, "wal", StringComparison.OrdinalIgnoreCase)
+                    && Interlocked.Exchange(ref _walWarned, 1) == 0)
+                    Logger.LogWarning("SQLite database {Path} could not switch to WAL mode (journal_mode={Mode})", _databasePath, mode);
+            }
             await using (var pragma = connection.CreateCommand())
             {
                 pragma.CommandText = _openPragmas;
                 await pragma.ExecuteNonQueryAsync(ct);
-            }
-
-            // journal_mode=WAL is persistent in the file; set it once per process.
-            if (Volatile.Read(ref _walEnsured) == 0)
-            {
-                await using var wal = connection.CreateCommand();
-                wal.CommandText = "PRAGMA journal_mode = WAL;";
-                var mode = Convert.ToString(await wal.ExecuteScalarAsync(ct), CultureInfo.InvariantCulture);
-                if (!string.Equals(mode, "wal", StringComparison.OrdinalIgnoreCase))
-                    Logger.LogWarning("SQLite database {Path} could not switch to WAL mode (journal_mode={Mode})", _databasePath, mode);
-                Volatile.Write(ref _walEnsured, 1);
             }
 
             return connection;
@@ -80,6 +80,15 @@ public sealed class SqliteNetworkStorageStore : RelationalNetworkStorageStore
             await connection.DisposeAsync();
             throw;
         }
+    }
+
+    /// <summary>Runs <c>PRAGMA &lt;name&gt;</c> on a connection opened the way every operation opens one.</summary>
+    internal async Task<string?> ReadPragmaAsync(string name, CancellationToken ct)
+    {
+        await using var connection = await OpenConnectionAsync(ct);
+        await using var command = connection.CreateCommand();
+        command.CommandText = $"PRAGMA {name}";
+        return Convert.ToString(await command.ExecuteScalarAsync(ct), CultureInfo.InvariantCulture);
     }
 
     protected override async Task<bool> SchemaVersionTableExistsAsync(DbConnection connection, CancellationToken ct)

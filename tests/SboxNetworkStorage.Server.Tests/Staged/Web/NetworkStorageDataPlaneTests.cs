@@ -7,8 +7,8 @@ using Xunit;
 namespace SboxNetworkStorage.Server.Tests;
 
 /// <summary>
-/// Tests for the ScyllaDB-only Network Storage data plane. All reads and writes
-/// go through ScyllaDB — no Bunny fallback, no newest-wins comparison.
+/// Tests for the store-only Network Storage data plane. All reads and writes
+/// go through the store — no workspace fallback, no newest-wins comparison.
 /// </summary>
 public sealed class NetworkStorageDataPlaneTests
 {
@@ -17,16 +17,16 @@ public sealed class NetworkStorageDataPlaneTests
     // ── Reads ──────────────────────────────────────────────────────────────
 
     [Fact]
-    public async Task Read_ReturnsScyllaValue()
+    public async Task Read_ReturnsStoreValue()
     {
         var store = new InMemoryNetworkStorageStore();
         await store.UpsertRecordAsync("p1", "players", "k1", Json("""{"score":10}"""), deleted: false, version: 1, CancellationToken.None);
-        var plane = new ScyllaNetworkStorageDataPlane(store);
+        var plane = new StoreNetworkStorageDataPlane(store);
 
         var r = await plane.ReadRecordAsync(77, "p1", "players", "k1", CancellationToken.None);
 
         Assert.True(r.Found);
-        Assert.Equal("scylladb", r.Source);
+        Assert.Equal("store", r.Source);
         Assert.Equal(10, r.Value.GetProperty("score").GetInt32());
     }
 
@@ -34,7 +34,7 @@ public sealed class NetworkStorageDataPlaneTests
     public async Task Read_ReturnsNotFound_WhenAbsent()
     {
         var store = new InMemoryNetworkStorageStore();
-        var plane = new ScyllaNetworkStorageDataPlane(store);
+        var plane = new StoreNetworkStorageDataPlane(store);
 
         var r = await plane.ReadRecordAsync(77, "p1", "players", "k1", CancellationToken.None);
 
@@ -46,7 +46,7 @@ public sealed class NetworkStorageDataPlaneTests
     {
         var store = new InMemoryNetworkStorageStore();
         await store.UpsertRecordAsync("p1", "players", "k1", Json("null"), deleted: true, version: 1, CancellationToken.None);
-        var plane = new ScyllaNetworkStorageDataPlane(store);
+        var plane = new StoreNetworkStorageDataPlane(store);
 
         var r = await plane.ReadRecordAsync(77, "p1", "players", "k1", CancellationToken.None);
 
@@ -58,23 +58,23 @@ public sealed class NetworkStorageDataPlaneTests
     public async Task ReadWriteRead_RoundTrip()
     {
         var store = new InMemoryNetworkStorageStore();
-        var plane = new ScyllaNetworkStorageDataPlane(store);
+        var plane = new StoreNetworkStorageDataPlane(store);
 
         await plane.WriteRecordAsync(77, "p1", "players", "k1", Json("""{"hp":100}"""), CancellationToken.None);
         var r = await plane.ReadRecordAsync(77, "p1", "players", "k1", CancellationToken.None);
 
         Assert.True(r.Found);
-        Assert.Equal("scylladb", r.Source);
+        Assert.Equal("store", r.Source);
         Assert.Equal(100, r.Value.GetProperty("hp").GetInt32());
     }
 
     // ── Writes ─────────────────────────────────────────────────────────────
 
     [Fact]
-    public async Task Write_PersistsToScyllaDB()
+    public async Task Write_PersistsToStore()
     {
         var store = new InMemoryNetworkStorageStore();
-        var plane = new ScyllaNetworkStorageDataPlane(store);
+        var plane = new StoreNetworkStorageDataPlane(store);
 
         await plane.WriteRecordAsync(77, "p1", "players", "k1", Json("""{"score":42}"""), CancellationToken.None);
         var r = await plane.ReadRecordAsync(77, "p1", "players", "k1", CancellationToken.None);
@@ -88,7 +88,7 @@ public sealed class NetworkStorageDataPlaneTests
     {
         var store = new InMemoryNetworkStorageStore();
         await store.UpsertRecordAsync("p1", "players", "k1", Json("""{"score":1}"""), deleted: false, version: 1, CancellationToken.None);
-        var plane = new ScyllaNetworkStorageDataPlane(store);
+        var plane = new StoreNetworkStorageDataPlane(store);
 
         await plane.DeleteRecordAsync(77, "p1", "players", "k1", CancellationToken.None);
         var r = await plane.ReadRecordAsync(77, "p1", "players", "k1", CancellationToken.None);
@@ -103,13 +103,13 @@ public sealed class NetworkStorageDataPlaneTests
     {
         var store = new InMemoryNetworkStorageStore();
         await store.UpsertRecordAsync("p1", "players", "k1", Json("""{"score":999}"""), deleted: false, version: 1, CancellationToken.None);
-        var plane = new ScyllaNetworkStorageDataPlane(store);
+        var plane = new StoreNetworkStorageDataPlane(store);
 
         for (var i = 0; i < 10; i++)
         {
             var r = await plane.ReadRecordAsync(77, "p1", "players", "k1", CancellationToken.None);
             Assert.True(r.Found);
-            Assert.Equal("scylladb", r.Source);
+            Assert.Equal("store", r.Source);
             Assert.Equal(999, r.Value.GetProperty("score").GetInt32());
         }
     }
@@ -134,12 +134,12 @@ public sealed class NetworkStorageDataPlaneTests
         var store = StoreWithGlobalCollection();
         await store.UpsertGlobalRecordAsync("p1", "leaderboard_global", "default",
             Json("""{"entriesByPlayer":{"76561198021524886":{"totalLevel":399}}}"""), 1, CancellationToken.None);
-        var plane = new ScyllaNetworkStorageDataPlane(store);
+        var plane = new StoreNetworkStorageDataPlane(store);
 
         var r = await plane.ReadRecordAsync(77, "p1", "leaderboard_global", "default", CancellationToken.None);
 
         Assert.True(r.Found);
-        Assert.Equal("scylladb", r.Source);
+        Assert.Equal("store", r.Source);
         Assert.True(r.Value.TryGetProperty("entriesByPlayer", out var ebp));
         Assert.True(ebp.TryGetProperty("76561198021524886", out _));
     }
@@ -148,7 +148,7 @@ public sealed class NetworkStorageDataPlaneTests
     public async Task Write_GlobalCollection_WritesToGlobalRecords()
     {
         var store = StoreWithGlobalCollection();
-        var plane = new ScyllaNetworkStorageDataPlane(store);
+        var plane = new StoreNetworkStorageDataPlane(store);
 
         await plane.WriteRecordAsync(77, "p1", "leaderboard_global", "default",
             Json("""{"entriesByPlayer":{}}"""), CancellationToken.None);
@@ -164,7 +164,7 @@ public sealed class NetworkStorageDataPlaneTests
         var store = StoreWithGlobalCollection();
         await store.UpsertGlobalRecordAsync("p1", "leaderboard_global", "default",
             Json("""{"entriesByPlayer":{}}"""), 1, CancellationToken.None);
-        var plane = new ScyllaNetworkStorageDataPlane(store);
+        var plane = new StoreNetworkStorageDataPlane(store);
 
         await plane.DeleteRecordAsync(77, "p1", "leaderboard_global", "default", CancellationToken.None);
 
@@ -176,7 +176,7 @@ public sealed class NetworkStorageDataPlaneTests
     public async Task Read_GlobalCollection_NotFound_ReturnsNotFound()
     {
         var store = StoreWithGlobalCollection();
-        var plane = new ScyllaNetworkStorageDataPlane(store);
+        var plane = new StoreNetworkStorageDataPlane(store);
 
         var r = await plane.ReadRecordAsync(77, "p1", "leaderboard_global", "missing", CancellationToken.None);
 

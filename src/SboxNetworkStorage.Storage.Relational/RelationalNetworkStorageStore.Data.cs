@@ -100,9 +100,7 @@ public abstract partial class RelationalNetworkStorageStore
                 args.Add(Int64("expected_changed_at", changedAt));
             }
         }
-        await using var connection = await OpenConnectionAsync(ct);
-        await using var command = Command(connection, sql, args.ToArray());
-        return await command.ExecuteNonQueryAsync(ct) == 1;
+        return await ExecuteCountAsync(sql, ct, args.ToArray()) == 1;
     }
 
     // ── record_idempotency ──────────────────────────────────────────
@@ -219,9 +217,8 @@ public abstract partial class RelationalNetworkStorageStore
         if (string.IsNullOrEmpty(month)) throw new ArgumentException("Month key is required.", nameof(month));
         if (string.IsNullOrEmpty(day)) throw new ArgumentException("Day key is required.", nameof(day));
 
-        var transaction = _projectImport.Value;
-        await using var owned = transaction is null ? await OpenConnectionAsync(ct) : null;
-        var connection = transaction?.Connection ?? owned!;
+        await using var lease = await LeaseAsync(ct);
+        var connection = lease.Connection;
         await ExecuteAsync(connection, _sql.IncrementUsageMonthly, ct,
             Text("project_id", projectId), Text("month", month),
             Int64("requests", delta.Requests), Int64("reads", delta.Reads), Int64("writes", delta.Writes),
@@ -250,10 +247,8 @@ public abstract partial class RelationalNetworkStorageStore
     public async Task<long> ReadProjectStorageBytesAsync(string projectId, CancellationToken ct)
     {
         V.Id(projectId);
-        var transaction = _projectImport.Value;
-        await using var owned = transaction is null ? await OpenConnectionAsync(ct) : null;
-        await using var command = Command(transaction?.Connection ?? owned!, _sql.ReadUsageStorage,
-            [Text("project_id", projectId)], transaction);
+        await using var lease = await LeaseAsync(ct);
+        await using var command = Command(lease, _sql.ReadUsageStorage, [Text("project_id", projectId)]);
         await using var reader = await command.ExecuteReaderAsync(ct);
         long total = 0;
         while (await reader.ReadAsync(ct))
@@ -297,13 +292,13 @@ public abstract partial class RelationalNetworkStorageStore
     public async Task<IReadOnlyList<WorkspaceObjectEntry>> ListWorkspaceObjectsAsync(string directoryPath, CancellationToken ct)
     {
         var prefix = WorkspaceObjectPaths.NormalizeDirectoryPrefix(directoryPath);
-        await using var connection = await OpenConnectionAsync(ct);
+        await using var lease = await LeaseAsync(ct);
         // A half-open byte range [prefix, prefix with '/' bumped to '0') selects
         // exactly the paths starting with the prefix. Unlike LIKE it cannot
         // over-match on '_' or '%' and is case-sensitive on every driver.
         await using var command = prefix.Length == 0
-            ? Command(connection, _sql.ListAllWorkspaceObjects, [])
-            : Command(connection, _sql.ListWorkspaceObjectsInRange,
+            ? Command(lease, _sql.ListAllWorkspaceObjects, [])
+            : Command(lease, _sql.ListWorkspaceObjectsInRange,
                 [Text("range_start", prefix), Text("range_end", string.Concat(prefix.AsSpan(0, prefix.Length - 1), "0"))]);
         await using var reader = await command.ExecuteReaderAsync(ct);
         var objects = new List<(string Path, long LengthBytes, DateTimeOffset LastChanged)>();

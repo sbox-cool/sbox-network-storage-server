@@ -13,7 +13,7 @@ internal static class OwnerProjectScope
     public const long Owner = NetworkStorageServices.LocalOwnerUserId;
 
     /// <summary>The project when the local owner may manage it; otherwise null (callers answer 404).</summary>
-    public static async Task<BunnyProject?> ResolveAsync(INetworkStorageProjectService projects, string projectId, CancellationToken ct)
+    public static async Task<WorkspaceProject?> ResolveAsync(INetworkStorageProjectService projects, string projectId, CancellationToken ct)
     {
         var access = await projects.ResolveProjectAccessAsync(Owner, projectId, ct);
         return access is null || access.StorageOwnerUserId != Owner || !access.CanManage ? null : access.Project;

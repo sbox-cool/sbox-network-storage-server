@@ -18,10 +18,10 @@ namespace SboxNetworkStorage.Server.Tests;
 /// (save-slot index) API family
 /// (<c>GET/POST /v3/storage/{projectId}/{collectionId}/{steamId}/records</c>,
 /// <c>DELETE/PATCH .../records/{recordId}</c>, plus the <c>/v1</c> +
-/// <c>/api/storage</c> aliases). Proves the Bun→.NET cutover: save-slot CRUD
-/// executes natively via <c>IBunnyWorkspaceClient</c> (index) +
-/// <c>INetworkStorageDataPlane</c> (save data), the Bun wire contract is
-/// preserved, and no request is proxied to the dead Bun storage-api.
+/// <c>/api/storage</c> aliases). Proves the legacy server→.NET cutover: save-slot CRUD
+/// executes natively via <c>IWorkspaceStore</c> (index) +
+/// <c>INetworkStorageDataPlane</c> (save data), the legacy server wire contract is
+/// preserved, and no request is proxied to the dead legacy server storage-api.
 /// </summary>
 public abstract class RecordsEndpointsTests<TFactory> : IClassFixture<TFactory>
     where TFactory : SelfHostFactory
@@ -50,16 +50,16 @@ public abstract class RecordsEndpointsTests<TFactory> : IClassFixture<TFactory>
     {
         return _factory.WithWebHostBuilder(builder =>
         {
-            // Dead Bun storage-api port — a 502 would prove the request proxied to Bun.
-            builder.ConfigureServices(services => services.Configure<ScyllaDbOptions>(o => o.Primary = false));
+            // Dead legacy server storage-api port — a 502 would prove the request proxied to legacy server.
+            
             builder.ConfigureServices(services =>
             {
                 services.RemoveAll<IStorageApiKeyResolver>();
                 services.AddScoped<IStorageApiKeyResolver>(_ => new FakeKeyResolver(SecretKey, ProjectId, keyType, permissions));
                 services.RemoveAll<INetworkStorageProjectService>();
                 services.AddScoped<INetworkStorageProjectService>(_ => new FakeProjectService(projectEnabled, collectionFound ? [MakeCollection(maxRecords, allowRecordDelete)] : []));
-                services.RemoveAll<IBunnyWorkspaceClient>();
-                services.AddScoped<IBunnyWorkspaceClient>(_ => new FakeBunnyClient(existingIndexJson));
+                services.RemoveAll<IWorkspaceStore>();
+                services.AddScoped<IWorkspaceStore>(_ => new FakeWorkspaceClient(existingIndexJson));
                 services.RemoveAll<INetworkStorageDataPlane>();
                 services.AddScoped<INetworkStorageDataPlane>(_ => new FakeDataPlane());
             });
@@ -84,8 +84,6 @@ public abstract class RecordsEndpointsTests<TFactory> : IClassFixture<TFactory>
         using var response = await client.GetAsync(RecordsUrl($"/v3/storage/{ProjectId}/{CollectionId}/{SteamId}/records"));
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.True(response.Headers.TryGetValues("X-Sboxcool-Route-Owner", out var owner));
-        Assert.Equal(".NET native", Assert.Single(owner));
 
         var body = await BodyAsync(response);
         Assert.True(body.TryGetProperty("records", out _));
@@ -359,11 +357,9 @@ public abstract class RecordsEndpointsTests<TFactory> : IClassFixture<TFactory>
     {
         public Task<NetworkStorageProjectAccessResult?> ResolveProjectAccessAsync(long userId, string projectId, CancellationToken ct)
             => Task.FromResult<NetworkStorageProjectAccessResult?>(new NetworkStorageProjectAccessResult(
-                new BunnyProject(projectId, "Test", null, Enabled: enabled, null, null, null),
+                new WorkspaceProject(projectId, "Test", null, Enabled: enabled, null, null, null),
                 Organization: null, StorageOwnerUserId: userId,
-                CollectionCount: collections.Count, ApiKeyCount: 0, TeamMemberCount: 0, QueryCount: 0, WorkflowCount: 0, EndpointCount: 0,
-                RequireSboxAuth: false, PlayerKeyMode: null, HasRateLimits: false, CanManage: true,
-                HeartbeatStatus: null, HeartbeatColor: null, HeartbeatText: null));
+                RequireSboxAuth: false, PlayerKeyMode: null, CanManage: true));
 
         public Task<NetworkStorageProjectResources?> GetProjectResourcesForOwnerAsync(long storageOwnerUserId, string projectId, CancellationToken ct)
             => Task.FromResult<NetworkStorageProjectResources?>(new NetworkStorageProjectResources(collections, Array.Empty<EndpointResource>()));
@@ -387,17 +383,17 @@ public abstract class RecordsEndpointsTests<TFactory> : IClassFixture<TFactory>
     }
 
     /// <summary>
-    /// In-memory IBunnyWorkspaceClient that serves only GetProjectResourceAsync
+    /// In-memory IWorkspaceStore that serves only GetProjectResourceAsync
     /// + PutProjectResourceAsync. All other members return defaults / throw
     /// NotImplementedException (not used by the records endpoint path).
     /// </summary>
-    private sealed class FakeBunnyClient(string? existingIndexJson) : IBunnyWorkspaceClient
+    private sealed class FakeWorkspaceClient(string? existingIndexJson) : IWorkspaceStore
     {
         private readonly Dictionary<string, string> _store = new(StringComparer.Ordinal);
 
-        public Task<IReadOnlyList<BunnyProject>> GetUserProjectsAsync(long userId, CancellationToken ct) => throw new NotImplementedException();
+        public Task<IReadOnlyList<WorkspaceProject>> GetUserProjectsAsync(long userId, CancellationToken ct) => throw new NotImplementedException();
         public Task<WorkspaceProjectUsage?> GetProjectUsageAsync(long userId, string projectId, string monthKey, CancellationToken ct) => throw new NotImplementedException();
-        public Task SaveUserProjectsAsync(long userId, IReadOnlyList<BunnyProject> projects, CancellationToken ct) => throw new NotImplementedException();
+        public Task SaveUserProjectsAsync(long userId, IReadOnlyList<WorkspaceProject> projects, CancellationToken ct) => throw new NotImplementedException();
 
         public Task<T?> GetProjectResourceAsync<T>(long userId, string projectId, string resourcePath, CancellationToken ct)
         {

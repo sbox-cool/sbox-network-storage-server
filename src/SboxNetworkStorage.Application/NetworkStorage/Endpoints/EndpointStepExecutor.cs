@@ -16,13 +16,13 @@ namespace SboxNetworkStorage.Application.NetworkStorage.Endpoints;
 /// <c>lookup_many</c>/<c>random_select</c>, <c>workflow</c>, <c>webhook</c>, or a
 /// <c>condition</c> using skip/clamp/goto/run fail-routes — raises
 /// <see cref="EndpointExecutionUnsupportedException"/> so the caller falls back to
-/// the authoritative Bun runtime. This keeps the incremental port fail-safe: it
+/// the authoritative legacy server runtime. This keeps the incremental port fail-safe: it
 /// only ever serves endpoints it can reproduce exactly.
 ///
-/// Output (<see cref="EndpointExecutionResult"/>) mirrors Bun's
+/// Output (<see cref="EndpointExecutionResult"/>) mirrors legacy server's
 /// <c>executeEndpoint</c> success/condition-reject/fail shapes.
 /// </summary>
-public sealed class EndpointStepExecutor
+public sealed partial class EndpointStepExecutor
 {
     private static readonly HashSet<string> SupportedTypes = new(StringComparer.Ordinal)
     {
@@ -91,7 +91,7 @@ public sealed class EndpointStepExecutor
             pc++;
         }
 
-        // Execute all deferred writes (matching Bun: writes execute after all
+        // Execute all deferred writes (matching legacy server: writes execute after all
         // steps, before response building).
         foreach (var pw in pendingWrites)
         {
@@ -105,7 +105,7 @@ public sealed class EndpointStepExecutor
     }
 
     // Backwards-compatible sync wrapper. Routed/modern flows still throw
-    // UnsupportedException so legacy callers fall back to Bun.
+    // UnsupportedException so legacy callers fall back to legacy server.
     public EndpointExecutionResult Execute(Dictionary<string, object?> endpointDef, EndpointExecutionRequest request)
     {
         var steps = AsList(endpointDef.GetValueOrDefault("steps")) ?? new List<object?>();
@@ -333,7 +333,7 @@ public sealed class EndpointStepExecutor
                     if (!applyResult.Ok)
                         return Fail(400, $"Write \"{id}\": {applyResult.Error}", StepCtx(step));
 
-                    // Queue the write — executed after all steps complete (matching Bun)
+                    // Queue the write — executed after all steps complete (matching legacy server)
                     pendingWrites.Add(new PendingWrite(collection, key, applyResult.Data, false));
                     return null;
                 }
@@ -575,7 +575,7 @@ public sealed class EndpointStepExecutor
                         }
                     };
 
-                    // Dry-run: skip sending in test/shadow mode
+                    // Dry-run: skip sending in test/dry-run mode
                     if (context.GetValueOrDefault("_skipWebhooks") is true)
                     {
                         context[asKey ?? id] = new Dictionary<string, object?>
@@ -610,7 +610,7 @@ public sealed class EndpointStepExecutor
                     var duration = durationMs is double d ? d : 0d;
                     if (!double.IsFinite(duration) || duration < 0 || duration > 300_000)
                         return Fail(400, $"Sleep step \"{id}\" duration {duration}ms exceeds max 300000ms.", StepCtx(step));
-                    // Shadow/discovery comparison records the deterministic result without
+                    // Dry-run/discovery comparison records the deterministic result without
                     // blocking a background task for up to 5 minutes; live serve honors the delay.
                     if (duration > 0 && context.GetValueOrDefault("_skipSleep") is not true)
                         await Task.Delay(TimeSpan.FromMilliseconds(duration), ct);
@@ -817,7 +817,7 @@ public sealed class EndpointStepExecutor
                 return err;
         }
 
-        // Map the workflow's returns block into the result (Bun resolves each
+        // Map the workflow's returns block into the result (legacy server resolves each
         // returns template against the sub-context). Without a returns block,
         // return the full sub-context so step ids stay addressable.
         if (wfDef.GetValueOrDefault("returns") is Dictionary<string, object?> returnsDef)
@@ -994,7 +994,8 @@ public sealed class EndpointStepExecutor
         return new EndpointExecutionResult(true, ToInt(responseDef.GetValueOrDefault("status"), 200), body);
     }
 
-    private static readonly Regex EchoTokenRegex = new("\\{\\{\\s*([a-zA-Z0-9_.$]+)\\s*\\}\\}", RegexOptions.Compiled);
+    [GeneratedRegex("\\{\\{\\s*([a-zA-Z0-9_.$]+)\\s*\\}\\}", RegexOptions.None, 100)]
+    private static partial Regex EchoTokenRegex();
 
     private static Dictionary<string, object?> BuildEchoResponse(List<object?> echo, Dictionary<string, object?> context)
     {
@@ -1002,7 +1003,7 @@ public sealed class EndpointStepExecutor
         foreach (var entry in echo)
         {
             if (entry is not string tpl || !tpl.Contains("{{", StringComparison.Ordinal)) continue;
-            var match = EchoTokenRegex.Match(tpl);
+            var match = EchoTokenRegex().Match(tpl);
             if (!match.Success) continue;
             var path = match.Groups[1].Value;
             var key = path.Contains('.') ? path[(path.LastIndexOf('.') + 1)..] : path;
@@ -1384,7 +1385,7 @@ public sealed class EndpointStepExecutor
     /// <summary>
     /// Extracts collection IDs referenced by lookup/filter/lookup_many/random_select
     /// steps. Used by the orchestrator to pre-fetch all records in those collections
-    /// from ScyllaDB before running the sync executor.
+    /// from the store before running the sync executor.
     /// </summary>
     public static IReadOnlyList<string> DiscoverScanCollections(Dictionary<string, object?> endpointDef)
     {
@@ -1421,11 +1422,11 @@ public sealed class EndpointStepExecutor
     /// <c>webhook</c> step, or references a saved <c>workflow</c> (whose sub-steps are
     /// not statically visible here and may themselves webhook). Record writes/deletes
     /// are NOT flagged — the live-serve path flushes them durably to the authoritative
-    /// store. A live-serve caller without a real webhook sender MUST fall back to Bun
+    /// store. A live-serve caller without a real webhook sender MUST fall back to legacy server
     /// for these endpoints so a notification can never be silently dropped; with a
     /// sender wired they serve natively. Deep-scans the whole definition so nested/
     /// blocked/routed steps are not missed; conservative (a false positive merely
-    /// defers to Bun).
+    /// defers to legacy server).
     /// </summary>
     public static bool RequiresLiveWebhookSender(object? node)
     {
@@ -1473,7 +1474,7 @@ public sealed record EndpointExecutionRequest(
 
 /// <summary>
 /// Raised when an endpoint definition uses a feature the native executor does not
-/// yet reproduce. The caller MUST fall back to the authoritative Bun runtime.
+/// yet reproduce. The caller MUST fall back to the authoritative legacy server runtime.
 /// </summary>
 public sealed class EndpointExecutionUnsupportedException : Exception
 {

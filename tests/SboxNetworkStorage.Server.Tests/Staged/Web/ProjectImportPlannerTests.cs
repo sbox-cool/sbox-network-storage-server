@@ -7,7 +7,7 @@ namespace SboxNetworkStorage.Server.Tests;
 /// Unit tests for the pure project-import core: conflict classification
 /// (including records by key — the bug the old preview never detected),
 /// per-resource resolution, id remapping, structural query-ref rewrite, and
-/// up-front file validation. No ScyllaDB needed.
+/// up-front file validation. No the store needed.
 /// </summary>
 public sealed class ProjectImportPlannerTests
 {

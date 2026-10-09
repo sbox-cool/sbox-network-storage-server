@@ -21,9 +21,31 @@ public static class AutoUpdateCommand
     public const int RollbackFailed = 3;
     public const int FeedUnavailable = 4;
 
+    /// <summary>Install-script override for hosts without openssl; never honored by unattended updates.</summary>
+    public const string InsecureSkipSignatureVariable = "SBOX_NS_INSECURE_SKIP_SIGNATURE";
+
     public static async Task<int> RunAsync(CliContext context)
     {
+        if (Environment.GetEnvironmentVariable(InsecureSkipSignatureVariable) == "1")
+        {
+            throw new CliException($"{InsecureSkipSignatureVariable} is set; unattended updates never skip signature verification. Nothing was changed.", CliApp.Usage);
+        }
+
+        var state = UpdateState.ForHost();
         var instances = ResolveInstances(context);
+        if (OperatingSystem.IsLinux())
+        {
+            // Hosts updated by an older updater still keep runtime files in the config folder; move them before anything else.
+            var processPath = Environment.ProcessPath ?? throw new CliException("cannot determine the sbox-ns executable path");
+            var migrator = new LayoutMigrator(HostLayoutSystem.Instance, new SystemUpdateHost(), state, processPath, Console.WriteLine);
+            if (await LayoutCommands.MigrateWhenNeededAsync(instances, migrator) is { } stop)
+            {
+                return stop;
+            }
+
+            instances = ResolveInstances(context);
+        }
+
         AutoUpdateSettings settings;
         try
         {
@@ -57,7 +79,7 @@ public static class AutoUpdateCommand
             return FeedUnavailable;
         }
 
-        var failedVersion = instances.Select(i => UpdateRecord.Read(i.Config))
+        var failedVersion = instances.Select(i => state.Read(i.Name))
             .FirstOrDefault(r => r?.IsFailed == true && r.ToVersion == release.Version)?.ToVersion;
         var decision = AutoUpdatePolicy.EvaluateRelease(settings, BuildInfo.Version, release, failedVersion, now);
         if (!decision.Install)
@@ -76,7 +98,7 @@ public static class AutoUpdateCommand
         {
             var staged = await UpdateCommands.StageReleaseAsync(http, feed, release.Version, binary, work.FullName);
             using var health = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
-            var updater = new AutoUpdater(new SystemUpdateHost(), health, Console.WriteLine);
+            var updater = new AutoUpdater(new SystemUpdateHost(), state, health, Console.WriteLine);
             var result = await updater.InstallAsync(BuildInfo.Version, release.Version, staged, binary, instances, "auto", CancellationToken.None);
             switch (result.Outcome)
             {
@@ -88,7 +110,7 @@ public static class AutoUpdateCommand
                     return RolledBack;
                 default:
                     Console.Error.WriteLine($"error: update to {release.Version} failed and the ROLLBACK DID NOT COMPLETE: {result.Reason}");
-                    Console.Error.WriteLine("Check `sbox-ns doctor` and the service logs; backups are listed in each instance's updates/last-update.json.");
+                    Console.Error.WriteLine($"Check `sbox-ns doctor` and the service logs; backups are listed in each instance's last-update.json under {state.Root}.");
                     return RollbackFailed;
             }
         }
@@ -100,8 +122,10 @@ public static class AutoUpdateCommand
 
     public static async Task<int> RollbackAllAsync(CliContext context)
     {
+        var state = UpdateState.ForHost();
+        state.Require();
         var instances = ResolveInstances(context);
-        var recorded = instances.Select(i => (Instance: i, Record: UpdateRecord.Read(i.Config))).ToList();
+        var recorded = instances.Select(i => (Instance: i, Record: state.Read(i.Name))).ToList();
         var missing = recorded.Where(r => r.Record is null).Select(r => r.Instance.Name).ToList();
         if (missing.Count > 0)
         {
@@ -115,14 +139,17 @@ public static class AutoUpdateCommand
         }
 
         var first = records[0].Record;
-        if (records.Any(r => r.Record.ToVersion != first.ToVersion || r.Record.PreviousBinaryPath != first.PreviousBinaryPath))
+        if (records.Any(r => r.Record.ToVersion != first.ToVersion))
         {
             throw new CliException("instances recorded different updates; roll them back one at a time with --config-dir/--data-dir");
         }
 
-        if (!File.Exists(first.PreviousBinaryPath))
+        // Rollback restores the fixed installed binary from the root-only state folder; paths in the records are never followed.
+        var binary = Environment.ProcessPath ?? throw new CliException("cannot determine the sbox-ns executable path");
+        UpdateCommands.RequireStandaloneExecutable(binary);
+        if (!File.Exists(state.PreviousBinaryPath))
         {
-            throw new CliException($"rollback binary is missing ({first.PreviousBinaryPath})");
+            throw new CliException($"rollback binary is missing ({state.PreviousBinaryPath})");
         }
 
         foreach (var (instance, record) in records.Where(r => r.Record.BackupPath is not null && !File.Exists(r.Record.BackupPath)))
@@ -132,9 +159,9 @@ public static class AutoUpdateCommand
 
         Console.WriteLine($"Rolling back {first.ToVersion} -> {first.FromVersion} on {string.Join(", ", records.Select(r => r.Instance.Name))}");
         UpdateCommands.ConfirmDataLoss(context);
-        using var updateLock = UpdateCommands.AcquireUpdateLock(first.BinaryPath);
+        using var updateLock = UpdateCommands.AcquireUpdateLock(binary);
         using var health = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
-        var problems = await new AutoUpdater(new SystemUpdateHost(), health, Console.WriteLine).RollbackRecordedAsync(records, CancellationToken.None);
+        var problems = await new AutoUpdater(new SystemUpdateHost(), state, health, Console.WriteLine).RollbackRecordedAsync(records, binary, CancellationToken.None);
         if (problems.Count > 0)
         {
             Console.Error.WriteLine($"error: rollback incomplete: {string.Join("; ", problems)}");

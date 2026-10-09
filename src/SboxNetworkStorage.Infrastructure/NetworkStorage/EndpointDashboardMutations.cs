@@ -12,11 +12,11 @@ using SboxNetworkStorage.Application.Workspace;
 namespace SboxNetworkStorage.Infrastructure.NetworkStorage;
 
 /// <summary>
-/// Dashboard form/JSON mutations for endpoints.json (ported from Bun
+/// Dashboard form/JSON mutations for endpoints.json (ported from legacy server
 /// endpoint-modules/management-routes.js routeCreateEndpoint / routeEditEndpoint /
 /// routeDeleteEndpoint). Persists the full endpoint object — including
 /// <c>steps</c>, <c>input</c>, <c>response</c>, and <c>let</c> — so the native
-/// ScyllaDB executor (which reads the stored definition verbatim, never a
+/// The store executor (which reads the stored definition verbatim, never a
 /// recompiled source) serves the saved version.
 ///
 /// The .NET runtime has no YAML source compiler, so the client-supplied compiled
@@ -30,14 +30,18 @@ namespace SboxNetworkStorage.Infrastructure.NetworkStorage;
 /// switch had no <c>endpoint-*</c> case, so it bumped the project timestamp and
 /// returned <c>ok:true</c> while persisting nothing.
 /// </summary>
-internal static class EndpointDashboardMutations
+internal static partial class EndpointDashboardMutations
 {
     private const int MaxEndpoints = 50;
     private const int MaxSteps = 500; // ENDPOINT_LIMITS.maxSteps
-    private static readonly Regex SlugPattern = new("^[a-z0-9-]+$", RegexOptions.Compiled);
+    [GeneratedRegex("^[a-z0-9-]+$", RegexOptions.None, 100)]
+    private static partial Regex SlugPattern();
+
+    [GeneratedRegex("-+", RegexOptions.None, 100)]
+    private static partial Regex DashRun();
 
     public static async Task CreateEndpointAsync(
-        IBunnyWorkspaceClient client,
+        IWorkspaceStore client,
         long storageOwnerUserId,
         string projectId,
         IReadOnlyDictionary<string, string> form,
@@ -53,7 +57,7 @@ internal static class EndpointDashboardMutations
         var slug = ResolveSlug(form.GetValueOrDefault("slug"), name);
         if (string.IsNullOrEmpty(slug))
             throw new InvalidOperationException("URL slug is required (lowercase alphanumeric and hyphens only).");
-        if (!SlugPattern.IsMatch(slug))
+        if (!SlugPattern().IsMatch(slug))
             throw new InvalidOperationException("URL slug must use lowercase letters, numbers, and hyphens only.");
 
         var endpoints = await LoadEndpointsAsync(client, storageOwnerUserId, projectId, cancellationToken);
@@ -71,7 +75,7 @@ internal static class EndpointDashboardMutations
             ["slug"] = slug,
             ["method"] = NormalizeMethod(form.GetValueOrDefault("method")),
             ["description"] = Truncate((form.GetValueOrDefault("description") ?? "").Trim(), 256),
-            // Bun create always provisions an enabled endpoint; the disable toggle lives in edit.
+            // legacy server create always provisions an enabled endpoint; the disable toggle lives in edit.
             ["enabled"] = true,
             ["_deprecated"] = IsChecked(form.GetValueOrDefault("deprecated")),
             ["skipSboxAuth"] = IsChecked(form.GetValueOrDefault("skipSboxAuth")),
@@ -91,7 +95,7 @@ internal static class EndpointDashboardMutations
     }
 
     public static async Task UpdateEndpointAsync(
-        IBunnyWorkspaceClient client,
+        IWorkspaceStore client,
         long storageOwnerUserId,
         string projectId,
         IReadOnlyDictionary<string, string> form,
@@ -110,7 +114,7 @@ internal static class EndpointDashboardMutations
         var definition = ParseDefinition(form.GetValueOrDefault("definition"));
         var isSourceMode = IsSourceMode(form);
 
-        // Apply top-level fields only when the payload provides them (mirrors Bun's
+        // Apply top-level fields only when the payload provides them (mirrors legacy server's
         // `body.x !== undefined` guards), so a partial save never wipes settings.
         if (form.TryGetValue("name", out var name))
         {
@@ -135,7 +139,7 @@ internal static class EndpointDashboardMutations
         ValidateStepCount(definition);
 
         // Merge the compiled definition. Steps/input/response are the execution shape
-        // the ScyllaDB executor reads; only overwrite when present so a definition-less
+        // the store executor reads; only overwrite when present so a definition-less
         // metadata save preserves them.
         var steps = DefinitionProperty(definition, "steps");
         if (steps is not null) endpoint["steps"] = steps;
@@ -154,7 +158,7 @@ internal static class EndpointDashboardMutations
         if (publishTarget == "staged" && await HasRevisionDataAsync(client, storageOwnerUserId, projectId, cancellationToken))
         {
             // Staged saves never touch the live store — they overlay onto the next
-            // revision via revision-overrides.json, keyed by slug (matches Bun).
+            // revision via revision-overrides.json, keyed by slug (matches legacy server).
             var slug = ReadString(endpoint, "slug") ?? endpointId;
             await SaveStagedEndpointAsync(client, storageOwnerUserId, projectId, slug, endpoint, cancellationToken);
         }
@@ -165,7 +169,7 @@ internal static class EndpointDashboardMutations
     }
 
     public static async Task DeleteEndpointAsync(
-        IBunnyWorkspaceClient client,
+        IWorkspaceStore client,
         long storageOwnerUserId,
         string projectId,
         string endpointId,
@@ -179,7 +183,7 @@ internal static class EndpointDashboardMutations
     }
 
     public static async Task DeleteAllEndpointsAsync(
-        IBunnyWorkspaceClient client,
+        IWorkspaceStore client,
         long storageOwnerUserId,
         string projectId,
         CancellationToken cancellationToken)
@@ -192,7 +196,7 @@ internal static class EndpointDashboardMutations
     // ── Persistence ──
 
     private static async Task<List<Dictionary<string, object?>>> LoadEndpointsAsync(
-        IBunnyWorkspaceClient client, long storageOwnerUserId, string projectId, CancellationToken cancellationToken)
+        IWorkspaceStore client, long storageOwnerUserId, string projectId, CancellationToken cancellationToken)
     {
         var existing = await client.GetProjectResourceAsync<List<Dictionary<string, object?>>>(
             storageOwnerUserId, projectId, "endpoints.json", cancellationToken);
@@ -200,10 +204,10 @@ internal static class EndpointDashboardMutations
     }
 
     private static async Task SaveEndpointsAsync(
-        IBunnyWorkspaceClient client, long storageOwnerUserId, string projectId,
+        IWorkspaceStore client, long storageOwnerUserId, string projectId,
         List<Dictionary<string, object?>> endpoints, CancellationToken cancellationToken)
     {
-        // Dual-write the canonical resource (authoritative; routed to ScyllaDB by the
+        // Dual-write the canonical resource (authoritative; routed to the store by the
         // metadata client) and the legacy v3 mirror, matching CollectionDashboardMutations.
         await client.PutProjectResourceAsync(
             storageOwnerUserId, projectId, "endpoints.json", endpoints, cancellationToken);
@@ -223,7 +227,7 @@ internal static class EndpointDashboardMutations
     }
 
     private static async Task<bool> HasRevisionDataAsync(
-        IBunnyWorkspaceClient client, long storageOwnerUserId, string projectId, CancellationToken cancellationToken)
+        IWorkspaceStore client, long storageOwnerUserId, string projectId, CancellationToken cancellationToken)
     {
         var pkg = await client.GetProjectResourceAsync<Dictionary<string, JsonElement>>(
             storageOwnerUserId, projectId, "game-package.json", cancellationToken);
@@ -233,7 +237,7 @@ internal static class EndpointDashboardMutations
     }
 
     private static async Task SaveStagedEndpointAsync(
-        IBunnyWorkspaceClient client, long storageOwnerUserId, string projectId,
+        IWorkspaceStore client, long storageOwnerUserId, string projectId,
         string slug, Dictionary<string, object?> endpoint, CancellationToken cancellationToken)
     {
         var overrides = await client.GetProjectResourceAsync<JsonObject>(
@@ -260,7 +264,7 @@ internal static class EndpointDashboardMutations
         var letNode = DefinitionProperty(definition, "let");
         if (letNode is not null) endpoint["let"] = letNode;
 
-        // Notes precedence mirrors Bun: explicit form value first, then the definition.
+        // Notes precedence mirrors legacy server: explicit form value first, then the definition.
         if (form.TryGetValue("notes", out var formNotes))
         {
             var trimmed = formNotes.Trim();
@@ -352,7 +356,7 @@ internal static class EndpointDashboardMutations
         if (!string.IsNullOrEmpty(slug)) return slug.ToLowerInvariant();
         var fromName = new string((name ?? "").ToLowerInvariant()
             .Select(c => char.IsLetterOrDigit(c) ? c : '-').ToArray());
-        fromName = Regex.Replace(fromName, "-+", "-").Trim('-');
+        fromName = DashRun().Replace(fromName, "-").Trim('-');
         return string.IsNullOrEmpty(fromName) ? "endpoint" : fromName;
     }
 

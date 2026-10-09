@@ -9,7 +9,7 @@ namespace SboxNetworkStorage.Infrastructure.NetworkStorage;
 /// POSTs the endpoint <c>webhook</c> step's Discord payload as JSON (Discord returns
 /// 204 on success). Network/HTTP failures map to <c>Ok=false</c> with the status/
 /// message — the executor records that on the step result rather than failing the
-/// whole endpoint, matching the Bun runtime's behavior.
+/// whole endpoint, matching the legacy server runtime's behavior.
 /// </summary>
 public sealed class HttpEndpointWebhookSender(
     IHttpClientFactory httpClientFactory,

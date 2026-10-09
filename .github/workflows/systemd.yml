@@ -1,0 +1,52 @@
+name: Systemd hardening
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_call:
+permissions:
+  contents: read
+jobs:
+  security:
+    strategy:
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Publish native service binary
+        run: dotnet publish src/SboxNetworkStorage.Server -c Release -r linux-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o "$RUNNER_TEMP/server"
+      - name: Install and exercise rendered units
+        env:
+          # Root's own extraction folder; commands run as the service account get <data dir>/.net.
+          DOTNET_BUNDLE_EXTRACT_BASE_DIR: /var/tmp/sbox-ns-root-extract
+        run: |
+          sudo systemd-sysusers "$PWD/install/sbox-ns.sysusers.conf"
+          sudo install -m 0755 "$RUNNER_TEMP/server/sbox-ns" /usr/local/bin/sbox-ns
+          # Same folders and owners as install.sh creates before setup.
+          sudo install -d -o root -g sbox-ns -m 0750 /etc/sbox-ns
+          sudo install -d -o sbox-ns -g sbox-ns -m 0750 /var/lib/sbox-ns /var/lib/sbox-ns/state \
+            /var/lib/sbox-ns/state/secrets /var/lib/sbox-ns/state/conf.d /var/lib/sbox-ns/state/bin
+          dirs="--config-dir /etc/sbox-ns --data-dir /var/lib/sbox-ns"
+          sudo -E sbox-ns setup --non-interactive --database sqlite --listen 127.0.0.1:8080 $dirs
+          sudo -E sbox-ns service install $dirs
+          sudo systemd-analyze verify /etc/systemd/system/sbox-ns.service
+          # --offline and --threshold need systemd 254+ (Ubuntu 24.04); older releases still run verify and a real start.
+          if systemd-analyze security --help 2>&1 | grep -q -- '--offline'; then
+            # The threshold is on the 0-100 scale; 20 is the 2.0 shown by the tool.
+            sudo systemd-analyze security --offline=yes --threshold=20 /etc/systemd/system/sbox-ns.service
+          else
+            echo "systemd $(systemctl --version | head -n1) cannot score units offline; skipping the exposure score on this runner"
+          fi
+          sudo systemctl start sbox-ns
+          for attempt in $(seq 1 60); do
+            curl -fsS http://127.0.0.1:8080/health && break
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:8080/health
+          sudo journalctl -u sbox-ns --no-pager
+          sudo systemctl stop sbox-ns

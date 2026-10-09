@@ -1,6 +1,5 @@
 using System.Buffers;
 using System.Data.Common;
-using System.Text;
 using System.Text.Json;
 
 namespace SboxNetworkStorage.Storage.Relational;
@@ -46,7 +45,7 @@ internal static class RowJson
                 switch (column.Kind)
                 {
                     case ColumnKind.Text:
-                        if (isNull) writer.WriteNullValue(); else writer.WriteStringValue(reader.GetString(i));
+                        if (isNull) writer.WriteNullValue(); else writer.WriteStringValue(Utf8(reader, i));
                         break;
                     case ColumnKind.Long:
                         writer.WriteNumberValue(isNull ? 0L : reader.GetInt64(i));
@@ -67,7 +66,7 @@ internal static class RowJson
                         if (isNull) writer.WriteNullValue(); else writer.WriteBooleanValue(reader.GetBoolean(i));
                         break;
                     case ColumnKind.Json:
-                        WriteJsonText(writer, isNull ? null : reader.GetString(i));
+                        WriteJsonText(writer, isNull ? default : Utf8(reader, i));
                         break;
                     default:
                         throw new InvalidOperationException($"Unknown column kind {column.Kind}.");
@@ -80,34 +79,22 @@ internal static class RowJson
         return JsonElement.ParseValue(ref jsonReader);
     }
 
+    /// <summary>The column's UTF-8 bytes, read without decoding them to a string.</summary>
+    private static byte[] Utf8(DbDataReader reader, int ordinal) => reader.GetFieldValue<byte[]>(ordinal);
+
     /// <summary>
-    /// Parses a stored JSON text column into a detached element. Null, empty,
-    /// whitespace and corrupt values yield null, matching production's
-    /// <c>ParseJsonColumn</c>.
+    /// Parses a stored JSON text column (UTF-8 bytes) into a detached element. Null, empty,
+    /// whitespace and corrupt values yield null, matching production's <c>ParseJsonColumn</c>.
     /// </summary>
-    public static JsonElement? ParseJsonColumn(string? text)
+    public static JsonElement? ParseJsonColumn(ReadOnlySpan<byte> utf8)
     {
-        if (string.IsNullOrWhiteSpace(text)) return null;
-        try
-        {
-            using var document = JsonDocument.Parse(text);
-            return document.RootElement.Clone();
-        }
-        catch (JsonException)
-        {
-            return null;
-        }
+        if (!IsSingleJsonValue(utf8)) return null;
+        var reader = new Utf8JsonReader(utf8);
+        return JsonElement.ParseValue(ref reader);
     }
 
-    private static void WriteJsonText(Utf8JsonWriter writer, string? text)
+    private static void WriteJsonText(Utf8JsonWriter writer, ReadOnlySpan<byte> utf8)
     {
-        if (string.IsNullOrWhiteSpace(text))
-        {
-            writer.WriteNullValue();
-            return;
-        }
-
-        var utf8 = Encoding.UTF8.GetBytes(text);
         if (IsSingleJsonValue(utf8))
             writer.WriteRawValue(utf8, skipInputValidation: true);
         else

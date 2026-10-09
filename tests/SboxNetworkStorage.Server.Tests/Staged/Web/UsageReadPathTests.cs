@@ -9,8 +9,8 @@ namespace SboxNetworkStorage.Server.Tests.NetworkStorage;
 
 /// <summary>
 /// Task 3.5 (fix-usage-and-query-telemetry): usage read paths —
-/// ScyllaMetadataWorkspaceClient.GetProjectUsageAsync ScyllaDB-authoritative
-/// read with Bunny fallback, and the workspace endpoint fallback avg-duration
+/// StoreMetadataWorkspaceClient.GetProjectUsageAsync store-authoritative
+/// read with workspace fallback, and the workspace endpoint fallback avg-duration
 /// fix (duration_ms_sum / calls, not duration_samples).
 /// </summary>
 public sealed class UsageReadPathTests
@@ -26,7 +26,7 @@ public sealed class UsageReadPathTests
             durationMsSum, durationSamples, storageDeltaBytes, computeUnits);
 
     [Fact]
-    public async Task ScyllaMonthlyRow_MapsToWorkspaceUsage()
+    public async Task StoreMonthlyRow_MapsToWorkspaceUsage()
     {
         var store = new InMemoryNetworkStorageStore();
         await store.IncrementProjectUsageAsync("proj1", Month, DateTimeOffset.UtcNow.ToString("yyyy-MM-dd"), null,
@@ -46,7 +46,7 @@ public sealed class UsageReadPathTests
     {
         var current = new WorkspaceProjectUsage(10, 200, 500, 1, 800, 55)
         {
-            Source = "scylla-live",
+            Source = "store-live",
         };
         var retained = new WorkspaceProjectUsage(15, 180, 700, 2, 1_200, 40)
         {
@@ -54,7 +54,7 @@ public sealed class UsageReadPathTests
             LastUpdatedAt = DateTimeOffset.Parse("2026-01-02T03:04:05Z"),
         };
 
-        var merged = ScyllaMetadataWorkspaceClient.MergeRecoveredUsage(current, retained);
+        var merged = StoreMetadataWorkspaceClient.MergeRecoveredUsage(current, retained);
 
         Assert.Equal(10, merged!.Requests);
         Assert.Equal(200, merged.BytesIn);
@@ -62,7 +62,7 @@ public sealed class UsageReadPathTests
         Assert.Equal(1, merged.Errors);
         Assert.Equal(1_200, merged.StorageBytes);
         Assert.Equal(55, merged.ComputeUnits);
-        Assert.Equal("scylla-live+retained-storage", merged.Source);
+        Assert.Equal("store-live+retained-storage", merged.Source);
         Assert.Equal(retained.LastUpdatedAt, merged.LastUpdatedAt);
     }
 
@@ -129,7 +129,7 @@ public sealed class UsageReadPathTests
         Assert.NotNull(monthly);
         Assert.Equal(-500, monthly!.Value.GetProperty("storage_delta_bytes").GetInt64());
 
-        // The reader (ScyllaMetadataWorkspaceClient.MapMonthlyUsage) clamps:
+        // The reader (StoreMetadataWorkspaceClient.MapMonthlyUsage) clamps:
         var storageBytes = Math.Max(0, monthly.Value.GetProperty("storage_delta_bytes").GetInt64());
         Assert.Equal(0, storageBytes);
     }

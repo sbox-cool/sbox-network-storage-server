@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- 0.5.0 hardening: updates and installers require a pinned ECDSA P-256 signature
+  on the release checksum manifest. Unattended updates use compiled release
+  sources; `updates.github_repo` and `updates.feed_url` are ignored.
+- Linux operator configuration is root-owned and read-only to the service.
+  Runtime secrets, managed overlays and connector binaries move to the data
+  directory's `state/` folder through `sbox-ns layout migrate`; rollback reverts
+  this layout when restoring an older binary.
+- HTTP requests have route-specific body limits and per-client rate limits.
+  Management and heartbeat authentication runs before reading request bodies;
+  unauthenticated requests do not generate usage rows.
+
+### Changed
+- 0.6.0 runtime: .NET 10, a non-root chiseled container, signed release manifests,
+  CycloneDX SBOMs and release provenance verification.
+- 0.7.0 data plane: cached project metadata, bounded batched analytics, atomic
+  endpoint writes and SQLite indexes; request and error logs retain events that
+  share a timestamp. Analytics retention defaults to 90 days.
+- Built-in legacy player repair and leaderboard projections are opt-in for new
+  projects. Existing projects retain them after migration; the dashboard exposes
+  the `legacyPlayerProjections` setting.
+- Unattended update timers run hourly, with up to 15 minutes of randomized delay.
+- Hosted-service `X-Sboxcool-*` debug response headers are no longer sent.
+- Player ledger reads include analytics queued by earlier writes, so a record or
+  entry written a moment ago is visible to the next read.
+- A body over its limit on a known route is read and discarded when its declared
+  length is at most 4 MiB, so the client receives the `413` response instead of a
+  connection reset. Larger declared bodies are rejected without being read.
+
 ### Added
 - Optional owner authenticator enrollment with encrypted confirmed secrets,
   replay-resistant TOTP login and hashed single-use recovery codes; local
@@ -41,8 +70,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Let's Encrypt certificate, automatic public-address updates every 10 minutes, an
   ownership proof endpoint at `/.well-known/sbox-ns/dns-proof/{nonce}`, a `doctor`
   DNS check and a read-only `dns_status` MCP tool. Tunnel and DNS modes are exclusive.
-- Opt-in unattended updates: `sbox-ns update --auto [--all-instances]`, run every 15
-  minutes by the new `sbox-ns-update.timer` (`sbox-ns service install --auto-update`,
+- Opt-in unattended updates: `sbox-ns update --auto [--all-instances]`, run hourly
+  by the new `sbox-ns-update.timer` (`sbox-ns service install --auto-update`,
   or install.sh `SBOX_NS_AUTO_UPDATE=1`). Settings `updates.auto_install` (default
   off), `updates.channel` (`stable`/`canary`), `updates.window` (UTC) and
   `updates.min_release_age_hours`. Every instance sharing the binary is backed up,

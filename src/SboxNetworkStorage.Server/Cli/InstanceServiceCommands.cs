@@ -39,13 +39,25 @@ public static class InstanceServiceCommands
         }
 
         var user = ServiceCommands.RunCapture("id", ["-u", ServiceCommands.ServiceName]).ExitCode == 0 ? ServiceCommands.ServiceName : Environment.UserName;
-        foreach (var directory in new[] { config.ConfigDirectory, config.DataDirectory })
+        // The instance's runtime state starts out owned by the service user; its operator config stays read-only to it
+        // (root:<service group>) unless the legacy layout is still in use.
+        config.EnsureRuntimeDirectory();
+        await ServiceCommands.RunAsync("chown", ["-R", $"{user}:{user}", config.DataDirectory]);
+        await ServiceCommands.RunAsync("chmod", ["0750", config.DataDirectory]);
+        if (config.Layout == ConfigLayout.State)
         {
-            await ServiceCommands.RunAsync("chown", ["-R", $"{user}:{user}", directory]);
-            await ServiceCommands.RunAsync("chmod", ["0750", directory]);
+            await ServiceCommands.RunAsync("chown", ["-R", $"root:{user}", config.ConfigDirectory]);
+            await ServiceCommands.RunAsync("chmod", ["-R", "u=rwX,g=rX,o=", config.ConfigDirectory]);
+        }
+        else
+        {
+            await ServiceCommands.RunAsync("chown", ["-R", $"{user}:{user}", config.ConfigDirectory]);
+            await ServiceCommands.RunAsync("chmod", ["0750", config.ConfigDirectory]);
         }
 
-        ConfigFiles.WriteAtomically(SystemdUnits.InstanceTemplatePath, SystemdUnits.InstanceTemplate(binary, user));
+        var legacyInstances = ServerInstances.Enumerate().Any(i => i.Config.Layout == ConfigLayout.Legacy);
+        ConfigFiles.WriteAtomically(SystemdUnits.InstanceTemplatePath, SystemdUnits.InstanceTemplate(binary, user, writableConfig: legacyInstances));
+        SystemdUnits.SyncBindDropIn(ServerInstances.UnitFor(name), config);
         await ServiceCommands.RunAsync("systemctl", ["daemon-reload"]);
         var unit = ServerInstances.UnitFor(name);
         var enabled = await ServiceCommands.RunAsync("systemctl", ["enable", unit]);
@@ -107,7 +119,7 @@ public static class InstanceServiceCommands
             throw new CliException($"systemctl enable --now {SystemdUnits.UpdateTimer} failed (exit {enabled})");
         }
 
-        Console.WriteLine($"Unattended updates enabled: {SystemdUnits.UpdateTimer} runs `sbox-ns update --auto {selection}` every 15 minutes");
+        Console.WriteLine($"Unattended updates enabled: {SystemdUnits.UpdateTimer} runs `sbox-ns update --auto {selection}` every hour");
         Console.WriteLine("(installs only inside updates.window, on updates.channel; see `sbox-ns config show`).");
         return CliApp.Ok;
     }

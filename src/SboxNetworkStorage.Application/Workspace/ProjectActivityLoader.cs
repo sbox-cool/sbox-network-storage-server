@@ -3,14 +3,14 @@ using SboxNetworkStorage.Domain.Workspace;
 namespace SboxNetworkStorage.Application.Workspace;
 
 /// <summary>
-/// Loads workspace project activity inputs, matching Bun's loadProjectActivity().
+/// Loads workspace project activity inputs, matching legacy server's loadProjectActivity().
 /// </summary>
 public static class ProjectActivityLoader
 {
     public static async Task<ProjectActivitySupport.Snapshot> LoadAsync(
-        IBunnyWorkspaceClient client,
+        IWorkspaceStore client,
         long storageOwnerUserId,
-        BunnyProject project,
+        WorkspaceProject project,
         string monthKey,
         CancellationToken cancellationToken)
     {

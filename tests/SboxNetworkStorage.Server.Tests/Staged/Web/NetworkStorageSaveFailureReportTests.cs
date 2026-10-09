@@ -19,7 +19,7 @@ namespace SboxNetworkStorage.Server.Tests;
 /// A game posts here when a save returned 200 but a read-back could not confirm it persisted — a
 /// silent drop the server never sees on the proxied write path. The route lives under
 /// <c>/api/network-storage/*</c> (not <c>/api/storage/*</c>) so the live nginx reaches the .NET
-/// website today instead of the legacy Bun data plane. The endpoint must authenticate, fire a
+/// website today instead of the legacy server data plane. The endpoint must authenticate, fire a
 /// Discord alert, and record a diagnostic analytics event for cause correlation.
 /// </summary>
 public abstract class NetworkStorageSaveFailureReportTests<TFactory> : IClassFixture<TFactory>

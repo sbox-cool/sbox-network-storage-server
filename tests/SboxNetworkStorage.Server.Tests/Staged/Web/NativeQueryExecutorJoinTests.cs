@@ -136,7 +136,7 @@ public sealed class NativeQueryExecutorJoinTests
         Assert.NotNull(result);
         var bob = (Dictionary<string, object?>)result!.Entries!.First(e => e.Key == "bob").Data!;
         // Output is filtered to the two selected fields, including the joined one.
-        // Bun pickFields nests dot paths: fish.value → { fish: { value: ... } }
+        // legacy server pickFields nests dot paths: fish.value → { fish: { value: ... } }
         Assert.Equal(new[] { "playername", "fish" }.OrderBy(x => x), bob.Keys.OrderBy(x => x));
         Assert.Equal("Bob", bob["playername"]);
         var fish = (Dictionary<string, object?>)bob["fish"]!;

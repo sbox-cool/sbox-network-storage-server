@@ -3,7 +3,7 @@ namespace SboxNetworkStorage.Application.NetworkStorage.Endpoints;
 /// <summary>
 /// Sends an endpoint <c>webhook</c> step's already-built Discord payload over HTTP.
 /// Wired into the live-serve native endpoint path so a webhook-bearing endpoint
-/// can be served natively. Shadow mode never sends (it dry-runs webhooks for parity),
+/// can be served natively. Dry-run mode never sends (it dry-runs webhooks for parity),
 /// so this is invoked only when serving live traffic.
 /// </summary>
 public interface IEndpointWebhookSender

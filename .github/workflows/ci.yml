@@ -63,14 +63,31 @@ jobs:
     env:
       NS_TEST_POSTGRES: ${{ matrix.postgres != '' && 'Host=localhost;Port=5432;Database=sbox_ns_test;Username=sbox_ns;Password=sbox_ns' || '' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
         with:
-          dotnet-version: 8.0.x
+          dotnet-version: 10.0.x
 
       - name: Restore
         run: dotnet restore SboxNetworkStorage.sln
+
+      - name: Reject vulnerable dependencies
+        shell: pwsh
+        run: |
+          $report = dotnet list SboxNetworkStorage.sln package --vulnerable --include-transitive --format json
+          if ($LASTEXITCODE -ne 0) { throw 'Dependency audit failed' }
+          $audit = ($report -join "`n") | ConvertFrom-Json
+          if ($audit.problems) { throw ($audit.problems | ConvertTo-Json -Depth 20) }
+          foreach ($project in $audit.projects) {
+            foreach ($framework in $project.frameworks) {
+              foreach ($package in @($framework.topLevelPackages) + @($framework.transitivePackages)) {
+                if ($package.vulnerabilities | Where-Object { $_.severity -in @('High', 'Critical') }) {
+                  throw "Vulnerable dependency: $($package.id) $($package.resolvedVersion)"
+                }
+              }
+            }
+          }
 
       - name: Build
         run: dotnet build SboxNetworkStorage.sln -c Release --no-restore
@@ -96,7 +113,7 @@ jobs:
 
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: test-results-${{ matrix.os }}-postgres-${{ matrix.postgres || 'disabled' }}
           path: TestResults
@@ -106,7 +123,7 @@ jobs:
     name: Secret scan
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
 
@@ -123,6 +140,6 @@ jobs:
     name: Visual editor JS guards
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Run owner editor guard tests
         run: node --test tests/js/owner-json-editor.test.js

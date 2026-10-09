@@ -3,7 +3,7 @@ using static SboxNetworkStorage.Storage.Relational.ColumnKind;
 namespace SboxNetworkStorage.Storage.Relational;
 
 /// <summary>
-/// Row shapes returned by each read, mirroring the production ScyllaDB row
+/// Row shapes returned by each read, mirroring the production the store row
 /// builders column for column (names, order, value kinds, null defaults).
 /// </summary>
 internal static class StoreColumns

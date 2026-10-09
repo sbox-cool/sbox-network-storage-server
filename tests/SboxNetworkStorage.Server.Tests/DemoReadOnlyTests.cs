@@ -22,7 +22,7 @@ public sealed class DemoReadOnlyTests
         await app.StartAsync();
         using var client = app.GetTestClient();
         using var scope = app.Services.CreateScope();
-        var project = Assert.Single(await scope.ServiceProvider.GetRequiredService<IBunnyWorkspaceClient>().GetUserProjectsAsync(1, default));
+        var project = Assert.Single(await scope.ServiceProvider.GetRequiredService<IWorkspaceStore>().GetUserProjectsAsync(1, default));
         var store = scope.ServiceProvider.GetRequiredService<INetworkStorageStore>();
         var before = (await store.ReadRecordAsync(project.Id, "players", "demo-player-001", default))!.Value.GetRawText();
         Assert.Contains("Read-only demo", await client.GetStringAsync("/dashboard"));
@@ -49,7 +49,7 @@ public sealed class DemoReadOnlyTests
     {
         var values = config.Values.ToDictionary(pair => pair.Key, pair => pair.Value);
         values["adminpanel.demo_read_only"] = values["adminpanel.demo_read_only"] with { Value = true };
-        return new EffectiveConfig { ConfigDirectory = config.ConfigDirectory, DataDirectory = config.DataDirectory,
+        return new EffectiveConfig { ConfigDirectory = config.ConfigDirectory, DataDirectory = config.DataDirectory, Layout = config.Layout,
             Values = values, LoadedFiles = config.LoadedFiles, Issues = [] };
     }
 }

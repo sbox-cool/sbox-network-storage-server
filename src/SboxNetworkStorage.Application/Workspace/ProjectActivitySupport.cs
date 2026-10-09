@@ -20,7 +20,7 @@ public static class ProjectActivitySupport
         long LastActivityMs);
 
     public static Snapshot Compute(
-        BunnyProject project,
+        WorkspaceProject project,
         string? collectionsJson,
         string? endpointsJson,
         string? workflowsJson,
@@ -43,7 +43,7 @@ public static class ProjectActivitySupport
     }
 
     public static long ComputeLastActivityMs(
-        BunnyProject project,
+        WorkspaceProject project,
         IReadOnlyList<JsonElement> collections,
         IReadOnlyList<JsonElement> endpoints,
         IReadOnlyList<JsonElement> workflows,
@@ -95,7 +95,7 @@ public static class ProjectActivitySupport
         }
     }
 
-    private static long TimestampOf(BunnyProject project)
+    private static long TimestampOf(WorkspaceProject project)
     {
         return Math.Max(
             ToEpoch(project.UpdatedAt),

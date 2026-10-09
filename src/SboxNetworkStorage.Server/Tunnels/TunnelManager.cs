@@ -1,5 +1,4 @@
 using System.Globalization;
-using System.Text;
 using SboxNetworkStorage.Server.Configuration;
 
 namespace SboxNetworkStorage.Server.Tunnels;
@@ -7,12 +6,12 @@ namespace SboxNetworkStorage.Server.Tunnels;
 public sealed class TunnelManager(TunnelRegistryClient registry, CloudflaredInstaller installer)
 {
     public const string ManagedFile = "zzzz-tunnel.toml";
-    public static string IdentityPath(EffectiveConfig config) => Path.Combine(config.ConfigDirectory, "secrets", "identity_ecdsa_p256.pem");
-    public static string TokenPath(EffectiveConfig config) => Path.Combine(config.ConfigDirectory, "secrets", "tunnel_token");
-    private static string OverlayPath(EffectiveConfig config) => Path.Combine(config.ConfigDirectory, ConfigLoader.ConfDirectory, ManagedFile);
+    public static string IdentityPath(EffectiveConfig config) => Path.Combine(config.SecretsDirectory, StateLayout.TunnelIdentityFile);
+    public static string TokenPath(EffectiveConfig config) => Path.Combine(config.SecretsDirectory, StateLayout.TunnelTokenFile);
 
     public async Task EnableAsync(EffectiveConfig config, CancellationToken ct)
     {
+        using var identityScope = RuntimeIdentity.Enter(config);
         using var lease = Acquire(config);
         foreach (var value in config.Values.Values)
             if (value.Definition.Key is "server.listen" or "server.public_url" or "tls.mode"
@@ -32,9 +31,8 @@ public sealed class TunnelManager(TunnelRegistryClient registry, CloudflaredInst
         var registration = await registry.RegisterAsync(config.GetString("tunnel.registry"), identity.Sign("register", port), ct);
         var url = TunnelRegistryClient.PublicUrl(registration.Hostname, identity.Name);
         // Download and checksum complete before either token or effective configuration is changed.
-        await installer.InstallAsync(config.ConfigDirectory, ct);
+        await installer.InstallAsync(config.ExecutablesDirectory, ct);
         TunnelFiles.WriteSecret(TokenPath(config), registration.TunnelToken);
-        await LinuxTunnelOwnership.ApplyAsync(config, ct);
         var values = new Dictionary<string, object>
         {
             ["server.listen"] = $"127.0.0.1:{port.ToString(CultureInfo.InvariantCulture)}",
@@ -54,6 +52,7 @@ public sealed class TunnelManager(TunnelRegistryClient registry, CloudflaredInst
 
     public async Task DisableAsync(EffectiveConfig config, CancellationToken ct)
     {
+        using var identityScope = RuntimeIdentity.Enter(config);
         using var lease = Acquire(config);
         config = Reload(config);
         if (!config.GetBoolean("tunnel.enabled"))
@@ -112,20 +111,11 @@ public sealed class TunnelManager(TunnelRegistryClient registry, CloudflaredInst
 
     private static FileStream Acquire(EffectiveConfig config)
     {
-        Directory.CreateDirectory(config.ConfigDirectory);
-        try { return new FileStream(Path.Combine(config.ConfigDirectory, ".tunnel.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None); }
+        config.EnsureRuntimeDirectory();
+        try { return new FileStream(Path.Combine(config.RuntimeDirectory, StateLayout.TunnelLockFile), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None); }
         catch (IOException) { throw new InvalidOperationException("Another tunnel operation is in progress."); }
     }
 
     private static void WriteOverlay(EffectiveConfig config, IReadOnlyDictionary<string, object> values)
-    {
-        var text = new StringBuilder("# Managed atomically by sbox-ns tunnel. Use tunnel enable/disable to change lifecycle.\n");
-        foreach (var group in values.GroupBy(pair => pair.Key[..pair.Key.LastIndexOf('.')]))
-        {
-            text.AppendLine($"[{group.Key}]");
-            foreach (var pair in group)
-                text.AppendLine($"{pair.Key[(pair.Key.LastIndexOf('.') + 1)..]} = {ConfigFiles.FormatValue(pair.Value)}");
-        }
-        ConfigFiles.WriteAtomically(OverlayPath(config), text.ToString());
-    }
+        => ManagedOverlay.Write(config, ManagedFile, "Managed atomically by sbox-ns tunnel. Use tunnel enable/disable to change lifecycle.", values);
 }

@@ -3,13 +3,13 @@ using System.Text.Json;
 namespace SboxNetworkStorage.Infrastructure.NetworkStorage.Storage;
 
 /// <summary>
-/// Unified parsing of a ScyllaDB <c>records</c> row (<c>{record_key, payload_json,
+/// Unified parsing of a store <c>records</c> row (<c>{record_key, payload_json,
 /// deleted, version, updated_at_unix_ms}</c>) or <c>global_records</c> row
 /// (<c>{record_id, payload_json, version, created_at_unix_ms}</c>).
 ///
 /// Every read path — the game-client endpoint executor
-/// (<see cref="ScyllaEndpointShadowDataSource"/>), the direct record-CRUD API
-/// (<see cref="ScyllaNetworkStorageDataPlane"/>), and the website dashboard
+/// (<see cref="StoreEndpointDataSource"/>), the direct record-CRUD API
+/// (<see cref="StoreNetworkStorageDataPlane"/>), and the website dashboard
 /// browse API (<c>NetworkStorageController.BrowseCollectionDataApi</c>) — MUST
 /// go through this helper so they never serve divergent views of the same
 /// record. Before this class existed, each path had its own inline
@@ -29,8 +29,8 @@ public static class RecordRow
     /// the browse API.
     /// </summary>
     /// <remarks>
-    /// <see cref="ScyllaDbResourceStore.BuildRecordRow"/> already parses
-    /// <c>payload_json</c> via <see cref="ScyllaDbResourceStore.ParseJsonOrNull"/>
+    /// <see cref="INetworkStorageStore.BuildRecordRow"/> already parses
+    /// <c>payload_json</c> via <see cref="INetworkStorageStore.ParseJsonOrNull"/>
     /// into a <see cref="JsonElement"/>, so the <c>ValueKind</c> is never
     /// <c>String</c> at this point. The legacy string-deserialization branch is
     /// kept defensively but is dead code for rows from the real store.
@@ -39,7 +39,7 @@ public static class RecordRow
     {
         if (row.ValueKind != JsonValueKind.Object) return null;
 
-        // Soft-deleted tombstones read as missing — matching Bun's storage layer.
+        // Soft-deleted tombstones read as missing — matching legacy server's storage layer.
         if (row.TryGetProperty("deleted", out var d) && d.ValueKind == JsonValueKind.True)
             return null;
 
@@ -95,7 +95,7 @@ public static class RecordRow
     /// for arrays, or a boxed scalar) via <c>EndpointExpression.FromJson</c>.
     /// Returns <c>null</c> for a tombstone or absent payload — the SAME null
     /// semantics as <see cref="ExtractPayload"/>. The endpoint executor
-    /// (<see cref="ScyllaEndpointShadowDataSource"/>) and the query executor
+    /// (<see cref="StoreEndpointDataSource"/>) and the query executor
     /// (<see cref="NativeQueryExecutor"/>) MUST both use this so a record reads
     /// identically whether it is loaded by the game client, projected by a query,
     /// browsed on the website, or fetched via the record API.

@@ -9,15 +9,19 @@ public sealed record ServerSecretValues(string AuthSessionSecret, string Storage
 /// Creates (once) and loads the server's secret files. Files are created with
 /// owner-only permissions on Unix and are never overwritten, because rotating
 /// them invalidates player sessions, secret API keys and signed security configs.
+/// Relative <c>auth.*_file</c> settings resolve against the runtime folder (the state
+/// folder, or the config folder in the legacy layout); absolute paths are used as given.
 /// </summary>
 public static class ServerSecrets
 {
     public static ServerSecretValues EnsureAndLoad(EffectiveConfig config, Action<string>? onCreated = null)
     {
-        var sessionPath = config.GetPath("auth.session_secret_file", config.ConfigDirectory);
-        var encryptionPath = config.GetPath("auth.storage_encryption_key_file", config.ConfigDirectory);
-        var signingPath = config.GetPath("auth.security_signing_key_file", config.ConfigDirectory);
+        var sessionPath = config.GetPath("auth.session_secret_file", config.RuntimeDirectory);
+        var encryptionPath = config.GetPath("auth.storage_encryption_key_file", config.RuntimeDirectory);
+        var signingPath = config.GetPath("auth.security_signing_key_file", config.RuntimeDirectory);
 
+        using var identity = RuntimeIdentity.Enter(config);
+        config.EnsureRuntimeDirectory();
         EnsureFile(sessionPath, () => Convert.ToBase64String(RandomNumberGenerator.GetBytes(48)), onCreated);
         EnsureFile(encryptionPath, () => Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant(), onCreated);
         EnsureFile(signingPath, () =>

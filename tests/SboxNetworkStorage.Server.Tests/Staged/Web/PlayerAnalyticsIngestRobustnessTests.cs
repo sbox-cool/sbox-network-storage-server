@@ -46,7 +46,7 @@ public sealed class PlayerAnalyticsIngestRobustnessTests
     {
         // Bug 1: before the fix, a null payload → Undefined JsonElement → the
         // ingester threw while serializing the event payload (before the insert),
-        // so save-all/endpoint events never reached ScyllaDB.
+        // so save-all/endpoint events never reached the store.
         var store = new InMemoryNetworkStorageStore();
         var analytics = NewIngester(store);
 
@@ -134,13 +134,13 @@ public sealed class PlayerAnalyticsIngestRobustnessTests
     {
         // Bug 2: a blank/whitespace/corrupt JSON column must degrade to null, never
         // throw and abort the enclosing analytics read/ingest.
-        Assert.Null(SboxNetworkStorage.Storage.Relational.RowJson.ParseJsonColumn(value));
+        Assert.Null(SboxNetworkStorage.Storage.Relational.RowJson.ParseJsonColumn(System.Text.Encoding.UTF8.GetBytes(value ?? string.Empty)));
     }
 
     [Fact]
     public void ParseJsonColumn_ParsesValidJson()
     {
-        var result = SboxNetworkStorage.Storage.Relational.RowJson.ParseJsonColumn("{\"a\":1}");
+        var result = SboxNetworkStorage.Storage.Relational.RowJson.ParseJsonColumn("{\"a\":1}"u8);
         Assert.NotNull(result);
         Assert.Equal(1, result.Value.GetProperty("a").GetInt32());
     }
@@ -179,7 +179,7 @@ public sealed class PlayerAnalyticsIngestRobustnessTests
         await store.SeedPlayerProfileAsync(ProjectId, SteamId, "seabug", now.ToUnixTimeMilliseconds(), isOnline: true,
             lastEventType: "session.heartbeat", managedCountersJson: "{\"__totalEvents\":2}");
 
-        var reader = new ScyllaPlayerAnalyticsReader(store);
+        var reader = new StorePlayerAnalyticsReader(store);
         var query = new PlayerTimelineQuery(30, null, "session", false, new LedgerInsightQuery());
         var result = (Dictionary<string, object?>)(await reader.GetPlayerAnalyticsAsync(
             1, ProjectId, SteamId, null, query, CancellationToken.None))!;
@@ -217,10 +217,10 @@ public sealed class PlayerAnalyticsIngestRobustnessTests
     }
 
     [Fact]
-    public void SessionJourney_ReadsScyllaSessionRowShape_AndMarksLive()
+    public void SessionJourney_ReadsStoreSessionRowShape_AndMarksLive()
     {
-        // The live session row from ScyllaDB is snake_case + unix-ms; the journey
-        // builder (a Bun port that read camelCase/ISO) must understand it, else
+        // The live session row from the store is snake_case + unix-ms; the journey
+        // builder (a legacy server port that read camelCase/ISO) must understand it, else
         // every session collapses to "no-session" and the active session never
         // surfaces on the dashboard.
         var now = DateTimeOffset.UtcNow;

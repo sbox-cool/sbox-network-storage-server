@@ -18,8 +18,8 @@ namespace SboxNetworkStorage.Server.Tests;
 /// Throughput and latency benchmarks for the Network Storage record CRUD API.
 /// Measures the end-to-end HTTP pipeline (routing, auth, data plane,
 /// serialization) using an in-memory <see cref="InMemoryNetworkStorageStore"/> so
-/// results isolate ASP.NET Core + ScyllaNetworkStorageDataPlane overhead
-/// from actual ScyllaDB latency.
+/// results isolate ASP.NET Core + StoreNetworkStorageDataPlane overhead
+/// from actual the store latency.
 ///
 /// Each test is an [SkippableFact] that runs a controlled workload and emits timing
 /// output via <see cref="ITestOutputHelper"/>. No BenchmarkDotNet dependency

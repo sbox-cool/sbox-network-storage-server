@@ -36,9 +36,9 @@ public sealed partial class OwnerRateLimitsController(INetworkStorageProjectServ
             new Dictionary<string, long> { ["perMinute"] = 1000, ["perHour"] = 10000, ["perDay"] = 50000 }, false, true),
     };
 
-    [GeneratedRegex("^[A-Za-z0-9_]{1,64}$")]
+    [GeneratedRegex("^[A-Za-z0-9_]{1,64}$", RegexOptions.None, 100)]
     private static partial Regex RuleIdPattern();
-    [GeneratedRegex("^(\\*|[A-Za-z0-9_][A-Za-z0-9_.]{0,127})$")]
+    [GeneratedRegex("^(\\*|[A-Za-z0-9_][A-Za-z0-9_.]{0,127})$", RegexOptions.None, 100)]
     private static partial Regex FieldPattern();
 
     [HttpGet(Route)]

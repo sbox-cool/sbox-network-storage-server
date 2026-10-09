@@ -19,11 +19,11 @@ internal static class NetworkStorageSecurityConfigBuilder
     ///   1. The keyId and public key change on every restart/deploy, so a client that
     ///      cached a config signed by the previous process fails signature verification
     ///      on startup ("security config RSA verification failed").
-    ///   2. The Bun runtime signs with its own separate ephemeral key
+    ///   2. The legacy server runtime signs with its own separate ephemeral key
     ///      (services/network-storage-security-config.js), so a config published by one
     ///      runtime never verifies against the other's key.
     ///
-    /// Set NETWORK_STORAGE_SECURITY_CONFIG_PRIVATE_KEY (PEM, shared with Bun) to make
+    /// Set NETWORK_STORAGE_SECURITY_CONFIG_PRIVATE_KEY (PEM, shared with legacy server) to make
     /// signatures stable and cross-runtime verifiable. The ephemeral fallback is kept
     /// so local/dev boots still work, but it is logged loudly as a misconfiguration.
     /// </summary>
@@ -127,7 +127,7 @@ internal static class NetworkStorageSecurityConfigBuilder
     /// Serializer options for the signed payload.
     ///
     /// The signature covers the UTF-8 bytes of this serialization, so it must match
-    /// byte-for-byte what the client (and the Bun signer, which uses JSON.stringify)
+    /// byte-for-byte what the client (and the legacy server signer, which uses JSON.stringify)
     /// produces. Utf8JsonWriter's DEFAULT encoder escapes far more than JSON.stringify
     /// does — notably the plus and slash characters, which it emits as six-character
     /// unicode escapes. Those two characters are everywhere in the base64 publicKeyPem

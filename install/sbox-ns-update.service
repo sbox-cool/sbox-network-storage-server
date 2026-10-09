@@ -1,7 +1,8 @@
 # Unattended sbox-ns updates, started by sbox-ns-update.timer.
-# Installed as /etc/systemd/system/sbox-ns-update.service by `sbox-ns service install --auto-update`
-# (or install.sh with SBOX_NS_AUTO_UPDATE=1). Runs as root because it replaces the binary and
-# restarts the sbox-ns units. It installs nothing unless every instance sets
+# Template for /etc/systemd/system/sbox-ns-update.service. `sbox-ns service install --auto-update`
+# (or install.sh with SBOX_NS_AUTO_UPDATE=1) embeds this file, replaces the @PLACEHOLDER@ values and
+# writes the result. Runs as root because it replaces the binary and restarts the sbox-ns units, so
+# it is confined to the folders it must write. It installs nothing unless every instance sets
 # updates.auto_install = true, and only inside updates.window. See docs/self-hosting.md.
 #
 # Exit codes: 0 updated or nothing to do, 1 failed and rolled back, 2 configuration problem,
@@ -15,6 +16,19 @@ After=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=/usr/local/bin/sbox-ns update --auto --all-instances
+ExecStart=@BINARY@ update --auto @ARGUMENTS@
 TimeoutStartSec=30min
 Nice=10
+
+# Sandbox: writes only the binary folder, the data folders, the updater state folder, the unit folder
+# and the operator config folders (a layout migration moves runtime files out of them).
+ProtectSystem=strict
+ReadWritePaths=/usr/local/bin /var/lib/sbox-ns /var/lib/sbox-ns-update /etc/systemd/system /etc/sbox-ns
+PrivateTmp=true
+ProtectHome=true
+NoNewPrivileges=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallFilter=@system-service

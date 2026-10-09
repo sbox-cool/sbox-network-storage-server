@@ -12,7 +12,7 @@ using Xunit;
 
 namespace SboxNetworkStorage.Server.Tests;
 
-// Pins the CDN key-file byte shape the Bun runtime data plane validates against
+// Pins the CDN key-file byte shape the legacy server runtime data plane validates against
 // (tools/sbox/cache.js lookupApiKey / lookupSecretKey). The data plane rejects a
 // key unless its file carries userId + projectId, and treats `enabled` as a real
 // boolean (it checks `enabled === false`). A .NET writer that omitted those fields
@@ -22,12 +22,12 @@ public sealed class StorageKeyCdnWriterTests
     [Fact]
     public async Task WritePublicKeyFile_IncludesUserIdAndProjectIdSoDataPlaneAccepts()
     {
-        var bunny = new InMemoryBunnyClient();
-        var writer = new StorageKeyCdnWriter(bunny, NullLogger<StorageKeyCdnWriter>.Instance);
+        var workspace = new InMemoryWorkspaceClient();
+        var writer = new StorageKeyCdnWriter(workspace, NullLogger<StorageKeyCdnWriter>.Instance);
 
         await writer.WritePublicKeyFileAsync("sbox_ns_abc", 77L, "proj_1", true, "public", CancellationToken.None);
 
-        var root = bunny.Read("network-storage/keys/projects/proj_1/sbox_ns_abc.json");
+        var root = workspace.Read("network-storage/keys/projects/proj_1/sbox_ns_abc.json");
         Assert.Equal(77L, root.GetProperty("userId").GetInt64());
         Assert.Equal("proj_1", root.GetProperty("projectId").GetString());
         Assert.Equal(JsonValueKind.True, root.GetProperty("enabled").ValueKind);
@@ -37,13 +37,13 @@ public sealed class StorageKeyCdnWriterTests
     [Fact]
     public async Task WriteSecretKeyFile_MatchesJsShapeWithUserIdProjectIdAndBooleanEnabled()
     {
-        var bunny = new InMemoryBunnyClient();
-        var writer = new StorageKeyCdnWriter(bunny, NullLogger<StorageKeyCdnWriter>.Instance);
+        var workspace = new InMemoryWorkspaceClient();
+        var writer = new StorageKeyCdnWriter(workspace, NullLogger<StorageKeyCdnWriter>.Instance);
 
         var perms = new Dictionary<string, string> { ["endpoints"] = "rwx" };
         await writer.WriteSecretKeyFileAsync("idnt", "deadbeefhash", 88L, "proj_2", perms, CancellationToken.None);
 
-        var root = bunny.Read("network-storage/keys/projects/proj_2/sk_idnt.json");
+        var root = workspace.Read("network-storage/keys/projects/proj_2/sk_idnt.json");
         Assert.Equal("deadbeefhash", root.GetProperty("keyHash").GetString());
         Assert.Equal(88L, root.GetProperty("userId").GetInt64());
         Assert.Equal("proj_2", root.GetProperty("projectId").GetString());
@@ -55,15 +55,15 @@ public sealed class StorageKeyCdnWriterTests
     [Fact]
     public async Task UpdateSecretKeyFile_DisablesWithBooleanFalseAndPreservesOwner()
     {
-        var bunny = new InMemoryBunnyClient();
-        var writer = new StorageKeyCdnWriter(bunny, NullLogger<StorageKeyCdnWriter>.Instance);
+        var workspace = new InMemoryWorkspaceClient();
+        var writer = new StorageKeyCdnWriter(workspace, NullLogger<StorageKeyCdnWriter>.Instance);
 
         await writer.WriteSecretKeyFileAsync("idt", "h", 5L, "proj_3", null, CancellationToken.None);
 
         await writer.UpdateSecretKeyFileAsync("idt", "proj_3",
             new Dictionary<string, object> { ["enabled"] = false }, CancellationToken.None);
 
-        var root = bunny.Read("network-storage/keys/projects/proj_3/sk_idt.json");
+        var root = workspace.Read("network-storage/keys/projects/proj_3/sk_idt.json");
         // Must be a JSON boolean false, never the string "false" — the data plane
         // checks `enabled === false`, so a string would leave the key authenticating.
         Assert.Equal(JsonValueKind.False, root.GetProperty("enabled").ValueKind);
@@ -71,7 +71,7 @@ public sealed class StorageKeyCdnWriterTests
         Assert.Equal("proj_3", root.GetProperty("projectId").GetString());
     }
 
-    private sealed class InMemoryBunnyClient : IBunnyWorkspaceClient
+    private sealed class InMemoryWorkspaceClient : IWorkspaceStore
     {
         private static readonly JsonSerializerOptions Options = new()
         {
@@ -103,13 +103,13 @@ public sealed class StorageKeyCdnWriterTests
             return Task.CompletedTask;
         }
 
-        public Task<IReadOnlyList<BunnyProject>> GetUserProjectsAsync(long userId, CancellationToken cancellationToken)
+        public Task<IReadOnlyList<WorkspaceProject>> GetUserProjectsAsync(long userId, CancellationToken cancellationToken)
             => throw new NotImplementedException();
 
         public Task<WorkspaceProjectUsage?> GetProjectUsageAsync(long userId, string projectId, string monthKey, CancellationToken cancellationToken)
             => throw new NotImplementedException();
 
-        public Task SaveUserProjectsAsync(long userId, IReadOnlyList<BunnyProject> projects, CancellationToken cancellationToken)
+        public Task SaveUserProjectsAsync(long userId, IReadOnlyList<WorkspaceProject> projects, CancellationToken cancellationToken)
             => throw new NotImplementedException();
 
         public Task<T?> GetProjectResourceAsync<T>(long userId, string projectId, string resourcePath, CancellationToken cancellationToken)

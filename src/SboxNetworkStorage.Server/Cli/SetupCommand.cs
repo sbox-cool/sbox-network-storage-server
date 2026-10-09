@@ -5,8 +5,8 @@ using SboxNetworkStorage.Storage.Relational;
 namespace SboxNetworkStorage.Server.Cli;
 
 /// <summary>
-/// Creates or updates the config folder. Every choice is validated (including a
-/// live database connection test) before anything is written.
+/// Creates or updates the config folder. PostgreSQL connectivity is validated before writing;
+/// SQLite readiness and migrations run as the runtime account after the operator config is written.
 /// </summary>
 public static class SetupCommand
 {
@@ -14,6 +14,8 @@ public static class SetupCommand
 
     public static async Task<int> RunAsync(CliContext context)
     {
+        if (context.Args.Flag("runtime-only"))
+            return await PrepareRuntimeAsync(context, context.LoadValidConfig());
         var interactive = !context.Args.Flag("non-interactive") && !Console.IsInputRedirected;
         var current = context.LoadConfig();
         var values = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -95,12 +97,16 @@ public static class SetupCommand
         var written = ConfigLoader.Load(context.Args.Option("config-dir"), context.Args.Option("data-dir"));
         ServerSecrets.EnsureAndLoad(written, path => Console.WriteLine($"Generated {path}"));
 
-        await using (var services = CliServices.Build(written))
+        var runtimeArguments = new List<string> { "setup", "--runtime-only" };
+        foreach (var option in context.Args.Options)
         {
-            var result = await services.GetRequiredService<INetworkStorageStoreAdmin>().MigrateAsync(CancellationToken.None);
-            Console.WriteLine($"Database ready (schema version {result.ToVersion}).");
-            await AdminCommands.ConfigureDuringSetupAsync(context, written, services, interactive);
+            runtimeArguments.Add("--" + option.Key);
+            runtimeArguments.Add(option.Value);
         }
+        if (!interactive) runtimeArguments.Add("--non-interactive");
+        var runtimeExit = await RuntimeCommand.TryRunAsync(written, runtimeArguments)
+            ?? await PrepareRuntimeAsync(context, written);
+        if (runtimeExit != CliApp.Ok) return runtimeExit;
         await NoticeCommands.ConfigureDuringSetupAsync(context, interactive);
         TelemetryCommands.ConfigureDuringSetup(context, interactive);
 
@@ -118,6 +124,16 @@ public static class SetupCommand
         return CliApp.Ok;
     }
 
+    private static async Task<int> PrepareRuntimeAsync(CliContext context, EffectiveConfig config)
+    {
+        await using var services = CliServices.Build(config);
+        var result = await services.GetRequiredService<INetworkStorageStoreAdmin>().MigrateAsync(CancellationToken.None);
+        Console.WriteLine($"Database ready (schema version {result.ToVersion}).");
+        await AdminCommands.ConfigureDuringSetupAsync(context, config, services,
+            !context.Args.Flag("non-interactive") && !Console.IsInputRedirected);
+        return CliApp.Ok;
+    }
+
     private static void Persist(string configDirectory, bool hasExistingFiles, Dictionary<string, string> values, string? postgresPassword)
     {
         if (postgresPassword is not null)
@@ -128,6 +144,7 @@ public static class SetupCommand
             if (!OperatingSystem.IsWindows())
             {
                 File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+                UnixFiles.ShareGroup(path, configDirectory);
             }
         }
 
@@ -167,6 +184,13 @@ public static class SetupCommand
         {
             return string.Join("; ", candidate.Issues);
         }
+
+        // Opening SQLite creates the database and WAL. Defer that work to the runtime phase,
+        // where the service identity owns those files rather than the root operator.
+        if (candidate.GetString("database.provider") == "sqlite"
+            && OperatingSystem.IsLinux() && ServiceCommands.IsRoot()
+            && UnixFiles.Lookup(RuntimeIdentity.ServiceAccount) is not null)
+            return null;
 
         try
         {

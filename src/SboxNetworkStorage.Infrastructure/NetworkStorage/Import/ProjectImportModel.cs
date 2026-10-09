@@ -146,7 +146,7 @@ internal sealed class ExistingProjectSnapshot
 }
 
 /// <summary>
-/// A single resolved write the import will perform. Pure data: the Scylla service
+/// A single resolved write the import will perform. Pure data: the store service
 /// binds the matching prepared statement from <see cref="Row"/> using
 /// <see cref="WriteId"/> (id/record key), <see cref="CollectionId"/> (remapped
 /// collection for records), and <see cref="DefinitionOverride"/> (remapped query

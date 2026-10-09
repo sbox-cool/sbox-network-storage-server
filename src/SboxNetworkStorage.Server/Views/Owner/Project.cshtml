@@ -111,6 +111,15 @@
         </form>
     </article>
     <article class="card">
+        <h2>Player projections</h2>
+        <p class="muted">Built-in repair and leaderboard projection for the <code>players</code>, <code>skills</code>, <code>kills</code> and <code>leaderboard_global</code> collections of endpoint saves. Projects that existed before this setting was introduced keep it on; new projects start with it off.</p>
+        <form method="post" action="@url/settings">
+            @Html.AntiForgeryToken()<input type="hidden" name="tab" value="legacy-projections" />
+            <label class="check"><input type="checkbox" name="legacyPlayerProjections" value="true" checked="@(project.LegacyPlayerProjections == true)" /> Enable legacy player projections</label>
+            <button type="submit">Save projection setting</button>
+        </form>
+    </article>
+    <article class="card">
         <h2>Revision policy</h2>
         <p class="muted">Saved with the project and returned to the editor Sync Tool by the management settings API. This server reports outdated game revisions through revision-init; it does not block outdated clients itself.</p>
         <form method="post" action="@url/settings">

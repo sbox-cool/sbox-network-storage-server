@@ -108,6 +108,11 @@ public static class CliApp
                                         4 feed unavailable)
           rollback [--all-instances]    Restore the binary and database(s) from before the last update
 
+        Install layout (Linux, as root; docs/self-hosting.md "Config and state folders")
+          layout migrate                Move runtime files (generated secrets, tunnel and DNS state) out of the config
+                                        folder into <data>/state so the service cannot write the config; no-op when done
+          layout migrate --revert       Move them back (older binaries expect them in the config folder)
+
         Global options
           --config-dir DIR   Config folder (default: NS_CONFIG_DIR, /etc/sbox-ns, or <install dir>/config)
           --data-dir DIR     Data folder (default: NS_DATA_DIR, server.data_dir, /var/lib/sbox-ns, or <install dir>/data)
@@ -127,6 +132,11 @@ public static class CliApp
         var context = new CliContext(parsed);
         try
         {
+            if (command is "db" or "export" or "import" or "admin" or "project" or "key")
+            {
+                if (await RuntimeCommand.TryRunAsync(context.LoadValidConfig(), args) is { } runtimeExit)
+                    return runtimeExit;
+            }
             return command switch
             {
                 "start" => await StartAsync(context),
@@ -151,6 +161,7 @@ public static class CliApp
                 "doctor" => await DoctorCommand.RunAsync(context),
                 "update" => await UpdateCommands.UpdateAsync(context),
                 "rollback" => await UpdateCommands.RollbackAsync(context),
+                "layout" => await LayoutCommands.RunAsync(context),
                 _ => UnknownCommand(command)
             };
         }

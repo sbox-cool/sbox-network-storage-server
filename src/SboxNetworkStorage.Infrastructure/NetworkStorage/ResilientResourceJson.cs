@@ -10,7 +10,7 @@ namespace SboxNetworkStorage.Infrastructure.NetworkStorage;
 ///
 /// These files are authored from several directions — the dashboard forms, the YAML
 /// source compiler (<c>tools/sbox/source-compiler.js</c>, which copies any key the
-/// author wrote, including explicit nulls), package sync, and the legacy Bun runtime.
+/// author wrote, including explicit nulls), package sync, and the legacy server runtime.
 /// The strict <see cref="JsonSerializer"/> path binds them to positional records whose
 /// value-type members (<c>bool Enabled</c>, <c>int MaxRecords</c>, …) throw on an
 /// explicit JSON null, and one bad element fails the WHOLE list.
@@ -153,7 +153,7 @@ internal static class ResilientResourceJson
     /// parameter default applies instead.
     ///
     /// This matters for more than just avoiding a throw: <c>CollectionResource</c>
-    /// declares <c>int MaxRecords = 1</c>, and Bun reads the same field as
+    /// declares <c>int MaxRecords = 1</c>, and legacy server reads the same field as
     /// <c>collection.maxRecords || 1</c>. Binding <c>"maxRecords": null</c> to 0 would
     /// quietly cap a collection at zero records. "Key present but blank" means unset,
     /// so we make it genuinely absent and let the declared default win.

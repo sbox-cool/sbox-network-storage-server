@@ -15,7 +15,7 @@ public interface IPlayerAnalyticsService
     /// <paramref name="trackedFieldDeltas"/> are the per-field before/after/delta
     /// derived by the caller from the project's <c>analytics.trackedFields</c>
     /// config (the caller already pre-reads records for the save-all guard, so
-    /// deriving deltas is free of extra ScyllaDB round-trips).
+    /// deriving deltas is free of extra the store round-trips).
     /// </summary>
     Task RecordEndpointEventAsync(
         string projectId,
@@ -38,7 +38,7 @@ public sealed record PlayerEventRequest(
 /// A tracked-field progression sample (emitted when a configured tracked field
 /// changes between the pre-read and post-write state of an endpoint call).
 /// Replaces the legacy per-collection <c>logs/audit/{field}/{date}.json</c>
-/// Bunny files that the dashboard ledger chart reads.
+/// workspace files that the dashboard ledger chart reads.
 /// </summary>
 public sealed record TrackedFieldDelta(
     string Field,

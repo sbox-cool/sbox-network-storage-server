@@ -4,16 +4,16 @@ using System.Text.RegularExpressions;
 
 namespace SboxNetworkStorage.Storage.Relational;
 
-/// <summary>Input validation identical to the production ScyllaDB store (same patterns and messages).</summary>
+/// <summary>Input validation identical to the production the store store (same patterns and messages).</summary>
 internal static partial class StoreValidation
 {
     /// <summary>Production default for the maximum accepted JSON payload (64 KiB of UTF-8).</summary>
     public const int DefaultMaxPayloadBytes = 64 * 1024;
 
-    [GeneratedRegex("^[a-zA-Z0-9_-]{1,128}$")]
+    [GeneratedRegex("^[a-zA-Z0-9_-]{1,128}$", RegexOptions.None, 100)]
     private static partial Regex IdPattern();
 
-    [GeneratedRegex("^[a-zA-Z0-9_:-]{1,256}$")]
+    [GeneratedRegex("^[a-zA-Z0-9_:-]{1,256}$", RegexOptions.None, 100)]
     private static partial Regex RecordKeyPattern();
 
     public static void Id(string value)
@@ -44,7 +44,7 @@ internal static partial class StoreValidation
     }
 
     /// <summary>
-    /// ScyllaDB rejects <c>LIMIT</c> values that are not strictly positive; the
+    /// The store rejects <c>LIMIT</c> values that are not strictly positive; the
     /// relational drivers fail the same way instead of silently returning nothing.
     /// </summary>
     public static void Limit(int limit)

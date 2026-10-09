@@ -40,6 +40,12 @@ public static class SettingDefinitions
 
     public static readonly IReadOnlyList<string> Files = [ServerFile, DatabaseFile, UpdatesFile, AlertsFile];
 
+    /// <summary>
+    /// Keys older configs may still contain. They are ignored (reported by <c>doctor</c>), never an error,
+    /// so an upgrade does not break a working install. Release sources are compiled into the binary.
+    /// </summary>
+    public static readonly IReadOnlyList<string> RetiredKeys = ["updates.feed_url", "updates.github_repo"];
+
     public static readonly IReadOnlyList<SettingDefinition> All =
     [
         new(ServerFile, "server.listen", SettingType.String, "0.0.0.0:8080",
@@ -48,6 +54,26 @@ public static class SettingDefinitions
             "External URL players reach this server at (shown by setup and doctor). Example: https://ns.example.com"),
         new(ServerFile, "server.data_dir", SettingType.String, "",
             "Directory for the SQLite database, ACME certificates and backups. Empty uses the platform default."),
+        new(ServerFile, "server.limits.default", SettingType.Integer, 1024L,
+            "Largest request body, in KiB, accepted on routes that declare no limit of their own."),
+        new(ServerFile, "server.limits.data_plane", SettingType.Integer, 256L,
+            "Largest request body, in KiB, accepted on game routes (/v1, /v3, /api/storage) and auth-session routes."),
+        new(ServerFile, "server.limits.management", SettingType.Integer, 8192L,
+            "Largest request body, in KiB, accepted on secret-key management and sync routes (/v3/manage)."),
+        new(ServerFile, "server.limits.game_burst", SettingType.Integer, 600L,
+            "Requests one client address may send to game routes at once before being limited (429)."),
+        new(ServerFile, "server.limits.game_per_second", SettingType.Integer, 200L,
+            "Requests per second one client address may sustain on game routes."),
+        new(ServerFile, "server.limits.management_burst", SettingType.Integer, 120L,
+            "Requests one client address may send to management routes at once before being limited (429)."),
+        new(ServerFile, "server.limits.management_per_second", SettingType.Integer, 20L,
+            "Requests per second one client address may sustain on management routes."),
+        new(ServerFile, "server.limits.auth_session_burst", SettingType.Integer, 120L,
+            "Requests one client address may send to auth-session routes at once before being limited (429)."),
+        new(ServerFile, "server.limits.auth_session_per_second", SettingType.Integer, 30L,
+            "Requests per second one client address may sustain on auth-session routes."),
+        new(ServerFile, "analytics.retention_days", SettingType.Integer, 90L,
+            "Days to keep player analytics (timeline events and issues). Older rows are purged daily. 0 keeps them forever."),
         new(ServerFile, "tls.mode", SettingType.String, "off",
             "off = plain HTTP only; certificate = PEM files below; acme = automatic Let's Encrypt certificate.",
             ["off", "certificate", "acme"]),
@@ -68,7 +94,7 @@ public static class SettingDefinitions
         new(ServerFile, "logging.level", SettingType.String, "Information",
             "Minimum log level.", ["Trace", "Debug", "Information", "Warning", "Error"]),
         new(ServerFile, "auth.session_secret_file", SettingType.String, "secrets/auth_session_secret",
-            "File holding the secret that signs player auth sessions (relative to the config folder). Generated on first start."),
+            "File holding the secret that signs player auth sessions (relative to the state folder, <data dir>/state). Generated on first start."),
         new(ServerFile, "auth.storage_encryption_key_file", SettingType.String, "secrets/storage_encryption_key",
             "File holding the 64-hex-character key that derives secret API key identifiers. Generated on first start. Losing it invalidates existing secret keys."),
         new(ServerFile, "auth.security_signing_key_file", SettingType.String, "secrets/security_signing_key.pem",
@@ -135,10 +161,6 @@ public static class SettingDefinitions
 
         new(UpdatesFile, "updates.check", SettingType.Boolean, true,
             "Check for new releases once per interval and show a notice. Installing is controlled by auto_install."),
-        new(UpdatesFile, "updates.feed_url", SettingType.String, "https://sboxcool.com/api/network-storage/releases/latest",
-            "Release feed queried first (with ?channel=<channel>)."),
-        new(UpdatesFile, "updates.github_repo", SettingType.String, "sbox-cool/sbox-network-storage-server",
-            "GitHub repository used as the fallback release source and by `sbox-ns update`."),
         new(UpdatesFile, "updates.interval_hours", SettingType.Integer, 24L, "Hours between update checks."),
         new(UpdatesFile, "updates.include_prereleases", SettingType.Boolean, false,
             "Also announce pre-release versions."),
@@ -185,3 +207,4 @@ public static class SettingDefinitions
 
     public static IEnumerable<string> KnownTables => All.Select(d => d.Table).Distinct(StringComparer.Ordinal);
 }
+

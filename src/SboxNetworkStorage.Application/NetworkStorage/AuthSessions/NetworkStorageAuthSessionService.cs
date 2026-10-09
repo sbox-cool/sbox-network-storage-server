@@ -7,7 +7,7 @@ namespace SboxNetworkStorage.Application.NetworkStorage.AuthSessions;
 
 /// <summary>
 /// Stateless HMAC auth-session token service. Byte-for-byte token-compatible with
-/// the Bun <c>services/network-storage-auth-sessions.js</c> implementation:
+/// the legacy server <c>services/network-storage-auth-sessions.js</c> implementation:
 /// <list type="bullet">
 /// <item>token = <c>sbox_sess_</c> + <c>base64url(JSON payload)</c> + <c>"."</c> + <c>base64url(HMAC-SHA256(payload))</c>,</item>
 /// <item>validation re-signs the <i>raw payload substring</i> (never re-serializes),
@@ -37,7 +37,7 @@ public sealed class NetworkStorageAuthSessionService : INetworkStorageAuthSessio
         _time = time ?? TimeProvider.System;
     }
 
-    /// <summary>Mirror of Bun <c>normalizeAuthSessionTtlSeconds</c>: clamp to [min, max].</summary>
+    /// <summary>Mirror of legacy server <c>normalizeAuthSessionTtlSeconds</c>: clamp to [min, max].</summary>
     public static int NormalizeTtl(int value) => Math.Clamp(value, MinTtlSeconds, MaxTtlSeconds);
 
     public AuthSessionOutcome Create(long userId, string projectId, string steamId, int ttlSeconds, IReadOnlyDictionary<string, object?>? metadata = null)
