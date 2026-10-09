@@ -8,7 +8,7 @@ namespace SboxNetworkStorage.Storage.Relational;
 
 /// <summary>
 /// ADO.NET implementation of <see cref="INetworkStorageStore"/> shared by the
-/// SQLite and PostgreSQL drivers. Behavior mirrors the production ScyllaDB
+/// SQLite and PostgreSQL drivers. Behavior mirrors the production the store
 /// store: identical validation, row shapes, clustering order, overwrite
 /// semantics, and counter arithmetic. Ordinary writes remain unconditional;
 /// portable project restoration additionally exposes a single atomic transaction.

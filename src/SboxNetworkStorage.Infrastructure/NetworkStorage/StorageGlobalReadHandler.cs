@@ -8,8 +8,8 @@ using SboxNetworkStorage.Storage;
 namespace SboxNetworkStorage.Infrastructure.NetworkStorage;
 
 /// <summary>
-/// Read-only native candidate for the <c>StorageGlobal</c> route family: GET routes that list global
-/// records or fetch a single global record. Mirrors Bun's <c>routeV3GlobalList</c> and
+/// Read-only native handler for the <c>StorageGlobal</c> route family: GET routes that list global
+/// records or fetch a single global record. Mirrors legacy server's <c>routeV3GlobalList</c> and
 /// <c>routeV3GlobalGetRecord</c>.
 ///
 /// <list type="bullet">
@@ -134,7 +134,7 @@ public sealed class StorageGlobalReadHandler : INetworkStorageHandler
                 storagePaths, authDecision: keyType);
         }
 
-        // Bun's routeV3GlobalGetRecord returns the raw record object via formatResponse(…, data).
+        // legacy server's routeV3GlobalGetRecord returns the raw record object via formatResponse(…, data).
         return NetworkStorageResult.Ok(record, storagePaths, authDecision: keyType);
     }
 
@@ -154,7 +154,7 @@ public sealed class StorageGlobalReadHandler : INetworkStorageHandler
         }
         catch (Exception) when (!cancellationToken.IsCancellationRequested)
         {
-            // Directory missing or unreachable → empty list, matching Bun's fallback behaviour
+            // Directory missing or unreachable → empty list, matching legacy server's fallback behaviour
             return NetworkStorageResult.Ok(
                 new { records = Array.Empty<object>(), cursor = (string?)null },
                 storagePathsRead: new[] { dirStoragePath },
@@ -167,7 +167,7 @@ public sealed class StorageGlobalReadHandler : INetworkStorageHandler
             .Select(e => e.ObjectName[..^5]) // strip ".json"
             .ToList();
 
-        // Parse pagination query parameters (matching Bun's defaults: limit=50, max=100, min=1)
+        // Parse pagination query parameters (matching legacy server's defaults: limit=50, max=100, min=1)
         var limit = 50;
         var limitStr = request.QueryValue("limit");
         if (int.TryParse(limitStr, out var parsedLimit))
@@ -191,11 +191,11 @@ public sealed class StorageGlobalReadHandler : INetworkStorageHandler
             }
             catch
             {
-                // Skip unreadable records (matching Bun's behaviour — filter(Boolean))
+                // Skip unreadable records (matching legacy server's behaviour — filter(Boolean))
             }
         }
 
-        // Sort by _timestamp descending (newest first), matching Bun's sort
+        // Sort by _timestamp descending (newest first), matching legacy server's sort
         records.Sort((a, b) =>
         {
             var ta = TryGetTimestamp(a);
@@ -227,7 +227,7 @@ public sealed class StorageGlobalReadHandler : INetworkStorageHandler
 
     /// <summary>
     /// Read a single global record from <c>INetworkStorageStore.global_records</c> (the table
-    /// the append producer writes). Returns the raw stored payload, like Bun's
+    /// the append producer writes). Returns the raw stored payload, like legacy server's
     /// <c>routeV3GlobalGetRecord</c> returns the record via <c>formatResponse(…, data)</c>.
     /// </summary>
     private static async Task<NetworkStorageResult> ReadSingleRecordFromStoreAsync(
@@ -259,7 +259,7 @@ public sealed class StorageGlobalReadHandler : INetworkStorageHandler
     }
 
     /// <summary>
-    /// List global records from <c>INetworkStorageStore.global_records</c>, preserving Bun's
+    /// List global records from <c>INetworkStorageStore.global_records</c>, preserving legacy server's
     /// <c>routeV3GlobalList</c> wire shape: raw records sorted by <c>_timestamp</c> descending,
     /// optional <c>limit</c>/<c>after</c> pagination, and the last page item's raw
     /// <c>_timestamp</c> as <c>cursor</c> when the page is full.
@@ -291,10 +291,10 @@ public sealed class StorageGlobalReadHandler : INetworkStorageHandler
                 records.Add(payload.Value);
         }
 
-        // Sort by _timestamp descending (newest first), matching Bun's sort.
+        // Sort by _timestamp descending (newest first), matching legacy server's sort.
         records.Sort((a, b) => TryGetTimestamp(b).CompareTo(TryGetTimestamp(a)));
 
-        // Parse pagination query parameters (matching Bun's defaults: limit=50, max=100, min=1)
+        // Parse pagination query parameters (matching legacy server's defaults: limit=50, max=100, min=1)
         var limit = 50;
         var limitStr = request.QueryValue("limit");
         if (int.TryParse(limitStr, out var parsedLimit))
@@ -310,8 +310,8 @@ public sealed class StorageGlobalReadHandler : INetworkStorageHandler
         // Apply limit
         var page = records.Take(limit).ToList();
 
-        // Cursor = the raw _timestamp of the last record in a full page (Bun returns
-        // page[last]._timestamp verbatim: an ISO string from Bun writes, unix-ms from
+        // Cursor = the raw _timestamp of the last record in a full page (legacy server returns
+        // page[last]._timestamp verbatim: an ISO string from legacy server writes, unix-ms from
         // the native append producer). Null when the page is not full.
         JsonElement? cursor = null;
         if (page.Count == limit && page.Count > 0
@@ -329,9 +329,9 @@ public sealed class StorageGlobalReadHandler : INetworkStorageHandler
 
     /// <summary>
     /// Extract <c>_timestamp</c> as a <see cref="DateTimeOffset"/>, defaulting to
-    /// <see cref="DateTimeOffset.MinValue"/>. Bun writes ISO-8601 strings; the native append
+    /// <see cref="DateTimeOffset.MinValue"/>. legacy server writes ISO-8601 strings; the native append
     /// producer (<c>StorageApiEndpoints.AppendRecordAsync</c>) stamps unix milliseconds, so
-    /// both shapes are honored (matching Bun's <c>new Date(_timestamp)</c> comparisons).
+    /// both shapes are honored (matching legacy server's <c>new Date(_timestamp)</c> comparisons).
     /// </summary>
     private static DateTimeOffset TryGetTimestamp(JsonElement record)
     {

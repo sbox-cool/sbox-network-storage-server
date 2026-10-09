@@ -20,8 +20,8 @@ namespace SboxNetworkStorage.Server.Infrastructure.NetworkStorage;
 
 /// <summary>
 /// Native .NET implementation of POST /v3/manage/{projectId}/package-sync.
-/// Mirrors Bun's routeManagePackageSync without relying on the decommissioned
-/// storage-api Bun backend. Persists the game package and promotes staged
+/// Mirrors legacy server's routeManagePackageSync without relying on the decommissioned
+/// storage-api legacy server backend. Persists the game package and promotes staged
 /// revision overrides when the revision changes.
 /// </summary>
 public sealed class PackageSyncHandler(
@@ -31,7 +31,7 @@ public sealed class PackageSyncHandler(
     ProjectMetadataCache metadataCache)
 {
     // Write scopes aggregated by a package sync. Must stay aligned with
-    // ManagementMutationCandidateHandler.AllManagementScopes.
+    // ManagementMutationHandler.AllManagementScopes.
     private static readonly string[] PackageSyncRequiredScopes =
         ["endpoints", "queries", "collections", "workflows", "game_values", "rate_limits", "settings"];
 
@@ -60,7 +60,7 @@ public sealed class PackageSyncHandler(
         // Package sync publishes the game package and promotes staged revisions,
         // aggregating every managed resource category. A secret key alone is not
         // sufficient: require read/write on all management scopes, matching the
-        // ManagementMutationCandidateHandler mapping for "package-sync".
+        // ManagementMutationHandler mapping for "package-sync".
         foreach (var scope in PackageSyncRequiredScopes)
         {
             if (!ApiKeyPermissionPolicy.HasPermission(auth, scope, "rw"))
@@ -132,7 +132,7 @@ public sealed class PackageSyncHandler(
 
     private async Task WriteGamePackageAsync(long userId, string projectId, Dictionary<string, JsonElement> package, CancellationToken ct)
     {
-        // Strip read-only synthetic keys before writing so the stored JSON shape matches Bun.
+        // Strip read-only synthetic keys before writing so the stored JSON shape matches legacy server.
         var toWrite = new Dictionary<string, JsonElement>(package, StringComparer.Ordinal);
         toWrite.Remove("revisionFirstSyncedAtUnix");
         toWrite.Remove("lastSyncedAtUnix");

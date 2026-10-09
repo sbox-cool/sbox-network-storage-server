@@ -13,12 +13,12 @@ using SboxNetworkStorage.Infrastructure.NetworkStorage.Storage;
 
 namespace SboxNetworkStorage.Server.Tests;
 
-public abstract class NetworkStorageRateLimitsCandidateTests<TFactory> : IClassFixture<TFactory>
+public abstract class NetworkStorageRateLimitsTests<TFactory> : IClassFixture<TFactory>
     where TFactory : SelfHostFactory
 {
     private readonly SelfHostFactory factory;
 
-    protected NetworkStorageRateLimitsCandidateTests(TFactory factory)
+    protected NetworkStorageRateLimitsTests(TFactory factory)
     {
         Skip.IfNot(factory.IsAvailable, factory.SkipReason);
         this.factory = factory;
@@ -41,7 +41,7 @@ public abstract class NetworkStorageRateLimitsCandidateTests<TFactory> : IClassF
     public async Task ValidKeyWithConfiguredLimits_Returns200WithBunCompatiblePayload()
     {
         // Load fixture to construct expected rate limits matching the sampled shape
-        var fixturePath = Path.Combine(AppContext.BaseDirectory, "Fixtures", "network-storage-shadow", "rate-limits-sample.json");
+        var fixturePath = Path.Combine(AppContext.BaseDirectory, "Fixtures", "network-storage-fixtures", "rate-limits-sample.json");
         var fixtureJson = await File.ReadAllTextAsync(fixturePath);
         using var fixtureDoc = JsonDocument.Parse(fixtureJson);
         var root = fixtureDoc.RootElement;
@@ -226,7 +226,7 @@ public abstract class NetworkStorageRateLimitsCandidateTests<TFactory> : IClassF
     [SkippableFact]
     public async Task LiveRoute_V3RateLimits_IsServedNativelyWithoutGateway()
     {
-        var fixturePath = Path.Combine(AppContext.BaseDirectory, "Fixtures", "network-storage-shadow", "rate-limits-sample.json");
+        var fixturePath = Path.Combine(AppContext.BaseDirectory, "Fixtures", "network-storage-fixtures", "rate-limits-sample.json");
         var fixtureJson = await File.ReadAllTextAsync(fixturePath);
         using var fixtureDoc = JsonDocument.Parse(fixtureJson);
         var root = fixtureDoc.RootElement;
@@ -362,6 +362,6 @@ public abstract class NetworkStorageRateLimitsCandidateTests<TFactory> : IClassF
     }
 }
 
-public sealed class NetworkStorageRateLimitsCandidateTests_Sqlite(SqliteHostFactory factory) : NetworkStorageRateLimitsCandidateTests<SqliteHostFactory>(factory);
+public sealed class NetworkStorageRateLimitsTests_Sqlite(SqliteHostFactory factory) : NetworkStorageRateLimitsTests<SqliteHostFactory>(factory);
 
-public sealed class NetworkStorageRateLimitsCandidateTests_Postgres(PostgresHostFactory factory) : NetworkStorageRateLimitsCandidateTests<PostgresHostFactory>(factory);
+public sealed class NetworkStorageRateLimitsTests_Postgres(PostgresHostFactory factory) : NetworkStorageRateLimitsTests<PostgresHostFactory>(factory);

@@ -9,8 +9,8 @@ namespace SboxNetworkStorage.Infrastructure.NetworkStorage;
 /// <summary>
 /// In-memory implementation of <see cref="IAppendRateLimiter"/>.
 /// Counters are per-process and reset at midnight UTC (the bucket string includes
-/// today's date). This matches the retired Bun runtime's behavior closely
-/// enough for the append carve-over; a distributed ScyllaDB-backed limiter can
+/// today's date). This matches the retired legacy server runtime's behavior closely
+/// enough for the append carve-over; a distributed the store-backed limiter can
 /// replace it when strict cross-node {@literal >}consistency is required.
 /// </summary>
 public sealed class InMemoryAppendRateLimiter(TimeProvider? time = null) : IAppendRateLimiter

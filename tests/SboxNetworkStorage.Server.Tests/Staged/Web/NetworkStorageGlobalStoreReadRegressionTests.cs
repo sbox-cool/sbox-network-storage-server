@@ -15,7 +15,7 @@ namespace SboxNetworkStorage.Server.Tests;
 /// <c>INetworkStorageStore.global_records</c>, so GET list/record must serve those durable
 /// rows (previously they read the obsolete workspace <c>{collection}/global</c> enumerator
 /// and returned empty/404). Covers the append→list/get round trip, cursor pagination over
-/// both timestamp shapes (ISO strings from Bun, unix-ms from the native producer), and the
+/// both timestamp shapes (ISO strings from legacy server, unix-ms from the native producer), and the
 /// auth/visibility boundaries (disabled keys, cross-project isolation, shared store view).
 /// </summary>
 public abstract class NetworkStorageGlobalStoreReadRegressionTests<TFactory> : IClassFixture<TFactory>

@@ -14,60 +14,58 @@ using SboxNetworkStorage.Infrastructure.NetworkStorage.Storage;
 namespace SboxNetworkStorage.Infrastructure.NetworkStorage;
 
 /// <summary>
-/// Decorates <see cref="IBunnyWorkspaceClient"/> to make ScyllaDB the authoritative
-/// store for per-project Network Storage <b>metadata</b> — project lists, pages,
-/// collections, workflows, queries, endpoints, game-values and rate-limit rules —
-/// when <see cref="ScyllaDbOptions.Primary"/> is true.
+/// Decorates <see cref="IWorkspaceStore"/> to make the store authoritative
+/// for per-project Network Storage <b>metadata</b> — project lists, pages,
+/// collections, workflows, queries, endpoints, game-values and rate-limit rules.
 ///
 /// <list type="bullet">
-/// <item><b>Reads</b> are ScyllaDB-authoritative: ScyllaDB's answer is returned
-/// as-is, including an empty list (a valid "zero resources" answer). Bunny is
-/// only a read fallback for a ScyllaDB <i>connection</i> failure — not for an
-/// empty result. Falling back on empty made a missing/500ing Bunny
+/// <item><b>Reads</b> are store-authoritative: the store's answer is returned
+/// as-is, including an empty list (a valid "zero resources" answer). workspace is
+/// only a read fallback for a store <i>connection</i> failure — not for an
+/// empty result. Falling back on empty made a missing/500ing workspace
 /// <c>workflows.json</c> surface as a 500 to the game client.</item>
-/// <item><b>Writes</b> are ScyllaDB-authoritative (fail-closed): a ScyllaDB failure
-/// throws and Bunny is left untouched. After ScyllaDB succeeds the Bunny copy is
+/// <item><b>Writes</b> are store-authoritative (fail-closed): a store failure
+/// throws and workspace is left untouched. After the store succeeds the workspace copy is
 /// refreshed best-effort so it stays a warm backup.</item>
 /// </list>
 ///
-/// Everything else — records (<c>saved.json</c>), raw paths, and <i>all</i> traffic
-/// when <see cref="ScyllaDbOptions.Primary"/> is false — passes straight through to
-/// Bunny unchanged.
+/// Everything else — records (<c>saved.json</c>), raw paths, and <i>all</i> other
+/// traffic — passes straight through to workspace unchanged.
 /// </summary>
 public sealed partial class StoreMetadataWorkspaceClient : IWorkspaceStore
 {
-    private readonly IWorkspaceStore _bunny;
-    private readonly INetworkStorageStore _scylla;
+    private readonly IWorkspaceStore _workspace;
+    private readonly INetworkStorageStore _networkStore;
     private readonly ILogger<StoreMetadataWorkspaceClient> _logger;
 
     private static readonly JsonSerializerOptions CamelCase = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
     public StoreMetadataWorkspaceClient(
-        IWorkspaceStore bunny,
-        INetworkStorageStore scylla,
+        IWorkspaceStore workspace,
+        INetworkStorageStore networkStore,
         ILogger<StoreMetadataWorkspaceClient> logger)
     {
-        _bunny = bunny;
-        _scylla = scylla;
+        _workspace = workspace;
+        _networkStore = networkStore;
         _logger = logger;
     }
 
-    // ── Project list + usage (intercepted when Primary) ──
+    // ── Project list + usage (served from the store) ──
 
     public async Task<IReadOnlyList<WorkspaceProject>> GetUserProjectsAsync(long userId, CancellationToken ct)
     {
         try
         {
-            var memberships = await _scylla.ListProjectsForUserAsync(userId.ToString(), ct);
+            var memberships = await _networkStore.ListProjectsForUserAsync(userId.ToString(), ct);
             if (memberships.Count == 0)
-                return await _bunny.GetUserProjectsAsync(userId, ct);
+                return await _workspace.GetUserProjectsAsync(userId, ct);
 
             var projects = new List<WorkspaceProject>();
             foreach (var m in memberships)
             {
                 var pid = ColumnString(m, "project_id");
                 if (pid is null) continue;
-                var payload = await _scylla.ReadProjectAsync(pid, ct);
+                var payload = await _networkStore.ReadProjectAsync(pid, ct);
                 if (payload is not { } row) continue;
                 projects.Add(ReconstructProject(row, pid));
             }
@@ -78,12 +76,12 @@ public sealed partial class StoreMetadataWorkspaceClient : IWorkspaceStore
             _logger.LogWarning(ex, "Store project list read failed for user {UserId}; falling back to workspace storage", userId);
         }
 
-        return await _bunny.GetUserProjectsAsync(userId, ct);
+        return await _workspace.GetUserProjectsAsync(userId, ct);
     }
 
     /// <summary>
-    /// Reads current Scylla counters and the retained Bunny monthly snapshot.
-    /// A present Scylla row is authoritative for monthly traffic. Retained traffic
+    /// Reads current store counters and the retained workspace monthly snapshot.
+    /// A present store row is authoritative for monthly traffic. Retained traffic
     /// is used only when no live row exists, because taking per-field maxima makes
     /// live values appear frozen until they exceed the old snapshot. Retained
     /// storage may still raise the cumulative footprint after migration.
@@ -93,8 +91,8 @@ public sealed partial class StoreMetadataWorkspaceClient : IWorkspaceStore
         WorkspaceProjectUsage? current = null;
         try
         {
-            var storageBytes = await _scylla.ReadProjectStorageBytesAsync(projectId, ct);
-            var row = await _scylla.ReadProjectUsageMonthlyAsync(projectId, monthKey, ct);
+            var storageBytes = await _networkStore.ReadProjectStorageBytesAsync(projectId, ct);
+            var row = await _networkStore.ReadProjectUsageMonthlyAsync(projectId, monthKey, ct);
             if (row is { } monthly)
                 current = MapMonthlyUsage(monthly, storageBytes);
             else if (storageBytes > 0)
@@ -110,7 +108,7 @@ public sealed partial class StoreMetadataWorkspaceClient : IWorkspaceStore
                 projectId, monthKey);
         }
 
-        var legacy = await _bunny.GetProjectUsageAsync(userId, projectId, monthKey, ct);
+        var legacy = await _workspace.GetProjectUsageAsync(userId, projectId, monthKey, ct);
         return MergeRecoveredUsage(current, legacy);
     }
 
@@ -163,19 +161,19 @@ public sealed partial class StoreMetadataWorkspaceClient : IWorkspaceStore
         {
             keepIds.Add(p.Id);
             var payload = JsonSerializer.SerializeToElement(p, CamelCase);
-            await _scylla.UpsertProjectAsync(p.Id, payload, 1, ct);
-            await _scylla.UpsertProjectMembershipAsync(userId.ToString(), p.Id, "owner", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), ct);
+            await _networkStore.UpsertProjectAsync(p.Id, payload, 1, ct);
+            await _networkStore.UpsertProjectMembershipAsync(userId.ToString(), p.Id, "owner", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), ct);
         }
 
-        var existing = await _scylla.ListProjectsForUserAsync(userId.ToString(), ct);
+        var existing = await _networkStore.ListProjectsForUserAsync(userId.ToString(), ct);
         foreach (var row in existing)
         {
             var pid = ColumnString(row, "project_id");
             if (pid is not null && !keepIds.Contains(pid))
-                await _scylla.DeleteProjectMembershipAsync(userId.ToString(), pid, ct);
+                await _networkStore.DeleteProjectMembershipAsync(userId.ToString(), pid, ct);
         }
 
-        try { await _bunny.SaveUserProjectsAsync(userId, projects, ct); }
+        try { await _workspace.SaveUserProjectsAsync(userId, projects, ct); }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogWarning(ex, "workspace storage project list mirror failed for user {UserId}", userId);
@@ -189,13 +187,13 @@ public sealed partial class StoreMetadataWorkspaceClient : IWorkspaceStore
         var kind = Classify(resourcePath);
         if (kind == MetadataKind.None) kind = ClassifySubpath(resourcePath);
         if (kind == MetadataKind.None)
-            return await _bunny.GetProjectResourceTextAsync(userId, projectId, resourcePath, ct);
+            return await _workspace.GetProjectResourceTextAsync(userId, projectId, resourcePath, ct);
 
-        // Same ScyllaDB-authoritative path as GetProjectResourceAsync<T>, but
+        // Same store-authoritative path as GetProjectResourceAsync<T>, but
         // returns the serialized JSON text. ProjectActivityLoader reads
         // collections/endpoints/workflows via this text path; routing it through
-        // ScyllaDB keeps activity timestamps consistent with the authoritative
-        // store instead of a stale/500ing Bunny blob.
+        // The store keeps activity timestamps consistent with the authoritative
+        // store instead of a stale/500ing workspace blob.
         try
         {
             JsonNode? node = kind == MetadataKind.PageContent
@@ -212,18 +210,18 @@ public sealed partial class StoreMetadataWorkspaceClient : IWorkspaceStore
                 projectId, resourcePath);
         }
 
-        return await _bunny.GetProjectResourceTextAsync(userId, projectId, resourcePath, ct);
+        return await _workspace.GetProjectResourceTextAsync(userId, projectId, resourcePath, ct);
     }
 
     public Task<T?> GetRawAsync<T>(string absolutePath, CancellationToken ct)
-        => _bunny.GetRawAsync<T>(absolutePath, ct);
+        => _workspace.GetRawAsync<T>(absolutePath, ct);
 
     public Task PutRawAsync<T>(string absolutePath, T data, CancellationToken ct)
-        => _bunny.PutRawAsync(absolutePath, data, ct);
+        => _workspace.PutRawAsync(absolutePath, data, ct);
 
     public async Task DeleteRawAsync(string absolutePath, CancellationToken ct)
     {
-        // Intercept page-content deletions so ScyllaDB (the authoritative store)
+        // Intercept page-content deletions so the store (the authoritative store)
         // stays consistent when a page slug is renamed or deleted. The path shape
         // is: network-storage/users/{userId}/{projectId}/pages/{slug}.json
         var (projectId, slug) = TryParsePageContentPath(absolutePath);
@@ -231,7 +229,7 @@ public sealed partial class StoreMetadataWorkspaceClient : IWorkspaceStore
         {
             try
             {
-                await _scylla.DeletePageAsync(projectId, slug, ct);
+                await _networkStore.DeletePageAsync(projectId, slug, ct);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -241,7 +239,7 @@ public sealed partial class StoreMetadataWorkspaceClient : IWorkspaceStore
             }
         }
 
-        await _bunny.DeleteRawAsync(absolutePath, ct);
+        await _workspace.DeleteRawAsync(absolutePath, ct);
     }
 
     // ── Metadata-aware read ──
@@ -251,14 +249,14 @@ public sealed partial class StoreMetadataWorkspaceClient : IWorkspaceStore
         var kind = Classify(resourcePath);
         if (kind == MetadataKind.None) kind = ClassifySubpath(resourcePath);
         if (kind == MetadataKind.None)
-            return await _bunny.GetProjectResourceAsync<T>(userId, projectId, resourcePath, ct);
+            return await _workspace.GetProjectResourceAsync<T>(userId, projectId, resourcePath, ct);
 
-        // ScyllaDB is authoritative for metadata. An empty list is a valid
+        // The store is authoritative for metadata. An empty list is a valid
         // authoritative answer (e.g. a project with zero workflows) and MUST NOT
-        // fall back to Bunny — falling back makes a missing/500ing Bunny blob
+        // fall back to workspace — falling back makes a missing/500ing workspace blob
         // surface as a 500 to the game client (the production outage this fixes).
-        // Only a ScyllaDB connection error falls back, so a transient ScyllaDB
-        // blip degrades to Bunny rather than failing the whole request.
+        // Only a store connection error falls back, so a transient the store
+        // blip degrades to workspace rather than failing the whole request.
         try
         {
             JsonNode? node = kind == MetadataKind.PageContent
@@ -274,9 +272,9 @@ public sealed partial class StoreMetadataWorkspaceClient : IWorkspaceStore
                 {
                     // The data was READ fine — it just doesn't fit the target type
                     // (e.g. an explicit null on a non-nullable bool/int written by the
-                    // YAML source compiler). Falling through to Bunny here silently
+                    // YAML source compiler). Falling through to workspace here silently
                     // returned an EMPTY list, which is how a project with real
-                    // collections/endpoints in ScyllaDB rendered as an empty dashboard
+                    // collections/endpoints in the store rendered as an empty dashboard
                     // while the workspace card — which reads the same rows as text —
                     // still counted them. Surface it instead of masking it.
                     _logger.LogError(ex,
@@ -288,7 +286,7 @@ public sealed partial class StoreMetadataWorkspaceClient : IWorkspaceStore
             }
 
             // null => singleton resource (game-values/rate-limit-rules) genuinely
-            // absent in ScyllaDB, or a page-content miss. Return default(T) — the
+            // absent in the store, or a page-content miss. Return default(T) — the
             // caller treats missing singletons as "not configured", not an error.
             return default;
         }
@@ -299,7 +297,7 @@ public sealed partial class StoreMetadataWorkspaceClient : IWorkspaceStore
                 projectId, resourcePath);
         }
 
-        return await _bunny.GetProjectResourceAsync<T>(userId, projectId, resourcePath, ct);
+        return await _workspace.GetProjectResourceAsync<T>(userId, projectId, resourcePath, ct);
     }
 
     // ── Metadata-aware write ──
@@ -310,7 +308,7 @@ public sealed partial class StoreMetadataWorkspaceClient : IWorkspaceStore
         if (kind == MetadataKind.None) kind = ClassifySubpath(resourcePath);
         if (kind == MetadataKind.None)
         {
-            await _bunny.PutProjectResourceAsync(userId, projectId, resourcePath, data, ct);
+            await _workspace.PutProjectResourceAsync(userId, projectId, resourcePath, data, ct);
             return;
         }
 
@@ -322,7 +320,7 @@ public sealed partial class StoreMetadataWorkspaceClient : IWorkspaceStore
         else
             await WriteToStoreAsync(kind, projectId, element, ct);
 
-        try { await _bunny.PutProjectResourceAsync(userId, projectId, resourcePath, data, ct); }
+        try { await _workspace.PutProjectResourceAsync(userId, projectId, resourcePath, data, ct); }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogWarning(ex,
@@ -331,26 +329,26 @@ public sealed partial class StoreMetadataWorkspaceClient : IWorkspaceStore
         }
     }
 
-    // ── ScyllaDB read mapping ──
+    // ── the store read mapping ──
 
     private async Task<JsonNode?> ReadFromStoreAsync(MetadataKind kind, string projectId, CancellationToken ct)
     {
         switch (kind)
         {
             case MetadataKind.Collections:
-                return BuildListNode(await _scylla.ListCollectionsAsync(projectId, ct), "collection_id");
+                return BuildListNode(await _networkStore.ListCollectionsAsync(projectId, ct), "collection_id");
             case MetadataKind.Workflows:
-                return BuildListNode(await _scylla.ListWorkflowsAsync(projectId, ct), "workflow_id");
+                return BuildListNode(await _networkStore.ListWorkflowsAsync(projectId, ct), "workflow_id");
             case MetadataKind.Queries:
-                return BuildListNode(await _scylla.ListQueriesAsync(projectId, ct), "query_id");
+                return BuildListNode(await _networkStore.ListQueriesAsync(projectId, ct), "query_id");
             case MetadataKind.Endpoints:
-                return BuildListNode(await _scylla.ListEndpointsAsync(projectId, ct), "endpoint_id");
+                return BuildListNode(await _networkStore.ListEndpointsAsync(projectId, ct), "endpoint_id");
             case MetadataKind.GameValues:
-                return Unwrap(await _scylla.ReadGameValuesAsync(projectId, ct), "payload_json");
+                return Unwrap(await _networkStore.ReadGameValuesAsync(projectId, ct), "payload_json");
             case MetadataKind.RateLimitRules:
-                return Unwrap(await _scylla.ReadRateLimitRulesAsync(projectId, ct), "rules_json");
+                return Unwrap(await _networkStore.ReadRateLimitRulesAsync(projectId, ct), "rules_json");
             case MetadataKind.Pages:
-                return ReconstructPagesArray(await _scylla.ListPagesAsync(projectId, ct));
+                return ReconstructPagesArray(await _networkStore.ListPagesAsync(projectId, ct));
             default:
                 return null;
         }
@@ -360,7 +358,7 @@ public sealed partial class StoreMetadataWorkspaceClient : IWorkspaceStore
     {
         var slug = ExtractPageSlug(resourcePath);
         if (slug is null) return null;
-        var row = await _scylla.ReadPageAsync(projectId, slug, ct);
+        var row = await _networkStore.ReadPageAsync(projectId, slug, ct);
         if (row is not { } r) return null;
         if (!r.TryGetProperty("content_json", out var content)) return null;
         return ToNode(content);
@@ -370,7 +368,7 @@ public sealed partial class StoreMetadataWorkspaceClient : IWorkspaceStore
     {
         // An empty list is a valid authoritative answer and MUST be returned as
         // an empty array, not null. Returning null here caused the read path to
-        // fall back to Bunny, where a 500 on workflows.json surfaced as a 500 to
+        // fall back to workspace, where a 500 on workflows.json surfaced as a 500 to
         // the game client. The caller distinguishes "absent singleton" (null)
         // from "empty list" (array) by MetadataKind.
         var array = new JsonArray();
@@ -445,7 +443,7 @@ public sealed partial class StoreMetadataWorkspaceClient : IWorkspaceStore
         return project;
     }
 
-    // ── ScyllaDB write mapping ──
+    // ── the store write mapping ──
 
     private async Task WriteToStoreAsync(MetadataKind kind, string projectId, JsonElement element, CancellationToken ct)
     {
@@ -453,44 +451,44 @@ public sealed partial class StoreMetadataWorkspaceClient : IWorkspaceStore
         {
             case MetadataKind.Collections:
                 await ReconcileAsync(element,
-                    upsert: (id, it) => _scylla.UpsertCollectionAsync(
+                    upsert: (id, it) => _networkStore.UpsertCollectionAsync(
                         projectId, id, ItemString(it, "name") ?? "", ItemString(it, "visibility") ?? "private", it, 1, ct),
-                    listExisting: () => _scylla.ListCollectionsAsync(projectId, ct),
+                    listExisting: () => _networkStore.ListCollectionsAsync(projectId, ct),
                     existingId: row => ColumnString(row, "collection_id"),
-                    delete: id => _scylla.DeleteCollectionAsync(projectId, id, ct));
+                    delete: id => _networkStore.DeleteCollectionAsync(projectId, id, ct));
                 break;
             case MetadataKind.Workflows:
                 await ReconcileAsync(element,
-                    upsert: (id, it) => _scylla.UpsertWorkflowAsync(
+                    upsert: (id, it) => _networkStore.UpsertWorkflowAsync(
                         projectId, id, ItemString(it, "name") ?? "", it, ItemString(it, "versionHash"), 1, ct),
-                    listExisting: () => _scylla.ListWorkflowsAsync(projectId, ct),
+                    listExisting: () => _networkStore.ListWorkflowsAsync(projectId, ct),
                     existingId: row => ColumnString(row, "workflow_id"),
-                    delete: id => _scylla.DeleteWorkflowAsync(projectId, id, ct));
+                    delete: id => _networkStore.DeleteWorkflowAsync(projectId, id, ct));
                 break;
             case MetadataKind.Queries:
                 await ReconcileAsync(element,
-                    upsert: (id, it) => _scylla.UpsertQueryAsync(
+                    upsert: (id, it) => _networkStore.UpsertQueryAsync(
                         projectId, id, ItemString(it, "name") ?? "", ItemBool(it, "requiresSecretKey"), it, 1, ct),
-                    listExisting: () => _scylla.ListQueriesAsync(projectId, ct),
+                    listExisting: () => _networkStore.ListQueriesAsync(projectId, ct),
                     existingId: row => ColumnString(row, "query_id"),
-                    delete: id => _scylla.DeleteQueryAsync(projectId, id, ct));
+                    delete: id => _networkStore.DeleteQueryAsync(projectId, id, ct));
                 break;
             case MetadataKind.Endpoints:
                 await ReconcileAsync(element,
-                    upsert: (id, it) => _scylla.UpsertEndpointAsync(
+                    upsert: (id, it) => _networkStore.UpsertEndpointAsync(
                         projectId, id, ItemString(it, "slug") ?? "", ItemString(it, "method") ?? "GET",
                         ItemBool(it, "enabled"), it, ItemString(it, "versionHash"), 1, ct),
-                    listExisting: () => _scylla.ListEndpointsAsync(projectId, ct),
+                    listExisting: () => _networkStore.ListEndpointsAsync(projectId, ct),
                     existingId: row => ColumnString(row, "endpoint_id"),
-                    delete: id => _scylla.DeleteEndpointAsync(projectId, id, ct));
+                    delete: id => _networkStore.DeleteEndpointAsync(projectId, id, ct));
                 break;
             case MetadataKind.GameValues:
                 if (element.ValueKind is JsonValueKind.Object or JsonValueKind.Array)
-                    await _scylla.UpsertGameValuesAsync(projectId, element, null, 1, ct);
+                    await _networkStore.UpsertGameValuesAsync(projectId, element, null, 1, ct);
                 break;
             case MetadataKind.RateLimitRules:
                 if (element.ValueKind is JsonValueKind.Object or JsonValueKind.Array)
-                    await _scylla.UpsertRateLimitRulesAsync(projectId, element, 1, ct);
+                    await _networkStore.UpsertRateLimitRulesAsync(projectId, element, 1, ct);
                 break;
         }
     }
@@ -506,7 +504,7 @@ public sealed partial class StoreMetadataWorkspaceClient : IWorkspaceStore
             var title = ItemString(item, "title") ?? ItemString(item, "name") ?? slug;
             var contentJson = item.GetRawText();
             var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-            await _scylla.UpsertPageAsync(projectId, slug, title, contentJson, now, now, ct);
+            await _networkStore.UpsertPageAsync(projectId, slug, title, contentJson, now, now, ct);
         }
     }
 
@@ -517,7 +515,7 @@ public sealed partial class StoreMetadataWorkspaceClient : IWorkspaceStore
         var title = ItemString(element, "title") ?? ItemString(element, "name") ?? slug;
         var contentJson = element.GetRawText();
         var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-        await _scylla.UpsertPageAsync(projectId, slug, title, contentJson, now, now, ct);
+        await _networkStore.UpsertPageAsync(projectId, slug, title, contentJson, now, now, ct);
     }
 
     private static async Task ReconcileAsync(

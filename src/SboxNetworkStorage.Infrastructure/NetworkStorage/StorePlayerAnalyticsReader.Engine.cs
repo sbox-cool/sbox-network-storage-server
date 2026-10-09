@@ -49,7 +49,7 @@ public sealed partial class StorePlayerAnalyticsReader
         // Exact all-time event count straight from player_analytics_events — the
         // reliable source of truth for the "N events" badge, replacing the
         // drift-prone managed_counters_json.__totalEvents running counter.
-        var eventCountTask = scyllaStore.CountPlayerEventsAsync(projectId, steamId, cancellationToken);
+        var eventCountTask = networkStore.CountPlayerEventsAsync(projectId, steamId, cancellationToken);
         await Task.WhenAll(profileTask, eventsTask, sessionsTask, collectionsTask, eventCountTask);
 
         var profile = profileTask.Result;
@@ -253,11 +253,11 @@ public sealed partial class StorePlayerAnalyticsReader
     // ── Fast-edge readers ──
 
     /// <summary>
-    /// Reads the per-player event timeline from ScyllaDB
+    /// Reads the per-player event timeline from the store
     /// (<c>player_analytics_events</c>) for the last <paramref name="days"/> days,
     /// optionally filtered by category/type. The ingester stores each event's
     /// normalized object in <c>payload_json</c>, so <see cref="PlayerAnalyticsEvent.From"/>
-    /// parses it directly. Replaces the legacy Bunny <c>events/{steamId}/{date}.json</c> reads.
+    /// parses it directly. Replaces the legacy workspace <c>events/{steamId}/{date}.json</c> reads.
     /// </summary>
     private async Task<List<PlayerAnalyticsEvent>> ReadPlayerEventsAsync(
         long ownerUserId, string projectId, string steamId, int days, string typeFilter, CancellationToken cancellationToken)
@@ -266,11 +266,11 @@ public sealed partial class StorePlayerAnalyticsReader
         var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         var fromMs = nowMs - (safeDays * 24L * 60L * 60L * 1000L);
         // Allow a generous ceiling (up to 5000 events) so long-running timelines are not truncated.
-        var rows = await scyllaStore.ListPlayerEventsAsync(projectId, steamId, fromMs, nowMs, 5000, cancellationToken);
+        var rows = await networkStore.ListPlayerEventsAsync(projectId, steamId, fromMs, nowMs, 5000, cancellationToken);
         var events = new List<PlayerAnalyticsEvent>();
         foreach (var row in rows)
         {
-            // payload_json is stored as a JSON string in ScyllaDB and parsed back to an object by the row builder.
+            // payload_json is stored as a JSON string in the store and parsed back to an object by the row builder.
             var payload = row.TryGetProperty("payload_json", out var p) ? p : default;
             JsonElement eventObj;
             if (payload.ValueKind == JsonValueKind.String)
@@ -295,16 +295,16 @@ public sealed partial class StorePlayerAnalyticsReader
         return events;
     }
 
-    /// <summary>Reads the per-player profile from ScyllaDB (<c>player_profiles</c>).</summary>
+    /// <summary>Reads the per-player profile from the store (<c>player_profiles</c>).</summary>
     private async Task<JsonElement?> ReadPlayerProfileAsync(long ownerUserId, string projectId, string steamId, CancellationToken cancellationToken)
     {
-        var raw = await scyllaStore.ReadPlayerProfileAsync(projectId, steamId, cancellationToken);
+        var raw = await networkStore.ReadPlayerProfileAsync(projectId, steamId, cancellationToken);
         if (raw is not { ValueKind: JsonValueKind.Object } profile) return null;
         return DerivePresence(profile, DateTimeOffset.UtcNow);
     }
 
     /// <summary>
-    /// Reads the per-player session history from ScyllaDB (<c>player_sessions</c>).
+    /// Reads the per-player session history from the store (<c>player_sessions</c>).
     /// The V2 schema stores one row per session; we read the most recent
     /// <see cref="SessionLimit"/> by reading the player's session partition.
     /// </summary>
@@ -320,7 +320,7 @@ public sealed partial class StorePlayerAnalyticsReader
 
     private async Task<List<RecentPlayerLite>> ReadRecentPlayersAsync(long ownerUserId, string projectId, int limit, CancellationToken cancellationToken)
     {
-        var rows = await scyllaStore.ReadProjectProfilesAsync(projectId, cancellationToken);
+        var rows = await networkStore.ReadProjectProfilesAsync(projectId, cancellationToken);
         var players = new List<RecentPlayerLite>();
         foreach (var row in rows)
         {
@@ -377,18 +377,18 @@ public sealed partial class StorePlayerAnalyticsReader
     }
 
     /// <summary>
-    /// Enumerate this player's record keys for a collection. ScyllaDB is the
+    /// Enumerate this player's record keys for a collection. the store is the
     /// authoritative record store, so the <c>records</c> table is queried directly;
-    /// the legacy Bunny CDN directory listing (pre-cutover saves only) is no longer
+    /// the legacy workspace CDN directory listing (pre-cutover saves only) is no longer
     /// consulted.
     /// </summary>
     private async Task<List<string>> ListPlayerRecordKeysAsync(
         long ownerUserId, string projectId, CollectionMeta col, string steamId, CancellationToken cancellationToken)
     {
-        // ScyllaDB is the authoritative record store; enumerate this player's record
-        // keys directly from the records table. The Bunny CDN directory listing only
+        // The store is the authoritative record store; enumerate this player's record
+        // keys directly from the records table. The workspace CDN directory listing only
         // reflected pre-cutover saves and is no longer consulted.
-        var rows = await scyllaStore.ListRecordsAsync(projectId, col.Id, cancellationToken);
+        var rows = await networkStore.ListRecordsAsync(projectId, col.Id, cancellationToken);
         var prefix = $"{steamId}_";
         return rows
             .Where(r => !(r.TryGetProperty("deleted", out var d) && d.ValueKind == JsonValueKind.True))
@@ -484,9 +484,9 @@ public sealed partial class StorePlayerAnalyticsReader
         var map = new Dictionary<string, object?>(StringComparer.Ordinal);
         foreach (var prop in profile.EnumerateObject()) map[prop.Name] = prop.Value;
 
-        // The ScyllaDB player_profiles row (BuildPlayerProfileRow) stores
+        // The store player_profiles row (BuildPlayerProfileRow) stores
         // last_seen_unix_ms / last_heartbeat_unix_ms as bigint numbers and
-        // is_online as a boolean. The legacy Bunny/JSON path stored lastSeen /
+        // is_online as a boolean. The legacy workspace/JSON path stored lastSeen /
         // lastHeartbeatAt as ISO strings. Support both so presence derivation
         // works regardless of which store the profile came from.
         long? anchorMs = ReadUnixMs(profile, "last_seen_unix_ms", "lastSeen")

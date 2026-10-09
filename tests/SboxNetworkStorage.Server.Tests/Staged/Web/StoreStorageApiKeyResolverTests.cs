@@ -12,7 +12,7 @@ using Xunit;
 
 namespace SboxNetworkStorage.Server.Tests;
 
-public sealed class ScyllaStorageApiKeyResolverTests
+public sealed class StoreStorageApiKeyResolverTests
 {
     private const string ProjectId = "proj_auth_read";
     private const string PublicKey = "sbox_pk_test_public";
@@ -23,7 +23,7 @@ public sealed class ScyllaStorageApiKeyResolverTests
     public async Task ResolveApiKeyAsync_PublicKeyReadThrowsAfterAwait_ReturnsNull()
     {
         using var cache = new MemoryCache(new MemoryCacheOptions());
-        var resolver = CreateResolver(new ThrowingApiKeyStore(readPublicException: new InvalidOperationException("Scylla unavailable")), cache);
+        var resolver = CreateResolver(new ThrowingApiKeyStore(readPublicException: new InvalidOperationException("Store unavailable")), cache);
 
         var result = await resolver.ResolveApiKeyAsync(PublicKey, ProjectId, CancellationToken.None);
 
@@ -34,7 +34,7 @@ public sealed class ScyllaStorageApiKeyResolverTests
     public async Task ResolveApiKeyAsync_SecretKeyListThrowsAfterAwait_ReturnsNull()
     {
         using var cache = new MemoryCache(new MemoryCacheOptions());
-        var resolver = CreateResolver(new ThrowingApiKeyStore(listSecretException: new InvalidOperationException("Scylla unavailable")), cache);
+        var resolver = CreateResolver(new ThrowingApiKeyStore(listSecretException: new InvalidOperationException("Store unavailable")), cache);
 
         var result = await resolver.ResolveApiKeyAsync(SecretKey, ProjectId, CancellationToken.None);
 
@@ -86,7 +86,7 @@ public sealed class ScyllaStorageApiKeyResolverTests
 
     // ── Happy-path resolution against seeded rows ───────────────────────────
     // The route tests fake IStorageApiKeyResolver; these pin the real
-    // ScyllaStorageApiKeyResolver dispatch (sbox_sk_ prefix → secret path) and
+    // StoreStorageApiKeyResolver dispatch (sbox_sk_ prefix → secret path) and
     // the identifier/hash verification that gate every endpoint call.
 
     [Fact]

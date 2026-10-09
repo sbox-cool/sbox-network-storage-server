@@ -6,12 +6,12 @@ using SboxNetworkStorage.Server.Tests.Hosting;
 
 namespace SboxNetworkStorage.Server.Tests;
 
-public abstract class NetworkStorageStorageLedgerReadCandidateTests<TFactory> : IClassFixture<TFactory>
+public abstract class NetworkStorageStorageLedgerReadTests<TFactory> : IClassFixture<TFactory>
     where TFactory : SelfHostFactory
 {
     private readonly SelfHostFactory _factory;
 
-    protected NetworkStorageStorageLedgerReadCandidateTests(TFactory factory)
+    protected NetworkStorageStorageLedgerReadTests(TFactory factory)
     {
         Skip.IfNot(factory.IsAvailable, factory.SkipReason);
         _factory = factory;
@@ -88,5 +88,5 @@ public abstract class NetworkStorageStorageLedgerReadCandidateTests<TFactory> : 
     }
 }
 
-public sealed class NetworkStorageStorageLedgerReadCandidateTests_Sqlite(SqliteHostFactory factory) : NetworkStorageStorageLedgerReadCandidateTests<SqliteHostFactory>(factory);
-public sealed class NetworkStorageStorageLedgerReadCandidateTests_Postgres(PostgresHostFactory factory) : NetworkStorageStorageLedgerReadCandidateTests<PostgresHostFactory>(factory);
+public sealed class NetworkStorageStorageLedgerReadTests_Sqlite(SqliteHostFactory factory) : NetworkStorageStorageLedgerReadTests<SqliteHostFactory>(factory);
+public sealed class NetworkStorageStorageLedgerReadTests_Postgres(PostgresHostFactory factory) : NetworkStorageStorageLedgerReadTests<PostgresHostFactory>(factory);

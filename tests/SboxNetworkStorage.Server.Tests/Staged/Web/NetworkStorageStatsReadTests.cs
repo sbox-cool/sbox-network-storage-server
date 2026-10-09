@@ -9,12 +9,12 @@ using SboxNetworkStorage.Infrastructure.NetworkStorage;
 
 namespace SboxNetworkStorage.Server.Tests;
 
-public abstract class NetworkStorageStatsReadCandidateTests<TFactory> : IClassFixture<TFactory>
+public abstract class NetworkStorageStatsReadTests<TFactory> : IClassFixture<TFactory>
     where TFactory : SelfHostFactory
 {
     private readonly HttpClient client;
 
-    protected NetworkStorageStatsReadCandidateTests(TFactory factory)
+    protected NetworkStorageStatsReadTests(TFactory factory)
     {
         Skip.IfNot(factory.IsAvailable, factory.SkipReason);
         client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
@@ -49,19 +49,19 @@ public abstract class NetworkStorageStatsReadCandidateTests<TFactory> : IClassFi
             CancellationToken: CancellationToken.None);
     }
 
-    // ── Success: valid key + matching stats file → 200 + Bun-compatible body ──
+    // ── Success: valid key + matching stats file → 200 + legacy-compatible body ──
 
     [SkippableFact]
     public async Task ValidKeyReturnsOkWithStatsPayload()
     {
         var fixture = await File.ReadAllTextAsync(
-            Path.Combine(AppContext.BaseDirectory, "Fixtures", "network-storage-shadow", "storage-stats-sample.json"));
+            Path.Combine(AppContext.BaseDirectory, "Fixtures", "network-storage-fixtures", "storage-stats-sample.json"));
         using var fixtureDoc = JsonDocument.Parse(fixture);
         var expectedStats = fixtureDoc.RootElement.Clone();
 
         var handler = new StatsReadHandler(
             new FakeKeyResolver("test-public-key", "demo-project", "public"),
-            new FakeBunnyStats(expectedStats, "76561197960287930"));
+            new FakeWorkspaceStats(expectedStats, "76561197960287930"));
 
         var result = await handler.ExecuteAsync(BuildRequest("demo-project", "76561197960287930", apiKey: "test-public-key"));
 
@@ -85,7 +85,7 @@ public abstract class NetworkStorageStatsReadCandidateTests<TFactory> : IClassFi
     {
         var handler = new StatsReadHandler(
             new FakeKeyResolver("test-public-key", "demo-project", "public"),
-            new FakeBunnyStats(default, "nonexistent-player"));
+            new FakeWorkspaceStats(default, "nonexistent-player"));
 
         var result = await handler.ExecuteAsync(BuildRequest("demo-project", "nonexistent-player", apiKey: "test-public-key"));
 
@@ -103,7 +103,7 @@ public abstract class NetworkStorageStatsReadCandidateTests<TFactory> : IClassFi
     {
         var handler = new StatsReadHandler(
             new FakeKeyResolver(null, "demo-project", null),
-            new FakeBunnyStats(default, "some-player"));
+            new FakeWorkspaceStats(default, "some-player"));
 
         var result = await handler.ExecuteAsync(BuildRequest("demo-project", "some-player", apiKey: null));
 
@@ -122,7 +122,7 @@ public abstract class NetworkStorageStatsReadCandidateTests<TFactory> : IClassFi
     {
         var handler = new StatsReadHandler(
             new FakeKeyResolver("bad-key", "demo-project", null),
-            new FakeBunnyStats(default, "some-player"));
+            new FakeWorkspaceStats(default, "some-player"));
 
         var result = await handler.ExecuteAsync(BuildRequest("demo-project", "some-player", apiKey: "bad-key"));
 
@@ -142,7 +142,7 @@ public abstract class NetworkStorageStatsReadCandidateTests<TFactory> : IClassFi
         var route = NetworkStorageRouteClassifier.Classify("POST", "/api/storage/demo-project/stats/some-player");
         var handler = new StatsReadHandler(
             new FakeKeyResolver("test-public-key", "demo-project", "public"),
-            new FakeBunnyStats(default, "some-player"));
+            new FakeWorkspaceStats(default, "some-player"));
 
         Assert.False(handler.CanHandle(route));
     }
@@ -155,12 +155,12 @@ public abstract class NetworkStorageStatsReadCandidateTests<TFactory> : IClassFi
         var route = NetworkStorageRouteClassifier.Classify("GET", "/api/storage/demo-project/stats/some-player");
         var handler = new StatsReadHandler(
             new FakeKeyResolver("test-public-key", "demo-project", "public"),
-            new FakeBunnyStats(default, "some-player"));
+            new FakeWorkspaceStats(default, "some-player"));
 
         Assert.True(handler.CanHandle(route));
     }
 
-    // ── Shadow endpoint integration test ──
+    // ── Endpoint integration test ──
 
     // ── Fakes ──
 
@@ -193,13 +193,13 @@ public abstract class NetworkStorageStatsReadCandidateTests<TFactory> : IClassFi
         }
     }
 
-    private sealed class FakeBunnyStats : IWorkspaceStore
+    private sealed class FakeWorkspaceStats : IWorkspaceStore
     {
         private readonly JsonElement _stats;
         private readonly string _matchingSteamId;
         private readonly bool _throwsOnRead;
 
-        public FakeBunnyStats(
+        public FakeWorkspaceStats(
             JsonElement stats,
             string matchingSteamId,
             bool throwsOnRead = false)
@@ -258,6 +258,6 @@ public abstract class NetworkStorageStatsReadCandidateTests<TFactory> : IClassFi
     }
 }
 
-public sealed class NetworkStorageStatsReadCandidateTests_Sqlite(SqliteHostFactory factory) : NetworkStorageStatsReadCandidateTests<SqliteHostFactory>(factory);
+public sealed class NetworkStorageStatsReadTests_Sqlite(SqliteHostFactory factory) : NetworkStorageStatsReadTests<SqliteHostFactory>(factory);
 
-public sealed class NetworkStorageStatsReadCandidateTests_Postgres(PostgresHostFactory factory) : NetworkStorageStatsReadCandidateTests<PostgresHostFactory>(factory);
+public sealed class NetworkStorageStatsReadTests_Postgres(PostgresHostFactory factory) : NetworkStorageStatsReadTests<PostgresHostFactory>(factory);

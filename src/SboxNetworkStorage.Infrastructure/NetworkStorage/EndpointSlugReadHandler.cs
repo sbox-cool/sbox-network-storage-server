@@ -7,28 +7,28 @@ using SboxNetworkStorage.Domain.Workspace;
 namespace SboxNetworkStorage.Infrastructure.NetworkStorage;
 
 /// <summary>
-/// Read-only native candidate for <c>GET /v3/endpoints/:projectId/:endpointSlug</c>
-/// and <c>GET /v1/endpoints/:projectId/:endpointSlug</c>. When <c>Scylla:Primary</c>
-/// is true, reads endpoints from ScyllaDB; falls back to the Bunny workspace
-/// client on ScyllaDB miss or connection error. Bun-compatible response shape.
+/// Read-only native handler for <c>GET /v3/endpoints/:projectId/:endpointSlug</c>
+/// and <c>GET /v1/endpoints/:projectId/:endpointSlug</c>. Reads endpoints from
+/// the store; falls back to the workspace client on a store miss or connection
+/// error. Legacy-compatible response shape.
 /// Read-only; never mutates.
 /// </summary>
 public sealed class EndpointSlugReadHandler : INetworkStorageHandler
 {
     private readonly IStorageApiKeyResolver _apiKeyResolver;
     private readonly IWorkspaceStore _workspaceClient;
-    private readonly INetworkStorageStore _scyllaStore;
+    private readonly INetworkStorageStore _networkStore;
     private readonly ILogger<EndpointSlugReadHandler> _logger;
 
     public EndpointSlugReadHandler(
         IStorageApiKeyResolver apiKeyResolver,
         IWorkspaceStore workspaceClient,
-        INetworkStorageStore scyllaStore,
+        INetworkStorageStore networkStore,
         ILogger<EndpointSlugReadHandler> logger)
     {
         _apiKeyResolver = apiKeyResolver;
         _workspaceClient = workspaceClient;
-        _scyllaStore = scyllaStore;
+        _networkStore = networkStore;
         _logger = logger;
     }
 
@@ -80,7 +80,7 @@ public sealed class EndpointSlugReadHandler : INetworkStorageHandler
     private async Task<NetworkStorageResult> ReadFromStoreAsync(
         StorageApiKeyAuthResult auth, string projectId, string endpointSlug, CancellationToken ct)
     {
-        var endpoints = await _scyllaStore.ListEndpointsAsync(projectId, ct);
+        var endpoints = await _networkStore.ListEndpointsAsync(projectId, ct);
 
         JsonElement? match = null;
         foreach (var ep in endpoints)

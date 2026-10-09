@@ -9,12 +9,12 @@ using SboxNetworkStorage.Infrastructure.NetworkStorage;
 
 namespace SboxNetworkStorage.Server.Tests;
 
-public abstract class NetworkStorageStorageGlobalReadCandidateTests<TFactory> : IClassFixture<TFactory>
+public abstract class NetworkStorageStorageGlobalReadTests<TFactory> : IClassFixture<TFactory>
     where TFactory : SelfHostFactory
 {
     private readonly HttpClient client;
 
-    protected NetworkStorageStorageGlobalReadCandidateTests(TFactory factory)
+    protected NetworkStorageStorageGlobalReadTests(TFactory factory)
     {
         Skip.IfNot(factory.IsAvailable, factory.SkipReason);
         client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
@@ -58,7 +58,7 @@ public abstract class NetworkStorageStorageGlobalReadCandidateTests<TFactory> : 
     private static JsonElement LoadFixture(string name)
     {
         var json = File.ReadAllText(
-            Path.Combine(AppContext.BaseDirectory, "Fixtures", "network-storage-shadow", name));
+            Path.Combine(AppContext.BaseDirectory, "Fixtures", "network-storage-fixtures", name));
         return JsonSerializer.Deserialize<JsonElement>(json);
     }
 
@@ -70,7 +70,7 @@ public abstract class NetworkStorageStorageGlobalReadCandidateTests<TFactory> : 
         var fixture = LoadFixture("storage-global-record-sample.json");
         var handler = new StorageGlobalReadHandler(
             new FakeGlobalKeyResolver(validKey: "valid-key", keyType: "secret"),
-            new FakeGlobalBunny(records: new Dictionary<string, JsonElement>
+            new FakeGlobalWorkspace(records: new Dictionary<string, JsonElement>
             {
                 ["my-collection/global/rec_abc123.json"] = fixture
             }),
@@ -99,7 +99,7 @@ public abstract class NetworkStorageStorageGlobalReadCandidateTests<TFactory> : 
     {
         var handler = new StorageGlobalReadHandler(
             new FakeGlobalKeyResolver(validKey: "valid-key", keyType: "secret"),
-            new FakeGlobalBunny(),
+            new FakeGlobalWorkspace(),
             new FakeGlobalStorageEnumerator());
 
         var result = await handler.ExecuteAsync(BuildRequest("proj-a", apiKey: "valid-key", recordId: "nonexistent"));
@@ -124,7 +124,7 @@ public abstract class NetworkStorageStorageGlobalReadCandidateTests<TFactory> : 
 
         var handler = new StorageGlobalReadHandler(
             new FakeGlobalKeyResolver(validKey: "valid-key", keyType: "public"),
-            new FakeGlobalBunny(records: new Dictionary<string, JsonElement>
+            new FakeGlobalWorkspace(records: new Dictionary<string, JsonElement>
             {
                 ["my-collection/global/r1.json"] = record1,
                 ["my-collection/global/r2.json"] = record2,
@@ -151,7 +151,7 @@ public abstract class NetworkStorageStorageGlobalReadCandidateTests<TFactory> : 
         Assert.Equal("r1", records[0].GetProperty("id").GetString());
         Assert.Equal("r2", records[1].GetProperty("id").GetString());
 
-        // Only 2 records under the default limit (50) → page is not full → no cursor (matches Bun routeV3GlobalList).
+        // Only 2 records under the default limit (50) → page is not full → no cursor (matches legacy server routeV3GlobalList).
         var cursor = json.GetProperty("cursor");
         Assert.Equal(JsonValueKind.Null, cursor.ValueKind);
     }
@@ -174,7 +174,7 @@ public abstract class NetworkStorageStorageGlobalReadCandidateTests<TFactory> : 
 
         var handler = new StorageGlobalReadHandler(
             new FakeGlobalKeyResolver(validKey: "valid-key", keyType: "secret"),
-            new FakeGlobalBunny(records: records),
+            new FakeGlobalWorkspace(records: records),
             new FakeGlobalStorageEnumerator(entries: entries.ToArray()));
 
         var query = new Dictionary<string, string> { ["limit"] = "2" };
@@ -210,7 +210,7 @@ public abstract class NetworkStorageStorageGlobalReadCandidateTests<TFactory> : 
 
         var handler = new StorageGlobalReadHandler(
             new FakeGlobalKeyResolver(validKey: "valid-key", keyType: "secret"),
-            new FakeGlobalBunny(records: new Dictionary<string, JsonElement>
+            new FakeGlobalWorkspace(records: new Dictionary<string, JsonElement>
             {
                 ["my-collection/global/a.json"] = recordA,
                 ["my-collection/global/b.json"] = recordB,
@@ -243,7 +243,7 @@ public abstract class NetworkStorageStorageGlobalReadCandidateTests<TFactory> : 
     {
         var handler = new StorageGlobalReadHandler(
             new FakeGlobalKeyResolver(validKey: null, keyType: null),
-            new FakeGlobalBunny(),
+            new FakeGlobalWorkspace(),
             new FakeGlobalStorageEnumerator());
 
         var result = await handler.ExecuteAsync(BuildRequest("proj-a", apiKey: null));
@@ -262,7 +262,7 @@ public abstract class NetworkStorageStorageGlobalReadCandidateTests<TFactory> : 
     {
         var handler = new StorageGlobalReadHandler(
             new FakeGlobalKeyResolver(validKey: "real-key", keyType: "secret"),
-            new FakeGlobalBunny(),
+            new FakeGlobalWorkspace(),
             new FakeGlobalStorageEnumerator());
 
         var result = await handler.ExecuteAsync(BuildRequest("proj-a", apiKey: "bad-key"));
@@ -304,11 +304,11 @@ public abstract class NetworkStorageStorageGlobalReadCandidateTests<TFactory> : 
         }
     }
 
-    private sealed class FakeGlobalBunny : IWorkspaceStore
+    private sealed class FakeGlobalWorkspace : IWorkspaceStore
     {
         private readonly IReadOnlyDictionary<string, JsonElement>? _records;
 
-        public FakeGlobalBunny(IReadOnlyDictionary<string, JsonElement>? records = null)
+        public FakeGlobalWorkspace(IReadOnlyDictionary<string, JsonElement>? records = null)
         {
             _records = records;
         }
@@ -367,6 +367,6 @@ public abstract class NetworkStorageStorageGlobalReadCandidateTests<TFactory> : 
     }
 }
 
-public sealed class NetworkStorageStorageGlobalReadCandidateTests_Sqlite(SqliteHostFactory factory) : NetworkStorageStorageGlobalReadCandidateTests<SqliteHostFactory>(factory);
+public sealed class NetworkStorageStorageGlobalReadTests_Sqlite(SqliteHostFactory factory) : NetworkStorageStorageGlobalReadTests<SqliteHostFactory>(factory);
 
-public sealed class NetworkStorageStorageGlobalReadCandidateTests_Postgres(PostgresHostFactory factory) : NetworkStorageStorageGlobalReadCandidateTests<PostgresHostFactory>(factory);
+public sealed class NetworkStorageStorageGlobalReadTests_Postgres(PostgresHostFactory factory) : NetworkStorageStorageGlobalReadTests<PostgresHostFactory>(factory);

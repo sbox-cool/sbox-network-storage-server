@@ -15,8 +15,8 @@ namespace SboxNetworkStorage.Server.Tests;
 /// <summary>
 /// Live-route tests for the .NET-native Network Storage auth-session family
 /// (<c>POST /v{1,3}/{auth-sessions,sessions}/{projectId}/{create,refresh,reauth,revoke}</c>).
-/// Proves the Bun→.NET cutover: stateless HMAC tokens are minted/validated natively,
-/// s&amp;box auth is checked via the injected verifier, and the Bun wire contract is
+/// Proves the legacy server→.NET cutover: stateless HMAC tokens are minted/validated natively,
+/// s&amp;box auth is checked via the injected verifier, and the legacy server wire contract is
 /// preserved (HTTP 200 with logical status in the body, <c>X-Request-Id</c> header).
 /// </summary>
 public abstract class AuthSessionEndpointsTests<TFactory> : IClassFixture<TFactory>
@@ -39,7 +39,7 @@ public abstract class AuthSessionEndpointsTests<TFactory> : IClassFixture<TFacto
         var sbox = sboxResult ?? new SboxAuthResult(true, SteamId, null);
         return _factory.WithWebHostBuilder(builder =>
         {
-            // A dead Bun storage-api port: a 502 would prove the request proxied to Bun.
+            // A dead legacy server storage-api port: a 502 would prove the request proxied to legacy server.
             
             builder.UseSetting("NETWORK_STORAGE_AUTH_SESSION_SECRET", "integration-test-secret");
             builder.ConfigureServices(services =>
@@ -98,7 +98,7 @@ public abstract class AuthSessionEndpointsTests<TFactory> : IClassFixture<TFacto
         using var client = CreateClient();
         using var response = await client.SendAsync(CreateRequest($"/v3/auth-sessions/{ProjectId}/create", apiKey: null));
 
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode); // 502 would mean it hit the dead Bun proxy
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode); // 502 would mean it hit the dead legacy server proxy
         var body = await BodyAsync(response);
         Assert.False(body.GetProperty("ok").GetBoolean());
         Assert.Equal(401, body.GetProperty("status").GetInt32());

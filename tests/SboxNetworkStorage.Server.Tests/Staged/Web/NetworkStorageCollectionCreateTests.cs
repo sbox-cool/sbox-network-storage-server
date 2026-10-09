@@ -11,22 +11,22 @@ namespace SboxNetworkStorage.Server.Tests;
 
 public sealed class NetworkStorageCollectionCreateTests
 {
-    private static NetworkStorageProjectService CreateService(FakeBunny bunny)
+    private static NetworkStorageProjectService CreateService(FakeWorkspace workspace)
         => new(
-            bunny,
-            bunnyStorageEnumerator: null!,
+            workspace,
+            workspaceStorageEnumerator: null!,
             new ConfigurationBuilder().Build(),
             keyCdnWriter: null!,
-            scyllaStore: new InMemoryNetworkStorageStore(),
+            networkStore: new InMemoryNetworkStorageStore(),
             NullLogger<NetworkStorageProjectService>.Instance);
 
     [Fact]
     public async Task UpdateProjectSettings_CollectionCreate_WritesCollectionsJson()
     {
         var now = DateTimeOffset.UtcNow;
-        var bunny = new FakeBunny();
-        bunny.Projects.Add(new WorkspaceProject("proj_one", "One", null, true, now, now, null));
-        var service = CreateService(bunny);
+        var workspace = new FakeWorkspace();
+        workspace.Projects.Add(new WorkspaceProject("proj_one", "One", null, true, now, now, null));
+        var service = CreateService(workspace);
 
         await service.UpdateProjectSettingsAsync(
             42,
@@ -46,8 +46,8 @@ public sealed class NetworkStorageCollectionCreateTests
             },
             CancellationToken.None);
 
-        Assert.Single(bunny.ProjectResourceWrites);
-        var write = bunny.ProjectResourceWrites[0];
+        Assert.Single(workspace.ProjectResourceWrites);
+        var write = workspace.ProjectResourceWrites[0];
         Assert.Equal("collections.json", write.ResourcePath);
         Assert.Single(write.Payload);
         Assert.Equal("player_stats", write.Payload[0]["name"]);
@@ -59,10 +59,10 @@ public sealed class NetworkStorageCollectionCreateTests
     public async Task UpdateProjectSettings_CollectionCreate_RejectsDuplicateName()
     {
         var now = DateTimeOffset.UtcNow;
-        var bunny = new FakeBunny();
-        bunny.Projects.Add(new WorkspaceProject("proj_one", "One", null, true, now, now, null));
-        bunny.Collections.Add(new Dictionary<string, object?> { ["id"] = "abc", ["name"] = "players" });
-        var service = CreateService(bunny);
+        var workspace = new FakeWorkspace();
+        workspace.Projects.Add(new WorkspaceProject("proj_one", "One", null, true, now, now, null));
+        workspace.Collections.Add(new Dictionary<string, object?> { ["id"] = "abc", ["name"] = "players" });
+        var service = CreateService(workspace);
 
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => service.UpdateProjectSettingsAsync(
             42,
@@ -78,7 +78,7 @@ public sealed class NetworkStorageCollectionCreateTests
         Assert.Contains("already exists", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
-    private sealed class FakeBunny : IWorkspaceStore
+    private sealed class FakeWorkspace : IWorkspaceStore
     {
         public List<WorkspaceProject> Projects { get; } = new();
         public List<IReadOnlyList<WorkspaceProject>> ProjectSaves { get; } = new();

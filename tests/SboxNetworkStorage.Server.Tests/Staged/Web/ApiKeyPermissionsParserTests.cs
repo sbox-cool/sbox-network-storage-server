@@ -97,7 +97,7 @@ public sealed class ApiKeyPermissionsParserTests
         Assert.Equal("""{ "a": 1 }""", result["nested"]);
     }
 
-    // The SpaceTimeDB read path hands the parser an already-decoded JsonElement
+    // The legacy store read path hands the parser an already-decoded JsonElement
     // (the reducer row's permissions_json). The JsonElement overload must accept
     // the same shapes as the string overload and never throw, so a wrapped or
     // malformed value degrades to null instead of dropping every key for a project.
@@ -117,7 +117,7 @@ public sealed class ApiKeyPermissionsParserTests
     public void Parse_JsonElementDoubleEncodedString_UnwrapsToMap()
     {
         // A JSON string token whose text is itself a JSON object — the real shape
-        // SpaceTimeDB returns when permissions_json was stored double-encoded.
+        // legacy store returns when permissions_json was stored double-encoded.
         using var document = JsonDocument.Parse("\"{\\\"endpoints\\\":\\\"rwx\\\"}\"");
 
         var result = ApiKeyPermissionsParser.Parse(document.RootElement);

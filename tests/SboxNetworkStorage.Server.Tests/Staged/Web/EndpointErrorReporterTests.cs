@@ -7,13 +7,13 @@ using Xunit;
 namespace SboxNetworkStorage.Server.Tests;
 
 /// <summary>
-/// The native endpoint-execution shadow path must surface its failures into the
+/// The native endpoint-execution path must surface its failures into the
 /// shared error pipeline: the admin dashboard (<c>internal_errors</c>), the
 /// per-project Network Storage dashboard (via <c>project_id</c>), and Discord
 /// (via the alert sink). These tests assert the captured error carries the
 /// project context and tags that make it findable in all three places.
 /// </summary>
-public sealed class EndpointShadowReporterTests
+public sealed class EndpointErrorReporterTests
 {
     private const string ProjectId = "6c22075ca036481e";
     private const string Slug = "buy-upgrade";

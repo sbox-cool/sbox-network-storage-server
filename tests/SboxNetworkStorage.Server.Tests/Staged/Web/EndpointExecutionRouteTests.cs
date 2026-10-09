@@ -18,11 +18,11 @@ namespace SboxNetworkStorage.Server.Tests;
 /// Live-route tests for the .NET-native endpoint execution path
 /// (<c>GET /v3/endpoints/{projectId}/{endpointSlug}</c>). These prove the cutover
 /// in <c>serve-endpoint-execution-dotnet-native</c>: authenticated GET endpoint
-/// execution is served by the native ScyllaDB executor with NO Bun proxy in the
+/// execution is served by the native the store executor with NO legacy server proxy in the
 /// request path (the dead <c>127.0.0.1:4547</c> that produced the production
 /// <c>NetworkStorageGatewayUnavailable</c> 502 is never touched). Identity comes
 /// from <c>x-steam-id</c> / <c>steamId</c>, input from query params, and an
-/// endpoint the executor cannot run returns a reported 501 — never a Bun fallback.
+/// endpoint the executor cannot run returns a reported 501 — never a legacy server fallback.
 /// </summary>
 public abstract class EndpointExecutionRouteTests<TFactory> : IClassFixture<TFactory>
     where TFactory : SelfHostFactory
@@ -93,7 +93,7 @@ public abstract class EndpointExecutionRouteTests<TFactory> : IClassFixture<TFac
 
         return _factory.WithWebHostBuilder(builder =>
         {
-            // A dead Bun storage-api port: if the request ever proxied to Bun the
+            // A dead legacy server storage-api port: if the request ever proxied to legacy server the
             // test would see a 502, proving the native path never touches it.
             
             builder.UseSetting("NETWORK_STORAGE_AUTH_SESSION_SECRET", "integration-test-secret");
@@ -154,7 +154,7 @@ public abstract class EndpointExecutionRouteTests<TFactory> : IClassFixture<TFac
 
     private static void SeedEndpoint(InMemoryNetworkStorageStore store, string slug, string method, string definitionJson)
     {
-        // endpointId == slug so ScyllaEndpointShadowDataSource's direct read hits.
+        // endpointId == slug so StoreEndpointDataSource's direct read hits.
         store.UpsertEndpointAsync(
             ProjectId, slug, slug, method, enabled: true,
             JsonDocument.Parse(definitionJson).RootElement,
@@ -239,7 +239,7 @@ public abstract class EndpointExecutionRouteTests<TFactory> : IClassFixture<TFac
         using var response = await client.GetAsync($"/v3/endpoints/{ProjectId}/get-join?apiKey=wrong-key");
 
         // Native auth rejects the key with a 401. A 502 would mean the request
-        // reached the dead Bun proxy — that must never happen.
+        // reached the dead legacy server proxy — that must never happen.
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 
@@ -537,7 +537,7 @@ public abstract class EndpointExecutionRouteTests<TFactory> : IClassFixture<TFac
     {
         // The endpoints:x gate is meaningful once a secret key authenticates the
         // call: a secret key that lacks endpoints execute must be rejected with
-        // FORBIDDEN (Bun parity — checkPermission on the secret key data).
+        // FORBIDDEN (legacy server parity — checkPermission on the secret key data).
         var store = new InMemoryNetworkStorageStore();
         SeedEndpoint(store, "init-player", "POST", InitPlayerDefinition);
         var noEndpointPerm = new DualKeyResolver(

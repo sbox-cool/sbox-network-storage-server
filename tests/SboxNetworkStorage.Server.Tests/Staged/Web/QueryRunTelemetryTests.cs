@@ -7,7 +7,7 @@ using Xunit;
 namespace SboxNetworkStorage.Server.Tests.NetworkStorage;
 
 /// <summary>
-/// Task 4.10 (fix-usage-and-query-telemetry): ScyllaQueryRunRecorder
+/// Task 4.10 (fix-usage-and-query-telemetry): StoreQueryRunRecorder
 /// throttle/force/cache-hit semantics, durationMs on performance, and
 /// InMemoryNetworkStorageStore query-run read paths.
 /// </summary>

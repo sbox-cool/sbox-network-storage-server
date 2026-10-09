@@ -10,7 +10,7 @@ public sealed record AppendRateLimitResult(bool Allowed, string? Code = null, st
 
 /// <summary>
 /// Per-process daily rate limiter for Network Storage global-collection appends.
-/// Mirrors the legacy Bun <c>tools/sbox/rate-limit.js</c> semantics: two modes,
+/// Mirrors the legacy server <c>tools/sbox/rate-limit.js</c> semantics: two modes,
 /// <c>"player"</c> (per writer per collection per day) and <c>"collection"</c>
 /// (total collection writes per day), with a configurable maximum per day and
 /// counters that reset at midnight UTC.

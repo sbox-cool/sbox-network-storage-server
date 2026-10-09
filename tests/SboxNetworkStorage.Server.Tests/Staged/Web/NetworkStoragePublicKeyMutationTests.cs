@@ -29,12 +29,12 @@ public sealed class NetworkStoragePublicKeyMutationTests
         var secretKeyIdentifier = "sk_hash_1";
 
         var emptyPerms = JsonSerializer.SerializeToElement(new Dictionary<string, string>());
-        var scyllaStore = new InMemoryNetworkStorageStore();
+        var networkStore = new InMemoryNetworkStorageStore();
 
         // Public keys are addressable by the key supplied to game clients.
-        await scyllaStore.UpsertApiKeyAsync(projectId, rawPublicKey, userId.ToString(CultureInfo.InvariantCulture),
+        await networkStore.UpsertApiKeyAsync(projectId, rawPublicKey, userId.ToString(CultureInfo.InvariantCulture),
             "public", "", publicKeyIdentifier, "Test Public", true, emptyPerms, 1, CancellationToken.None);
-        await scyllaStore.UpsertApiKeyAsync(projectId, maskedSecretKey, userId.ToString(CultureInfo.InvariantCulture),
+        await networkStore.UpsertApiKeyAsync(projectId, maskedSecretKey, userId.ToString(CultureInfo.InvariantCulture),
             "secret", "", secretKeyIdentifier, "Test Secret", true, emptyPerms, 1, CancellationToken.None);
 
         // CDN index mapping the public key identifier back to the redisplayable raw key.
@@ -44,9 +44,9 @@ public sealed class NetworkStoragePublicKeyMutationTests
         });
 
         var cdnWriter = new FakeCdnWriter(cdnIndex);
-        var bunny = new StubBunnyWorkspaceClient();
+        var workspace = new StubWorkspaceClient();
         var service = new NetworkStorageProjectService(
-            bunny, bunnyStorageEnumerator: null!, new ConfigurationBuilder().Build(), cdnWriter, scyllaStore: scyllaStore,
+            workspace, workspaceStorageEnumerator: null!, new ConfigurationBuilder().Build(), cdnWriter, networkStore: networkStore,
             logger: Microsoft.Extensions.Logging.Abstractions.NullLogger<NetworkStorageProjectService>.Instance);
 
         // Toggle using exactly the public key supplied to the client.
@@ -64,7 +64,7 @@ public sealed class NetworkStoragePublicKeyMutationTests
         publicKey = Assert.Single(keys, k => k.KeyType == "public");
         Assert.True(publicKey.Enabled, "Public key should have been toggled back on");
 
-        // ── 2. Toggle secret key by masked key (raw match in ScyllaDB) ──
+        // ── 2. Toggle secret key by masked key (raw match in the store) ──
         await service.ToggleProjectKeyAsync(userId, projectId, maskedSecretKey, CancellationToken.None);
         keys = await service.GetProjectKeysAsync(userId, projectId, CancellationToken.None);
         var secretKey = Assert.Single(keys, k => k.KeyType == "secret");
@@ -110,7 +110,7 @@ public sealed class NetworkStoragePublicKeyMutationTests
             => Task.CompletedTask;
     }
 
-    private sealed class StubBunnyWorkspaceClient : IWorkspaceStore
+    private sealed class StubWorkspaceClient : IWorkspaceStore
     {
         public Task<IReadOnlyList<WorkspaceProject>> GetUserProjectsAsync(long userId, CancellationToken cancellationToken)
             => Task.FromResult<IReadOnlyList<WorkspaceProject>>([]);

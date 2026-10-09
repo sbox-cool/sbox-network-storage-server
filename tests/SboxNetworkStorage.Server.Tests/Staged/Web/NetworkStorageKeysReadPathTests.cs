@@ -18,18 +18,18 @@ namespace SboxNetworkStorage.Server.Tests;
 // a misleading "you have no API keys" page. These tests pin the corrected
 // behavior: genuine database errors must propagate (so the exception middleware
 // captures them in /admin/errors), and a fully unconfigured database falls back
-// to the Bunny keys.json resource instead of crashing.
+// to the workspace keys.json resource instead of crashing.
 public sealed class NetworkStorageKeysReadPathTests
 {
     [Fact]
     public async Task GetProjectKeysAsync_DoesNotSwallowBackendErrors()
     {
-        // ScyllaDB returns no keys; the Bunny fallback throws. The read path
+        // The store returns no keys; the workspace fallback throws. The read path
         // must propagate the error rather than silently returning an empty list.
-        var bunny = new ThrowingBunnyWorkspaceClient();
+        var workspace = new ThrowingWorkspaceClient();
         var config = new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build();
-        var service = new NetworkStorageProjectService(bunny, bunnyStorageEnumerator: null!, config, new ThrowingCdnWriter(),
-            scyllaStore: new InMemoryNetworkStorageStore(),
+        var service = new NetworkStorageProjectService(workspace, workspaceStorageEnumerator: null!, config, new ThrowingCdnWriter(),
+            networkStore: new InMemoryNetworkStorageStore(),
             logger: Microsoft.Extensions.Logging.Abstractions.NullLogger<NetworkStorageProjectService>.Instance);
 
         await Assert.ThrowsAnyAsync<Exception>(
@@ -37,16 +37,16 @@ public sealed class NetworkStorageKeysReadPathTests
     }
 
     [Fact]
-    public async Task GetProjectKeysAsync_ScyllaDbOutage_ReturnsEmptyInsteadOfThrowing()
+    public async Task GetProjectKeysAsync_StoreOutage_ReturnsEmptyInsteadOfThrowing()
     {
-        // When a ScyllaDB node is down, ListApiKeysAsync throws (NoHostAvailable,
+        // When a store node is down, ListApiKeysAsync throws (NoHostAvailable,
         // socket, etc.). The project page loads during access resolution before
         // the dashboard try/catch, so a throw here would surface as HTTP 500.
         // The read path must degrade to an empty key list (logged) instead.
-        var bunny = new ThrowingBunnyWorkspaceClient();
+        var workspace = new ThrowingWorkspaceClient();
         var config = new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build();
-        var service = new NetworkStorageProjectService(bunny, bunnyStorageEnumerator: null!, config, new ThrowingCdnWriter(),
-            scyllaStore: new ThrowingScyllaStore(),
+        var service = new NetworkStorageProjectService(workspace, workspaceStorageEnumerator: null!, config, new ThrowingCdnWriter(),
+            networkStore: new ThrowingStore(),
             logger: Microsoft.Extensions.Logging.Abstractions.NullLogger<NetworkStorageProjectService>.Instance);
 
         var keys = await service.GetProjectKeysAsync(42, "ec13d753a7ea4d66", CancellationToken.None);
@@ -58,7 +58,7 @@ public sealed class NetworkStorageKeysReadPathTests
     public async Task GetProjectKeysAsync_NoDatabaseConfigured_FallsBackToKeysJson()
     {
         // No pool has a connection string, so none is registered. The read path
-        // must degrade to the Bunny keys.json resource rather than throw.
+        // must degrade to the workspace keys.json resource rather than throw.
 
         var fallbackKey = new ApiKeyInfo(
             Key: "sbox_ns_fallback",
@@ -68,9 +68,9 @@ public sealed class NetworkStorageKeysReadPathTests
             KeyIdentifier: "pkey_fallback",
             CreatedAt: DateTimeOffset.UtcNow,
             Permissions: null);
-        var bunny = new KeysJsonBunnyWorkspaceClient(new List<ApiKeyInfo> { fallbackKey });
+        var workspace = new KeysJsonWorkspaceClient(new List<ApiKeyInfo> { fallbackKey });
         var config2 = new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build();
-        var service = new NetworkStorageProjectService(bunny, bunnyStorageEnumerator: null!, config2, new ThrowingCdnWriter(), scyllaStore: new InMemoryNetworkStorageStore(), logger: Microsoft.Extensions.Logging.Abstractions.NullLogger<NetworkStorageProjectService>.Instance);
+        var service = new NetworkStorageProjectService(workspace, workspaceStorageEnumerator: null!, config2, new ThrowingCdnWriter(), networkStore: new InMemoryNetworkStorageStore(), logger: Microsoft.Extensions.Logging.Abstractions.NullLogger<NetworkStorageProjectService>.Instance);
 
         var keys = await service.GetProjectKeysAsync(42, "ec13d753a7ea4d66", CancellationToken.None);
 
@@ -78,7 +78,7 @@ public sealed class NetworkStorageKeysReadPathTests
         Assert.Equal("sbox_ns_fallback", keys[0].Key);
     }
 
-    private sealed class ThrowingBunnyWorkspaceClient : IWorkspaceStore
+    private sealed class ThrowingWorkspaceClient : IWorkspaceStore
     {
         public Task<IReadOnlyList<WorkspaceProject>> GetUserProjectsAsync(long userId, CancellationToken cancellationToken)
             => Task.FromResult<IReadOnlyList<WorkspaceProject>>([]);
@@ -126,7 +126,7 @@ public sealed class NetworkStorageKeysReadPathTests
             => throw new InvalidOperationException("keys.json fallback must not be reached when the database errors.");
     }
 
-    private sealed class KeysJsonBunnyWorkspaceClient(List<ApiKeyInfo> keys) : IWorkspaceStore
+    private sealed class KeysJsonWorkspaceClient(List<ApiKeyInfo> keys) : IWorkspaceStore
     {
         public Task<IReadOnlyList<WorkspaceProject>> GetUserProjectsAsync(long userId, CancellationToken cancellationToken)
             => Task.FromResult<IReadOnlyList<WorkspaceProject>>([]);
@@ -163,10 +163,10 @@ public sealed class NetworkStorageKeysReadPathTests
             => Task.CompletedTask;
     }
     /// <summary>
-    /// A ScyllaDB store that throws on <c>ListApiKeysAsync</c>, simulating a node
+    /// A store store that throws on <c>ListApiKeysAsync</c>, simulating a node
     /// outage (e.g. <c>NoHostAvailableException</c> when all nodes are unreachable).
     /// </summary>
-    private sealed class ThrowingScyllaStore : InMemoryNetworkStorageStore
+    private sealed class ThrowingStore : InMemoryNetworkStorageStore
     {
         public override Task<IReadOnlyList<System.Text.Json.JsonElement>> ListApiKeysAsync(string projectId, CancellationToken ct)
             => throw new InvalidOperationException("No host available");

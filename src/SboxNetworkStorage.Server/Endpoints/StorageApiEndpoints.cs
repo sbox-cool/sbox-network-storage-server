@@ -51,8 +51,8 @@ public static partial class StorageApiEndpoints
 
         // Client save-failure report. Registered under /api/network-storage/* (NOT
         // /api/storage/*) so the live nginx routes it to the .NET website today —
-        // /api/storage/* is still proxied to the legacy Bun data plane until the
-        // ScyllaDB cutover. /api/* always reaches .NET post-cutover too, so this URL
+        // /api/storage/* is still proxied to the legacy server data plane until the
+        // The store cutover. /api/* always reaches .NET post-cutover too, so this URL
         // is stable across the migration.
         endpoints.MapPost("/api/network-storage/{projectId}/save-failure", PostSaveFailureAsync)
             .WithDisplayName("Network Storage save-failure report");
@@ -102,7 +102,7 @@ public static partial class StorageApiEndpoints
 
         // Malformed client identifiers (e.g. an encoded "..%2F..%2Fetc" collection
         // or "a%2Fb" key) can never address a stored record. Reject them here as
-        // 404 — matching the Bun observable outcome — instead of letting the
+        // 404 — matching the legacy server observable outcome — instead of letting the
         // store throw ArgumentException, which would misclassify client input as
         // a backend STORAGE_ERROR 500.
         var invalidIds = ValidateRecordIds(collectionId, recordKey);
@@ -180,7 +180,7 @@ public static partial class StorageApiEndpoints
 
         // Malformed client identifiers (e.g. an encoded "..%2F..%2Fetc" collection
         // or "a%2Fb" key) can never address a stored record. Reject them here as
-        // 404 — matching the Bun observable outcome — instead of letting the
+        // 404 — matching the legacy server observable outcome — instead of letting the
         // store throw ArgumentException, which would misclassify client input as
         // a backend STORAGE_ERROR 500.
         var invalidIds = ValidateRecordIds(collectionId, recordKey);
@@ -345,7 +345,7 @@ public static partial class StorageApiEndpoints
 
         // Malformed client identifiers (e.g. an encoded "..%2F..%2Fetc" collection
         // or "a%2Fb" key) can never address a stored record. Reject them here as
-        // 404 — matching the Bun observable outcome — instead of letting the
+        // 404 — matching the legacy server observable outcome — instead of letting the
         // store throw ArgumentException, which would misclassify client input as
         // a backend STORAGE_ERROR 500.
         var invalidIds = ValidateRecordIds(collectionId, recordKey);
@@ -387,8 +387,8 @@ public static partial class StorageApiEndpoints
     }
 
     // POST /v3/storage/{projectId}/{collectionId}/append
-    // Append a record to a global collection. Native ScyllaDB-backed replacement
-    // for the Bun `routeV3GlobalAppend` handler in `controllers/storage-v3-controller.js`.
+    // Append a record to a global collection. Native the store-backed replacement
+    // for the legacy server `routeV3GlobalAppend` handler in `controllers/storage-v3-controller.js`.
     internal static async Task AppendRecordAsync(HttpContext context)
     {
         var resolver = context.RequestServices.GetRequiredService<IStorageApiKeyResolver>();
@@ -518,7 +518,7 @@ public static partial class StorageApiEndpoints
             return;
         }
 
-        // Build new record and write via ScyllaDB (global_records table).
+        // Build new record and write via the store (global_records table).
         var recordId = GenerateNetworkStorageId();
         var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 
@@ -559,7 +559,7 @@ public static partial class StorageApiEndpoints
 
     /// <summary>
     /// POST /v3/storage/{projectId}/analytics/events and the /api/storage alias.
-    /// Records a player analytics event from the game client. Mirrors the Bun
+    /// Records a player analytics event from the game client. Mirrors the legacy server
     /// <c>routeStorageApiAnalyticsEvent</c> handler in
     /// <c>controllers/storage-modules/insights-routes.js</c>.
     /// </summary>
@@ -714,7 +714,7 @@ public static partial class StorageApiEndpoints
         }
         catch (Exception)
         {
-            // Best-effort storage, matching the Bun path which returns ok even on failure.
+            // Best-effort storage, matching the legacy server path which returns ok even on failure.
             await context.Response.WriteAsJsonAsync(new { ok = true, stored = false, reason = "storage_unavailable" }, JsonOptions);
         }
     }
@@ -851,7 +851,7 @@ public static partial class StorageApiEndpoints
         }
 
         // Diagnostic telemetry for cause correlation. Network Storage analytics
-        // live in ScyllaDB (air-gapped from the website Postgres), same as every
+        // live in the store (air-gapped from the website Postgres), same as every
         // other record event.
         var analytics = context.RequestServices.GetRequiredService<IPlayerAnalyticsService>();
         await analytics.RecordEventAsync(new PlayerEventRequest(

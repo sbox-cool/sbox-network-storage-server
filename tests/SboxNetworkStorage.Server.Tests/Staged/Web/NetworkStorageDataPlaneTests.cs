@@ -7,8 +7,8 @@ using Xunit;
 namespace SboxNetworkStorage.Server.Tests;
 
 /// <summary>
-/// Tests for the ScyllaDB-only Network Storage data plane. All reads and writes
-/// go through ScyllaDB — no Bunny fallback, no newest-wins comparison.
+/// Tests for the store-only Network Storage data plane. All reads and writes
+/// go through the store — no workspace fallback, no newest-wins comparison.
 /// </summary>
 public sealed class NetworkStorageDataPlaneTests
 {
@@ -17,7 +17,7 @@ public sealed class NetworkStorageDataPlaneTests
     // ── Reads ──────────────────────────────────────────────────────────────
 
     [Fact]
-    public async Task Read_ReturnsScyllaValue()
+    public async Task Read_ReturnsStoreValue()
     {
         var store = new InMemoryNetworkStorageStore();
         await store.UpsertRecordAsync("p1", "players", "k1", Json("""{"score":10}"""), deleted: false, version: 1, CancellationToken.None);
@@ -71,7 +71,7 @@ public sealed class NetworkStorageDataPlaneTests
     // ── Writes ─────────────────────────────────────────────────────────────
 
     [Fact]
-    public async Task Write_PersistsToScyllaDB()
+    public async Task Write_PersistsToStore()
     {
         var store = new InMemoryNetworkStorageStore();
         var plane = new StoreNetworkStorageDataPlane(store);

@@ -3,7 +3,7 @@ using SboxNetworkStorage.Domain.Workspace;
 namespace SboxNetworkStorage.Application.Workspace;
 
 /// <summary>
-/// Loads workspace project activity inputs, matching Bun's loadProjectActivity().
+/// Loads workspace project activity inputs, matching legacy server's loadProjectActivity().
 /// </summary>
 public static class ProjectActivityLoader
 {

@@ -4,7 +4,7 @@ using System.Text.RegularExpressions;
 
 namespace SboxNetworkStorage.Storage.Relational;
 
-/// <summary>Input validation identical to the production ScyllaDB store (same patterns and messages).</summary>
+/// <summary>Input validation identical to the production the store store (same patterns and messages).</summary>
 internal static partial class StoreValidation
 {
     /// <summary>Production default for the maximum accepted JSON payload (64 KiB of UTF-8).</summary>
@@ -44,7 +44,7 @@ internal static partial class StoreValidation
     }
 
     /// <summary>
-    /// ScyllaDB rejects <c>LIMIT</c> values that are not strictly positive; the
+    /// The store rejects <c>LIMIT</c> values that are not strictly positive; the
     /// relational drivers fail the same way instead of silently returning nothing.
     /// </summary>
     public static void Limit(int limit)

@@ -9,7 +9,7 @@ using SboxNetworkStorage.Application.Workspace;
 namespace SboxNetworkStorage.Infrastructure.NetworkStorage;
 
 /// <summary>
-/// Dashboard form mutations for collections.json (ported from Bun collection-routes.js).
+/// Dashboard form mutations for collections.json (ported from legacy server collection-routes.js).
 /// </summary>
 internal static partial class CollectionDashboardMutations
 {
@@ -22,7 +22,7 @@ internal static partial class CollectionDashboardMutations
     };
 
     public static async Task CreateCollectionAsync(
-        IWorkspaceStore bunnyWorkspaceClient,
+        IWorkspaceStore workspaceStore,
         long storageOwnerUserId,
         string projectId,
         IReadOnlyDictionary<string, string> formValues,
@@ -38,7 +38,7 @@ internal static partial class CollectionDashboardMutations
         if (schemaErrors.Count > 0)
             throw new InvalidOperationException(schemaErrors[0]);
 
-        var collections = await LoadCollectionsAsync(bunnyWorkspaceClient, storageOwnerUserId, projectId, cancellationToken);
+        var collections = await LoadCollectionsAsync(workspaceStore, storageOwnerUserId, projectId, cancellationToken);
         if (collections.Count >= 50)
             throw new InvalidOperationException("Maximum 50 collections per project.");
         if (collections.Any(c => string.Equals(ReadName(c), name, StringComparison.OrdinalIgnoreCase)))
@@ -94,11 +94,11 @@ internal static partial class CollectionDashboardMutations
         }
 
         collections.Add(collection);
-        await SaveCollectionsAsync(bunnyWorkspaceClient, storageOwnerUserId, projectId, collections, cancellationToken);
+        await SaveCollectionsAsync(workspaceStore, storageOwnerUserId, projectId, collections, cancellationToken);
     }
 
     public static async Task UpdateCollectionAsync(
-        IWorkspaceStore bunnyWorkspaceClient,
+        IWorkspaceStore workspaceStore,
         long storageOwnerUserId,
         string projectId,
         IReadOnlyDictionary<string, string> formValues,
@@ -108,7 +108,7 @@ internal static partial class CollectionDashboardMutations
         if (string.IsNullOrEmpty(collectionId))
             throw new InvalidOperationException("Collection ID is required for update.");
 
-        var collections = await LoadCollectionsAsync(bunnyWorkspaceClient, storageOwnerUserId, projectId, cancellationToken);
+        var collections = await LoadCollectionsAsync(workspaceStore, storageOwnerUserId, projectId, cancellationToken);
         var idx = collections.FindIndex(c => string.Equals(ReadId(c), collectionId, StringComparison.OrdinalIgnoreCase));
         if (idx < 0)
             throw new InvalidOperationException($"Collection \"{collectionId}\" not found.");
@@ -150,26 +150,26 @@ internal static partial class CollectionDashboardMutations
         collection["updatedAt"] = DateTimeOffset.UtcNow.ToString("o");
 
         collections[idx] = collection;
-        await SaveCollectionsAsync(bunnyWorkspaceClient, storageOwnerUserId, projectId, collections, cancellationToken);
+        await SaveCollectionsAsync(workspaceStore, storageOwnerUserId, projectId, collections, cancellationToken);
     }
 
     public static async Task DeleteCollectionAsync(
-        IWorkspaceStore bunnyWorkspaceClient,
+        IWorkspaceStore workspaceStore,
         long storageOwnerUserId,
         string projectId,
         string collectionId,
         CancellationToken cancellationToken)
     {
-        var collections = await LoadCollectionsAsync(bunnyWorkspaceClient, storageOwnerUserId, projectId, cancellationToken);
+        var collections = await LoadCollectionsAsync(workspaceStore, storageOwnerUserId, projectId, cancellationToken);
         var removed = collections.RemoveAll(c => string.Equals(ReadId(c), collectionId, StringComparison.OrdinalIgnoreCase));
         if (removed > 0)
         {
-            await SaveCollectionsAsync(bunnyWorkspaceClient, storageOwnerUserId, projectId, collections, cancellationToken);
+            await SaveCollectionsAsync(workspaceStore, storageOwnerUserId, projectId, collections, cancellationToken);
         }
     }
 
     public static async Task UpdateCollectionValuesAsync(
-        IWorkspaceStore bunnyWorkspaceClient,
+        IWorkspaceStore workspaceStore,
         long storageOwnerUserId,
         string projectId,
         IReadOnlyDictionary<string, string> formValues,
@@ -179,7 +179,7 @@ internal static partial class CollectionDashboardMutations
         if (string.IsNullOrEmpty(collectionId))
             throw new InvalidOperationException("Collection ID is required for update.");
 
-        var collections = await LoadCollectionsAsync(bunnyWorkspaceClient, storageOwnerUserId, projectId, cancellationToken);
+        var collections = await LoadCollectionsAsync(workspaceStore, storageOwnerUserId, projectId, cancellationToken);
         var idx = collections.FindIndex(c => string.Equals(ReadId(c), collectionId, StringComparison.OrdinalIgnoreCase));
         if (idx < 0)
             throw new InvalidOperationException($"Collection \"{collectionId}\" not found.");
@@ -198,26 +198,26 @@ internal static partial class CollectionDashboardMutations
         collection["updatedAt"] = DateTimeOffset.UtcNow.ToString("o");
 
         collections[idx] = collection;
-        await SaveCollectionsAsync(bunnyWorkspaceClient, storageOwnerUserId, projectId, collections, cancellationToken);
+        await SaveCollectionsAsync(workspaceStore, storageOwnerUserId, projectId, collections, cancellationToken);
     }
 
     private static async Task SaveCollectionsAsync(
-        IWorkspaceStore bunnyWorkspaceClient,
+        IWorkspaceStore workspaceStore,
         long storageOwnerUserId,
         string projectId,
         List<Dictionary<string, object?>> collections,
         CancellationToken cancellationToken)
     {
-        // Dual-write to legacy and v3 paths to ensure immediate visibility in Bun
-        await bunnyWorkspaceClient.PutProjectResourceAsync(
+        // Dual-write to legacy and v3 paths to ensure immediate visibility in legacy server
+        await workspaceStore.PutProjectResourceAsync(
             storageOwnerUserId, projectId, "collections.json", collections, cancellationToken);
-        await bunnyWorkspaceClient.PutProjectResourceAsync(
+        await workspaceStore.PutProjectResourceAsync(
             storageOwnerUserId, projectId, "_config/collections.v3.json", collections, cancellationToken);
 
         // Verification read
         try
         {
-            var verified = await LoadCollectionsAsync(bunnyWorkspaceClient, storageOwnerUserId, projectId, cancellationToken);
+            var verified = await LoadCollectionsAsync(workspaceStore, storageOwnerUserId, projectId, cancellationToken);
             if (verified.Count != collections.Count)
             {
                 Console.Error.WriteLine($"[SaveCollectionsAsync] Verification failed: count mismatch (expected {collections.Count}, got {verified.Count})");
@@ -230,7 +230,7 @@ internal static partial class CollectionDashboardMutations
     }
 
     public static async Task ResetCollectionDataAsync(
-        IWorkspaceStore bunnyWorkspaceClient,
+        IWorkspaceStore workspaceStore,
         long storageOwnerUserId,
         string projectId,
         string collectionId,
@@ -268,12 +268,12 @@ internal static partial class CollectionDashboardMutations
            string.Equals(value, "1", StringComparison.OrdinalIgnoreCase);
 
     private static async Task<List<Dictionary<string, object?>>> LoadCollectionsAsync(
-        IWorkspaceStore bunnyWorkspaceClient,
+        IWorkspaceStore workspaceStore,
         long storageOwnerUserId,
         string projectId,
         CancellationToken cancellationToken)
     {
-        var existing = await bunnyWorkspaceClient.GetProjectResourceAsync<List<Dictionary<string, object?>>>(
+        var existing = await workspaceStore.GetProjectResourceAsync<List<Dictionary<string, object?>>>(
             storageOwnerUserId, projectId, "collections.json", cancellationToken);
         return existing?.ToList() ?? new List<Dictionary<string, object?>>();
     }

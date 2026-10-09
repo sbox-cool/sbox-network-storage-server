@@ -6,27 +6,27 @@ using SboxNetworkStorage.Domain.Workspace;
 namespace SboxNetworkStorage.Infrastructure.NetworkStorage;
 
 /// <summary>
-/// Read-only native candidate for <c>GET /v1|v3/storage/:projectId/rate-limits</c>.
-/// When <c>Scylla:Primary</c> is true, reads from ScyllaDB (rules from
+/// Read-only native handler for <c>GET /v1|v3/storage/:projectId/rate-limits</c>.
+/// Reads from the store (rules from
 /// <c>rate_limit_rules</c>, endpoint limits from <c>endpoints</c> definitions).
-/// Falls back to the Bunny project service on ScyllaDB miss or connection error.
+/// Falls back to the workspace project service on a store miss or connection error.
 /// </summary>
 public sealed class RateLimitsHandler : INetworkStorageHandler
 {
     private readonly IStorageApiKeyResolver _apiKeyResolver;
     private readonly INetworkStorageProjectService _projectService;
-    private readonly INetworkStorageStore _scyllaStore;
+    private readonly INetworkStorageStore _networkStore;
     private readonly ILogger<RateLimitsHandler> _logger;
 
     public RateLimitsHandler(
         IStorageApiKeyResolver apiKeyResolver,
         INetworkStorageProjectService projectService,
-        INetworkStorageStore scyllaStore,
+        INetworkStorageStore networkStore,
         ILogger<RateLimitsHandler> logger)
     {
         _apiKeyResolver = apiKeyResolver;
         _projectService = projectService;
-        _scyllaStore = scyllaStore;
+        _networkStore = networkStore;
         _logger = logger;
     }
 
@@ -64,7 +64,7 @@ public sealed class RateLimitsHandler : INetworkStorageHandler
         StorageApiKeyAuthResult auth, string projectId, CancellationToken ct)
     {
         // BuildRateLimitRulesRow returns { project_id, rules_json (parsed JsonElement), version, ... }
-        var rulesRow = await _scyllaStore.ReadRateLimitRulesAsync(projectId, ct);
+        var rulesRow = await _networkStore.ReadRateLimitRulesAsync(projectId, ct);
         JsonElement rulesElement;
         if (rulesRow is { } row && row.TryGetProperty("rules_json", out var rulesJson)
             && rulesJson.ValueKind is not (JsonValueKind.Null or JsonValueKind.Undefined))
@@ -76,8 +76,8 @@ public sealed class RateLimitsHandler : INetworkStorageHandler
             rulesElement = JsonSerializer.SerializeToElement(Array.Empty<RateLimitRule>());
         }
 
-        // Extract endpoint-level rate limits from ScyllaDB endpoint definitions
-        var endpoints = await _scyllaStore.ListEndpointsAsync(projectId, ct);
+        // Extract endpoint-level rate limits from the store endpoint definitions
+        var endpoints = await _networkStore.ListEndpointsAsync(projectId, ct);
         var endpointRateLimits = new Dictionary<string, object>();
         foreach (var ep in endpoints)
         {

@@ -14,10 +14,10 @@ namespace SboxNetworkStorage.Server.Endpoints;
 /// <summary>
 /// Native .NET execution for Network Storage user-defined endpoints
 /// (<c>GET</c>/<c>POST /v3/endpoints/{projectId}/{endpointSlug}</c> and <c>/v1</c>
-/// aliases). Endpoint execution is served entirely by the deterministic ScyllaDB
-/// executor — there is no Bun proxy in the request path. An endpoint definition the
+/// aliases). Endpoint execution is served entirely by the deterministic the store
+/// executor — there is no legacy server proxy in the request path. An endpoint definition the
 /// executor cannot yet reproduce returns a reported 501, never a fallback to the
-/// decommissioned Bun storage-api.
+/// decommissioned legacy server storage-api.
 /// </summary>
 public static class EndpointExecutionEndpoints
 {
@@ -46,7 +46,7 @@ public static class EndpointExecutionEndpoints
     internal static async Task ExecuteEndpointAsync(HttpContext context)
     {
         // Buffer the request body so input parsing and any downstream middleware can
-        // read it. (Endpoint execution is .NET-only — there is no Bun proxy re-read.)
+        // read it. (Endpoint execution is .NET-only — there is no legacy server proxy re-read.)
         context.Request.EnableBuffering();
 
         var projectId = (string?)context.GetRouteValue("projectId") ?? "";
@@ -59,7 +59,7 @@ public static class EndpointExecutionEndpoints
         // A dedicated server authenticates with the Network Storage SECRET key alone —
         // it has no public key to send. Accept the secret key as a first-class
         // credential (x-secret-key and friends, matching the header/query names the
-        // Bun runtime honoured) instead of demanding x-api-key. Without this an
+        // legacy server runtime honoured) instead of demanding x-api-key. Without this an
         // `exposure: public` + `requiresSecretKey: true` endpoint called correctly by a
         // dedicated server 401'd with "Missing apiKey" before the key was ever read.
         // Credential order: an explicit x-api-key HEADER, then the secret key, then
@@ -173,7 +173,7 @@ public static class EndpointExecutionEndpoints
             ReadBodyString(body, "steamId")) ?? "";
         var hasSecretKey = string.Equals(auth.KeyType, "secret", StringComparison.OrdinalIgnoreCase);
 
-        // Host proxies act for another player via x-on-behalf-of. Matching Bun,
+        // Host proxies act for another player via x-on-behalf-of. Matching legacy server,
         // that delegation is trusted without s&box verification only for secret
         // keys (dedicated servers) and auth-disabled projects; required public-key
         // requests verify the delegated client in ResolvePlayerIdentityAsync.
@@ -212,7 +212,7 @@ public static class EndpointExecutionEndpoints
             body = decrypted.Payload;
         }
 
-        // Input source matches the Bun execution path: POST reads the JSON body,
+        // Input source matches the legacy server execution path: POST reads the JSON body,
         // GET (and other non-POST methods) read query parameters. Reserved auth keys
         // are never surfaced as endpoint input.
         var input = HttpMethods.IsPost(context.Request.Method)
@@ -273,7 +273,7 @@ public static class EndpointExecutionEndpoints
         }
         catch (Exception ex)
         {
-            // .NET-only: there is no Bun fallback (the legacy storage-api is
+            // .NET-only: there is no legacy server fallback (the legacy storage-api is
             // decommissioned). A native executor failure is a real error — report it
             // to /admin/errors + Discord + the per-project dashboard, return 500.
             await ReportNativeEndpointFailureAsync(context, projectId, endpointSlug, steamId, ex);
@@ -311,17 +311,17 @@ public static class EndpointExecutionEndpoints
                 return;
             }
             // .NET-only: the native executor does not yet support this endpoint
-            // definition, and there is no Bun fallback. Surface a clear, reported
-            // error so the gap gets filled in .NET — never silently proxied to Bun.
+            // definition, and there is no legacy server fallback. Surface a clear, reported
+            // error so the gap gets filled in .NET — never silently proxied to legacy server.
             await ReportNativeEndpointUnsupportedAsync(context, projectId, endpointSlug, steamId);
             await WriteEndpointErrorAsync(context, StatusCodes.Status501NotImplemented,
                 "ENDPOINT_NOT_SUPPORTED", "This endpoint is not yet supported by the .NET runtime.");
             return;
         }
 
-        // The native executor is authoritative now (no Bun in the success path), so a
+        // The native executor is authoritative now (no legacy server in the success path), so a
         // native 5xx must still reach /admin/errors + Discord + the per-project
-        // dashboard — the same visibility the shadow path provided before cutover.
+        // dashboard — the same visibility the dry-run path provided before cutover.
         //
         // 409 Conflict is reported with the same urgency as 5xx: it is a LOGICAL /
         // data-integrity error (e.g. SAVE_REGRESSION_BLOCKED / STALE_SAVE — a player's
@@ -434,7 +434,7 @@ public static class EndpointExecutionEndpoints
         var proxySignature = request.Headers["x-proxy-signature"].FirstOrDefault();
         var hasSboxCredentials = !string.IsNullOrEmpty(token) || !string.IsNullOrEmpty(clientSteamId)
             || !string.IsNullOrEmpty(clientToken) || !string.IsNullOrEmpty(proxySignature);
-        // Auth-disabled projects match Bun: s&box tokens are ignored and the
+        // Auth-disabled projects match legacy server: s&box tokens are ignored and the
         // claimed identity (or the proxied player, already plausibility-checked
         // by the caller) passes through. Presented auth-session tokens are still
         // validated (they are our own issuance). Required projects fall through
@@ -540,7 +540,7 @@ public static class EndpointExecutionEndpoints
 
     /// <summary>
     /// Builds endpoint input from query parameters for non-POST execution requests,
-    /// excluding reserved auth/identity keys. Mirrors the Bun execution path, which
+    /// excluding reserved auth/identity keys. Mirrors the legacy server execution path, which
     /// reads GET input from the query string.
     /// </summary>
     private static IReadOnlyDictionary<string, object?> BuildInputFromQuery(IQueryCollection query)
@@ -565,7 +565,7 @@ public static class EndpointExecutionEndpoints
     /// Header/query names a dedicated server may use to present its Network Storage
     /// secret key. Mirrors ENDPOINT_SECRET_HEADER_NAMES / ENDPOINT_SECRET_QUERY_NAMES
     /// in <c>controllers/storage-shared.js</c> so the .NET ingress accepts exactly the
-    /// same credentials the Bun runtime did.
+    /// same credentials the legacy server runtime did.
     /// </summary>
     private static readonly string[] SecretKeyHeaderNames =
     [

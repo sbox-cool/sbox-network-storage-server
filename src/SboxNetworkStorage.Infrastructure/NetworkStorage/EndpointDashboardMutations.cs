@@ -12,11 +12,11 @@ using SboxNetworkStorage.Application.Workspace;
 namespace SboxNetworkStorage.Infrastructure.NetworkStorage;
 
 /// <summary>
-/// Dashboard form/JSON mutations for endpoints.json (ported from Bun
+/// Dashboard form/JSON mutations for endpoints.json (ported from legacy server
 /// endpoint-modules/management-routes.js routeCreateEndpoint / routeEditEndpoint /
 /// routeDeleteEndpoint). Persists the full endpoint object — including
 /// <c>steps</c>, <c>input</c>, <c>response</c>, and <c>let</c> — so the native
-/// ScyllaDB executor (which reads the stored definition verbatim, never a
+/// The store executor (which reads the stored definition verbatim, never a
 /// recompiled source) serves the saved version.
 ///
 /// The .NET runtime has no YAML source compiler, so the client-supplied compiled
@@ -75,7 +75,7 @@ internal static partial class EndpointDashboardMutations
             ["slug"] = slug,
             ["method"] = NormalizeMethod(form.GetValueOrDefault("method")),
             ["description"] = Truncate((form.GetValueOrDefault("description") ?? "").Trim(), 256),
-            // Bun create always provisions an enabled endpoint; the disable toggle lives in edit.
+            // legacy server create always provisions an enabled endpoint; the disable toggle lives in edit.
             ["enabled"] = true,
             ["_deprecated"] = IsChecked(form.GetValueOrDefault("deprecated")),
             ["skipSboxAuth"] = IsChecked(form.GetValueOrDefault("skipSboxAuth")),
@@ -114,7 +114,7 @@ internal static partial class EndpointDashboardMutations
         var definition = ParseDefinition(form.GetValueOrDefault("definition"));
         var isSourceMode = IsSourceMode(form);
 
-        // Apply top-level fields only when the payload provides them (mirrors Bun's
+        // Apply top-level fields only when the payload provides them (mirrors legacy server's
         // `body.x !== undefined` guards), so a partial save never wipes settings.
         if (form.TryGetValue("name", out var name))
         {
@@ -139,7 +139,7 @@ internal static partial class EndpointDashboardMutations
         ValidateStepCount(definition);
 
         // Merge the compiled definition. Steps/input/response are the execution shape
-        // the ScyllaDB executor reads; only overwrite when present so a definition-less
+        // the store executor reads; only overwrite when present so a definition-less
         // metadata save preserves them.
         var steps = DefinitionProperty(definition, "steps");
         if (steps is not null) endpoint["steps"] = steps;
@@ -158,7 +158,7 @@ internal static partial class EndpointDashboardMutations
         if (publishTarget == "staged" && await HasRevisionDataAsync(client, storageOwnerUserId, projectId, cancellationToken))
         {
             // Staged saves never touch the live store — they overlay onto the next
-            // revision via revision-overrides.json, keyed by slug (matches Bun).
+            // revision via revision-overrides.json, keyed by slug (matches legacy server).
             var slug = ReadString(endpoint, "slug") ?? endpointId;
             await SaveStagedEndpointAsync(client, storageOwnerUserId, projectId, slug, endpoint, cancellationToken);
         }
@@ -207,7 +207,7 @@ internal static partial class EndpointDashboardMutations
         IWorkspaceStore client, long storageOwnerUserId, string projectId,
         List<Dictionary<string, object?>> endpoints, CancellationToken cancellationToken)
     {
-        // Dual-write the canonical resource (authoritative; routed to ScyllaDB by the
+        // Dual-write the canonical resource (authoritative; routed to the store by the
         // metadata client) and the legacy v3 mirror, matching CollectionDashboardMutations.
         await client.PutProjectResourceAsync(
             storageOwnerUserId, projectId, "endpoints.json", endpoints, cancellationToken);
@@ -264,7 +264,7 @@ internal static partial class EndpointDashboardMutations
         var letNode = DefinitionProperty(definition, "let");
         if (letNode is not null) endpoint["let"] = letNode;
 
-        // Notes precedence mirrors Bun: explicit form value first, then the definition.
+        // Notes precedence mirrors legacy server: explicit form value first, then the definition.
         if (form.TryGetValue("notes", out var formNotes))
         {
             var trimmed = formNotes.Trim();

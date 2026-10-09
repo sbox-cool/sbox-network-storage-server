@@ -13,14 +13,14 @@ using SboxNetworkStorage.Server.Middleware;
 namespace SboxNetworkStorage.Server.Endpoints;
 
 /// <summary>
-/// Native .NET Network Storage auth-session endpoints — the cutover of the Bun
+/// Native .NET Network Storage auth-session endpoints — the cutover of the legacy server
 /// <c>controllers/endpoint-modules/session-routes.js</c> handlers to ASP.NET Core.
 /// Serves <c>POST /v{1,3}/{auth-sessions,sessions}/{projectId}/{create,refresh,reauth,revoke}</c>
 /// directly (stateless HMAC tokens via <see cref="INetworkStorageAuthSessionService"/>,
 /// s&amp;box player auth via <see cref="ISboxAuthVerifier"/>), so authenticated
-/// session traffic no longer proxies to the legacy Bun storage runtime.
+/// session traffic no longer proxies to the legacy server storage runtime.
 ///
-/// <para>Wire-contract parity with Bun: every response is HTTP 200 with the logical
+/// <para>Wire-contract parity with legacy server: every response is HTTP 200 with the logical
 /// status in the body (<c>{ ok, status, ... }</c>) and an <c>X-Request-Id</c> header;
 /// game clients branch on <c>body.ok</c>, not the HTTP status code.</para>
 /// </summary>

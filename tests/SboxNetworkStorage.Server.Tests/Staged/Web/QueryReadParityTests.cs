@@ -109,7 +109,7 @@ public sealed class QueryReadParityTests
     private static HashSet<string> QueryKeys(QueryResult result)
         => (result.Entries ?? new()).Select(e => e.Key).OfType<string>().ToHashSet();
 
-    // ── Row builders matching ScyllaDbResourceStore.BuildRecordRow shapes ──
+    // ── Row builders matching INetworkStorageStore.BuildRecordRow shapes ──
 
     private static JsonElement ObjectRow(string key, object payload, bool deleted)
         => JsonSerializer.SerializeToElement(new Dictionary<string, object?>

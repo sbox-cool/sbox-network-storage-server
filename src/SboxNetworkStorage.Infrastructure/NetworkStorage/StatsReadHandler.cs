@@ -5,8 +5,8 @@ using SboxNetworkStorage.Domain.Workspace;
 
 namespace SboxNetworkStorage.Infrastructure.NetworkStorage;
 
-/// Read-only native candidate for <c>GET /api/storage/:projectId/stats/:steamId</c>.
-/// Mirrors Bun's <c>routeStorageApiStatsGet</c>: resolves the API key and returns the raw
+/// Read-only native handler for <c>GET /api/storage/:projectId/stats/:steamId</c>.
+/// Mirrors legacy server's <c>routeStorageApiStatsGet</c>: resolves the API key and returns the raw
 /// player-stats object. Read-only; never mutates.
 ///
 /// Store-authoritative: <c>NativeStatsHeartbeatHandler</c> persists through
@@ -109,7 +109,7 @@ public sealed class StatsReadHandler : INetworkStorageHandler
                 authDecision: keyType);
         }
 
-        // Not found → NOT_FOUND (matching Bun)
+        // Not found → NOT_FOUND (matching legacy server)
         if (stats.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null)
         {
             return NetworkStorageResult.Error(
@@ -120,7 +120,7 @@ public sealed class StatsReadHandler : INetworkStorageHandler
                 authDecision: keyType);
         }
 
-        // Return the raw stats object (matching Bun's formatResponse(request, stats))
+        // Return the raw stats object (matching legacy server's formatResponse(request, stats))
         return NetworkStorageResult.Ok(
             stats,
             storagePathsRead,
@@ -129,7 +129,7 @@ public sealed class StatsReadHandler : INetworkStorageHandler
 
     /// <summary>
     /// Read the player-stats record through the same data plane the heartbeat writes,
-    /// returning the raw stats object it persisted (matching Bun's
+    /// returning the raw stats object it persisted (matching legacy server's
     /// <c>formatResponse(request, stats)</c>). Absent stats stay a 404 — never
     /// synthesized or zero-filled.
     /// </summary>
@@ -155,7 +155,7 @@ public sealed class StatsReadHandler : INetworkStorageHandler
                 authDecision: keyType);
         }
 
-        // Not found → NOT_FOUND (matching Bun). The data plane already treats
+        // Not found → NOT_FOUND (matching legacy server). The data plane already treats
         // soft-deleted tombstones as missing.
         if (!read.Found)
         {

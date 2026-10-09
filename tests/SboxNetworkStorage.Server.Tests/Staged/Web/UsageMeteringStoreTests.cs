@@ -7,7 +7,7 @@ namespace SboxNetworkStorage.Server.Tests.NetworkStorage;
 /// <summary>
 /// Task 1.4 (fix-usage-and-query-telemetry): usage-counter store semantics on
 /// <see cref="InMemoryNetworkStorageStore"/> plus schema-migrator coverage for the V5
-/// usage tables. The fake mirrors the real ScyllaDB counter tables' additive
+/// usage tables. The fake mirrors the real store counter tables' additive
 /// merge behavior, so these tests pin the contract the tracker and read paths
 /// rely on.
 /// </summary>

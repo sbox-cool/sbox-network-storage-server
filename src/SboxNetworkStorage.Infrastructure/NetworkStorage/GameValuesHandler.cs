@@ -7,10 +7,10 @@ using SboxNetworkStorage.Domain.Workspace;
 namespace SboxNetworkStorage.Infrastructure.NetworkStorage;
 
 /// <summary>
-/// Read-only native candidate for <c>GET /v3/values/:projectId</c> (and <c>/v1/values/:projectId</c>).
-/// When <c>Scylla:Primary</c> is true, reads game-values and collections from ScyllaDB;
-/// falls back to the Bunny workspace client on ScyllaDB miss or connection error.
-/// Produces the Bun-compatible client payload via <see cref="ToClientFormat"/>.
+/// Read-only native handler for <c>GET /v3/values/:projectId</c> (and <c>/v1/values/:projectId</c>).
+/// Reads game-values and collections from the store;
+/// falls back to the workspace client on a store miss or connection error.
+/// Produces the legacy-compatible client payload via <see cref="ToClientFormat"/>.
 /// </summary>
 public sealed class GameValuesHandler : INetworkStorageHandler
 {
@@ -20,18 +20,18 @@ public sealed class GameValuesHandler : INetworkStorageHandler
 
     private readonly IStorageApiKeyResolver _apiKeyResolver;
     private readonly IWorkspaceStore _workspaceClient;
-    private readonly INetworkStorageStore _scyllaStore;
+    private readonly INetworkStorageStore _networkStore;
     private readonly ILogger<GameValuesHandler> _logger;
 
     public GameValuesHandler(
         IStorageApiKeyResolver apiKeyResolver,
         IWorkspaceStore workspaceClient,
-        INetworkStorageStore scyllaStore,
+        INetworkStorageStore networkStore,
         ILogger<GameValuesHandler> logger)
     {
         _apiKeyResolver = apiKeyResolver;
         _workspaceClient = workspaceClient;
-        _scyllaStore = scyllaStore;
+        _networkStore = networkStore;
         _logger = logger;
     }
 
@@ -121,9 +121,9 @@ public sealed class GameValuesHandler : INetworkStorageHandler
         StorageApiKeyAuthResult auth, string keyType, string projectId,
         string gameValuesPath, string collectionsPath, CancellationToken ct)
     {
-        // Read game_values and collections from ScyllaDB in parallel
-        var gvTask = _scyllaStore.ReadGameValuesAsync(projectId, ct);
-        var colTask = _scyllaStore.ListCollectionsAsync(projectId, ct);
+        // Read game_values and collections from the store in parallel
+        var gvTask = _networkStore.ReadGameValuesAsync(projectId, ct);
+        var colTask = _networkStore.ListCollectionsAsync(projectId, ct);
         await Task.WhenAll(gvTask, colTask);
 
         // Parse game-values payload
@@ -162,7 +162,7 @@ public sealed class GameValuesHandler : INetworkStorageHandler
                 ["visibility"] = visibility,
             };
 
-            // Relational and Scylla stores can return parsed JSON or JSON text.
+            // Relational and store stores can return parsed JSON or JSON text.
             if (col.TryGetProperty("definition_json", out var def))
             {
                 try
@@ -239,7 +239,7 @@ public sealed class GameValuesHandler : INetworkStorageHandler
     }
 
     /// <summary>
-    /// Port of Bun's <c>toClientFormat(gv, collections)</c>.
+    /// Port of legacy server's <c>toClientFormat(gv, collections)</c>.
     /// Merges legacy game-values.json items with collection-level constants/tables.
     /// Collection constants/tables take precedence over legacy game-values.
     /// </summary>
@@ -395,7 +395,7 @@ public sealed class GameValuesHandler : INetworkStorageHandler
 
     /// <summary>
     /// Normalise game-value items from the raw <c>gv</c> JSON.
-    /// Mirrors Bun's <c>normalizeGameValueItems</c>.
+    /// Mirrors legacy server's <c>normalizeGameValueItems</c>.
     /// </summary>
     private static List<JsonElement> ExtractItems(JsonElement gv)
     {

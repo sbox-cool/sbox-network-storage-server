@@ -3,8 +3,8 @@ using System.Text.Json;
 namespace SboxNetworkStorage.Storage;
 
 /// <summary>
-/// Abstraction over all 17 ScyllaDB Network Storage tables. The real
-/// implementation is <see cref="ScyllaDbResourceStore"/>; tests use
+/// Abstraction over all 17 the store Network Storage tables. The real
+/// implementation is <see cref="INetworkStorageStore"/>; tests use
 /// <c>InMemoryNetworkStorageStore</c>. Every method validates inputs before any
 /// CQL execution and stamps <c>version</c>/<c>updated_at_unix_ms</c>
 /// on writes.

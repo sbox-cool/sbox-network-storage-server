@@ -14,10 +14,10 @@ namespace SboxNetworkStorage.Server.Tests;
 /// <summary>
 /// Live-route parity tests for the .NET-native Network Storage query API family
 /// (<c>GET /v3/queries/{projectId}/{queryId}</c> and the <c>/v1</c> +
-/// <c>/api/storage</c> aliases). Proves the Bun→.NET cutover: queries execute
-/// natively via <c>NativeQueryExecutor</c> over ScyllaDB, the Bun wire contract
+/// <c>/api/storage</c> aliases). Proves the legacy server→.NET cutover: queries execute
+/// natively via <c>NativeQueryExecutor</c> over the store, the legacy server wire contract
 /// is preserved (HTTP 200 + result body, or HTTP status + error body), and no
-/// request is proxied to the dead Bun storage-api.
+/// request is proxied to the dead legacy server storage-api.
 /// </summary>
 public abstract class QueryEndpointsTests<TFactory> : IClassFixture<TFactory>
     where TFactory : SelfHostFactory
@@ -130,7 +130,7 @@ public abstract class QueryEndpointsTests<TFactory> : IClassFixture<TFactory>
         using var client = await CreateClientAsync();
         using var response = await client.SendAsync(new HttpRequestMessage(HttpMethod.Get, QueryUrl($"/v3/queries/{ProjectId}/test-query", withApiKey: false)));
 
-        // 401, not a Bun 502.
+        // 401, not a legacy server 502.
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
         var body = await BodyAsync(response);
         Assert.Equal("UNAUTHORIZED", body.GetProperty("error").GetProperty("code").GetString());

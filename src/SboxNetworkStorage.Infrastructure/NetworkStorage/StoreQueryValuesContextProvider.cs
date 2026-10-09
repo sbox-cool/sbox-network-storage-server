@@ -6,13 +6,13 @@ using SboxNetworkStorage.Infrastructure.NetworkStorage.Storage;
 namespace SboxNetworkStorage.Infrastructure.NetworkStorage;
 
 /// <summary>
-/// ScyllaDB-backed <see cref="IQueryValuesContextProvider"/>. Reads game-values
-/// and collections from ScyllaDB, then flattens them into a nested dictionary
-/// keyed by group/table id. Port of Bun <c>getQueryValuesContext</c> +
+/// The store-backed <see cref="IQueryValuesContextProvider"/>. Reads game-values
+/// and collections from the store, then flattens them into a nested dictionary
+/// keyed by group/table id. Port of legacy server <c>getQueryValuesContext</c> +
 /// <c>flattenGameValues</c> (<c>tools/sbox/game-values.js</c>).
 ///
 /// <para>Collection-level constants and tables take precedence over legacy
-/// game-values items (same priority as the Bun implementation).</para>
+/// game-values items (same priority as the legacy server implementation).</para>
 /// </summary>
 public sealed class StoreQueryValuesContextProvider : IQueryValuesContextProvider
 {
@@ -31,7 +31,7 @@ public sealed class StoreQueryValuesContextProvider : IQueryValuesContextProvide
 
         try
         {
-            // Read game_values and collections from ScyllaDB in parallel.
+            // Read game_values and collections from the store in parallel.
             var gvTask = _store.ReadGameValuesAsync(projectId, cancellationToken);
             var colTask = _store.ListCollectionsAsync(projectId, cancellationToken);
             await Task.WhenAll(gvTask, colTask);

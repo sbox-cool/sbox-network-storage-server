@@ -6,7 +6,7 @@ using System.Text.RegularExpressions;
 namespace SboxNetworkStorage.Application.NetworkStorage.Endpoints;
 
 /// <summary>
-/// Faithful C# port of the Bun Network Storage endpoint expression engine
+/// Faithful C# port of the legacy server Network Storage endpoint expression engine
 /// (<c>tools/sbox/endpoint-expression.js</c>). Evaluates <c>{{template}}</c>
 /// strings, condition objects, math expressions, and rich aggregate expressions
 /// with the exact JavaScript semantics the live data plane relies on

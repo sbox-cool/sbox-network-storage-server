@@ -12,20 +12,20 @@ using SboxNetworkStorage.Application.Errors;
 
 namespace SboxNetworkStorage.Server.Tests;
 
-// Pins the SpacetimeDB-decommission behavior: project audit logs and player
-// analytics are written to and read from ScyllaDB (Bunny is consulted only as a
-// legacy fallback when ScyllaDB has nothing). Covers the write-target swap
-// (ScyllaAuditLogger / ScyllaPlayerAnalyticsService) and the ScyllaDB read
+// Pins the legacy store-decommission behavior: project audit logs and player
+// analytics are written to and read from the store (workspace is consulted only as a
+// legacy fallback when the store has nothing). Covers the write-target swap
+// (StoreAuditLogger / QueuedPlayerAnalyticsService) and the store read
 // mapping used by the audit dashboard.
-public sealed class ScyllaNetworkStorageAuditAnalyticsTests
+public sealed class StoreNetworkStorageAuditAnalyticsTests
 {
     private static NetworkStorageProjectService CreateService(InMemoryNetworkStorageStore store)
         => new(
-            bunnyWorkspaceClient: null!,
-            bunnyStorageEnumerator: null!,
+            workspaceStore: null!,
+            workspaceStorageEnumerator: null!,
             new ConfigurationBuilder().Build(),
             keyCdnWriter: null!,
-            scyllaStore: store,
+            networkStore: store,
             NullLogger<NetworkStorageProjectService>.Instance);
 
     private static AuditLogRequest MakeAudit(string projectId, string action, string resourceName)
@@ -41,7 +41,7 @@ public sealed class ScyllaNetworkStorageAuditAnalyticsTests
             Diff: null);
 
     [Fact]
-    public async Task AuditLog_WrittenToScylla_RoundTripsThroughBrowseProjectLogs()
+    public async Task AuditLog_WrittenToStore_RoundTripsThroughBrowseProjectLogs()
     {
         var store = new InMemoryNetworkStorageStore();
         var auditLogger = new StoreAuditLogger(store, NullLogger<StoreAuditLogger>.Instance);
@@ -100,7 +100,7 @@ public sealed class ScyllaNetworkStorageAuditAnalyticsTests
     }
 
     [Fact]
-    public async Task PlayerAnalytics_EventWrittenToScylla()
+    public async Task PlayerAnalytics_EventWrittenToStore()
     {
         var store = new InMemoryNetworkStorageStore();
         var analytics = new PlayerAnalyticsIngester(store, TimeProvider.System, new AnalyticsIngestionFailureTracker(Microsoft.Extensions.Logging.Abstractions.NullLogger<AnalyticsIngestionFailureTracker>.Instance), NullLogger<PlayerAnalyticsIngester>.Instance);

@@ -8,24 +8,24 @@ using Xunit;
 namespace SboxNetworkStorage.Server.Tests;
 
 /// <summary>
-/// Regression tests for <see cref="ScyllaEndpointShadowDataSource"/>.
+/// Regression tests for <see cref="StoreEndpointDataSource"/>.
 ///
-/// The real ScyllaDB <c>records</c> row is a wrapper
+/// The real store <c>records</c> row is a wrapper
 /// (<c>{record_key, payload_json:{…}, deleted, version}</c>) where
 /// <c>payload_json</c> is a nested object. A read/scan step must receive the inner
 /// payload, never the wrapper — otherwise every <c>{{step.field}}</c> reference
 /// resolves to undefined.
 ///
 /// The split-brain regression tests below pin the fix for the cerbralone/sherwood
-/// incident: the website collections browser reads ScyllaDB directly
+/// incident: the website collections browser reads the store directly
 /// (<c>NetworkStorageController.BrowseCollectionDataApi</c>) while the game-client
-/// load-player endpoint reads via <c>ScyllaEndpointShadowDataSource</c>. Before the
-/// fix, the shadow data source ALWAYS fell back to Bunny CDN on a ScyllaDB miss,
-/// even when <c>Scylla:Primary=true</c> (production post-cutover). That meant a
-/// stale <c>saved.json</c> in Bunny resurrected an old save (totalLevel 391)
-/// while the dashboard showed the current ScyllaDB record (399).
+/// load-player endpoint reads via <c>StoreEndpointDataSource</c>. Before the
+/// fix, the data source ALWAYS fell back to workspace CDN on a store miss,
+/// even when <c>store:Primary=true</c> (production post-cutover). That meant a
+/// stale <c>saved.json</c> in workspace resurrected an old save (totalLevel 391)
+/// while the dashboard showed the current store record (399).
 /// </summary>
-public sealed class ScyllaEndpointShadowDataSourceTests
+public sealed class StoreEndpointDataSourceTests
 {
     private static JsonElement Row(string payloadJson, bool deleted)
         => JsonSerializer.SerializeToElement(new
@@ -80,8 +80,8 @@ public sealed class ScyllaEndpointShadowDataSourceTests
     }
 
     // ── Split-brain regression: the store is the only record source ──
-    // PORT-ADAPTED: the self-hosted data source has no Bunny fallback (removed with the
-    // object bucket), so the Bunny fake/workspace repository arguments are gone and the
+    // PORT-ADAPTED: the self-hosted data source has no workspace fallback (removed with the
+    // object bucket), so the workspace fake/workspace repository arguments are gone and the
     // Primary=false fallback test is not ported (see PORTING.md).
 
 
@@ -89,11 +89,11 @@ public sealed class ScyllaEndpointShadowDataSourceTests
         => new(store, NullLogger<StoreEndpointDataSource>.Instance);
 
     /// <summary>
-    /// When Scylla:Primary=true (production post-cutover), the store value is served.
+    /// When store:Primary=true (production post-cutover), the store value is served.
     /// Reproduces the cerbralone incident: dashboard showed 399, game loaded 391.
     /// </summary>
     [Fact]
-    public async Task ReadRecordAsync_PrimaryTrue_ScyllaHit_ReturnsScyllaValue_NotBunny()
+    public async Task ReadRecordAsync_PrimaryTrue_StoreHit_ReturnsStoreValue_NotWorkspace()
     {
         var store = new InMemoryNetworkStorageStore();
         // The store has the CURRENT save: totalLevel = 399 (payload_json is a nested object, as production returns it).
@@ -109,10 +109,10 @@ public sealed class ScyllaEndpointShadowDataSourceTests
     }
 
     /// <summary>
-    /// When Scylla:Primary=true and the record is ABSENT from the store, the read must return null.
+    /// When store:Primary=true and the record is ABSENT from the store, the read must return null.
     /// </summary>
     [Fact]
-    public async Task ReadRecordAsync_PrimaryTrue_ScyllaAbsent_DoesNotResurrectBunnyStaleSave()
+    public async Task ReadRecordAsync_PrimaryTrue_StoreAbsent_DoesNotResurrectWorkspaceStaleSave()
     {
         var store = new InMemoryNetworkStorageStore();
 

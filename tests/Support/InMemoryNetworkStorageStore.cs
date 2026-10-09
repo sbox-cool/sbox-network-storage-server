@@ -8,7 +8,7 @@ namespace SboxNetworkStorage.Storage;
 /// <summary>
 /// In-memory implementation of <see cref="INetworkStorageStore"/> for tests and
 /// throwaway servers. Rows have exactly the shape, ordering, overwrite and
-/// validation semantics of the production ScyllaDB store (verified by the
+/// validation semantics of the production the store store (verified by the
 /// storage conformance suite). Tables are dictionaries keyed by the primary key
 /// parts joined with U+001F, which no ID can contain.
 /// </summary>

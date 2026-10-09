@@ -9,16 +9,16 @@ using System.Text.Json;
 namespace SboxNetworkStorage.Infrastructure.NetworkStorage;
 
 /// <summary>
-/// ScyllaDB-backed Network Storage API-key resolver.
+/// The store-backed Network Storage API-key resolver.
 ///
-/// Public keys are read directly by exact <c>api_key</c> from the ScyllaDB
+/// Public keys are read directly by exact <c>api_key</c> from the store
 /// <c>api_keys</c> table. Secret keys derive the HMAC-based
 /// <c>key_identifier</c>, scan the project's keys, then verify the incoming raw
-/// key's SHA-256 against <c>key_hash</c> exactly like the Bunny resolver.
+/// key's SHA-256 against <c>key_hash</c> exactly like the workspace resolver.
 ///
-/// ScyllaDB is authoritative once this resolver is active: misses return null,
+/// The store is authoritative once this resolver is active: misses return null,
 /// not a secondary-store fallback. This removes the last auth-critical runtime
-/// dependency outside ScyllaDB.
+/// dependency outside the store.
 /// </summary>
 public sealed class StoreStorageApiKeyResolver(
     INetworkStorageStore store,
@@ -60,7 +60,7 @@ public sealed class StoreStorageApiKeyResolver(
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            // ScyllaDB unreachable or under-replicated (UnavailableException,
+            // The store unreachable or under-replicated (UnavailableException,
             // NoHostAvailableException, socket errors, etc.). Log and return
             // null so callers get their existing auth failure response instead
             // of a backend 500. The await above is intentional: returning the

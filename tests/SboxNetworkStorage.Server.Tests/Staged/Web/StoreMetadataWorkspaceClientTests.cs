@@ -16,21 +16,21 @@ using Xunit;
 namespace SboxNetworkStorage.Server.Tests;
 
 // Metadata is authoritative in the configured store; workspace objects retain raw paths.
-public sealed class ScyllaMetadataWorkspaceClientTests
+public sealed class StoreMetadataWorkspaceClientTests
 {
     private const string Project = "proj_meta";
     private const long Owner = 77;
 
-    private static StoreMetadataWorkspaceClient Create(InMemoryNetworkStorageStore store, FakeBunny inner)
+    private static StoreMetadataWorkspaceClient Create(InMemoryNetworkStorageStore store, FakeWorkspace inner)
         => new(inner, store, NullLogger<StoreMetadataWorkspaceClient>.Instance);
 
     // ── Collections round-trip ──
 
     [Fact]
-    public async Task Primary_PutCollections_WritesScyllaAndMirrorsBunny_AndRoundTrips()
+    public async Task Primary_PutCollections_WritesStoreAndMirrorsWorkspace_AndRoundTrips()
     {
         var store = new InMemoryNetworkStorageStore();
-        var inner = new FakeBunny();
+        var inner = new FakeWorkspace();
         var client = Create(store, inner);
 
         var collections = new List<Dictionary<string, object?>>
@@ -56,7 +56,7 @@ public sealed class ScyllaMetadataWorkspaceClientTests
     public async Task Primary_PutSmallerList_ReconcilesDeletes()
     {
         var store = new InMemoryNetworkStorageStore();
-        var inner = new FakeBunny();
+        var inner = new FakeWorkspace();
         var client = Create(store, inner);
 
         await client.PutProjectResourceAsync(Owner, Project, "collections.json", new List<Dictionary<string, object?>>
@@ -78,14 +78,14 @@ public sealed class ScyllaMetadataWorkspaceClientTests
     }
 
     [Fact]
-    public async Task Primary_GetWhenScyllaEmpty_ReturnsEmptyList_DoesNotFallBackToBunny()
+    public async Task Primary_GetWhenStoreEmpty_ReturnsEmptyList_DoesNotFallBackToWorkspace()
     {
-        // ScyllaDB is authoritative for metadata. An empty list in ScyllaDB is a
+        // The store is authoritative for metadata. An empty list in the store is a
         // valid answer ("this project has zero collections") and MUST NOT fall
-        // back to Bunny. Falling back made a missing/500ing Bunny workflows.json
+        // back to workspace. Falling back made a missing/500ing workspace workflows.json
         // surface as a 500 to the game client — the production outage this pins.
         var store = new InMemoryNetworkStorageStore();
-        var inner = new FakeBunny();
+        var inner = new FakeWorkspace();
         await inner.PutProjectResourceAsync(Owner, Project, "collections.json", new List<Dictionary<string, object?>>
         {
             new() { ["id"] = "legacy", ["name"] = "Legacy" },
@@ -100,14 +100,14 @@ public sealed class ScyllaMetadataWorkspaceClientTests
     }
 
     [Fact]
-    public async Task Primary_GetWorkflowsEmpty_ReturnsEmptyArray_DoesNotFallBackToBunny()
+    public async Task Primary_GetWorkflowsEmpty_ReturnsEmptyArray_DoesNotFallBackToWorkspace()
     {
         // Reproduces the production incident: workflows.json read with zero
-        // workflows in ScyllaDB previously returned null → fell back to Bunny →
-        // Bunny 500 → InvalidOperationException → 500 to the game client. ScyllaDB
+        // workflows in the store previously returned null → fell back to workspace →
+        // workspace 500 → InvalidOperationException → 500 to the game client. the store
         // is now authoritative; an empty workflows list returns an empty array.
         var store = new InMemoryNetworkStorageStore();
-        var inner = new FakeBunny();
+        var inner = new FakeWorkspace();
         var client = Create(store, inner);
 
         var read = await client.GetProjectResourceAsync<List<JsonElement>>(Owner, Project, "workflows.json", CancellationToken.None);
@@ -117,13 +117,13 @@ public sealed class ScyllaMetadataWorkspaceClientTests
     }
 
     [Fact]
-    public async Task Primary_GetWorkflowsText_ReadsFromScyllaDB()
+    public async Task Primary_GetWorkflowsText_ReadsFromStore()
     {
         // ProjectActivityLoader reads workflows via the text path; it must route
-        // through ScyllaDB (not Bunny) so activity timestamps match the
+        // through the store (not workspace) so activity timestamps match the
         // authoritative store.
         var store = new InMemoryNetworkStorageStore();
-        var inner = new FakeBunny();
+        var inner = new FakeWorkspace();
         var client = Create(store, inner);
 
         await client.PutProjectResourceAsync(Owner, Project, "workflows.json", new List<Dictionary<string, object?>>
@@ -138,10 +138,10 @@ public sealed class ScyllaMetadataWorkspaceClientTests
     }
 
     [Fact]
-    public async Task Primary_GetWorkflowsTextEmpty_ReturnsEmptyArrayText_DoesNotFallBackToBunny()
+    public async Task Primary_GetWorkflowsTextEmpty_ReturnsEmptyArrayText_DoesNotFallBackToWorkspace()
     {
         var store = new InMemoryNetworkStorageStore();
-        var inner = new FakeBunny();
+        var inner = new FakeWorkspace();
         var client = Create(store, inner);
 
         var text = await client.GetProjectResourceTextAsync(Owner, Project, "workflows.json", CancellationToken.None);
@@ -156,7 +156,7 @@ public sealed class ScyllaMetadataWorkspaceClientTests
     public async Task Primary_GameValues_SingletonRoundTrip()
     {
         var store = new InMemoryNetworkStorageStore();
-        var inner = new FakeBunny();
+        var inner = new FakeWorkspace();
         var client = Create(store, inner);
 
         var payload = new Dictionary<string, object?> { ["items"] = new[] { "a", "b" }, ["version"] = "v3" };
@@ -174,7 +174,7 @@ public sealed class ScyllaMetadataWorkspaceClientTests
     public async Task Primary_Queries_ProjectsSecretKeyColumn_AndRoundTrips()
     {
         var store = new InMemoryNetworkStorageStore();
-        var inner = new FakeBunny();
+        var inner = new FakeWorkspace();
         var client = Create(store, inner);
 
         var queries = new List<Dictionary<string, object?>>
@@ -193,10 +193,10 @@ public sealed class ScyllaMetadataWorkspaceClientTests
     // ── Non-metadata passthrough ──
 
     [Fact]
-    public async Task NonMetadataPath_PassesThrough_WithoutTouchingScylla()
+    public async Task NonMetadataPath_PassesThrough_WithoutTouchingStore()
     {
         var store = new InMemoryNetworkStorageStore();
-        var inner = new FakeBunny();
+        var inner = new FakeWorkspace();
         var client = Create(store, inner);
 
         await client.PutProjectResourceAsync(Owner, Project, "keys.json", new[] { "k1" }, CancellationToken.None);
@@ -209,10 +209,10 @@ public sealed class ScyllaMetadataWorkspaceClientTests
     // ── Project list ──
 
     [Fact]
-    public async Task Primary_GetUserProjects_ReadsFromScyllaDB()
+    public async Task Primary_GetUserProjects_ReadsFromStore()
     {
         var store = new InMemoryNetworkStorageStore();
-        var inner = new FakeBunny();
+        var inner = new FakeWorkspace();
         var client = Create(store, inner);
 
         var projectPayload = new Dictionary<string, object?> { ["name"] = "My Game", ["enabled"] = true };
@@ -226,10 +226,10 @@ public sealed class ScyllaMetadataWorkspaceClientTests
     }
 
     [Fact]
-    public async Task Primary_GetUserProjects_FallsBackToBunnyWhenEmpty()
+    public async Task Primary_GetUserProjects_FallsBackToWorkspaceWhenEmpty()
     {
         var store = new InMemoryNetworkStorageStore();
-        var inner = new FakeBunny();
+        var inner = new FakeWorkspace();
         inner.ProjectsByUser[77] = new List<WorkspaceProject> { new("legacy", "Legacy", null, true, null, null, null) };
         var client = Create(store, inner);
 
@@ -239,10 +239,10 @@ public sealed class ScyllaMetadataWorkspaceClientTests
     }
 
     [Fact]
-    public async Task Primary_SaveUserProjects_WritesToScyllaAndMirrors()
+    public async Task Primary_SaveUserProjects_WritesToStoreAndMirrors()
     {
         var store = new InMemoryNetworkStorageStore();
-        var inner = new FakeBunny();
+        var inner = new FakeWorkspace();
         var client = Create(store, inner);
 
         var projects = new List<WorkspaceProject>
@@ -261,7 +261,7 @@ public sealed class ScyllaMetadataWorkspaceClientTests
     public async Task Primary_SaveUserProjects_DeletesRemovedMemberships()
     {
         var store = new InMemoryNetworkStorageStore();
-        var inner = new FakeBunny();
+        var inner = new FakeWorkspace();
         var client = Create(store, inner);
 
         await client.SaveUserProjectsAsync(77, new List<WorkspaceProject>
@@ -282,7 +282,7 @@ public sealed class ScyllaMetadataWorkspaceClientTests
     public async Task Primary_GetUserProjects_UsesMembershipId_WhenPayloadOmitsId()
     {
         var store = new InMemoryNetworkStorageStore();
-        var inner = new FakeBunny();
+        var inner = new FakeWorkspace();
         var client = Create(store, inner);
 
         var projectPayload = new Dictionary<string, object?> { ["name"] = "No Id Game", ["enabled"] = true };
@@ -299,7 +299,7 @@ public sealed class ScyllaMetadataWorkspaceClientTests
     public async Task Primary_SaveUserProjects_CanAddProject_WhenExistingPayloadOmitsId()
     {
         var store = new InMemoryNetworkStorageStore();
-        var inner = new FakeBunny();
+        var inner = new FakeWorkspace();
         var client = Create(store, inner);
 
         var projectPayload = new Dictionary<string, object?> { ["name"] = "No Id Game", ["enabled"] = true };
@@ -321,7 +321,7 @@ public sealed class ScyllaMetadataWorkspaceClientTests
     public async Task Primary_Pages_ReadWriteRoundTrip()
     {
         var store = new InMemoryNetworkStorageStore();
-        var inner = new FakeBunny();
+        var inner = new FakeWorkspace();
         var client = Create(store, inner);
 
         var pageContent = new Dictionary<string, object?> { ["title"] = "Welcome", ["html"] = "<h1>Hi</h1>" };
@@ -333,10 +333,10 @@ public sealed class ScyllaMetadataWorkspaceClientTests
     }
 
     [Fact]
-    public async Task Primary_PagesIndex_WritesToScylla()
+    public async Task Primary_PagesIndex_WritesToStore()
     {
         var store = new InMemoryNetworkStorageStore();
-        var inner = new FakeBunny();
+        var inner = new FakeWorkspace();
         var client = Create(store, inner);
 
         var pages = new List<Dictionary<string, object?>>
@@ -354,16 +354,16 @@ public sealed class ScyllaMetadataWorkspaceClientTests
     }
 
     [Fact]
-    public async Task Primary_DeleteRawAsync_PageContent_DeletesFromScyllaAndBunny()
+    public async Task Primary_DeleteRawAsync_PageContent_DeletesFromStoreAndWorkspace()
     {
         // When a page slug is renamed or deleted, DeleteRawAsync is called with
-        // the full Bunny path. ScyllaDB must also delete the page content so the
+        // the full workspace path. the store must also delete the page content so the
         // authoritative store stays consistent.
         var store = new InMemoryNetworkStorageStore();
-        var inner = new FakeBunny();
+        var inner = new FakeWorkspace();
         var client = Create(store, inner);
 
-        // Seed a page in ScyllaDB
+        // Seed a page in the store
         await store.UpsertPageAsync(Project, "old-slug", "Old Title", "{}", 1, 1, CancellationToken.None);
         Assert.Single(store.Pages);
 
@@ -371,22 +371,22 @@ public sealed class ScyllaMetadataWorkspaceClientTests
         var rawPath = $"network-storage/users/{Owner}/{Project}/pages/old-slug.json";
         await client.DeleteRawAsync(rawPath, CancellationToken.None);
 
-        // ScyllaDB page should be gone
+        // The store page should be gone
         Assert.Empty(store.Pages);
     }
 
     [Fact]
-    public async Task Primary_DeleteRawAsync_NonPagePath_OnlyDeletesBunny()
+    public async Task Primary_DeleteRawAsync_NonPagePath_OnlyDeletesWorkspace()
     {
-        // Non-page raw paths (e.g. backup blobs, key files) should only delete from Bunny.
+        // Non-page raw paths (e.g. backup blobs, key files) should only delete from workspace.
         var store = new InMemoryNetworkStorageStore();
-        var inner = new FakeBunny();
+        var inner = new FakeWorkspace();
         var client = Create(store, inner);
 
         var rawPath = "network-storage-api/keys/projects/proj_meta/sk_test.json";
         await client.DeleteRawAsync(rawPath, CancellationToken.None);
 
-        // ScyllaDB should be untouched
+        // The store should be untouched
         Assert.Empty(store.Pages);
     }
 
@@ -395,7 +395,7 @@ public sealed class ScyllaMetadataWorkspaceClientTests
     public async Task Primary_UsageReadsMonthlyTrafficAndCumulativeStorage()
     {
         var store = new InMemoryNetworkStorageStore();
-        var inner = new FakeBunny();
+        var inner = new FakeWorkspace();
         var client = Create(store, inner);
         var currentMonth = DateTimeOffset.UtcNow.ToString("yyyy-MM");
         var previousMonth = DateTimeOffset.UtcNow.AddMonths(-1).ToString("yyyy-MM");
@@ -423,9 +423,9 @@ public sealed class ScyllaMetadataWorkspaceClientTests
         Assert.Equal(3_072, usage.StorageBytes);
     }
 
-    // ── Fake bunny ──
+    // ── Fake workspace ──
 
-    private sealed class FakeBunny : IWorkspaceStore
+    private sealed class FakeWorkspace : IWorkspaceStore
     {
         private static readonly JsonSerializerOptions Camel = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
         private readonly Dictionary<string, string> _resources = new(StringComparer.Ordinal);

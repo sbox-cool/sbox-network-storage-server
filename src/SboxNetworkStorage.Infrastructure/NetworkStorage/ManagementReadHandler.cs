@@ -6,14 +6,14 @@ using SboxNetworkStorage.Domain.Workspace;
 namespace SboxNetworkStorage.Infrastructure.NetworkStorage;
 
 /// <summary>
-/// Read-only native candidate for <c>GET /v3/manage/:projectId/*</c> routes. Mirrors Bun's
+/// Read-only native handler for <c>GET /v3/manage/:projectId/*</c> routes. Mirrors legacy server's
 /// management GET handlers: resolves auth via secret API key, reads CDN-backed resource JSON
 /// files (endpoints, collections, workflows, queries, game-values, tests, game-package, rate-limit-rules,
-/// settings/config, validate), and produces Bun-compatible response shapes.
+/// settings/config, validate), and produces legacy-compatible response shapes.
 ///
 /// Two routes are explicitly unsupported:
 ///  <list type="bullet">
-///    <item><c>sync-jobs/:jobId</c> — sync jobs are ephemeral in-memory state (Map in Bun) with no CDN persistence.</item>
+///    <item><c>sync-jobs/:jobId</c> — sync jobs are ephemeral in-memory state (Map in legacy server) with no CDN persistence.</item>
 ///    <item><c>agent-manifest</c> — complex aggregate combining endpoints, game-package, and manifest
 ///          metadata with URL construction; deferred.</item>
 ///  </list>
@@ -223,7 +223,7 @@ public sealed class ManagementReadHandler : INetworkStorageHandler
                 authDecision: authDecision);
         }
 
-        // Add Unix timestamp convenience fields matching Bun's withUnixTimestamps()
+        // Add Unix timestamp convenience fields matching legacy server's withUnixTimestamps()
         var obj = new Dictionary<string, object?>();
         foreach (var prop in result.Value.EnumerateObject())
         {
@@ -301,7 +301,7 @@ public sealed class ManagementReadHandler : INetworkStorageHandler
     private Task<NetworkStorageResult> HandleSettingsAsync(
         WorkspaceProject project, long userId, string projectId, string authDecision)
     {
-        // Mirrors Bun's projectSettingsForManage() — derives settings from the BunnyProject model
+        // Mirrors legacy server's projectSettingsForManage() — derives settings from the workspace project model
         var settings = new Dictionary<string, object?>
         {
             ["enabled"] = project.Enabled,
@@ -326,7 +326,7 @@ public sealed class ManagementReadHandler : INetworkStorageHandler
             ["revisionTestOutdatedLive"] = project.RevisionTestOutdatedLive == true,
         };
 
-        // Bun structures for backward compatibility — settings and config carry the same data
+        // legacy server structures for backward compatibility — settings and config carry the same data
         var enableAuthSessions = project.EnableAuthSessions == true;
         var enableEncryptedRequests = project.EnableEncryptedRequests == true;
 
@@ -351,7 +351,7 @@ public sealed class ManagementReadHandler : INetworkStorageHandler
     private Task<NetworkStorageResult> HandleValidateAsync(
         string apiKey, StorageApiKeyAuthResult auth, string projectId, long ownerUserId)
     {
-        // Bun's routeManageValidate builds a checks result: projectId check + secretKey check
+        // legacy server's routeManageValidate builds a checks result: projectId check + secretKey check
         // Since we already resolved the key to reach here, both checks succeed.
         var checks = new Dictionary<string, object>
         {

@@ -7,7 +7,7 @@ namespace SboxNetworkStorage.Application.NetworkStorage;
 /// Network Storage API-key permission policy. Faithful .NET port of the legacy
 /// <c>checkPermission(keyData, scope, level)</c> in
 /// <c>controllers/storage-shared.js</c>, so the .NET data plane enforces the
-/// same access rules as the (retiring) Bun runtime.
+/// same access rules as the (retiring) legacy server runtime.
 ///
 /// Rules (in order):
 /// <list type="bullet">

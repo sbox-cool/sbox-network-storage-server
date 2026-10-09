@@ -157,7 +157,7 @@ public abstract class EndpointPlayerIdentityHttpTests<TFactory> : IClassFixture<
 
     // Regression: host proxies (NetworkStorageHostProxyClient) send their own
     // x-steam-id plus x-on-behalf-of. Ignoring the delegation wrote the guest's
-    // data into the host's own record. Bun trusts it for secret keys and
+    // data into the host's own record. legacy server trusts it for secret keys and
     // auth-disabled projects.
     [SkippableTheory]
     [InlineData(true, true)]
@@ -192,7 +192,7 @@ public abstract class EndpointPlayerIdentityHttpTests<TFactory> : IClassFixture<
     [SkippableFact]
     public async Task AuthDisabledProjectIgnoresUnverifiableTokensMatchingLegacyPassthrough()
     {
-        // Bun parity: auth-disabled projects ignore s&box tokens entirely, so a
+        // legacy server parity: auth-disabled projects ignore s&box tokens entirely, so a
         // placeholder/invalid token must not fail or trigger verification.
         using var setup = await CreateAsync(required: false);
         using var invalid = Request(setup, "body", Victim, "x-sbox-token", "invalid");

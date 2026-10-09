@@ -11,8 +11,8 @@ using SboxNetworkStorage.Application.NetworkStorage.Endpoints;
 namespace SboxNetworkStorage.Infrastructure.NetworkStorage.Storage;
 
 /// <summary>
-/// Records query run outcomes (last-run + log) to ScyllaDB. Fire-and-forget
-/// from <see cref="NativeQueryExecutor"/> — a slow ScyllaDB write MUST NOT
+/// Records query run outcomes (last-run + log) to the store. Fire-and-forget
+/// from <see cref="NativeQueryExecutor"/> — a slow the store write MUST NOT
 /// stall the query response. Throttled to one record per (queryId, minute)
 /// per process to avoid log spam on hot queries; <c>force</c> bypasses the
 /// throttle for explicit reruns. The <c>query_run_logs</c> table carries a
@@ -24,7 +24,7 @@ public interface IQueryRunRecorder
     void Record(string projectId, string queryId, string runAtIso, long durationMs, int keysScanned, int recordsReturned, bool fromCache, bool force);
 }
 
-/// <summary>Default no-op recorder (used when ScyllaDB recording is disabled).</summary>
+/// <summary>Default no-op recorder (used when the store recording is disabled).</summary>
 public sealed class NullQueryRunRecorder : IQueryRunRecorder
 {
     public static NullQueryRunRecorder Instance { get; } = new();
@@ -33,8 +33,8 @@ public sealed class NullQueryRunRecorder : IQueryRunRecorder
 }
 
 /// <summary>
-/// ScyllaDB-backed recorder. Throttles per (projectId, queryId) to one
-/// log per minute unless <c>force</c> is set. The ScyllaDB write runs on the
+/// The store-backed recorder. Throttles per (projectId, queryId) to one
+/// log per minute unless <c>force</c> is set. The store write runs on the
 /// ThreadPool in a service-provider scope (the store is scoped) and is detached
 /// from the request lifetime — see <see cref="NetworkStorageUsageTracker"/> for
 /// the same pattern. A bounded internal timeout (10 s) ensures an aborted
@@ -55,7 +55,7 @@ public sealed class StoreQueryRunRecorder(IServiceScopeFactory scopeFactory, ILo
             return; // throttled — the latest-run row is already recent
 
         _lastRecordUnixMs[key] = nowMs;
-        // Fire-and-forget: never block the request path on a ScyllaDB write.
+        // Fire-and-forget: never block the request path on a store write.
         // Detached from the request token (bounded timeout instead) so an
         // aborted request doesn't cancel the write mid-commit.
         _ = System.Threading.Tasks.Task.Run(async () =>
@@ -77,11 +77,11 @@ public sealed class StoreQueryRunRecorder(IServiceScopeFactory scopeFactory, ILo
 }
 
 /// <summary>
-/// Native .NET executor for Network Storage queries. Full parity port of the Bun
+/// Native .NET executor for Network Storage queries. Full parity port of the legacy server
 /// <c>tools/sbox/queries.js</c> engine: multi-source merge, foreign-key joins,
 /// computed fields, object-valued metric fields, output column normalization,
 /// in-memory result cache with TTL, and performance tracking. Reads query
-/// definitions and source records from ScyllaDB. No Bun fallback.
+/// definitions and source records from the store. No legacy server fallback.
 /// </summary>
 public sealed partial class NativeQueryExecutor
 {
@@ -107,7 +107,7 @@ public sealed partial class NativeQueryExecutor
     /// Scan a source collection's records, routing by <c>collectionType</c>:
     /// global collections read from <c>global_records</c>, per-player
     /// collections read from <c>records</c>. This matches
-    /// <see cref="ScyllaEndpointShadowDataSource.ScanCollectionAsync"/> and
+    /// <see cref="StoreEndpointDataSource.ScanCollectionAsync"/> and
     /// <c>NetworkStorageController.BrowseCollectionDataApi</c>. Before this
     /// routing existed, a query over a global collection (e.g.
     /// <c>leaderboard_global</c>) scanned the <c>records</c> table — which is
@@ -125,8 +125,8 @@ public sealed partial class NativeQueryExecutor
 
     /// <summary>
     /// Resolve whether a collection is <c>collectionType: "global"</c> by reading
-    /// its <c>definition_json</c> from ScyllaDB. Mirrors
-    /// <see cref="ScyllaEndpointShadowDataSource.IsGlobalCollectionAsync"/>:
+    /// its <c>definition_json</c> from the store. Mirrors
+    /// <see cref="StoreEndpointDataSource.IsGlobalCollectionAsync"/>:
     /// defaults to <c>false</c> (per-steamid) when the collection is missing,
     /// the field is absent, or the lookup fails — matching every other
     /// read/write path in the codebase.
@@ -167,8 +167,8 @@ public sealed partial class NativeQueryExecutor
     // ── Public API ──
 
     /// <summary>
-    /// Execute a query using a caller-provided query definition (e.g. from Bunny).
-    /// Records are still read from ScyllaDB.
+    /// Execute a query using a caller-provided query definition (e.g. from workspace).
+    /// Records are still read from the store.
     /// </summary>
     public async Task<QueryResult?> ExecuteWithQueryAsync(
         string projectId, string queryId, JsonElement query,
@@ -179,7 +179,7 @@ public sealed partial class NativeQueryExecutor
     }
 
     /// <summary>
-    /// Execute a query by reading its definition from the ScyllaDB <c>queries</c> table.
+    /// Execute a query by reading its definition from the store <c>queries</c> table.
     /// Extracts <c>definition_json</c> from the row (not the raw row).
     /// </summary>
     public async Task<QueryResult?> ExecuteAsync(
@@ -190,7 +190,7 @@ public sealed partial class NativeQueryExecutor
         var queryRow = await _store.ReadQueryAsync(projectId, queryId, ct);
         if (!queryRow.HasValue) return null;
 
-        // The ScyllaDB queries row wraps the query definition in definition_json.
+        // The store queries row wraps the query definition in definition_json.
         var query = ExtractDefinition(queryRow.Value);
         if (query is null) return null;
 
@@ -227,7 +227,7 @@ public sealed partial class NativeQueryExecutor
         var config = query.TryGetProperty("config", out var c) && c.ValueKind == JsonValueKind.Object ? c : default;
         var valuesDict = values;
 
-        // Scan all source collections from ScyllaDB.
+        // Scan all source collections from the store.
         var scannedSources = new List<ScannedSource>();
         if (query.TryGetProperty("sources", out var src) && src.ValueKind == JsonValueKind.Array)
         {
@@ -250,7 +250,7 @@ public sealed partial class NativeQueryExecutor
                 foreach (var record in records)
                 {
                     // ExtractKey MUST match BrowseCollectionDataApi and
-                    // ScyllaEndpointShadowDataSource — otherwise a query would
+                    // StoreEndpointDataSource — otherwise a query would
                     // see a different set of records than those paths. ExtractKey
                     // resolves record_key (per-player) OR record_id (global) so
                     // global collections are keyed correctly.
@@ -496,7 +496,7 @@ public sealed partial class NativeQueryExecutor
     }
     /// <summary>
     /// Apply config.joins (foreign-key joins on a single source). Each join scans
-    /// a foreign collection from ScyllaDB, builds a key→data lookup, and merges
+    /// a foreign collection from the store, builds a key→data lookup, and merges
     /// matching records under the join alias. Mirrors the old ReadJoins/ApplyJoinsAsync.
     /// </summary>
     private async Task ApplyConfigJoinsAsync(string projectId, List<QueryEntry> entries, JsonElement config, IReadOnlyDictionary<string, object?>? values, CancellationToken ct)
@@ -581,7 +581,7 @@ public sealed partial class NativeQueryExecutor
     /// and nests the requested fields under <c>playerProfile</c> in each entry's
     /// Data. Auto-enabled when any <c>playerProfile.*</c> field appears in
     /// <c>config.fields</c> — no separate toggle required. Best-effort: a
-    /// ScyllaDB failure leaves entries un-enriched.
+    /// The store failure leaves entries un-enriched.
     /// </summary>
     private async Task ApplyPlayerProfileEnrichmentAsync(
         string projectId, List<QueryEntry> entries, JsonElement config, CancellationToken ct)
@@ -792,7 +792,7 @@ public sealed partial class NativeQueryExecutor
         _ => v.ToString()
     };
 
-    /// <summary>Port of Bun <c>normalizeJoinSpec</c>: resolves a join config for a source.</summary>
+    /// <summary>Port of legacy server <c>normalizeJoinSpec</c>: resolves a join config for a source.</summary>
     private static JoinSpec? NormalizeJoinSpec(ScannedSource sourceInfo, int index, JsonElement config)
     {
         // Direct join on the source object.
@@ -838,7 +838,7 @@ public sealed partial class NativeQueryExecutor
         return new JoinSpec(left ?? "$key", right ?? "$key", type.ToLowerInvariant(), many);
     }
 
-    /// <summary>Port of Bun <c>applyJoinedSource</c>.</summary>
+    /// <summary>Port of legacy server <c>applyJoinedSource</c>.</summary>
     private static List<QueryEntry> ApplyJoinedSource(List<QueryEntry> rows, ScannedSource sourceInfo, JoinSpec joinSpec, IReadOnlyDictionary<string, object?>? values)
     {
         // Build index of foreign entries by join key.
@@ -1053,7 +1053,7 @@ public sealed partial class NativeQueryExecutor
             : null
     };
 
-    /// <summary>Port of Bun <c>evaluateConfigValue</c>.</summary>
+    /// <summary>Port of legacy server <c>evaluateConfigValue</c>.</summary>
     private static object? EvaluateConfigValue(JsonElement definition, Dictionary<string, object?> context)
     {
         if (definition.ValueKind != JsonValueKind.Object) return null;

@@ -4,8 +4,8 @@ namespace SboxNetworkStorage.Storage;
 
 /// <summary>
 /// Provider-neutral validation for collection IDs and record keys at HTTP ingress.
-/// Canonical patterns matching the production ScyllaDB store
-/// (<c>ScyllaDbResourceStore.IdPattern/RecordKeyPattern</c> upstream): collection
+/// Canonical patterns matching the production the store store
+/// (<c>INetworkStorageStore.IdPattern/RecordKeyPattern</c> upstream): collection
 /// (and project) IDs allow <c>[a-zA-Z0-9_-]</c> (1–128 chars); record keys
 /// additionally allow <c>:</c> (1–256 chars) so composite keys such as
 /// <c>{steamId}_{saveId}</c> and <c>player:1-2_3</c> keep working.

@@ -17,7 +17,7 @@ namespace SboxNetworkStorage.Server.Tests;
 ///      all over the base64 publicKeyPem and JWK modulus embedded in the payload, so the
 ///      bytes the server signed could not be reproduced by a JSON.stringify verifier.
 ///   2. The signing key was a per-process ephemeral keypair, so keyId and the public
-///      key changed on every restart and never matched the Bun signer's key.
+///      key changed on every restart and never matched the legacy server signer's key.
 /// </summary>
 public sealed class NetworkStorageSecurityConfigSigningTests
 {

@@ -11,13 +11,13 @@ using SboxNetworkStorage.Infrastructure.NetworkStorage;
 
 namespace SboxNetworkStorage.Server.Tests;
 
-public abstract class NetworkStoragePagesCandidateTests<TFactory> : IClassFixture<TFactory>
+public abstract class NetworkStoragePagesTests<TFactory> : IClassFixture<TFactory>
     where TFactory : SelfHostFactory
 {
     private readonly SelfHostFactory _factory;
     private readonly HttpClient _client;
 
-    protected NetworkStoragePagesCandidateTests(TFactory factory)
+    protected NetworkStoragePagesTests(TFactory factory)
     {
         Skip.IfNot(factory.IsAvailable, factory.SkipReason);
         _factory = factory;
@@ -53,10 +53,10 @@ public abstract class NetworkStoragePagesCandidateTests<TFactory> : IClassFixtur
     public async Task PublishedPageReturnsBunCompatibleJsonPayload()
     {
         var pageFixture = await File.ReadAllTextAsync(
-            Path.Combine(AppContext.BaseDirectory, "Fixtures", "network-storage-shadow", "page-sample.json"));
+            Path.Combine(AppContext.BaseDirectory, "Fixtures", "network-storage-fixtures", "page-sample.json"));
         var pageIndex = /*lang=json*/ """{"userId": 42, "projectId": "demo-project"}""";
 
-        var handler = new PagesHandler(new FakeBunny(pageIndex, pageFixture));
+        var handler = new PagesHandler(new FakeWorkspace(pageIndex, pageFixture));
 
         var result = await handler.ExecuteAsync(BuildRequest("demo-project", "welcome", format: "json"));
 
@@ -80,10 +80,10 @@ public abstract class NetworkStoragePagesCandidateTests<TFactory> : IClassFixtur
     public async Task PublishedPageReturnsBunCompatibleJsonmdPayload()
     {
         var pageFixture = await File.ReadAllTextAsync(
-            Path.Combine(AppContext.BaseDirectory, "Fixtures", "network-storage-shadow", "page-sample.json"));
+            Path.Combine(AppContext.BaseDirectory, "Fixtures", "network-storage-fixtures", "page-sample.json"));
         var pageIndex = /*lang=json*/ """{"userId": 42, "projectId": "demo-project"}""";
 
-        var handler = new PagesHandler(new FakeBunny(pageIndex, pageFixture));
+        var handler = new PagesHandler(new FakeWorkspace(pageIndex, pageFixture));
 
         var result = await handler.ExecuteAsync(BuildRequest("demo-project", "welcome", format: "jsonmd"));
 
@@ -104,12 +104,12 @@ public abstract class NetworkStoragePagesCandidateTests<TFactory> : IClassFixtur
     public async Task StringTypedUserIdResolvesPagePath()
     {
         var pageFixture = await File.ReadAllTextAsync(
-            Path.Combine(AppContext.BaseDirectory, "Fixtures", "network-storage-shadow", "page-sample.json"));
+            Path.Combine(AppContext.BaseDirectory, "Fixtures", "network-storage-fixtures", "page-sample.json"));
         // Production page-index documents store userId as a JSON string (older writers), not a number.
         // Regression: GetInt64() previously threw InvalidOperationException on these documents.
         var pageIndex = /*lang=json*/ """{"userId": "42", "projectId": "demo-project"}""";
 
-        var handler = new PagesHandler(new FakeBunny(pageIndex, pageFixture));
+        var handler = new PagesHandler(new FakeWorkspace(pageIndex, pageFixture));
 
         var result = await handler.ExecuteAsync(BuildRequest("demo-project", "welcome", format: "json"));
 
@@ -126,7 +126,7 @@ public abstract class NetworkStoragePagesCandidateTests<TFactory> : IClassFixtur
     public async Task MissingUserIdInPageIndexReturnsNotFound()
     {
         var pageIndex = /*lang=json*/ """{"projectId": "demo-project"}""";
-        var handler = new PagesHandler(new FakeBunny(pageIndex, "{}"));
+        var handler = new PagesHandler(new FakeWorkspace(pageIndex, "{}"));
 
         var result = await handler.ExecuteAsync(BuildRequest("demo-project", "welcome"));
 
@@ -140,7 +140,7 @@ public abstract class NetworkStoragePagesCandidateTests<TFactory> : IClassFixtur
     [SkippableFact]
     public async Task MissingPageIndexReturnsNotFoundCode()
     {
-        var handler = new PagesHandler(new FakeBunny(null, null));
+        var handler = new PagesHandler(new FakeWorkspace(null, null));
 
         var result = await handler.ExecuteAsync(BuildRequest("nonexistent", "page"));
 
@@ -158,7 +158,7 @@ public abstract class NetworkStoragePagesCandidateTests<TFactory> : IClassFixtur
         // page-index exists, but page content does not
         var pageIndex = /*lang=json*/ """{"userId": 42, "projectId": "demo-project"}""";
 
-        var handler = new PagesHandler(new FakeBunny(pageIndex, null));
+        var handler = new PagesHandler(new FakeWorkspace(pageIndex, null));
 
         var result = await handler.ExecuteAsync(BuildRequest("demo-project", "nonexistent-page"));
 
@@ -173,7 +173,7 @@ public abstract class NetworkStoragePagesCandidateTests<TFactory> : IClassFixtur
     [SkippableFact]
     public async Task PageIndexStoreErrorReturnsReadFailedCode()
     {
-        var handler = new PagesHandler(new FakeBunny(null, null, throwsOnPageIndex: true));
+        var handler = new PagesHandler(new FakeWorkspace(null, null, throwsOnPageIndex: true));
 
         var result = await handler.ExecuteAsync(BuildRequest("demo-project", "welcome"));
 
@@ -188,7 +188,7 @@ public abstract class NetworkStoragePagesCandidateTests<TFactory> : IClassFixtur
     public async Task PageContentStoreErrorReturnsReadFailedCode()
     {
         var pageIndex = /*lang=json*/ """{"userId": 42, "projectId": "demo-project"}""";
-        var handler = new PagesHandler(new FakeBunny(pageIndex, null, throwsOnPageContent: true));
+        var handler = new PagesHandler(new FakeWorkspace(pageIndex, null, throwsOnPageContent: true));
 
         var result = await handler.ExecuteAsync(BuildRequest("demo-project", "welcome"));
 
@@ -199,7 +199,7 @@ public abstract class NetworkStoragePagesCandidateTests<TFactory> : IClassFixtur
     [SkippableFact]
     public async Task PageIndexPathIsUrlEncoded()
     {
-        var handler = new PagesHandler(new FakeBunny(null, null));
+        var handler = new PagesHandler(new FakeWorkspace(null, null));
 
         var result = await handler.ExecuteAsync(BuildRequest("space project", "slug"));
 
@@ -210,7 +210,7 @@ public abstract class NetworkStoragePagesCandidateTests<TFactory> : IClassFixtur
     public async Task LiveRoute_Pages_IsServedNativelyWithoutGateway()
     {
         var pageFixture = await File.ReadAllTextAsync(
-            Path.Combine(AppContext.BaseDirectory, "Fixtures", "network-storage-shadow", "page-sample.json"));
+            Path.Combine(AppContext.BaseDirectory, "Fixtures", "network-storage-fixtures", "page-sample.json"));
         var pageIndex = /*lang=json*/ """{"userId": 42, "projectId": "demo-project"}""";
 
         using var liveClient = _factory.WithWebHostBuilder(builder =>
@@ -218,7 +218,7 @@ public abstract class NetworkStoragePagesCandidateTests<TFactory> : IClassFixtur
             builder.ConfigureServices(services =>
             {
                 services.RemoveAll<IWorkspaceStore>();
-                services.AddScoped<IWorkspaceStore>(_ => new FakeBunny(pageIndex, pageFixture));
+                services.AddScoped<IWorkspaceStore>(_ => new FakeWorkspace(pageIndex, pageFixture));
             });
         }).CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
 
@@ -232,14 +232,14 @@ public abstract class NetworkStoragePagesCandidateTests<TFactory> : IClassFixtur
         Assert.Equal("markdown", root.GetProperty("type").GetString());
     }
 
-    private sealed class FakeBunny : IWorkspaceStore
+    private sealed class FakeWorkspace : IWorkspaceStore
     {
         private readonly string? _pageIndexJson;
         private readonly string? _pageContentJson;
         private readonly bool _throwsOnPageIndex;
         private readonly bool _throwsOnPageContent;
 
-        public FakeBunny(
+        public FakeWorkspace(
             string? pageIndexJson = null,
             string? pageContentJson = null,
             bool throwsOnPageIndex = false,
@@ -311,6 +311,6 @@ public abstract class NetworkStoragePagesCandidateTests<TFactory> : IClassFixtur
     }
 }
 
-public sealed class NetworkStoragePagesCandidateTests_Sqlite(SqliteHostFactory factory) : NetworkStoragePagesCandidateTests<SqliteHostFactory>(factory);
+public sealed class NetworkStoragePagesTests_Sqlite(SqliteHostFactory factory) : NetworkStoragePagesTests<SqliteHostFactory>(factory);
 
-public sealed class NetworkStoragePagesCandidateTests_Postgres(PostgresHostFactory factory) : NetworkStoragePagesCandidateTests<PostgresHostFactory>(factory);
+public sealed class NetworkStoragePagesTests_Postgres(PostgresHostFactory factory) : NetworkStoragePagesTests<PostgresHostFactory>(factory);

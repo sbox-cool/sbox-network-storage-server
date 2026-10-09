@@ -4,8 +4,8 @@ namespace SboxNetworkStorage.Application.NetworkStorage;
 
 /// <summary>
 /// The live Network Storage record data plane. Implementations decide where
-/// records are read from and written to (ScyllaDB-authoritative once cutover is
-/// enabled, or the legacy Bunny path before then). Keeps the HTTP endpoints
+/// records are read from and written to (store-authoritative once cutover is
+/// enabled, or the legacy workspace path before then). Keeps the HTTP endpoints
 /// free of backend-selection logic.
 /// </summary>
 public interface INetworkStorageDataPlane

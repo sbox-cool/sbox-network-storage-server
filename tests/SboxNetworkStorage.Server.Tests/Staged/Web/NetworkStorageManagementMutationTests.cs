@@ -11,12 +11,12 @@ using SboxNetworkStorage.Infrastructure.NetworkStorage.Storage;
 
 namespace SboxNetworkStorage.Server.Tests;
 
-public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> : IClassFixture<TFactory>
+public abstract class NetworkStorageManagementMutationTests<TFactory> : IClassFixture<TFactory>
     where TFactory : SelfHostFactory
 {
     private readonly HttpClient _client;
 
-    protected NetworkStorageManagementMutationCandidateTests(TFactory factory)
+    protected NetworkStorageManagementMutationTests(TFactory factory)
     {
         Skip.IfNot(factory.IsAvailable, factory.SkipReason);
         _client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
@@ -67,7 +67,7 @@ public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> :
     /// </summary>
     private static void AssertWriteNotCalled()
     {
-        throw new InvalidOperationException("Production write should never be called from a dry-run candidate.");
+        throw new InvalidOperationException("Production write should never be called from a dry-run handler.");
     }
 
     // ══════════════════════════════════════════════════════════════════
@@ -79,7 +79,7 @@ public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> :
     {
         var handler = new ManagementMutationHandler(
             new FakeKeyResolver(null, "proj-1"),
-            new FakeBunnyWorkspace("proj-1"),
+            new FakeWorkspace("proj-1"),
             new InMemoryNetworkStorageStore(),
             TimeProvider.System);
 
@@ -101,7 +101,7 @@ public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> :
     {
         var handler = new ManagementMutationHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
-            new FakeBunnyWorkspace("proj-1"),
+            new FakeWorkspace("proj-1"),
             new InMemoryNetworkStorageStore(),
             TimeProvider.System);
 
@@ -118,7 +118,7 @@ public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> :
         var resolver = new FakeKeyResolver("pk-valid", "proj-1", keyType: "public");
         var handler = new ManagementMutationHandler(
             resolver,
-            new FakeBunnyWorkspace("proj-1"),
+            new FakeWorkspace("proj-1"),
             new InMemoryNetworkStorageStore(),
             TimeProvider.System);
 
@@ -135,7 +135,7 @@ public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> :
     {
         var handler = new ManagementMutationHandler(
             new FakeKeyResolver("sk-valid", "disabled-proj"),
-            new FakeBunnyWorkspace("disabled-proj", enabled: false),
+            new FakeWorkspace("disabled-proj", enabled: false),
             new InMemoryNetworkStorageStore(),
             TimeProvider.System);
 
@@ -159,7 +159,7 @@ public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> :
         var route = NetworkStorageRouteClassifier.Classify("GET", "/v3/manage/proj-1/endpoints");
         Assert.False(new ManagementMutationHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
-            new FakeBunnyWorkspace("proj-1"),
+            new FakeWorkspace("proj-1"),
             new InMemoryNetworkStorageStore(),
             TimeProvider.System).CanHandle(route));
     }
@@ -175,7 +175,7 @@ public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> :
         // entries still handles gracefully (null entry → NotImplementedResult).
         var handler = new ManagementMutationHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
-            new FakeBunnyWorkspace("proj-1"),
+            new FakeWorkspace("proj-1"),
             new InMemoryNetworkStorageStore(),
             TimeProvider.System);
 
@@ -232,14 +232,14 @@ public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> :
         }
     }
 
-    private sealed class FakeBunnyWorkspace : IWorkspaceStore
+    private sealed class FakeWorkspace : IWorkspaceStore
     {
         private readonly string _projectId;
         private readonly bool _enabled;
 
         public bool ThrowOnWrite { get; set; }
 
-        public FakeBunnyWorkspace(string projectId, bool enabled = true)
+        public FakeWorkspace(string projectId, bool enabled = true)
         {
             _projectId = projectId;
             _enabled = enabled;
@@ -299,12 +299,12 @@ public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> :
     // ══════════════════════════════════════════════════════════════════
 
     [SkippableFact]
-    public async Task PutEndpoints_PerformsRealWriteToScylla()
+    public async Task PutEndpoints_PerformsRealWriteToStore()
     {
         var store = new InMemoryNetworkStorageStore();
         var handler = new ManagementMutationHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
-            new FakeBunnyWorkspace("proj-1"),
+            new FakeWorkspace("proj-1"),
             store,
             TimeProvider.System);
 
@@ -317,12 +317,12 @@ public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> :
     }
 
     [SkippableFact]
-    public async Task PutCollections_PerformsRealWriteToScylla()
+    public async Task PutCollections_PerformsRealWriteToStore()
     {
         var store = new InMemoryNetworkStorageStore();
         var handler = new ManagementMutationHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
-            new FakeBunnyWorkspace("proj-1"),
+            new FakeWorkspace("proj-1"),
             store,
             TimeProvider.System);
 
@@ -333,12 +333,12 @@ public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> :
     }
 
     [SkippableFact]
-    public async Task PutWorkflows_PerformsRealWriteToScylla()
+    public async Task PutWorkflows_PerformsRealWriteToStore()
     {
         var store = new InMemoryNetworkStorageStore();
         var handler = new ManagementMutationHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
-            new FakeBunnyWorkspace("proj-1"),
+            new FakeWorkspace("proj-1"),
             store,
             TimeProvider.System);
 
@@ -351,12 +351,12 @@ public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> :
     }
 
     [SkippableFact]
-    public async Task PutGameValues_PerformsRealWriteToScylla()
+    public async Task PutGameValues_PerformsRealWriteToStore()
     {
         var store = new InMemoryNetworkStorageStore();
         var handler = new ManagementMutationHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
-            new FakeBunnyWorkspace("proj-1"),
+            new FakeWorkspace("proj-1"),
             store,
             TimeProvider.System);
 
@@ -369,12 +369,12 @@ public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> :
     }
 
     [SkippableFact]
-    public async Task PutRateLimitRules_PerformsRealWriteToScylla()
+    public async Task PutRateLimitRules_PerformsRealWriteToStore()
     {
         var store = new InMemoryNetworkStorageStore();
         var handler = new ManagementMutationHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
-            new FakeBunnyWorkspace("proj-1"),
+            new FakeWorkspace("proj-1"),
             store,
             TimeProvider.System);
 
@@ -392,7 +392,7 @@ public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> :
         var store = new InMemoryNetworkStorageStore();
         var handler = new ManagementMutationHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
-            new FakeBunnyWorkspace("proj-1"),
+            new FakeWorkspace("proj-1"),
             store,
             TimeProvider.System);
 
@@ -405,12 +405,12 @@ public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> :
     }
 
     [SkippableFact]
-    public async Task PostEndpoints_PerformsRealWriteToScylla()
+    public async Task PostEndpoints_PerformsRealWriteToStore()
     {
         var store = new InMemoryNetworkStorageStore();
         var handler = new ManagementMutationHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
-            new FakeBunnyWorkspace("proj-1"),
+            new FakeWorkspace("proj-1"),
             store,
             TimeProvider.System);
 
@@ -423,12 +423,12 @@ public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> :
     }
 
     [SkippableFact]
-    public async Task PostQueries_PerformsRealWriteToScylla()
+    public async Task PostQueries_PerformsRealWriteToStore()
     {
         var store = new InMemoryNetworkStorageStore();
         var handler = new ManagementMutationHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
-            new FakeBunnyWorkspace("proj-1"),
+            new FakeWorkspace("proj-1"),
             store,
             TimeProvider.System);
 
@@ -441,12 +441,12 @@ public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> :
     }
 
     [SkippableFact]
-    public async Task DeleteEndpoint_RemovesFromScylla()
+    public async Task DeleteEndpoint_RemovesFromStore()
     {
         var store = new InMemoryNetworkStorageStore();
         var handler = new ManagementMutationHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
-            new FakeBunnyWorkspace("proj-1"),
+            new FakeWorkspace("proj-1"),
             store,
             TimeProvider.System);
 
@@ -461,12 +461,12 @@ public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> :
     }
 
     [SkippableFact]
-    public async Task DeleteCollection_RemovesFromScylla()
+    public async Task DeleteCollection_RemovesFromStore()
     {
         var store = new InMemoryNetworkStorageStore();
         var handler = new ManagementMutationHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
-            new FakeBunnyWorkspace("proj-1"),
+            new FakeWorkspace("proj-1"),
             store,
             TimeProvider.System);
 
@@ -481,12 +481,12 @@ public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> :
     }
 
     [SkippableFact]
-    public async Task DeleteQuery_RemovesFromScylla()
+    public async Task DeleteQuery_RemovesFromStore()
     {
         var store = new InMemoryNetworkStorageStore();
         var handler = new ManagementMutationHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
-            new FakeBunnyWorkspace("proj-1"),
+            new FakeWorkspace("proj-1"),
             store,
             TimeProvider.System);
 
@@ -508,7 +508,7 @@ public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> :
     {
         var handler = new ManagementMutationHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
-            new FakeBunnyWorkspace("proj-1"),
+            new FakeWorkspace("proj-1"),
             new InMemoryNetworkStorageStore(),
             TimeProvider.System);
 
@@ -536,7 +536,7 @@ public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> :
     {
         var handler = new ManagementMutationHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
-            new FakeBunnyWorkspace("proj-1"),
+            new FakeWorkspace("proj-1"),
             new InMemoryNetworkStorageStore(),
             TimeProvider.System);
 
@@ -564,7 +564,7 @@ public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> :
 
         var handler = new ManagementMutationHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
-            new FakeBunnyWorkspace("proj-1"),
+            new FakeWorkspace("proj-1"),
             store,
             TimeProvider.System);
 
@@ -583,7 +583,7 @@ public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> :
     {
         var handler = new ManagementMutationHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
-            new FakeBunnyWorkspace("proj-1"),
+            new FakeWorkspace("proj-1"),
             new InMemoryNetworkStorageStore(),
             TimeProvider.System);
 
@@ -601,7 +601,7 @@ public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> :
     {
         var handler = new ManagementMutationHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
-            new FakeBunnyWorkspace("proj-1"),
+            new FakeWorkspace("proj-1"),
             new InMemoryNetworkStorageStore(),
             TimeProvider.System);
 
@@ -621,12 +621,12 @@ public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> :
     // ══════════════════════════════════════════════════════════════════
 
     [SkippableFact]
-    public async Task PutSync_BatchWritesAllSectionsToScylla()
+    public async Task PutSync_BatchWritesAllSectionsToStore()
     {
         var store = new InMemoryNetworkStorageStore();
         var handler = new ManagementMutationHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
-            new FakeBunnyWorkspace("proj-1"),
+            new FakeWorkspace("proj-1"),
             store,
             TimeProvider.System);
 
@@ -653,7 +653,7 @@ public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> :
         var store = new InMemoryNetworkStorageStore();
         var handler = new ManagementMutationHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
-            new FakeBunnyWorkspace("proj-1"),
+            new FakeWorkspace("proj-1"),
             store,
             TimeProvider.System);
 
@@ -673,7 +673,7 @@ public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> :
     {
         var handler = new ManagementMutationHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
-            new FakeBunnyWorkspace("proj-1"),
+            new FakeWorkspace("proj-1"),
             new InMemoryNetworkStorageStore(),
             TimeProvider.System);
         var body = JsonSerializer.Serialize(new
@@ -707,7 +707,7 @@ public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> :
         var store = new InMemoryNetworkStorageStore();
         var handler = new ManagementMutationHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
-            new FakeBunnyWorkspace("proj-1"),
+            new FakeWorkspace("proj-1"),
             store,
             TimeProvider.System);
         var body = JsonSerializer.Serialize(new
@@ -783,7 +783,7 @@ public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> :
         var executor = new EndpointExecutor(new AutoTestDataSource(definition));
         var handler = new ManagementMutationHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
-            new FakeBunnyWorkspace("proj-1"),
+            new FakeWorkspace("proj-1"),
             store,
             TimeProvider.System,
             executor);
@@ -838,6 +838,6 @@ public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> :
 
 }
 
-public sealed class NetworkStorageManagementMutationCandidateTests_Sqlite(SqliteHostFactory factory) : NetworkStorageManagementMutationCandidateTests<SqliteHostFactory>(factory);
+public sealed class NetworkStorageManagementMutationTests_Sqlite(SqliteHostFactory factory) : NetworkStorageManagementMutationTests<SqliteHostFactory>(factory);
 
-public sealed class NetworkStorageManagementMutationCandidateTests_Postgres(PostgresHostFactory factory) : NetworkStorageManagementMutationCandidateTests<PostgresHostFactory>(factory);
+public sealed class NetworkStorageManagementMutationTests_Postgres(PostgresHostFactory factory) : NetworkStorageManagementMutationTests<PostgresHostFactory>(factory);

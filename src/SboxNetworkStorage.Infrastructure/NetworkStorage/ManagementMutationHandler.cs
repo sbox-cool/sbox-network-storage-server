@@ -9,10 +9,10 @@ using SboxNetworkStorage.Infrastructure.NetworkStorage.Storage;
 namespace SboxNetworkStorage.Infrastructure.NetworkStorage;
 
 /// <summary>
-/// Native candidate for management mutation routes under <c>/v3/manage/:projectId/*</c>.
-/// Performs real ScyllaDB writes when invoked from a production native route
-/// (<c>SuppressSideEffects = false</c>); returns a Bun-compatible dry-run diagnostic
-/// when invoked from the shadow pipeline (<c>SuppressSideEffects = true</c>).
+/// Native handler for management mutation routes under <c>/v3/manage/:projectId/*</c>.
+/// Performs real store writes when invoked from a production native route
+/// (<c>SuppressSideEffects = false</c>); returns a legacy-compatible dry-run diagnostic
+/// when invoked from the dry-run pipeline (<c>SuppressSideEffects = true</c>).
 /// </summary>
 internal static class ManagementMutationConstants
 {
@@ -541,8 +541,8 @@ public sealed partial class ManagementMutationHandler : INetworkStorageHandler
 
     /// <summary>
     /// Batch-writes the endpoints/collections/workflows sections of a Push All
-    /// payload to ScyllaDB using the same native upserts as the per-resource
-    /// routes. Mirrors the Bun <c>PUT /sync</c> response shape:
+    /// payload to the store using the same native upserts as the per-resource
+    /// routes. Mirrors the legacy server <c>PUT /sync</c> response shape:
     /// <c>{ ok, endpoints?, collections?, workflows? }</c> with per-section results.
     /// </summary>
     private async Task<NetworkStorageResult> PutSyncAsync(NetworkStorageRequest request, string projectId,
@@ -662,7 +662,7 @@ public sealed partial class ManagementMutationHandler : INetworkStorageHandler
     /// Read-only validation of a Push All payload. Never writes. Validates each
     /// endpoint/collection/workflow against the same identifier requirements the
     /// native write path enforces, so preflight faithfully predicts push success.
-    /// Mirrors the Bun response shape: per-section diagnostics + a rollup summary.
+    /// Mirrors the legacy server response shape: per-section diagnostics + a rollup summary.
     /// </summary>
     private async Task<NetworkStorageResult> PreflightSyncAsync(
         NetworkStorageRequest request, string projectId, string authDecision)

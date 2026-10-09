@@ -5,7 +5,7 @@ using SboxNetworkStorage.Infrastructure.NetworkStorage.Storage;
 
 namespace SboxNetworkStorage.Server.Tests;
 
-public class ScyllaDbValidationTests
+public class StoreValidationTests
 {
     private static readonly JsonElement EmptyJson = JsonDocument.Parse("{}").RootElement;
     private static readonly JsonElement PayloadJson = JsonDocument.Parse("""{"data":"test"}""").RootElement;

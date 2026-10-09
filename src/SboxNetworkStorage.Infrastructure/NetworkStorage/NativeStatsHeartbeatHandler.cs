@@ -7,10 +7,9 @@ namespace SboxNetworkStorage.Infrastructure.NetworkStorage;
 /// <summary>
 /// Native heartbeat handler that writes player-stats through the
 /// <see cref="INetworkStorageDataPlane"/> and emits a session.heartbeat analytics
-/// event so the Game Analytics dashboard reflects live presence. When ScyllaDB
-/// is primary, writes are ScyllaDB-authoritative (fail-closed) with Bunny
-/// fallback on read miss; when not primary, the legacy Bunny data plane is used
-/// unchanged. Serves <c>POST /v3/storage/:projectId/stats/heartbeat</c>.
+/// event so the Game Analytics dashboard reflects live presence. Writes are
+/// store-authoritative (fail-closed) with workspace fallback on read miss.
+/// Serves <c>POST /v3/storage/:projectId/stats/heartbeat</c>.
 /// </summary>
 public sealed class NativeStatsHeartbeatHandler(
     IStorageApiKeyResolver apiKeyResolver,
@@ -68,11 +67,11 @@ public sealed class NativeStatsHeartbeatHandler(
         // must never hold the request or surface a 500, so bound it tightly and
         // degrade to a soft response when the store is slow or unavailable.
         //
-        // The record key is the bare steamId. It MUST satisfy the ScyllaDB
+        // The record key is the bare steamId. It MUST satisfy the store
         // record-key grammar (^[a-zA-Z0-9_:-]{1,256}$, see
-        // ScyllaDbResourceStore.ValidateRecordKey) — no '.' is allowed. The
-        // legacy Bunny-era "{steamId}.json" filename carries a '.', so once
-        // ScyllaDB became the primary data plane every heartbeat read+write threw
+        // INetworkStorageStore.ValidateRecordKey) — no '.' is allowed. The
+        // legacy workspace-era "{steamId}.json" filename carries a '.', so with the
+        // store as the data plane every heartbeat read+write would throw
         // ArgumentException: the read missed (playtime reset to 2s) and the write
         // failed (persisted:false), silently freezing player-stats. Bare steamId
         // matches the key convention every other collection's records use.
@@ -86,8 +85,8 @@ public sealed class NativeStatsHeartbeatHandler(
         var persisted = false;
         try
         {
-            // Read existing stats through the data plane (ScyllaDB-first with
-            // Bunny fallback when primary, or Bunny-only when not primary).
+            // Read existing stats through the data plane (store-first with
+            // workspace fallback).
             JsonElement? existing = null;
             try
             {
@@ -132,7 +131,7 @@ public sealed class NativeStatsHeartbeatHandler(
             }
             merged["totalSeconds"] = totalSeconds;
 
-            // Write through the data plane (ScyllaDB-authoritative when primary,
+            // Write through the data plane (store-authoritative,
             // fail-closed: a write failure throws and the heartbeat degrades to
             // a soft response instead of silently persisting nowhere).
             var mergedElement = JsonSerializer.SerializeToElement(merged);

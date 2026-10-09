@@ -661,8 +661,8 @@ internal static partial class PlayerTimelineEngine
     private static string? NullIfEmpty(string value) => value.Length > 0 ? value : null;
 
     /// <summary>
-    /// Session id from either the Bun-shaped <c>sessionId</c> (parity fixtures) or
-    /// the ScyllaDB row's <c>session_id</c> (live data).
+    /// Session id from either the legacy server-shaped <c>sessionId</c> (parity fixtures) or
+    /// the store row's <c>session_id</c> (live data).
     /// </summary>
     private static string SessionIdOf(JsonElement s)
     {
@@ -671,9 +671,9 @@ internal static partial class PlayerTimelineEngine
     }
 
     /// <summary>
-    /// Read a session timestamp as an ISO string. Prefers the Bun-shaped ISO field
+    /// Read a session timestamp as an ISO string. Prefers the legacy server-shaped ISO field
     /// (<paramref name="isoField"/>, used by parity fixtures); falls back to the
-    /// ScyllaDB row's unix-ms field (<paramref name="unixMsField"/>) converted to
+    /// The store row's unix-ms field (<paramref name="unixMsField"/>) converted to
     /// ISO so the journey lines up with the ISO event timestamps.
     /// </summary>
     private static string SessionTimestamp(JsonElement s, string isoField, string unixMsField)

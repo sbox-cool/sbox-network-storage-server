@@ -13,7 +13,7 @@ namespace SboxNetworkStorage.Server.Tests;
 /// <summary>
 /// End-to-end proof that heartbeat data is stored correctly: exercises the
 /// real NativeStatsHeartbeatHandler → PlayerAnalyticsIngester → InMemoryNetworkStorageStore
-/// → ScyllaPlayerAnalyticsReader pipeline (the same classes the HTTP API uses,
+/// → StorePlayerAnalyticsReader pipeline (the same classes the HTTP API uses,
 /// minus the socket layer) and prints the actual input/output for visible
 /// comparison. Run with:
 ///   dotnet test --filter "FullyQualifiedName~HeartbeatEndToEndProof" --logger "console;verbosity=detailed"

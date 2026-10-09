@@ -11,13 +11,13 @@ using SboxNetworkStorage.Infrastructure.NetworkStorage;
 
 namespace SboxNetworkStorage.Server.Tests;
 
-public abstract class EndpointSlugReadCandidateTests<TFactory> : IClassFixture<TFactory>
+public abstract class EndpointSlugReadTests<TFactory> : IClassFixture<TFactory>
     where TFactory : SelfHostFactory
 {
     private readonly SelfHostFactory _factory;
     private readonly HttpClient _client;
 
-    protected EndpointSlugReadCandidateTests(TFactory factory)
+    protected EndpointSlugReadTests(TFactory factory)
     {
         Skip.IfNot(factory.IsAvailable, factory.SkipReason);
         _factory = factory;
@@ -60,9 +60,9 @@ public abstract class EndpointSlugReadCandidateTests<TFactory> : IClassFixture<T
     public async Task Handler_ReturnsEndpointBySlug()
     {
         var resolver = new FakeKeyResolver("test-key", "proj-1");
-        var bunny = new FakeBunny { ResourceResponses = { ["endpoints.json"] = Endpoints(("load-player", "GET"), ("save-data", "POST")) } };
-        var store = await StoreWithEndpointsAsync(bunny.ResourceResponses["endpoints.json"]);
-        var handler = new EndpointSlugReadHandler(resolver, bunny, store, Microsoft.Extensions.Logging.Abstractions.NullLogger<EndpointSlugReadHandler>.Instance);
+        var workspace = new FakeWorkspace { ResourceResponses = { ["endpoints.json"] = Endpoints(("load-player", "GET"), ("save-data", "POST")) } };
+        var store = await StoreWithEndpointsAsync(workspace.ResourceResponses["endpoints.json"]);
+        var handler = new EndpointSlugReadHandler(resolver, workspace, store, Microsoft.Extensions.Logging.Abstractions.NullLogger<EndpointSlugReadHandler>.Instance);
 
         var result = await handler.ExecuteAsync(BuildRequest("proj-1", "load-player"));
 
@@ -76,9 +76,9 @@ public abstract class EndpointSlugReadCandidateTests<TFactory> : IClassFixture<T
     public async Task Handler_Returns404_WhenSlugNotFound()
     {
         var resolver = new FakeKeyResolver("test-key", "proj-1");
-        var bunny = new FakeBunny { ResourceResponses = { ["endpoints.json"] = Endpoints(("save-data", "POST")) } };
-        var store = await StoreWithEndpointsAsync(bunny.ResourceResponses["endpoints.json"]);
-        var handler = new EndpointSlugReadHandler(resolver, bunny, store, Microsoft.Extensions.Logging.Abstractions.NullLogger<EndpointSlugReadHandler>.Instance);
+        var workspace = new FakeWorkspace { ResourceResponses = { ["endpoints.json"] = Endpoints(("save-data", "POST")) } };
+        var store = await StoreWithEndpointsAsync(workspace.ResourceResponses["endpoints.json"]);
+        var handler = new EndpointSlugReadHandler(resolver, workspace, store, Microsoft.Extensions.Logging.Abstractions.NullLogger<EndpointSlugReadHandler>.Instance);
 
         var result = await handler.ExecuteAsync(BuildRequest("proj-1", "missing-slug"));
 
@@ -90,8 +90,8 @@ public abstract class EndpointSlugReadCandidateTests<TFactory> : IClassFixture<T
     public async Task Handler_Returns401_WhenNoApiKey()
     {
         var resolver = new FakeKeyResolver(null, "proj-1");
-        var bunny = new FakeBunny();
-        var handler = new EndpointSlugReadHandler(resolver, bunny, new InMemoryNetworkStorageStore(), Microsoft.Extensions.Logging.Abstractions.NullLogger<EndpointSlugReadHandler>.Instance);
+        var workspace = new FakeWorkspace();
+        var handler = new EndpointSlugReadHandler(resolver, workspace, new InMemoryNetworkStorageStore(), Microsoft.Extensions.Logging.Abstractions.NullLogger<EndpointSlugReadHandler>.Instance);
 
         var result = await handler.ExecuteAsync(BuildRequest("proj-1", "load-player", apiKey: null));
 
@@ -103,9 +103,9 @@ public abstract class EndpointSlugReadCandidateTests<TFactory> : IClassFixture<T
     public async Task Handler_CaseInsensitiveSlugMatch()
     {
         var resolver = new FakeKeyResolver("test-key", "proj-1");
-        var bunny = new FakeBunny { ResourceResponses = { ["endpoints.json"] = Endpoints(("Load-Player", "GET")) } };
-        var store = await StoreWithEndpointsAsync(bunny.ResourceResponses["endpoints.json"]);
-        var handler = new EndpointSlugReadHandler(resolver, bunny, store, Microsoft.Extensions.Logging.Abstractions.NullLogger<EndpointSlugReadHandler>.Instance);
+        var workspace = new FakeWorkspace { ResourceResponses = { ["endpoints.json"] = Endpoints(("Load-Player", "GET")) } };
+        var store = await StoreWithEndpointsAsync(workspace.ResourceResponses["endpoints.json"]);
+        var handler = new EndpointSlugReadHandler(resolver, workspace, store, Microsoft.Extensions.Logging.Abstractions.NullLogger<EndpointSlugReadHandler>.Instance);
 
         var result = await handler.ExecuteAsync(BuildRequest("proj-1", "load-player"));
 
@@ -119,15 +119,15 @@ public abstract class EndpointSlugReadCandidateTests<TFactory> : IClassFixture<T
     {
         using var liveClient = _factory.WithWebHostBuilder(builder =>
         {
-            // A dead Bun storage-api port: a 502 here would prove the request proxied
-            // to Bun. It must not — native auth rejects the bad key first.
+            // A dead legacy server storage-api port: a 502 here would prove the request proxied
+            // to legacy server. It must not — native auth rejects the bad key first.
             
             builder.ConfigureServices(services =>
             {
                 services.RemoveAll<IStorageApiKeyResolver>();
                 services.AddScoped<IStorageApiKeyResolver>(_ => new FakeKeyResolver("test-key", "proj-1"));
                 services.RemoveAll<IWorkspaceStore>();
-                services.AddScoped<IWorkspaceStore>(_ => new FakeBunny
+                services.AddScoped<IWorkspaceStore>(_ => new FakeWorkspace
                 {
                     ResourceResponses = { ["endpoints.json"] = Endpoints(("get-join", "GET")) }
                 });
@@ -137,8 +137,8 @@ public abstract class EndpointSlugReadCandidateTests<TFactory> : IClassFixture<T
         using var response = await liveClient.GetAsync("/v3/endpoints/proj-1/get-join?apiKey=wrong-key");
 
         // Authenticated GET endpoint calls are now served by the .NET native executor
-        // (serve-endpoint-execution-dotnet-native): no Bun proxy in the request path.
-        // An invalid key is rejected by native auth with a 401 — never a Bun 502 on
+        // (serve-endpoint-execution-dotnet-native): no legacy server proxy in the request path.
+        // An invalid key is rejected by native auth with a 401 — never a legacy server 502 on
         // the dead 127.0.0.1:4547 storage-api.
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
@@ -152,7 +152,7 @@ public abstract class EndpointSlugReadCandidateTests<TFactory> : IClassFixture<T
             builder.ConfigureServices(services =>
             {
                 services.RemoveAll<IWorkspaceStore>();
-                services.AddScoped<IWorkspaceStore>(_ => new SlowBunny());
+                services.AddScoped<IWorkspaceStore>(_ => new SlowWorkspace());
             });
         }).CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
 
@@ -173,7 +173,7 @@ public abstract class EndpointSlugReadCandidateTests<TFactory> : IClassFixture<T
                 : null);
     }
 
-    private sealed class FakeBunny : IWorkspaceStore
+    private sealed class FakeWorkspace : IWorkspaceStore
     {
         public Dictionary<string, JsonElement> ResourceResponses { get; } = new();
         public Task<T?> GetProjectResourceAsync<T>(long userId, string projectId, string resourcePath, CancellationToken ct)
@@ -193,7 +193,7 @@ public abstract class EndpointSlugReadCandidateTests<TFactory> : IClassFixture<T
         public Task DeleteRawAsync(string absolutePath, CancellationToken cancellationToken) => Task.CompletedTask;
     }
 
-    private sealed class SlowBunny : IWorkspaceStore
+    private sealed class SlowWorkspace : IWorkspaceStore
     {
         public async Task<T?> GetProjectResourceAsync<T>(long userId, string projectId, string resourcePath, CancellationToken ct)
         {
@@ -211,6 +211,6 @@ public abstract class EndpointSlugReadCandidateTests<TFactory> : IClassFixture<T
     }
 }
 
-public sealed class EndpointSlugReadCandidateTests_Sqlite(SqliteHostFactory factory) : EndpointSlugReadCandidateTests<SqliteHostFactory>(factory);
+public sealed class EndpointSlugReadTests_Sqlite(SqliteHostFactory factory) : EndpointSlugReadTests<SqliteHostFactory>(factory);
 
-public sealed class EndpointSlugReadCandidateTests_Postgres(PostgresHostFactory factory) : EndpointSlugReadCandidateTests<PostgresHostFactory>(factory);
+public sealed class EndpointSlugReadTests_Postgres(PostgresHostFactory factory) : EndpointSlugReadTests<PostgresHostFactory>(factory);

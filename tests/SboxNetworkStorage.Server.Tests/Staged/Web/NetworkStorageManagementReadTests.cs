@@ -11,13 +11,13 @@ using SboxNetworkStorage.Infrastructure.NetworkStorage;
 
 namespace SboxNetworkStorage.Server.Tests;
 
-public abstract class NetworkStorageManagementReadCandidateTests<TFactory> : IClassFixture<TFactory>
+public abstract class NetworkStorageManagementReadTests<TFactory> : IClassFixture<TFactory>
     where TFactory : SelfHostFactory
 {
     private readonly SelfHostFactory factory;
     private readonly HttpClient client;
 
-    protected NetworkStorageManagementReadCandidateTests(TFactory factory)
+    protected NetworkStorageManagementReadTests(TFactory factory)
     {
         Skip.IfNot(factory.IsAvailable, factory.SkipReason);
         this.factory = factory;
@@ -76,7 +76,7 @@ public abstract class NetworkStorageManagementReadCandidateTests<TFactory> : ICl
 
         var handler = new ManagementReadHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
-            new FakeBunnyManagement("proj-1") { ResourceResponses = { ["game-values.json"] = gv } },
+            new FakeWorkspaceManagement("proj-1") { ResourceResponses = { ["game-values.json"] = gv } },
             new FakeProjectService());
 
         var result = await handler.ExecuteAsync(BuildRequest("proj-1", apiKey: "sk-valid", routeSuffix: "game-values"));
@@ -98,7 +98,7 @@ public abstract class NetworkStorageManagementReadCandidateTests<TFactory> : ICl
 
         var handler = new ManagementReadHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
-            new FakeBunnyManagement("proj-1") { ResourceResponses = { ["endpoints.json"] = eps } },
+            new FakeWorkspaceManagement("proj-1") { ResourceResponses = { ["endpoints.json"] = eps } },
             new FakeProjectService());
 
         var result = await handler.ExecuteAsync(BuildRequest("proj-1", apiKey: "sk-valid", routeSuffix: "endpoints"));
@@ -119,7 +119,7 @@ public abstract class NetworkStorageManagementReadCandidateTests<TFactory> : ICl
 
         var handler = new ManagementReadHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
-            new FakeBunnyManagement("proj-1") { ResourceResponses = { ["collections.json"] = collections } },
+            new FakeWorkspaceManagement("proj-1") { ResourceResponses = { ["collections.json"] = collections } },
             new FakeProjectService());
 
         var result = await handler.ExecuteAsync(BuildRequest("proj-1", apiKey: "sk-valid", routeSuffix: "collections"));
@@ -138,7 +138,7 @@ public abstract class NetworkStorageManagementReadCandidateTests<TFactory> : ICl
 
         var handler = new ManagementReadHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
-            new FakeBunnyManagement("proj-1") { ResourceResponses = { ["workflows.json"] = wfs } },
+            new FakeWorkspaceManagement("proj-1") { ResourceResponses = { ["workflows.json"] = wfs } },
             new FakeProjectService());
 
         var result = await handler.ExecuteAsync(BuildRequest("proj-1", apiKey: "sk-valid", routeSuffix: "workflows"));
@@ -154,7 +154,7 @@ public abstract class NetworkStorageManagementReadCandidateTests<TFactory> : ICl
     [InlineData(null, 0)]
     public async Task QueriesReturnsOkWithData(string? resourceJson, int expectedCount)
     {
-        var workspace = new FakeBunnyManagement("proj-1");
+        var workspace = new FakeWorkspaceManagement("proj-1");
         if (resourceJson is not null)
         {
             workspace.ResourceResponses["queries.json"] = ParseJson(resourceJson);
@@ -190,7 +190,7 @@ public abstract class NetworkStorageManagementReadCandidateTests<TFactory> : ICl
 
         var handler = new ManagementReadHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
-            new FakeBunnyManagement("proj-1") { ResourceResponses = { ["tests.json"] = tests } },
+            new FakeWorkspaceManagement("proj-1") { ResourceResponses = { ["tests.json"] = tests } },
             new FakeProjectService());
 
         var result = await handler.ExecuteAsync(BuildRequest("proj-1", apiKey: "sk-valid", routeSuffix: "tests"));
@@ -206,7 +206,7 @@ public abstract class NetworkStorageManagementReadCandidateTests<TFactory> : ICl
     {
         var handler = new ManagementReadHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
-            new FakeBunnyManagement("proj-1"),
+            new FakeWorkspaceManagement("proj-1"),
             new FakeProjectService(hasRateLimits: true));
 
         var result = await handler.ExecuteAsync(BuildRequest("proj-1", apiKey: "sk-valid", routeSuffix: "rate-limit-rules"));
@@ -226,7 +226,7 @@ public abstract class NetworkStorageManagementReadCandidateTests<TFactory> : ICl
     {
         var handler = new ManagementReadHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
-            new FakeBunnyManagement("proj-1"),
+            new FakeWorkspaceManagement("proj-1"),
             new FakeProjectService());
 
         var result = await handler.ExecuteAsync(BuildRequest("proj-1", apiKey: "sk-valid", routeSuffix: "settings"));
@@ -247,7 +247,7 @@ public abstract class NetworkStorageManagementReadCandidateTests<TFactory> : ICl
     {
         var handler = new ManagementReadHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
-            new FakeBunnyManagement("proj-1"),
+            new FakeWorkspaceManagement("proj-1"),
             new FakeProjectService());
 
         var settingsResult = await handler.ExecuteAsync(
@@ -271,7 +271,7 @@ public abstract class NetworkStorageManagementReadCandidateTests<TFactory> : ICl
 
         var handler = new ManagementReadHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
-            new FakeBunnyManagement("proj-1") { ResourceResponses = { ["game-package.json"] = gp } },
+            new FakeWorkspaceManagement("proj-1") { ResourceResponses = { ["game-package.json"] = gp } },
             new FakeProjectService());
 
         var result = await handler.ExecuteAsync(BuildRequest("proj-1", apiKey: "sk-valid", routeSuffix: "game-package"));
@@ -291,7 +291,7 @@ public abstract class NetworkStorageManagementReadCandidateTests<TFactory> : ICl
     {
         var handler = new ManagementReadHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
-            new FakeBunnyManagement("proj-1"),
+            new FakeWorkspaceManagement("proj-1"),
             new FakeProjectService());
 
         var result = await handler.ExecuteAsync(
@@ -308,7 +308,7 @@ public abstract class NetworkStorageManagementReadCandidateTests<TFactory> : ICl
     {
         var handler = new ManagementReadHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
-            new FakeBunnyManagement("proj-1"),
+            new FakeWorkspaceManagement("proj-1"),
             new FakeProjectService());
 
         var result = await handler.ExecuteAsync(
@@ -333,7 +333,7 @@ public abstract class NetworkStorageManagementReadCandidateTests<TFactory> : ICl
     {
         var handler = new ManagementReadHandler(
             new FakeKeyResolver(null, "proj-1"),
-            new FakeBunnyManagement("proj-1"),
+            new FakeWorkspaceManagement("proj-1"),
             new FakeProjectService());
 
         var result = await handler.ExecuteAsync(
@@ -354,7 +354,7 @@ public abstract class NetworkStorageManagementReadCandidateTests<TFactory> : ICl
     {
         var handler = new ManagementReadHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
-            new FakeBunnyManagement("proj-1"),
+            new FakeWorkspaceManagement("proj-1"),
             new FakeProjectService());
 
         var result = await handler.ExecuteAsync(
@@ -371,7 +371,7 @@ public abstract class NetworkStorageManagementReadCandidateTests<TFactory> : ICl
         var resolver = new FakeKeyResolver("pk-valid", "proj-1", keyType: "public");
         var handler = new ManagementReadHandler(
             resolver,
-            new FakeBunnyManagement("proj-1"),
+            new FakeWorkspaceManagement("proj-1"),
             new FakeProjectService());
 
         var result = await handler.ExecuteAsync(
@@ -387,7 +387,7 @@ public abstract class NetworkStorageManagementReadCandidateTests<TFactory> : ICl
     {
         var handler = new ManagementReadHandler(
             new FakeKeyResolver("sk-valid", "disabled-proj"),
-            new FakeBunnyManagement("disabled-proj", enabled: false),
+            new FakeWorkspaceManagement("disabled-proj", enabled: false),
             new FakeProjectService());
 
         var result = await handler.ExecuteAsync(
@@ -410,7 +410,7 @@ public abstract class NetworkStorageManagementReadCandidateTests<TFactory> : ICl
         var route = NetworkStorageRouteClassifier.Classify("POST", "/v3/manage/proj-1/endpoints");
         Assert.False(new ManagementReadHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
-            new FakeBunnyManagement("proj-1"),
+            new FakeWorkspaceManagement("proj-1"),
             new FakeProjectService()).CanHandle(route));
     }
 
@@ -423,7 +423,7 @@ public abstract class NetworkStorageManagementReadCandidateTests<TFactory> : ICl
     {
         var handler = new ManagementReadHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
-            new FakeBunnyManagement("proj-1"),
+            new FakeWorkspaceManagement("proj-1"),
             new FakeProjectService());
 
         var result = await handler.ExecuteAsync(
@@ -441,7 +441,7 @@ public abstract class NetworkStorageManagementReadCandidateTests<TFactory> : ICl
     {
         var handler = new ManagementReadHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
-            new FakeBunnyManagement("proj-1"),
+            new FakeWorkspaceManagement("proj-1"),
             new FakeProjectService());
 
         var result = await handler.ExecuteAsync(
@@ -455,7 +455,7 @@ public abstract class NetworkStorageManagementReadCandidateTests<TFactory> : ICl
     }
 
     // ══════════════════════════════════════════════════════════════════
-    // Shadow endpoint integration test
+    // Endpoint integration test
     // ══════════════════════════════════════════════════════════════════
 
     // ══════════════════════════════════════════════════════════════════
@@ -465,7 +465,7 @@ public abstract class NetworkStorageManagementReadCandidateTests<TFactory> : ICl
     [SkippableFact]
     public async Task ResourceReadFailureReturnsReadError()
     {
-        var workspace = new FakeBunnyManagement("proj-1", throwsOnRead: true);
+        var workspace = new FakeWorkspaceManagement("proj-1", throwsOnRead: true);
 
         var handler = new ManagementReadHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
@@ -486,7 +486,7 @@ public abstract class NetworkStorageManagementReadCandidateTests<TFactory> : ICl
     [SkippableFact]
     public async Task MissingProjectReturnsUnauthorized()
     {
-        var workspace = new FakeBunnyManagement("other-proj"); // no "missing-proj" in projects list
+        var workspace = new FakeWorkspaceManagement("other-proj"); // no "missing-proj" in projects list
 
         var handler = new ManagementReadHandler(
             new FakeKeyResolver("sk-valid", "missing-proj"),
@@ -519,7 +519,7 @@ public abstract class NetworkStorageManagementReadCandidateTests<TFactory> : ICl
                 services.RemoveAll<IStorageApiKeyResolver>();
                 services.AddScoped<IStorageApiKeyResolver>(_ => new FakeKeyResolver("sk-valid", "proj-1"));
                 services.RemoveAll<IWorkspaceStore>();
-                services.AddScoped<IWorkspaceStore>(_ => new FakeBunnyManagement("proj-1") { ResourceResponses = { [$"{resource}.json"] = data } });
+                services.AddScoped<IWorkspaceStore>(_ => new FakeWorkspaceManagement("proj-1") { ResourceResponses = { [$"{resource}.json"] = data } });
                 services.RemoveAll<INetworkStorageProjectService>();
                 services.AddScoped<INetworkStorageProjectService>(_ => new FakeProjectService());
             });
@@ -570,7 +570,7 @@ public abstract class NetworkStorageManagementReadCandidateTests<TFactory> : ICl
         }
     }
 
-    private sealed class FakeBunnyManagement : IWorkspaceStore
+    private sealed class FakeWorkspaceManagement : IWorkspaceStore
     {
         private readonly string _projectId;
         private readonly bool _enabled;
@@ -578,7 +578,7 @@ public abstract class NetworkStorageManagementReadCandidateTests<TFactory> : ICl
 
         public Dictionary<string, JsonElement> ResourceResponses { get; } = new();
 
-        public FakeBunnyManagement(string projectId, bool enabled = true, bool throwsOnRead = false)
+        public FakeWorkspaceManagement(string projectId, bool enabled = true, bool throwsOnRead = false)
         {
             _projectId = projectId;
             _enabled = enabled;
@@ -694,6 +694,6 @@ public abstract class NetworkStorageManagementReadCandidateTests<TFactory> : ICl
     }
 }
 
-public sealed class NetworkStorageManagementReadCandidateTests_Sqlite(SqliteHostFactory factory) : NetworkStorageManagementReadCandidateTests<SqliteHostFactory>(factory);
+public sealed class NetworkStorageManagementReadTests_Sqlite(SqliteHostFactory factory) : NetworkStorageManagementReadTests<SqliteHostFactory>(factory);
 
-public sealed class NetworkStorageManagementReadCandidateTests_Postgres(PostgresHostFactory factory) : NetworkStorageManagementReadCandidateTests<PostgresHostFactory>(factory);
+public sealed class NetworkStorageManagementReadTests_Postgres(PostgresHostFactory factory) : NetworkStorageManagementReadTests<PostgresHostFactory>(factory);

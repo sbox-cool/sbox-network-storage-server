@@ -19,8 +19,8 @@ public abstract class NetworkStorageGatewayDispatchTests<TFactory> : IClassFixtu
     public async Task GatewayReturnsNative404ForUnmatchedV3Paths()
     {
         // Unmatched /v3/ paths now return a native 404 instead of proxying to
-        // the decommissioned Bun storage-api. All /v3/ routes are served by
-        // ASP.NET Core + ScyllaDB — no Bun fallback.
+        // the decommissioned legacy server storage-api. All /v3/ routes are served by
+        // ASP.NET Core + the store — no legacy server fallback.
         using var response = await client.GetAsync("/v3/unknown-unmatched-path");
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
@@ -62,9 +62,9 @@ public abstract class NetworkStorageGatewayDispatchTests<TFactory> : IClassFixtu
     [InlineData("/v3/manage/proj-1/endpoints")]
     public async Task ManagementMutationRouteResolvesHandler_Not500(string path)
     {
-        // Regression: ManagementMutationCandidateHandler was registered only
-        // under INetworkStorageCandidateHandler, but the gateway resolves it by
-        // concrete type via GetRequiredService<ManagementMutationCandidateHandler>().
+        // Regression: ManagementMutationHandler was registered only
+        // under INetworkStorageHandler, but the gateway resolves it by
+        // concrete type via GetRequiredService<ManagementMutationHandler>().
         // That threw InvalidOperationException ("No service for type ... has been
         // registered") and surfaced as a 500 on every PUT /v3/manage/*. With the
         // concrete registration the handler resolves and a missing apiKey must

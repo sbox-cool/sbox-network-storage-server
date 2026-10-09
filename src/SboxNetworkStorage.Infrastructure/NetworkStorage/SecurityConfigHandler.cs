@@ -6,7 +6,7 @@ namespace SboxNetworkStorage.Infrastructure.NetworkStorage;
 
 /// <summary>
 /// Serves <c>GET /v3/security-config/:projectId</c> from the authoritative
-/// ScyllaDB project metadata. The response retains the signed Bun-compatible
+/// The store project metadata. The response retains the signed legacy-compatible
 /// wire shape so clients do not need a republish or library update.
 /// </summary>
 public sealed class SecurityConfigHandler : INetworkStorageHandler

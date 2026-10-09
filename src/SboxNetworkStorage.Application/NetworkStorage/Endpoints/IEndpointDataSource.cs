@@ -1,9 +1,9 @@
 namespace SboxNetworkStorage.Application.NetworkStorage.Endpoints;
 
 /// <summary>
-/// Abstraction over the data stores needed by <see cref="NativeEndpointShadowExecutor"/>
+/// Abstraction over the data stores needed by <see cref="EndpointExecutor"/>
 /// to run a deterministic endpoint definition natively. The Infrastructure layer
-/// provides the real implementation (ScyllaDB for definition + records);
+/// provides the real implementation (the store for definition + records);
 /// Application-level tests inject a fake.
 /// </summary>
 public interface IEndpointDataSource

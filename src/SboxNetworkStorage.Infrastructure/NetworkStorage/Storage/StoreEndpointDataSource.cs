@@ -7,8 +7,8 @@ using SboxNetworkStorage.Infrastructure.NetworkStorage.Metadata;
 namespace SboxNetworkStorage.Infrastructure.NetworkStorage.Storage;
 
 /// <summary>
-/// Real implementation of <see cref="IEndpointShadowDataSource"/> backed by
-/// ScyllaDB via <see cref="INetworkStorageStore"/>. Reads endpoint definitions
+/// Real implementation of <see cref="IEndpointDataSource"/> backed by
+/// The store via <see cref="INetworkStorageStore"/>. Reads endpoint definitions
 /// from the <c>endpoints</c> table, and records from the <c>records</c> table
 /// (per-player collections) or the <c>global_records</c> table (global
 /// collections), routing by the collection's <c>collectionType</c> — matching
@@ -20,9 +20,9 @@ namespace SboxNetworkStorage.Infrastructure.NetworkStorage.Storage;
 /// The store is the sole source of truth: a miss is a real miss.
 /// This keeps the endpoint-execution read path consistent with the website
 /// browse API (<c>NetworkStorageController.BrowseCollectionDataApi</c>), which
-/// reads ScyllaDB directly. A split-brain where the game client loads a stale
-/// Bunny record while the dashboard shows the current ScyllaDB record is
-/// impossible once Primary is true.
+/// reads the store directly. A split-brain where the game client loads a stale
+/// workspace record while the dashboard shows the current store record is
+/// impossible.
 /// </summary>
 public sealed class StoreEndpointDataSource : IEndpointDataSource, IEndpointRecordSizeLimit
 {
@@ -129,7 +129,7 @@ public sealed class StoreEndpointDataSource : IEndpointDataSource, IEndpointReco
             var raw = await _store.ReadRecordAsync(projectId, collectionId, key, ct);
             // A read must yield the stored PAYLOAD (what {{step.field}} resolves
             // against), not the record wrapper {record_key, payload_json, deleted, …}.
-            // Soft-deleted tombstones read as missing — matching Bun's storage layer.
+            // Soft-deleted tombstones read as missing — matching legacy server's storage layer.
             if (raw.HasValue)
             {
                 var payload = ExtractRecordPayload(raw.Value);
@@ -177,7 +177,7 @@ public sealed class StoreEndpointDataSource : IEndpointDataSource, IEndpointReco
             foreach (var row in rows)
             {
                 // ExtractRecordPayload returns null for soft-deleted tombstones and
-                // absent payloads — both skipped here (matches Bun's scanCollectionUncached).
+                // absent payloads — both skipped here (matches legacy server's scanCollectionUncached).
                 var payload = ExtractRecordPayload(row);
                 if (payload != null) result.Add(payload);
             }
@@ -256,7 +256,7 @@ public sealed class StoreEndpointDataSource : IEndpointDataSource, IEndpointReco
                 }
                 else
                 {
-                    // Permanent soft-delete tombstone, identical to ScyllaNetworkStorageDataPlane.
+                    // Permanent soft-delete tombstone, identical to StoreNetworkStorageDataPlane.
                     await transaction.Store.UpsertRecordAsync(projectId, collectionId, key,
                         JsonSerializer.SerializeToElement<object?>(null), deleted: true, version: 1, ct);
                 }
@@ -321,7 +321,7 @@ public sealed class StoreEndpointDataSource : IEndpointDataSource, IEndpointReco
     /// Unwrap a <c>records</c> row (<c>{record_key, payload_json, deleted, version, …}</c>)
     /// to the stored payload the executor's read/scan steps operate on. Returns null
     /// for a soft-deleted tombstone or an absent payload. <c>payload_json</c> is a
-    /// nested JSON object in the real store (ScyllaDbResourceStore.BuildRecordRow), so
+    /// nested JSON object in the real store (INetworkStorageStore.BuildRecordRow), so
     /// the executor must NOT receive the wrapper — that would make every
     /// <c>{{step.field}}</c> reference resolve to undefined.
     /// </summary>
@@ -330,7 +330,7 @@ public sealed class StoreEndpointDataSource : IEndpointDataSource, IEndpointReco
     /// <summary>
     /// Determine whether a collection is a global-collection-type (rows live in the
     /// <c>global_records</c> table) or per-steamid (rows live in the <c>records</c>
-    /// table). Reads the collection's <c>definition_json</c> from ScyllaDB and looks
+    /// table). Reads the collection's <c>definition_json</c> from the store and looks
     /// for the <c>collectionType</c> field. Defaults to <c>false</c> (per-steamid)
     /// when the collection is missing, the field is absent, or the lookup fails —
     /// matching the status-quo routing and <see cref="CollectionTypeLabel"/>'s fallback.
@@ -386,7 +386,7 @@ public sealed class StoreEndpointDataSource : IEndpointDataSource, IEndpointReco
     }
 
     /// <summary>
-    /// Extract the endpoint definition JSON from a ScyllaDB row.  The
+    /// Extract the endpoint definition JSON from a store row.  The
     /// <c>definition_json</c> column stores the full endpoint definition (including
     /// <c>steps</c>, <c>response</c>, <c>let</c>, etc.) as a JSON string.
     /// </summary>

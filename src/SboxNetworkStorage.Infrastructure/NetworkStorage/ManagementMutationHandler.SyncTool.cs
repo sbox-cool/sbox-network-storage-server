@@ -46,7 +46,7 @@ public sealed partial class ManagementMutationHandler
     // ── PATCH /endpoints | /collections | /workflows ──
 
     /// <summary>
-    /// Upserts one resource without touching the others (Bun <c>routeManagePatch*</c>):
+    /// Upserts one resource without touching the others (legacy server <c>routeManagePatch*</c>):
     /// body <c>{ endpoint|collection|workflow: {...} }</c>. Source-backed payloads replace the
     /// stored definition; plain payloads are shallow-merged over it.
     /// </summary>

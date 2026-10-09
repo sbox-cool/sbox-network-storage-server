@@ -9,8 +9,8 @@ using SboxNetworkStorage.Infrastructure.NetworkStorage.Storage;
 namespace SboxNetworkStorage.Infrastructure.NetworkStorage;
 
 /// <summary>
-/// Persists project audit-log entries to ScyllaDB (the <c>project_audit_logs</c>
-/// table). Replaces the retired SpacetimeDB audit logger. Audit logging is
+/// Persists project audit-log entries to the store (the <c>project_audit_logs</c>
+/// table). Replaces the retired legacy store audit logger. Audit logging is
 /// best-effort: a write failure is logged and swallowed so it never breaks the
 /// request whose action it records.
 /// </summary>

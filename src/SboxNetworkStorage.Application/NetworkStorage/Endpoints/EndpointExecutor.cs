@@ -7,14 +7,14 @@ namespace SboxNetworkStorage.Application.NetworkStorage.Endpoints;
 
 /// <summary>
 /// Application-layer orchestrator that loads a Network Storage endpoint definition
-/// and its read-step record data via <see cref="IEndpointShadowDataSource"/>, then
+/// and its read-step record data via <see cref="IEndpointDataSource"/>, then
 /// runs the <see cref="EndpointStepExecutor"/> natively. Returns null when the
 /// endpoint uses features the native executor does not yet reproduce, so the
-/// caller can safely fall back to the authoritative Bun runtime.
+/// caller can safely fall back to the authoritative legacy server runtime.
 ///
 /// This is the integration seam between the deterministic-expression/step-engine
 /// (verified in isolation against golden oracles) and the live data-plane
-/// (endpoint definitions + record data stored in ScyllaDB).
+/// (endpoint definitions + record data stored in the store).
 /// </summary>
 public sealed partial class EndpointExecutor
 {
@@ -42,7 +42,7 @@ public sealed partial class EndpointExecutor
     /// <summary>
     /// Execute an endpoint natively using the deterministic executor.
     /// Returns <c>null</c> when the endpoint is not found, uses unsupported features,
-    /// or the data source is unavailable — indicating the caller should delegate to Bun.
+    /// or the data source is unavailable — indicating the caller should delegate to legacy server.
     /// </summary>
     public async Task<EndpointExecutionResult?> TryExecuteAsync(
         string projectId,
@@ -59,7 +59,7 @@ public sealed partial class EndpointExecutor
         bool enforcePublicAccessGates = false,
         EndpointDryRunTrace? trace = null)
     {
-        // 1. Load endpoint definition from ScyllaDB.
+        // 1. Load endpoint definition from the store.
         Dictionary<string, object?>? endpointDef;
         try
         {
@@ -71,17 +71,17 @@ public sealed partial class EndpointExecutor
         }
 
         if (endpointDef == null)
-            return null; // endpoint not found → caller handles the Bun path
+            return null; // endpoint not found → caller handles the legacy server path
 
         // Endpoint-level access gates for PUBLIC HTTP callers. These were enforced by
-        // the Bun runtime (controllers/endpoint-modules/execution-routes.js) but were
+        // the legacy server runtime (controllers/endpoint-modules/execution-routes.js) but were
         // dropped when execution moved to the native executor, so an endpoint marked
         // `requiresSecretKey: true` would happily execute for a plain public key.
         // Checked here, where the definition is already in hand, so the request path
         // takes no extra read.
         //
         // Opt-in, because not every caller is a public HTTP request: the dashboard's
-        // endpoint test runner and the shadow-comparison path deliberately execute
+        // endpoint test runner and the dry-run comparison path deliberately execute
         // internal and disabled endpoints, and must not be gated.
         if (enforcePublicAccessGates)
         {
@@ -89,13 +89,13 @@ public sealed partial class EndpointExecutor
             if (denial is not null) return denial;
         }
 
-        // Live cutover serving has no Bun in the loop. Record writes/deletes the
+        // Live cutover serving has no legacy server in the loop. Record writes/deletes the
         // endpoint queues are flushed durably below, so they are safe to serve. The
         // only operation we cannot fulfill without help is a Discord webhook: if the
         // endpoint may dispatch one (a webhook step, or a workflow whose sub-steps we
         // can't statically inspect) and no live sender is wired, defer to the
-        // authoritative Bun path so a notification can never be silently dropped.
-        // (Shadow mode never refuses: it dry-runs webhooks and keeps writes in-memory,
+        // authoritative legacy server path so a notification can never be silently dropped.
+        // (Dry-run mode never refuses: it dry-runs webhooks and keeps writes in-memory,
         // which is exactly what a read-only parity comparison needs.)
         if (liveServe && _webhookSender is null && EndpointStepExecutor.RequiresLiveWebhookSender(endpointDef))
             return null;
@@ -105,13 +105,13 @@ public sealed partial class EndpointExecutor
         // game-specific. It runs only for projects that opted in (existing projects at migration time
         // keep it; new projects start with it off).
         var legacyPlayerProjections = await _dataSource.IsLegacyPlayerProjectionsEnabledAsync(projectId, ct);
-        // Build the player key from the project's key mode, matching the Bun
+        // Build the player key from the project's key mode, matching the legacy server
         // endpoint-runner logic (tools/sbox/endpoint-runner.js:332-335):
         //   playerSave mode + saveId input → "{steamId}_{saveId}"
         //   otherwise → steamId
         // Before this fix the .NET executor always used bare steamId, which
-        // mismatched keys Bun wrote under playerSave mode — the root cause of
-        // "no player found" for players whose saves were authored by Bun with
+        // mismatched keys legacy server wrote under playerSave mode — the root cause of
+        // "no player found" for players whose saves were authored by legacy server with
         // composite keys.
         var keyMode = playerKeyMode ?? "player";
         string playerKey;
@@ -147,8 +147,8 @@ public sealed partial class EndpointExecutor
 
         // 3. Load collection metadata and build name→ID resolver.
         // Endpoint YAML references collections by NAME (e.g. "players", "skills"),
-        // but ScyllaDB stores records under collection ID (e.g. "97b7e26e949d43b4").
-        // Bun's findCollection() resolves names→IDs at every step. The .NET executor
+        // but the store stores records under collection ID (e.g. "97b7e26e949d43b4").
+        // legacy server's findCollection() resolves names→IDs at every step. The .NET executor
         // must do the same or reads return null and writes go to non-existent
         // collection IDs. (tools/sbox/endpoint-runner.js:3038-3045)
         Dictionary<string, string> collectionNameToId;
@@ -176,13 +176,13 @@ public sealed partial class EndpointExecutor
         string ResolveCollection(string collection) =>
             collectionNameToId.TryGetValue(collection, out var id) ? id : collection;
 
-        // 4. Discover read targets and pre-fetch records from ScyllaDB.
+        // 4. Discover read targets and pre-fetch records from the store.
         // Keys are used EXACTLY as authored in the endpoint YAML — no _default
         // stripping, no key transformation. The endpoint definition is the source
         // of truth for record keys. If the YAML says {{steamId}}, the store key is
         // the bare steamId. If it says {{steamId}}_default, the store key is
         // "{steamId}_default". This matches how the .NET record-CRUD data plane
-        // and the ScyllaDB records table work.
+        // and the store records table work.
         IReadOnlyList<(string CollectionId, string Key)> readTargets;
         try
         {
@@ -264,10 +264,10 @@ public sealed partial class EndpointExecutor
         }
 
         // Live serve captures the endpoint's queued writes/deletes in order so they
-        // can be durably flushed to the authoritative store after execution. In shadow
+        // can be durably flushed to the authoritative store after execution. In dry-run
         // mode the list is null: writes only touch the in-memory cache (so later reads
-        // in the same execution see them) and Bun's shadow adapter owns the real
-        // ScyllaDB write — we never double-write.
+        // in the same execution see them) and the caller owns the real
+        // store write — we never double-write.
         var durableWrites = liveServe
             ? new List<(string Collection, string Key, Dictionary<string, object?>? Data, bool IsDelete)>()
             : null;
@@ -294,7 +294,7 @@ public sealed partial class EndpointExecutor
             return scannedCollections.TryGetValue(cid, out var list) ? list : new List<object?>();
         }
 
-        // LoadWorkflow delegate: loads workflow definitions from ScyllaDB.
+        // LoadWorkflow delegate: loads workflow definitions from the store.
         async Task<Dictionary<string, object?>?> LoadWorkflow(string workflowId, CancellationToken loadCt)
         {
             try
@@ -364,7 +364,7 @@ public sealed partial class EndpointExecutor
             DeleteRecord: DeleteRecordAction,
             ScanCollection: ScanCollection,
             LoadWorkflow: LoadWorkflow,
-            // Live serve sends real Discord webhooks via the injected sender; shadow
+            // Live serve sends real Discord webhooks via the injected sender; dry-run
             // mode dry-runs them (deterministic, for parity). SkipSleep is honored only
             // when serving live traffic.
             ExecuteWebhookAsync: liveServe && _webhookSender is not null
@@ -375,7 +375,7 @@ public sealed partial class EndpointExecutor
             OnStep: trace is null ? null : trace.Steps.Add);
 
         // 5. Execute natively via async path (supports workflows + routed flows).
-        //    UnsupportedException → null (caller falls back to Bun).
+        //    UnsupportedException → null (caller falls back to legacy server).
         EndpointExecutionResult result;
         try
         {
@@ -464,7 +464,7 @@ public sealed partial class EndpointExecutor
         //    b) Tracked-field deltas: emit `tracked_field.{field}` analytics events
         //       (before/after/delta) for the dashboard progression charts. Derived
         //       from the pre-read `existing` and post-write `players` values already
-        //       in the prefetched cache + durableWrites — zero extra ScyllaDB reads.
+        //       in the prefetched cache + durableWrites — zero extra the store reads.
         if (legacyPlayerProjections && liveServe && durableWrites is { Count: > 0 } && steamId != "anonymous")
         {
             await ApplyPostFlushProjectionsAsync(
@@ -478,7 +478,7 @@ public sealed partial class EndpointExecutor
     /// <summary>
     /// Best-effort post-flush projections: leaderboard update + tracked-field
     /// analytics deltas. Both are derived from values already in memory (the
-    /// pre-read cache + the just-flushed writes), so they add zero ScyllaDB
+    /// pre-read cache + the just-flushed writes), so they add zero the store
     /// round-trips for the save itself. Failures are swallowed (the save already
     /// succeeded; these are non-critical projections).
     /// </summary>
@@ -584,7 +584,7 @@ public sealed partial class EndpointExecutor
     private static readonly string[] s_trackedFields = { "totalLevel", "totalKills", "totalGold", "nodesMined" };
 
     /// <summary>
-    /// Public-HTTP access gates, mirroring the Bun runtime's checks in
+    /// Public-HTTP access gates, mirroring the legacy server runtime's checks in
     /// <c>controllers/endpoint-modules/execution-routes.js</c>. Returns the denial to
     /// send, or null when the caller may proceed.
     /// </summary>
@@ -619,7 +619,7 @@ public sealed partial class EndpointExecutor
     }
 
     /// <summary>
-    /// Endpoint definitions arrive from ScyllaDB/JSON where a flag may be a real bool,
+    /// Endpoint definitions arrive from the store/JSON where a flag may be a real bool,
     /// a boxed JsonElement, or a "true"/"false" string. Only an explicit truthy value
     /// counts — a missing flag is never treated as set.
     /// </summary>
@@ -633,7 +633,7 @@ public sealed partial class EndpointExecutor
 
     /// <summary>
     /// True only when the flag is explicitly false. A missing flag is NOT false — an
-    /// endpoint definition without an "enabled" key stays enabled, matching Bun.
+    /// endpoint definition without an "enabled" key stays enabled, matching legacy server.
     /// </summary>
     private static bool IsFalse(object? value) => value switch
     {
@@ -664,9 +664,9 @@ public sealed partial class EndpointExecutor
 
     /// <summary>
     /// Strip the "_default" suffix from endpoint step keys before they reach the
-    /// store, matching Bun's resolveRecordKey (tools/sbox/endpoint-runner.js:3052).
+    /// store, matching legacy server's resolveRecordKey (tools/sbox/endpoint-runner.js:3052).
     /// Endpoint YAML commonly uses "{{steamId}}_default" as a read/write key.
-    /// Bun strips "_default" for single-save collections (maxRecords ≤ 1) — the
+    /// legacy server strips "_default" for single-save collections (maxRecords ≤ 1) — the
     /// vast majority — and resolves it via the record index for multi-save
     /// collections, falling back to the bare steamId when no records exist.
     /// In every code path the store key never contains "_default".

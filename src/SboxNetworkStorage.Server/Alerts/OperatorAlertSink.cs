@@ -9,7 +9,7 @@ namespace SboxNetworkStorage.Server.Alerts;
 /// Fans every captured error out to the log (existing behaviour) plus the
 /// configured operator channels (Discord, SMTP). Registered as both
 /// <see cref="IExceptionAlertSink"/> and <see cref="INetworkStorageErrorAlertSink"/>,
-/// so every existing call site (endpoint shadow reporter, proxy reporter,
+/// so every existing call site (endpoint error reporter, proxy reporter,
 /// handler-caught reporter, storage-API error reports) alerts without changes.
 ///
 /// The senders are best-effort and never throw; the two remote sends run

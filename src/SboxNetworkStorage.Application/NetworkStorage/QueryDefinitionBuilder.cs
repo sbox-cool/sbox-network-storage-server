@@ -27,7 +27,7 @@ public sealed record QueryFormInput(
 
 /// <summary>
 /// Builds the canonical query JSON object that BOTH query engines read:
-/// the live Bun engine (<c>tools/sbox/queries.js</c>) and the .NET
+/// the live legacy server engine (<c>tools/sbox/queries.js</c>) and the .NET
 /// <c>NativeQueryExecutor</c>. The metric field/order/limit live under
 /// <c>config</c>, the cache TTL under <c>cache.ttlSeconds</c>, and
 /// <c>requiresSecretKey</c>/<c>sources</c> at the top level. Existing config

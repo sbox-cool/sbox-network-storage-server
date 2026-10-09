@@ -18,26 +18,26 @@ namespace SboxNetworkStorage.Server.Tests;
 /// </summary>
 public sealed class NetworkStorageRateLimitTests
 {
-    private static NetworkStorageProjectService CreateService(FakeBunny bunny)
+    private static NetworkStorageProjectService CreateService(FakeWorkspace workspace)
         => new(
-            bunny,
-            bunnyStorageEnumerator: null!,
+            workspace,
+            workspaceStorageEnumerator: null!,
             new ConfigurationBuilder().Build(),
             keyCdnWriter: null!,
-            scyllaStore: new InMemoryNetworkStorageStore(),
+            networkStore: new InMemoryNetworkStorageStore(),
             NullLogger<NetworkStorageProjectService>.Instance);
 
     [Fact]
     public async Task GetProjectRateLimits_MapsWindowsSchemaRules()
     {
-        var bunny = new FakeBunny();
-        bunny.Resources["rate-limit-rules.json"] = """
+        var workspace = new FakeWorkspace();
+        workspace.Resources["rate-limit-rules.json"] = """
         [
           { "id": "r1", "collection": "players", "field": "coins", "scope": "per_player",
             "windows": { "perMinute": 5, "perDay": 100 }, "action": "clamp", "enabled": true }
         ]
         """;
-        var service = CreateService(bunny);
+        var service = CreateService(workspace);
 
         var result = await service.GetProjectRateLimitsAsync(42, "proj_test", CancellationToken.None);
 
@@ -58,7 +58,7 @@ public sealed class NetworkStorageRateLimitTests
     [Fact]
     public async Task GetProjectRateLimits_NoRulesFile_ReturnsEmpty()
     {
-        var service = CreateService(new FakeBunny());
+        var service = CreateService(new FakeWorkspace());
 
         var result = await service.GetProjectRateLimitsAsync(42, "proj_test", CancellationToken.None);
 
@@ -68,8 +68,8 @@ public sealed class NetworkStorageRateLimitTests
     [Fact]
     public async Task SaveRateLimitRules_WritesAuthoritativeResourceAndRoundTrips()
     {
-        var bunny = new FakeBunny();
-        var service = CreateService(bunny);
+        var workspace = new FakeWorkspace();
+        var service = CreateService(workspace);
         var rules = new List<RateLimitRule>
         {
             new("r1", "players", "coins", "reject", MaxPerMinute: 10, MaxPerHour: null, MaxPerDay: 200, Enabled: true, Scope: "global"),
@@ -78,7 +78,7 @@ public sealed class NetworkStorageRateLimitTests
         await service.SaveRateLimitRulesAsync(42, "proj_test", rules, CancellationToken.None);
 
         // It must persist to the authoritative resource (not the project's endpointRateLimits).
-        var put = Assert.Single(bunny.Puts);
+        var put = Assert.Single(workspace.Puts);
         Assert.Equal("rate-limit-rules.json", put.Path);
 
         using var doc = JsonDocument.Parse(put.Json);
@@ -102,10 +102,10 @@ public sealed class NetworkStorageRateLimitTests
     public async Task SaveEndpointRateLimits_DoesNotWipeProjectsAndPersistsOnProject()
     {
         var now = DateTimeOffset.UtcNow;
-        var bunny = new FakeBunny();
-        bunny.Projects.Add(new WorkspaceProject("proj_one", "One", null, true, now, now, null));
-        bunny.Projects.Add(new WorkspaceProject("proj_two", "Two", null, true, now, now, null));
-        var service = CreateService(bunny);
+        var workspace = new FakeWorkspace();
+        workspace.Projects.Add(new WorkspaceProject("proj_one", "One", null, true, now, now, null));
+        workspace.Projects.Add(new WorkspaceProject("proj_two", "Two", null, true, now, now, null));
+        var service = CreateService(workspace);
 
         var limits = new Dictionary<string, object>
         {
@@ -116,9 +116,9 @@ public sealed class NetworkStorageRateLimitTests
         await service.SaveEndpointRateLimitsAsync(42, "proj_one", limits, CancellationToken.None);
 
         // The full list is preserved (never wiped) and the target project carries the limits.
-        Assert.Equal(2, bunny.Projects.Count);
-        Assert.DoesNotContain(bunny.ProjectSaves, saved => saved.Count == 0);
-        var target = bunny.Projects.Single(p => p.Id == "proj_one");
+        Assert.Equal(2, workspace.Projects.Count);
+        Assert.DoesNotContain(workspace.ProjectSaves, saved => saved.Count == 0);
+        var target = workspace.Projects.Single(p => p.Id == "proj_one");
         Assert.NotNull(target.EndpointRateLimits);
         Assert.True(target.EndpointRateLimits!.ContainsKey("enabled"));
     }
@@ -127,19 +127,19 @@ public sealed class NetworkStorageRateLimitTests
     public async Task SaveEndpointRateLimits_UnknownProject_Throws()
     {
         var now = DateTimeOffset.UtcNow;
-        var bunny = new FakeBunny();
-        bunny.Projects.Add(new WorkspaceProject("proj_one", "One", null, true, now, now, null));
-        var service = CreateService(bunny);
+        var workspace = new FakeWorkspace();
+        workspace.Projects.Add(new WorkspaceProject("proj_one", "One", null, true, now, now, null));
+        var service = CreateService(workspace);
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             service.SaveEndpointRateLimitsAsync(42, "missing", new Dictionary<string, object>(), CancellationToken.None));
 
         // A failed lookup must not have rewritten the project list.
-        Assert.Empty(bunny.ProjectSaves);
-        Assert.Single(bunny.Projects);
+        Assert.Empty(workspace.ProjectSaves);
+        Assert.Single(workspace.Projects);
     }
 
-    private sealed class FakeBunny : IWorkspaceStore
+    private sealed class FakeWorkspace : IWorkspaceStore
     {
         public Dictionary<string, string> Resources { get; } = new();
         public List<WorkspaceProject> Projects { get; } = new();

@@ -187,8 +187,8 @@ public sealed class EndpointDashboardMutationsTests
         return stored[0];
     }
 
-    // Faithfully round-trips through JSON like the real ScyllaMetadataWorkspaceClient /
-    // BunnyWorkspaceClient (serialize on write, deserialize to the requested T on read),
+    // Faithfully round-trips through JSON like the real StoreMetadataWorkspaceClient /
+    // IWorkspaceStore (serialize on write, deserialize to the requested T on read),
     // so the JsonElement-valued dictionaries the mutation re-serializes behave as in prod.
     private sealed class StatefulWorkspaceClient : IWorkspaceStore
     {

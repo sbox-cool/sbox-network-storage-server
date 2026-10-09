@@ -5,12 +5,12 @@ using SboxNetworkStorage.Application.Workspace;
 namespace SboxNetworkStorage.Infrastructure.NetworkStorage;
 
 /// <summary>
-/// Read-only native candidate for <c>GET /api/pages/:projectId/:pageSlug</c> and
-/// <c>GET /pages/:projectId/:pageSlug</c>. Mirrors Bun's <c>routePagesApiGet</c>: resolves the
+/// Read-only native handler for <c>GET /api/pages/:projectId/:pageSlug</c> and
+/// <c>GET /pages/:projectId/:pageSlug</c>. Mirrors legacy server's <c>routePagesApiGet</c>: resolves the
 /// project owner from the <c>network-storage/page-index/{projectId}.json</c> index, then reads
 /// the published page JSON from <c>network-storage/users/{userId}/{projectId}/pages/{pageSlug}.json</c>.
-/// Supports <c>format</c> query parameter (<c>"json"</c> / <c>"jsonmd"</c>); Bun's HTML and markdown
-/// format responses are out of scope for this read-only candidate. Reads only; never writes.
+/// Supports <c>format</c> query parameter (<c>"json"</c> / <c>"jsonmd"</c>); legacy server's HTML and markdown
+/// format responses are out of scope for this read-only handler. Reads only; never writes.
 /// </summary>
 public sealed class PagesHandler : INetworkStorageHandler
 {
@@ -70,7 +70,7 @@ public sealed class PagesHandler : INetworkStorageHandler
                 authDecision: "anonymous");
         }
 
-        // Bun interpolates `ownerData.userId` directly into the storage path regardless of JSON
+        // legacy server interpolates `ownerData.userId` directly into the storage path regardless of JSON
         // type. Production page-index documents store `userId` as a String (older writers) or a
         // Number; both must resolve to the same path segment. Calling GetInt64() unconditionally
         // crashed on string-typed ids (ENDPOINT/PAGES read 500s on GET /pages/{projectId}/updates).
@@ -128,7 +128,7 @@ public sealed class PagesHandler : INetworkStorageHandler
                 authDecision: "anonymous");
         }
 
-        // ── Step 3: shape Bun-compatible JSON response ──
+        // ── Step 3: shape legacy-compatible JSON response ──
 
         var pageType = page.Value.TryGetProperty("pageType", out var typeEl) ? typeEl.GetString() : null;
         var statusLevel = page.Value.TryGetProperty("statusLevel", out var statusEl) ? statusEl.GetString() : null;
@@ -155,7 +155,7 @@ public sealed class PagesHandler : INetworkStorageHandler
                 : null;
         }
 
-        // Include html field only for format=json parity (candidate cannot render HTML)
+        // Include html field only for format=json parity (handler cannot render HTML)
         if (format == "json")
         {
             payload["html"] = "";

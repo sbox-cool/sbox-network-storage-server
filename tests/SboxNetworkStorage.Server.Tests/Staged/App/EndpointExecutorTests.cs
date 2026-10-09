@@ -5,7 +5,7 @@ using SboxNetworkStorage.Server.Tests.Support;
 
 namespace SboxNetworkStorage.Server.Tests.NetworkStorage;
 
-public sealed class NativeEndpointShadowExecutorTests
+public sealed class NativeEndpointExecutorTests
 {
     private static readonly DateTimeOffset FixedTime = DateTimeOffset.Parse("2026-06-10T00:00:00Z");
 
@@ -124,7 +124,7 @@ public sealed class NativeEndpointShadowExecutorTests
             input: new Dictionary<string, object?>(), steamId: "steam1", userId: "u1",
             gameValues: new Dictionary<string, object?>(),
             hasSecretKey: false, isDedicatedServer: false, CancellationToken.None);
-        Assert.Null(result); // falls back to Bun
+        Assert.Null(result); // falls back to legacy server
     }
 
     [Fact]
@@ -273,7 +273,7 @@ public sealed class NativeEndpointShadowExecutorTests
     }
 
     [Fact]
-    public async Task TryExecute_ShadowMode_WriteStep_DoesNotFlushDurably()
+    public async Task TryExecute_DryRunMode_WriteStep_DoesNotFlushDurably()
     {
         var store = new Dictionary<string, object?>
         {
@@ -284,7 +284,7 @@ public sealed class NativeEndpointShadowExecutorTests
         var ds = new RecordingDataSource(store, new Dictionary<string, object?>());
         var executor = new EndpointExecutor(ds);
 
-        // liveServe defaults to false (shadow): Bun's shadow adapter owns the write.
+        // liveServe defaults to false (dry-run): the caller owns the write.
         var result = await executor.TryExecuteAsync(
             "proj", "save",
             input: new Dictionary<string, object?>(), steamId: "steam1", userId: "u1",
@@ -337,7 +337,7 @@ public sealed class NativeEndpointShadowExecutorTests
             gameValues: new Dictionary<string, object?>(),
             hasSecretKey: true, isDedicatedServer: true, CancellationToken.None, liveServe: true);
 
-        // Fail-closed: must NOT return null (that would trigger a Bun re-run / double-write).
+        // Fail-closed: must NOT return null (that would trigger a legacy server re-run / double-write).
         Assert.NotNull(result);
         Assert.Equal(500, result!.Status);
         var body = (Dictionary<string, object?>)result.Body!;
@@ -363,7 +363,7 @@ public sealed class NativeEndpointShadowExecutorTests
             gameValues: new Dictionary<string, object?>(),
             hasSecretKey: true, isDedicatedServer: true, CancellationToken.None, liveServe: true);
 
-        Assert.Null(result); // defer to Bun so the notification is not silently dropped
+        Assert.Null(result); // defer to legacy server so the notification is not silently dropped
     }
 
     [Fact]
@@ -563,10 +563,10 @@ public sealed class NativeEndpointShadowExecutorTests
     }
 
     [Fact]
-    public async Task TryExecute_AntiRollbackHeal_OnlyRunsLive_NotShadow()
+    public async Task TryExecute_AntiRollbackHeal_OnlyRunsLive_NotDryRun()
     {
-        // Shadow mode (liveServe=false) must stay a faithful parity executor: no
-        // heal, so the guard blocks exactly as Bun would. The heal is a live-serve
+        // Dry-run mode (liveServe=false) must stay a faithful parity executor: no
+        // heal, so the guard blocks exactly as legacy server would. The heal is a live-serve
         // recovery policy, not part of the deterministic engine.
         var store = new Dictionary<string, object?>
         {
@@ -1291,30 +1291,30 @@ public sealed class NativeEndpointShadowExecutorTests
     private sealed class ThrowOnDefinitionRead : IEndpointDataSource
     {
         public Task<Dictionary<string, object?>?> ReadEndpointDefinitionAsync(string projectId, string endpointSlug, CancellationToken ct)
-            => throw new Exception("ScyllaDB unavailable");
+            => throw new Exception("Store unavailable");
 
         public Task<IReadOnlyList<Dictionary<string, object?>>> ListCollectionsAsync(string projectId, CancellationToken ct)
-            => throw new Exception("ScyllaDB unavailable");
+            => throw new Exception("Store unavailable");
 
         public Task<object?> ReadRecordAsync(string projectId, string collectionId, string key, CancellationToken ct)
-            => throw new Exception("ScyllaDB unavailable");
+            => throw new Exception("Store unavailable");
 
         public Task<IReadOnlyList<object?>> ScanCollectionAsync(string projectId, string collectionId, CancellationToken ct)
-            => throw new Exception("ScyllaDB unavailable");
+            => throw new Exception("Store unavailable");
 
         public Task<Dictionary<string, object?>?> ReadWorkflowDefinitionAsync(string projectId, string workflowId, CancellationToken ct)
             => Task.FromResult<Dictionary<string, object?>?>(null);
 
         public Task<IEndpointWriteTransaction> BeginWriteTransactionAsync(CancellationToken ct)
-            => throw new Exception("ScyllaDB unavailable");
+            => throw new Exception("Store unavailable");
 
         public Task<object?> ReadGlobalRecordAsync(string projectId, string collectionId, string recordId, CancellationToken ct)
-            => throw new Exception("ScyllaDB unavailable");
+            => throw new Exception("Store unavailable");
 
         public Task<bool> IsLegacyPlayerProjectionsEnabledAsync(string projectId, CancellationToken ct) => Task.FromResult(true);
 
         public Task WriteGlobalRecordAsync(string projectId, string collectionId, string recordId, IReadOnlyDictionary<string, object?> payload, CancellationToken ct)
-            => throw new Exception("ScyllaDB unavailable");
+            => throw new Exception("Store unavailable");
     }
 
     private sealed class RecordingDataSource : IEndpointDataSource
@@ -1421,8 +1421,8 @@ public sealed class NativeEndpointShadowExecutorTests
 
         public Task<IEndpointWriteTransaction> BeginWriteTransactionAsync(CancellationToken ct)
             => Task.FromResult<IEndpointWriteTransaction>(new DelegateEndpointWriteTransaction(
-                write: (_, _, _, _) => throw new Exception("ScyllaDB write failed"),
-                delete: (_, _, _) => throw new Exception("ScyllaDB delete failed")));
+                write: (_, _, _, _) => throw new Exception("Store write failed"),
+                delete: (_, _, _) => throw new Exception("Store delete failed")));
 
         public Task<object?> ReadGlobalRecordAsync(string projectId, string collectionId, string recordId, CancellationToken ct)
             => Task.FromResult<object?>(null);
@@ -1430,7 +1430,7 @@ public sealed class NativeEndpointShadowExecutorTests
         public Task<bool> IsLegacyPlayerProjectionsEnabledAsync(string projectId, CancellationToken ct) => Task.FromResult(true);
 
         public Task WriteGlobalRecordAsync(string projectId, string collectionId, string recordId, IReadOnlyDictionary<string, object?> payload, CancellationToken ct)
-            => throw new Exception("ScyllaDB global write failed");
+            => throw new Exception("Store global write failed");
     }
 
     /// <summary>
@@ -1481,7 +1481,7 @@ public sealed class NativeEndpointShadowExecutorTests
                 write: (_, collectionId, key, payload) =>
                 {
                     if (collectionId == _throwOnCollection)
-                        throw new Exception($"ScyllaDB write failed for {collectionId}");
+                        throw new Exception($"Store write failed for {collectionId}");
                     staged[$"{collectionId}:{key}"] = payload;
                 },
                 delete: (_, collectionId, key) => staged.Remove($"{collectionId}:{key}"),

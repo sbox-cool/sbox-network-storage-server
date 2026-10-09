@@ -343,7 +343,7 @@ public sealed class UsageTrackerAndMiddlewareTests
         public override Task IncrementProjectUsageAsync(string projectId, string month, string day, string? endpointSlug, UsageDelta delta, CancellationToken ct)
         {
             if (Interlocked.Increment(ref _calls) == 1)
-                throw new InvalidOperationException("ScyllaDB unavailable");
+                throw new InvalidOperationException("Store unavailable");
             return base.IncrementProjectUsageAsync(projectId, month, day, endpointSlug, delta, ct);
         }
     }

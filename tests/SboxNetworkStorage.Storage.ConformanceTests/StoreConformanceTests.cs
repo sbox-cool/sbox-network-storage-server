@@ -5,7 +5,7 @@ namespace SboxNetworkStorage.Storage.ConformanceTests;
 
 /// <summary>
 /// Behavioral contract every <see cref="INetworkStorageStore"/> driver must
-/// satisfy; the expectations are the production ScyllaDB store's behavior.
+/// satisfy; the expectations are the production the store store's behavior.
 /// Split across partial files by table family.
 /// </summary>
 public abstract partial class StoreConformanceTests : IAsyncLifetime

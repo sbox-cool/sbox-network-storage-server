@@ -13,15 +13,15 @@ using SboxNetworkStorage.Infrastructure.NetworkStorage.Storage;
 namespace SboxNetworkStorage.Infrastructure.NetworkStorage;
 
 /// <summary>
-/// Native .NET port of the legacy Bun <c>observePlayerAnalytics</c>
+/// Native .NET port of the legacy server <c>observePlayerAnalytics</c>
 /// (<c>services/network-storage-player-analytics.js</c>) ingestion path. Emits
 /// normalized analytics events from the .NET data plane (endpoint execution,
 /// storage CRUD, the explicit analytics-events endpoint) and maintains the
 /// per-player profile/presence, per-player session, and project issues indexes
-/// in ScyllaDB — replacing the Bunny fast-edge index files
+/// in the store — replacing the workspace fast-edge index files
 /// (<c>analytics/recent.json</c>, <c>players/{steamId}.json</c>,
 /// <c>events/{steamId}/{date}.json</c>, <c>sessions/{steamId}/{sessionId}.json</c>,
-/// <c>issues|incidents/recent.json</c>) that Bun maintained.
+/// <c>issues|incidents/recent.json</c>) that legacy server maintained.
 ///
 /// All ingestion is best-effort: a failure is logged and swallowed so it never
 /// breaks the originating storage/endpoint operation.
@@ -165,7 +165,7 @@ public sealed class PlayerAnalyticsIngester(
         // whose request body carries no sessionId). Without this they are stored
         // under "no-session" and render as "Activity outside sessions" instead of
         // grouping with the heartbeats/joins of the same play session. Mirrors the
-        // Bun ingester, which stamps sessionless non-session events with the
+        // legacy server ingester, which stamps sessionless non-session events with the
         // profile's currentSessionId.
         if (string.IsNullOrEmpty(sessionId) && category != "session")
         {
@@ -417,7 +417,7 @@ public sealed class PlayerAnalyticsIngester(
             fpsMetrics, summaryJson: null, ct);
     }
 
-    // ── Normalization (faithful port of the Bun helpers) ─────────────
+    // ── Normalization (faithful port of the legacy server helpers) ─────────────
 
     private static string EventCategory(string type)
     {
@@ -451,7 +451,7 @@ public sealed class PlayerAnalyticsIngester(
         return parts.Length > 1 ? string.Join(' ', parts[1..]) : type;
     }
 
-    /// <summary>Strip stacks unless the event is an explicit error/diagnostic (parity with Bun boundAnalyticsPayload).</summary>
+    /// <summary>Strip stacks unless the event is an explicit error/diagnostic (parity with legacy server boundAnalyticsPayload).</summary>
     private static JsonElement BoundPayload(JsonElement payload, string category)
     {
         // An Undefined element (from a null payload) is not serializable — collapse

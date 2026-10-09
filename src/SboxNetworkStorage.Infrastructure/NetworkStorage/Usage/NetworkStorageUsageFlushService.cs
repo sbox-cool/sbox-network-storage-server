@@ -5,7 +5,7 @@ namespace SboxNetworkStorage.Infrastructure.NetworkStorage.Usage;
 
 /// <summary>
 /// Periodic flush loop for <see cref="NetworkStorageUsageTracker"/> — the .NET
-/// equivalent of the legacy Bun tracker's <c>setInterval(flushUsage, 30_000)</c>
+/// equivalent of the legacy server tracker's <c>setInterval(flushUsage, 30_000)</c>
 /// plus its <c>beforeExit</c> forced flush. Flush errors are contained by the
 /// tracker itself (re-queue + backoff); this loop never crashes the host.
 /// </summary>

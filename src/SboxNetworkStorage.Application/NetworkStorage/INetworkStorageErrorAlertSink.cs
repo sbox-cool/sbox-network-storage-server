@@ -3,7 +3,7 @@ using System.Text.Json;
 namespace SboxNetworkStorage.Application.NetworkStorage;
 
 /// <summary>
-/// Alert sink for Network Storage data-plane errors (ScyllaDB failures on record
+/// Alert sink for Network Storage data-plane errors (the store failures on record
 /// read/write/delete). Implementations notify an external channel (Discord) but
 /// MUST NOT write to the website error archive (Postgres) — Network Storage errors
 /// are air-gapped from the website database per AGENTS.md.

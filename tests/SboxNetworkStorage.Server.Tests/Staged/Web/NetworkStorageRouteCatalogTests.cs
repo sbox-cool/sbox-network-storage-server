@@ -11,10 +11,10 @@ public sealed class NetworkStorageRouteCatalogTests
 
     private static List<BunRoute> LoadInventory()
     {
-        var path = Path.Combine(AppContext.BaseDirectory, "Fixtures", "network-storage-shadow", "bun-route-inventory.json");
+        var path = Path.Combine(AppContext.BaseDirectory, "Fixtures", "network-storage-fixtures", "route-inventory.json");
         var json = File.ReadAllText(path);
         return JsonSerializer.Deserialize<List<BunRoute>>(json, JsonOptions)
-            ?? throw new InvalidOperationException("Expected the Bun route inventory fixture to deserialize.");
+            ?? throw new InvalidOperationException("Expected the route inventory fixture to deserialize.");
     }
 
     [Fact]
@@ -29,7 +29,7 @@ public sealed class NetworkStorageRouteCatalogTests
             .Select(route => $"{route.Method} {route.Template}")
             .ToList();
 
-        Assert.True(missing.Count == 0, $"Bun routes missing from the .NET catalog: {string.Join(", ", missing)}");
+        Assert.True(missing.Count == 0, $"Legacy routes missing from the .NET catalog: {string.Join(", ", missing)}");
     }
 
     [Fact]
@@ -44,7 +44,7 @@ public sealed class NetworkStorageRouteCatalogTests
             .Select(entry => $"{entry.Method} {entry.Template}")
             .ToList();
 
-        Assert.True(phantom.Count == 0, $"Catalog entries not present in the Bun inventory: {string.Join(", ", phantom)}");
+        Assert.True(phantom.Count == 0, $"Catalog entries not present in the route inventory: {string.Join(", ", phantom)}");
     }
 
     [Fact]

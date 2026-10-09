@@ -4,7 +4,7 @@ namespace SboxNetworkStorage.Server.Infrastructure;
 
 /// <summary>
 /// Best-effort, time-windowed dedup gate for repeated native endpoint error
-/// reports (<see cref="EndpointShadowReporter.CaptureErrorResultAsync"/>).
+/// reports (<see cref="EndpointErrorReporter.CaptureErrorResultAsync"/>).
 ///
 /// A persistent data-integrity conflict — most notably a <c>needs_review</c>
 /// player's autosave looping on the anti-rollback guard

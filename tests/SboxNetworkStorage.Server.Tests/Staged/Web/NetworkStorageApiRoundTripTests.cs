@@ -20,7 +20,7 @@ namespace SboxNetworkStorage.Server.Tests;
 /// ASP.NET Core pipeline: routing, auth, data plane, serialization.
 ///
 /// All tests run against an in-memory <see cref="InMemoryNetworkStorageStore"/> — no
-/// ScyllaDB instance required.
+/// The store instance required.
 /// </summary>
 public abstract class NetworkStorageApiRoundTripTests<TFactory> : IClassFixture<TFactory>
     where TFactory : SelfHostFactory

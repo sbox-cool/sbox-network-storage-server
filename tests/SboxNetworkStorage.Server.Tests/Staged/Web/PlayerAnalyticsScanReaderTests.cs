@@ -8,12 +8,12 @@ namespace SboxNetworkStorage.Server.Tests;
 
 /// <summary>
 /// Unit coverage for the native log / transaction / ledger scan readers
-/// (<see cref="ScyllaPlayerAnalyticsReader"/>). After the Bunny → ScyllaDB
+/// (<see cref="StorePlayerAnalyticsReader"/>). After the workspace → the store
 /// migration the reader sources storage operations from the
 /// <c>player_analytics_events</c> table (category "record") and tracked-field
 /// deltas from <c>ledger_entries</c>. The scans are exercised directly against
 /// <see cref="InMemoryNetworkStorageStore"/> so the aggregation logic is asserted without HTTP
-/// and without any Bunny CDN dependency.
+/// and without any workspace CDN dependency.
 /// </summary>
 public sealed class PlayerAnalyticsScanReaderTests
 {
@@ -193,7 +193,7 @@ public sealed class PlayerAnalyticsScanReaderTests
         Assert.Empty((List<Dictionary<string, JsonElement>>)result["entries"]!);
     }
 
-    // ── Project audit logs (ScyllaDB project_audit_logs) ──
+    // ── Project audit logs (the store project_audit_logs) ──
 
     [Fact]
     public async Task GetProjectAuditLogsAsync_FiltersByActionAndPaginates()
@@ -231,7 +231,7 @@ public sealed class PlayerAnalyticsScanReaderTests
         Assert.Empty((List<Dictionary<string, JsonElement>>)ledger["entries"]!);
     }
 
-    // ── Player timeline + ledger insights (ScyllaDB player_analytics_events) ──
+    // ── Player timeline + ledger insights (the store player_analytics_events) ──
 
     [Fact]
     public async Task GetPlayerLedgerInsightsAsync_ReadsEventsAndWrapsEnvelope()

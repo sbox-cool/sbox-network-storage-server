@@ -6,7 +6,7 @@ namespace SboxNetworkStorage.Storage.Postgres;
 /// Forward-only PostgreSQL migrations. Never edit a released migration; append
 /// a new version instead. Tables mirror the production CQL schema. Key text
 /// columns use <c>COLLATE "C"</c> so ordering is bytewise, exactly like
-/// ScyllaDB clustering order on <c>text</c>.
+/// The store clustering order on <c>text</c>.
 /// </summary>
 internal static class PostgresMigrations
 {

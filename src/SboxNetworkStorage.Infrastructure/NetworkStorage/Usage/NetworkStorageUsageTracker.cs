@@ -6,7 +6,7 @@ using SboxNetworkStorage.Infrastructure.NetworkStorage.Storage;
 namespace SboxNetworkStorage.Infrastructure.NetworkStorage.Usage;
 
 /// <summary>
-/// Classification of a metered data-plane request. Mirrors the legacy Bun
+/// Classification of a metered data-plane request. Mirrors the legacy server
 /// tracker's <c>read | write | endpoint</c> types plus explicit query/auth
 /// buckets for the .NET route surface.
 /// </summary>
@@ -37,10 +37,10 @@ public readonly record struct NetworkStorageUsageTrackerSnapshot(
     long DroppedKeys);
 /// <summary>
 /// In-process buffered usage metering for the Network Storage data plane — the
-/// .NET port of the decommissioned Bun <c>tools/sbox/usage-tracker.js</c>.
+/// .NET port of the decommissioned legacy server <c>tools/sbox/usage-tracker.js</c>.
 /// <see cref="Track"/> accumulates per-(project, month, day, endpoint) deltas in
 /// memory; <see cref="FlushAsync(bool, CancellationToken)"/> drains them into the
-/// ScyllaDB counter tables (<c>project_usage_monthly/daily/endpoints</c>).
+/// The store counter tables (<c>project_usage_monthly/daily/endpoints</c>).
 ///
 /// <para>Failure semantics match legacy: a failed bucket flush re-merges the
 /// deltas into the live buffer and applies exponential backoff (30 s base,
@@ -48,7 +48,7 @@ public readonly record struct NetworkStorageUsageTrackerSnapshot(
 /// <see cref="ArgumentException"/> can never succeed and is dropped instead. At most
 /// <c>maxPendingKeys</c> distinct keys are buffered; further new keys are
 /// dropped and counted. A hard process crash loses at most one flush interval of
-/// telemetry — identical to the Bun tracker.</para>
+/// telemetry — identical to the legacy server tracker.</para>
 ///
 /// <para>Thread-safety: buckets are locked for the few field additions; a
 /// bucket being drained is marked <c>Draining</c> under its lock so a racing
@@ -194,7 +194,7 @@ public sealed class NetworkStorageUsageTracker(
     public Task FlushAsync(CancellationToken ct = default) => FlushAsync(force: false, ct);
 
     /// <summary>
-    /// Drain all pending buckets into ScyllaDB. <paramref name="force"/> ignores
+    /// Drain all pending buckets into the store. <paramref name="force"/> ignores
     /// the failure backoff (used on shutdown). Single-flight: a concurrent call
     /// returns immediately. Never throws.
     /// </summary>

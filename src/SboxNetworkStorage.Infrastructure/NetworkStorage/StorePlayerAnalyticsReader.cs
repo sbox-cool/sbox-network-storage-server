@@ -19,7 +19,7 @@ namespace SboxNetworkStorage.Infrastructure.NetworkStorage;
 /// <c>controllers/storage-modules/insights-routes.js</c>.
 /// </summary>
 public sealed partial class StorePlayerAnalyticsReader(
-    INetworkStorageStore scyllaStore) : IPlayerAnalyticsReader
+    INetworkStorageStore networkStore) : IPlayerAnalyticsReader
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };
 
@@ -73,15 +73,15 @@ public sealed partial class StorePlayerAnalyticsReader(
         var activeTab = tab is "performance" or "errors" ? tab : "recent";
         var now = DateTimeOffset.UtcNow;
 
-        var profileRows = await scyllaStore.ReadProjectProfilesAsync(projectId, cancellationToken);
+        var profileRows = await networkStore.ReadProjectProfilesAsync(projectId, cancellationToken);
 
         var players = new List<RecentPlayer>();
         foreach (var row in profileRows)
         {
             if (row.ValueKind != JsonValueKind.Object) continue;
-            // Adapt the ScyllaDB player_profiles row (snake_case, unix-ms) to the
+            // Adapt the store player_profiles row (snake_case, unix-ms) to the
             // camelCase/ISO shape RecentPlayer.Parse expects (parity with the
-            // legacy analytics/recent.json rows Bun maintained).
+            // legacy analytics/recent.json rows legacy server maintained).
             var adapted = AdaptProfileRowForRecentPlayer(row, now);
             var player = RecentPlayer.Parse(adapted, now);
             if (player is null || player.IsObviousTestPlayer) continue;
@@ -153,9 +153,9 @@ public sealed partial class StorePlayerAnalyticsReader(
     public async Task<object?> GetPlayerTransactionsAsync(
         long ownerUserId, string projectId, string steamId, string? collection, int page, CancellationToken cancellationToken)
     {
-        // Per-player storage operation history from ScyllaDB player_analytics_events
+        // Per-player storage operation history from the store player_analytics_events
         // (category "record"), last LogWindowDays days, newest first, page 25.
-        // Replaces the legacy logs/{collection}/ops/{date} Bunny day-file scan.
+        // Replaces the legacy logs/{collection}/ops/{date} workspace day-file scan.
         const int perPage = 25;
         if (string.IsNullOrWhiteSpace(steamId))
             return Paginate(new List<Dictionary<string, JsonElement>>(), page, perPage, "transactions");
@@ -166,7 +166,7 @@ public sealed partial class StorePlayerAnalyticsReader(
 
         var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         var fromMs = nowMs - (LogWindowDays * 24L * 60L * 60L * 1000L);
-        var rows = await scyllaStore.ListPlayerEventsAsync(projectId, steamId, fromMs, nowMs, MaxPlayerEventsScan, cancellationToken);
+        var rows = await networkStore.ListPlayerEventsAsync(projectId, steamId, fromMs, nowMs, MaxPlayerEventsScan, cancellationToken);
 
         var transactions = new List<Dictionary<string, JsonElement>>();
         foreach (var row in rows)
@@ -184,10 +184,10 @@ public sealed partial class StorePlayerAnalyticsReader(
     public async Task<object?> GetPlayerLedgerAsync(
         long ownerUserId, string projectId, string steamId, string? field, string? source, string? from, string? to, CancellationToken cancellationToken)
     {
-        // Tracked-field deltas for a player from ScyllaDB ledger_entries (written by
+        // Tracked-field deltas for a player from the store ledger_entries (written by
         // PlayerAnalyticsIngester for fields marked _ledger:true / explicitly tracked),
         // summarised by source. Replaces the legacy
-        // {collection}/data/{steamId}/logs/audit/{field}/{date}.json Bunny scan.
+        // {collection}/data/{steamId}/logs/audit/{field}/{date}.json workspace scan.
         var now = DateTimeOffset.UtcNow;
         var fromDate = string.IsNullOrWhiteSpace(from) ? now.AddDays(-7).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) : from;
         var toDate = string.IsNullOrWhiteSpace(to) ? now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) : to;
@@ -200,7 +200,7 @@ public sealed partial class StorePlayerAnalyticsReader(
             var ledgerFields = ExtractLedgerFields(col.Schema);
             if (ledgerFields.Count == 0) continue;
 
-            var rows = await scyllaStore.ListLedgerEntriesAsync(projectId, col.Id, steamId, cancellationToken);
+            var rows = await networkStore.ListLedgerEntriesAsync(projectId, col.Id, steamId, cancellationToken);
             foreach (var row in rows)
             {
                 if (ParseJsonField(row, "entry_json") is not { ValueKind: JsonValueKind.Object } entry) continue;
@@ -263,9 +263,9 @@ public sealed partial class StorePlayerAnalyticsReader(
     public async Task<object?> GetProjectLogsAsync(
         long ownerUserId, string projectId, string? collection, string? steamId, string? op, string? query, int page, CancellationToken cancellationToken)
     {
-        // Project-wide storage operation browser from ScyllaDB player_analytics_events
+        // Project-wide storage operation browser from the store player_analytics_events
         // (category "record"). Scans recent players' per-player event partitions for the
-        // last LogWindowDays days. Replaces the legacy logs/{collection}/ops/{date} Bunny
+        // last LogWindowDays days. Replaces the legacy logs/{collection}/ops/{date} workspace
         // day-file scan. Byte size is not captured by the .NET data plane analytics
         // events, so _bytes is omitted (the UI renders "-").
         const int perPage = 25;
@@ -284,7 +284,7 @@ public sealed partial class StorePlayerAnalyticsReader(
         foreach (var sid in steamIds)
         {
             if (logs.Count >= MaxLogRows) break;
-            var rows = await scyllaStore.ListPlayerEventsAsync(projectId, sid, fromMs, nowMs, MaxPlayerEventsScan, cancellationToken);
+            var rows = await networkStore.ListPlayerEventsAsync(projectId, sid, fromMs, nowMs, MaxPlayerEventsScan, cancellationToken);
             foreach (var row in rows)
             {
                 var built = BuildStorageOpRow(row, sid, nameById);
@@ -303,15 +303,15 @@ public sealed partial class StorePlayerAnalyticsReader(
     public async Task<object?> GetProjectAuditLogsAsync(
         long ownerUserId, string projectId, int page, int pageSize, string? search, string? action, string? date, string? sort, CancellationToken cancellationToken)
     {
-        // Read from ScyllaDB project_audit_logs (the authoritative audit store).
-        // Replaces the legacy logs/project/{date}.json Bunny day-file reads.
+        // Read from the store project_audit_logs (the authoritative audit store).
+        // Replaces the legacy logs/project/{date}.json workspace day-file reads.
         var size = Math.Clamp(pageSize <= 0 ? 50 : pageSize, 1, 500);
         var oldestFirst = string.Equals(sort, "oldest", StringComparison.OrdinalIgnoreCase)
             || string.Equals(sort, "asc", StringComparison.OrdinalIgnoreCase);
         var searchTerm = (search ?? string.Empty).Trim().ToLowerInvariant();
         var actionFilter = (action ?? string.Empty).Trim();
 
-        var auditRows = await scyllaStore.ListAuditLogsAsync(projectId, 500, cancellationToken);
+        var auditRows = await networkStore.ListAuditLogsAsync(projectId, 500, cancellationToken);
         var all = new List<Dictionary<string, JsonElement>>();
         foreach (var row in auditRows)
         {
@@ -367,14 +367,14 @@ public sealed partial class StorePlayerAnalyticsReader(
         var counts = new Dictionary<string, object?>();
         foreach (var key in IncidentCountKeys) counts[key] = 0;
 
-        // Read the last IncidentWindowDays of issues from ScyllaDB
+        // Read the last IncidentWindowDays of issues from the store
         // (project_analytics_issues), bucketed by date. Replaces the legacy
-        // analytics/incidents/recent.json Bunny file.
+        // analytics/incidents/recent.json workspace file.
         var recent = new List<JsonElement>();
         for (int i = 0; i < IncidentWindowDays; i++)
         {
             var date = now.AddDays(-i).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
-            var rows = await scyllaStore.ListProjectIssuesAsync(projectId, date, MaxRecentIncidents, cancellationToken);
+            var rows = await networkStore.ListProjectIssuesAsync(projectId, date, MaxRecentIncidents, cancellationToken);
             foreach (var r in rows)
             {
                 recent.Add(r);
@@ -409,14 +409,14 @@ public sealed partial class StorePlayerAnalyticsReader(
     private async Task<List<JsonElement>> ReadErrorRowsAsync(
         long ownerUserId, string projectId, DateTimeOffset now, CancellationToken cancellationToken)
     {
-        // Read error-category issues from ScyllaDB (project_analytics_issues) for
+        // Read error-category issues from the store (project_analytics_issues) for
         // the last ErrorWindowDays. Replaces the legacy analytics/issues/recent.json
-        // Bunny file.
+        // workspace file.
         var rows = new List<JsonElement>();
         for (int i = 0; i < ErrorWindowDays; i++)
         {
             var date = now.AddDays(-i).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
-            var dayRows = await scyllaStore.ListProjectIssuesAsync(projectId, date, MaxErrorRows, cancellationToken);
+            var dayRows = await networkStore.ListProjectIssuesAsync(projectId, date, MaxErrorRows, cancellationToken);
             foreach (var r in dayRows)
             {
                 if (ReadString(r, "category") == "error") rows.Add(r);
@@ -497,7 +497,7 @@ public sealed partial class StorePlayerAnalyticsReader(
         => DateTimeOffset.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out result);
 
     /// <summary>
-    /// Adapt a ScyllaDB <c>player_profiles</c> row (snake_case, unix-ms
+    /// Adapt a store <c>player_profiles</c> row (snake_case, unix-ms
     /// timestamps) to the camelCase/ISO-8601 shape <see cref="RecentPlayer.Parse"/>
     /// expects (parity with the legacy <c>analytics/recent.json</c> rows).
     /// </summary>
@@ -587,7 +587,7 @@ public sealed partial class StorePlayerAnalyticsReader(
     private async Task<IReadOnlyList<string>> ResolveLogPlayersAsync(string projectId, string? steamId, CancellationToken cancellationToken)
     {
         if (!string.IsNullOrWhiteSpace(steamId)) return new[] { steamId };
-        var profiles = await scyllaStore.ReadProjectProfilesAsync(projectId, cancellationToken);
+        var profiles = await networkStore.ReadProjectProfilesAsync(projectId, cancellationToken);
         return profiles
             .Where(p => p.ValueKind == JsonValueKind.Object)
             .Select(p => (SteamId: ReadString(p, "steam_id"), LastSeen: ReadLongField(p, "last_seen_unix_ms")))
@@ -601,7 +601,7 @@ public sealed partial class StorePlayerAnalyticsReader(
     }
 
     /// <summary>
-    /// Build a legacy ops-log/transaction row from a ScyllaDB player_analytics_events
+    /// Build a legacy ops-log/transaction row from a store player_analytics_events
     /// row. Returns null for non-storage events (only record mutations are part of the
     /// project "write history"; reads are excluded).
     /// </summary>
@@ -697,10 +697,10 @@ public sealed partial class StorePlayerAnalyticsReader(
 
     private async Task<List<CollectionMeta>> ReadCollectionsAsync(long ownerUserId, string projectId, CancellationToken cancellationToken)
     {
-        // Read from ScyllaDB (the authoritative collection metadata store) rather
-        // than the legacy collections.json Bunny file. The V2 schema returns
+        // Read from the store (the authoritative collection metadata store) rather
+        // than the legacy collections.json workspace file. The V2 schema returns
         // {collection_id, name, visibility, definition_json, ...}.
-        var rows = await scyllaStore.ListCollectionsAsync(projectId, cancellationToken);
+        var rows = await networkStore.ListCollectionsAsync(projectId, cancellationToken);
         var list = new List<CollectionMeta>();
         foreach (var c in rows)
         {

@@ -1,7 +1,7 @@
 namespace SboxNetworkStorage.Application.NetworkStorage;
 
 /// <summary>
-/// Network Storage route family taxonomy. Each value groups Bun storage-api / compatibility routes
+/// Network Storage route family taxonomy. Each value groups legacy server storage-api / compatibility routes
 /// that share a handler shape and migration risk profile.
 /// </summary>
 public enum NetworkStorageRouteFamily
@@ -34,20 +34,20 @@ public enum NetworkStoragePlane
     Diagnostic
 }
 
-/// <summary>How the .NET candidate treats a Bun route family during the shadow migration.</summary>
+/// <summary>How the .NET server treats a legacy server route family.</summary>
 public enum NetworkStorageRouteDisposition
 {
-    /// <summary>In scope to mirror as a native candidate beside Bun.</summary>
+    /// <summary>In scope to mirror as a native route.</summary>
     Mirror,
     /// <summary>In scope but deferred to a later migration slice.</summary>
     Deferred,
-    /// <summary>Explicitly out of scope; Bun stays authoritative and no candidate is built.</summary>
+    /// <summary>Explicitly out of scope; no native route is built.</summary>
     Excluded
 }
 
 /// <summary>
-/// A single Bun Network Storage route declaration, mirrored into the .NET catalog. Templates use the
-/// Bun ":param" segment syntax exactly as declared in storage-api/routes.js and the
+/// A single legacy server Network Storage route declaration, mirrored into the .NET catalog. Templates use the
+/// legacy server ":param" segment syntax exactly as declared in storage-api/routes.js and the
 /// routes/server.js compatibility router.
 /// </summary>
 public sealed class NetworkStorageRouteEntry
@@ -148,10 +148,10 @@ public sealed class NetworkStorageRouteEntry
 }
 
 /// <summary>
-/// Authoritative .NET-side inventory of every in-scope Bun Network Storage route. Built from
+/// Authoritative .NET-side inventory of every in-scope legacy server Network Storage route. Built from
 /// storage-api/routes.js and the routes/server.js compatibility router. The fixture
-/// Fixtures/network-storage-shadow/bun-route-inventory.json mirrors the Bun source and a test fails
-/// when a Bun route is absent here or lacks an explicit disposition.
+/// Fixtures/network-storage-fixtures/route-inventory.json mirrors the legacy server source and a test fails
+/// when a legacy server route is absent here or lacks an explicit disposition.
 /// </summary>
 public static class NetworkStorageRouteCatalog
 {

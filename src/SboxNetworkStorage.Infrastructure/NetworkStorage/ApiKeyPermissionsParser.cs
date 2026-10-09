@@ -44,7 +44,7 @@ public static class ApiKeyPermissionsParser
     }
 
     /// <summary>
-    /// Parses an already-decoded <see cref="JsonElement"/> (e.g. a SpaceTimeDB
+    /// Parses an already-decoded <see cref="JsonElement"/> (e.g. a legacy store
     /// <c>permissions_json</c> column) without re-serializing it. Accepts the same
     /// shapes as <see cref="Parse(string?)"/> and never throws: a wrapped/malformed
     /// value yields <see langword="null"/> instead of dropping the whole key set.

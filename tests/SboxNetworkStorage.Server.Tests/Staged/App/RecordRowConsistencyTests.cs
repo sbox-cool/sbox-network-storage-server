@@ -6,9 +6,9 @@ namespace SboxNetworkStorage.Server.Tests.NetworkStorage;
 
 /// <summary>
 /// Tests that all three Network Storage read paths — the game-client endpoint
-/// executor (ScyllaEndpointShadowDataSource), the direct record-CRUD API
-/// (ScyllaNetworkStorageDataPlane), and the website dashboard browse API
-/// (NetworkStorageController) — produce identical results for the same ScyllaDB
+/// executor (StoreEndpointDataSource), the direct record-CRUD API
+/// (StoreNetworkStorageDataPlane), and the website dashboard browse API
+/// (NetworkStorageController) — produce identical results for the same the store
 /// row. This is the "website and API are synced" invariant: no path can serve
 /// a different view of the same record.
 ///
@@ -44,8 +44,8 @@ public class RecordRowConsistencyTests
             payload: """{"totalLevel":399}""",
             deleted: true);
 
-        // A tombstone reads as missing — matching Bun's storage layer and the
-        // ScyllaNetworkStorageDataPlane behavior.
+        // A tombstone reads as missing — matching legacy server's storage layer and the
+        // StoreNetworkStorageDataPlane behavior.
         Assert.Null(RecordRow.ExtractPayload(row));
     }
 
@@ -202,7 +202,7 @@ public class RecordRowConsistencyTests
 
     // ── Cross-path consistency: executor vs data plane vs browse API ────
     //
-    // These tests verify the invariant: for any given ScyllaDB row, all three
+    // These tests verify the invariant: for any given the store row, all three
     // read paths extract the same payload. The executor wraps the result in
     // EndpointExpression's value model (Dictionary<string, object?>), while the
     // data plane and browse API return JsonElement — but the DATA must be identical.
@@ -278,7 +278,7 @@ public class RecordRowConsistencyTests
         Assert.Equal(200.0, executorCombat["level"]);
     }
 
-    // ── Helper: build a row that matches ScyllaDbResourceStore.BuildRecordRow ──
+    // ── Helper: build a row that matches INetworkStorageStore.BuildRecordRow ──
 
     private static JsonElement MakeRecordRow(string key, string payload, bool deleted, long updatedAt = 1781859860431)
     {

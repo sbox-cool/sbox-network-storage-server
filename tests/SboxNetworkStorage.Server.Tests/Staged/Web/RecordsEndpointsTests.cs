@@ -18,10 +18,10 @@ namespace SboxNetworkStorage.Server.Tests;
 /// (save-slot index) API family
 /// (<c>GET/POST /v3/storage/{projectId}/{collectionId}/{steamId}/records</c>,
 /// <c>DELETE/PATCH .../records/{recordId}</c>, plus the <c>/v1</c> +
-/// <c>/api/storage</c> aliases). Proves the Bun→.NET cutover: save-slot CRUD
-/// executes natively via <c>IBunnyWorkspaceClient</c> (index) +
-/// <c>INetworkStorageDataPlane</c> (save data), the Bun wire contract is
-/// preserved, and no request is proxied to the dead Bun storage-api.
+/// <c>/api/storage</c> aliases). Proves the legacy server→.NET cutover: save-slot CRUD
+/// executes natively via <c>IWorkspaceStore</c> (index) +
+/// <c>INetworkStorageDataPlane</c> (save data), the legacy server wire contract is
+/// preserved, and no request is proxied to the dead legacy server storage-api.
 /// </summary>
 public abstract class RecordsEndpointsTests<TFactory> : IClassFixture<TFactory>
     where TFactory : SelfHostFactory
@@ -50,7 +50,7 @@ public abstract class RecordsEndpointsTests<TFactory> : IClassFixture<TFactory>
     {
         return _factory.WithWebHostBuilder(builder =>
         {
-            // Dead Bun storage-api port — a 502 would prove the request proxied to Bun.
+            // Dead legacy server storage-api port — a 502 would prove the request proxied to legacy server.
             
             builder.ConfigureServices(services =>
             {
@@ -59,7 +59,7 @@ public abstract class RecordsEndpointsTests<TFactory> : IClassFixture<TFactory>
                 services.RemoveAll<INetworkStorageProjectService>();
                 services.AddScoped<INetworkStorageProjectService>(_ => new FakeProjectService(projectEnabled, collectionFound ? [MakeCollection(maxRecords, allowRecordDelete)] : []));
                 services.RemoveAll<IWorkspaceStore>();
-                services.AddScoped<IWorkspaceStore>(_ => new FakeBunnyClient(existingIndexJson));
+                services.AddScoped<IWorkspaceStore>(_ => new FakeWorkspaceClient(existingIndexJson));
                 services.RemoveAll<INetworkStorageDataPlane>();
                 services.AddScoped<INetworkStorageDataPlane>(_ => new FakeDataPlane());
             });
@@ -383,11 +383,11 @@ public abstract class RecordsEndpointsTests<TFactory> : IClassFixture<TFactory>
     }
 
     /// <summary>
-    /// In-memory IBunnyWorkspaceClient that serves only GetProjectResourceAsync
+    /// In-memory IWorkspaceStore that serves only GetProjectResourceAsync
     /// + PutProjectResourceAsync. All other members return defaults / throw
     /// NotImplementedException (not used by the records endpoint path).
     /// </summary>
-    private sealed class FakeBunnyClient(string? existingIndexJson) : IWorkspaceStore
+    private sealed class FakeWorkspaceClient(string? existingIndexJson) : IWorkspaceStore
     {
         private readonly Dictionary<string, string> _store = new(StringComparer.Ordinal);
 

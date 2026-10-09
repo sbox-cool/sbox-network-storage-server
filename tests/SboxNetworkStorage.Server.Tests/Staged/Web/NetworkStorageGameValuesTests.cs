@@ -13,13 +13,13 @@ using SboxNetworkStorage.Infrastructure.NetworkStorage;
 using SboxNetworkStorage.Infrastructure.NetworkStorage.Storage;
 namespace SboxNetworkStorage.Server.Tests;
 
-public abstract class NetworkStorageGameValuesCandidateTests<TFactory> : IClassFixture<TFactory>
+public abstract class NetworkStorageGameValuesTests<TFactory> : IClassFixture<TFactory>
     where TFactory : SelfHostFactory
 {
     private readonly SelfHostFactory factory;
     private readonly HttpClient client;
 
-    protected NetworkStorageGameValuesCandidateTests(TFactory factory)
+    protected NetworkStorageGameValuesTests(TFactory factory)
     {
         Skip.IfNot(factory.IsAvailable, factory.SkipReason);
         this.factory = factory;
@@ -74,13 +74,13 @@ public abstract class NetworkStorageGameValuesCandidateTests<TFactory> : IClassF
     public async Task ValidPublicKeyReturnsOkWithClientFormatPayload()
     {
         var fixture = await File.ReadAllTextAsync(
-            Path.Combine(AppContext.BaseDirectory, "Fixtures", "network-storage-shadow", "game-values-sample.json"));
+            Path.Combine(AppContext.BaseDirectory, "Fixtures", "network-storage-fixtures", "game-values-sample.json"));
         using var fixtureDoc = JsonDocument.Parse(fixture);
         var gv = fixtureDoc.RootElement.GetProperty("gameValues").Clone();
         var collections = fixtureDoc.RootElement.GetProperty("collections").Clone();
         var expected = fixtureDoc.RootElement.GetProperty("expectedClientFormat");
         var store = await StoreWithValuesAsync(gv, collections);
-        var handler = new GameValuesHandler(new FakeKeyResolver("test-public-key", "demo-project", "public"), new FakeBunnyGameValues(gv, collections, "demo-project"), store, Microsoft.Extensions.Logging.Abstractions.NullLogger<GameValuesHandler>.Instance);
+        var handler = new GameValuesHandler(new FakeKeyResolver("test-public-key", "demo-project", "public"), new FakeWorkspaceGameValues(gv, collections, "demo-project"), store, Microsoft.Extensions.Logging.Abstractions.NullLogger<GameValuesHandler>.Instance);
 
         var result = await handler.ExecuteAsync(BuildRequest("demo-project", apiKey: "test-public-key"));
 
@@ -132,7 +132,7 @@ public abstract class NetworkStorageGameValuesCandidateTests<TFactory> : IClassF
     public async Task LiveRoute_V3Values_IsServedNativelyWithoutGateway()
     {
         var fixture = await File.ReadAllTextAsync(
-            Path.Combine(AppContext.BaseDirectory, "Fixtures", "network-storage-shadow", "game-values-sample.json"));
+            Path.Combine(AppContext.BaseDirectory, "Fixtures", "network-storage-fixtures", "game-values-sample.json"));
         using var fixtureDoc = JsonDocument.Parse(fixture);
         var gv = fixtureDoc.RootElement.GetProperty("gameValues").Clone();
         var collections = fixtureDoc.RootElement.GetProperty("collections").Clone();
@@ -147,7 +147,7 @@ public abstract class NetworkStorageGameValuesCandidateTests<TFactory> : IClassF
                 services.RemoveAll<IStorageApiKeyResolver>();
                 services.AddScoped<IStorageApiKeyResolver>(_ => new FakeKeyResolver("test-public-key", "demo-project", "public"));
                 services.RemoveAll<IWorkspaceStore>();
-                services.AddScoped<IWorkspaceStore>(_ => new FakeBunnyGameValues(gv, collections, "demo-project"));
+                services.AddScoped<IWorkspaceStore>(_ => new FakeWorkspaceGameValues(gv, collections, "demo-project"));
                 services.RemoveAll<INetworkStorageStore>();
                 services.AddSingleton<INetworkStorageStore>(store);
             });
@@ -168,7 +168,7 @@ public abstract class NetworkStorageGameValuesCandidateTests<TFactory> : IClassF
     [SkippableFact]
     public async Task MissingApiKeyReturnsUnauthorized()
     {
-        var handler = new GameValuesHandler(new FakeKeyResolver(null, "demo-project", null), new FakeBunnyGameValues(default, default, "demo-project"), new InMemoryNetworkStorageStore(), (Microsoft.Extensions.Logging.Abstractions.NullLogger<GameValuesHandler>.Instance));
+        var handler = new GameValuesHandler(new FakeKeyResolver(null, "demo-project", null), new FakeWorkspaceGameValues(default, default, "demo-project"), new InMemoryNetworkStorageStore(), (Microsoft.Extensions.Logging.Abstractions.NullLogger<GameValuesHandler>.Instance));
 
         var result = await handler.ExecuteAsync(BuildRequest("demo-project", apiKey: null));
 
@@ -183,7 +183,7 @@ public abstract class NetworkStorageGameValuesCandidateTests<TFactory> : IClassF
     [SkippableFact]
     public async Task InvalidApiKeyReturnsUnauthorized()
     {
-        var handler = new GameValuesHandler(new FakeKeyResolver("bad-key", "demo-project", null), new FakeBunnyGameValues(default, default, "demo-project"), new InMemoryNetworkStorageStore(), (Microsoft.Extensions.Logging.Abstractions.NullLogger<GameValuesHandler>.Instance));
+        var handler = new GameValuesHandler(new FakeKeyResolver("bad-key", "demo-project", null), new FakeWorkspaceGameValues(default, default, "demo-project"), new InMemoryNetworkStorageStore(), (Microsoft.Extensions.Logging.Abstractions.NullLogger<GameValuesHandler>.Instance));
 
         var result = await handler.ExecuteAsync(BuildRequest("demo-project", apiKey: "bad-key"));
 
@@ -200,7 +200,7 @@ public abstract class NetworkStorageGameValuesCandidateTests<TFactory> : IClassF
     [SkippableFact]
     public async Task DisabledProjectReturnsProjectDisabled()
     {
-        var handler = new GameValuesHandler(new FakeKeyResolver("disabled-key", "disabled-project", "public"), new FakeBunnyGameValues(
+        var handler = new GameValuesHandler(new FakeKeyResolver("disabled-key", "disabled-project", "public"), new FakeWorkspaceGameValues(
             default, default, "disabled-project",
             projects: new List<WorkspaceProject>
             {
@@ -222,7 +222,7 @@ public abstract class NetworkStorageGameValuesCandidateTests<TFactory> : IClassF
     [SkippableFact]
     public async Task StoreReadFailureReturnsError()
     {
-        var handler = new GameValuesHandler(new FakeKeyResolver("readfail-key", "fail-project", "secret"), new FakeBunnyGameValues(
+        var handler = new GameValuesHandler(new FakeKeyResolver("readfail-key", "fail-project", "secret"), new FakeWorkspaceGameValues(
             default, default, "fail-project",
             projects: new List<WorkspaceProject>
             {
@@ -238,7 +238,7 @@ public abstract class NetworkStorageGameValuesCandidateTests<TFactory> : IClassF
         Assert.Equal("ENDPOINT_CONFIG_ERROR", result.PublicErrorCode);
     }
 
-    // ── Shadow endpoint integration test ──
+    // ── Endpoint integration test ──
 
     // ── Fakes ──
 
@@ -278,7 +278,7 @@ public abstract class NetworkStorageGameValuesCandidateTests<TFactory> : IClassF
         }
     }
 
-    private sealed class FakeBunnyGameValues : IWorkspaceStore
+    private sealed class FakeWorkspaceGameValues : IWorkspaceStore
     {
         private readonly JsonElement _gameValues;
         private readonly JsonElement _collections;
@@ -286,7 +286,7 @@ public abstract class NetworkStorageGameValuesCandidateTests<TFactory> : IClassF
         private readonly IReadOnlyList<WorkspaceProject>? _projects;
         private readonly bool _throwsOnRead;
 
-        public FakeBunnyGameValues(
+        public FakeWorkspaceGameValues(
             JsonElement gameValues,
             JsonElement collections,
             string projectId,
@@ -354,6 +354,6 @@ public abstract class NetworkStorageGameValuesCandidateTests<TFactory> : IClassF
     }
 }
 
-public sealed class NetworkStorageGameValuesCandidateTests_Sqlite(SqliteHostFactory factory) : NetworkStorageGameValuesCandidateTests<SqliteHostFactory>(factory);
+public sealed class NetworkStorageGameValuesTests_Sqlite(SqliteHostFactory factory) : NetworkStorageGameValuesTests<SqliteHostFactory>(factory);
 
-public sealed class NetworkStorageGameValuesCandidateTests_Postgres(PostgresHostFactory factory) : NetworkStorageGameValuesCandidateTests<PostgresHostFactory>(factory);
+public sealed class NetworkStorageGameValuesTests_Postgres(PostgresHostFactory factory) : NetworkStorageGameValuesTests<PostgresHostFactory>(factory);

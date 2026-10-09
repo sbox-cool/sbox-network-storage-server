@@ -5,17 +5,17 @@ using SboxNetworkStorage.Infrastructure.NetworkStorage.Storage;
 namespace SboxNetworkStorage.Infrastructure.NetworkStorage;
 
 /// <summary>
-/// ScyllaDB-only Network Storage data plane. All reads and writes go through
-/// ScyllaDB — no Bunny fallback, no newest-wins comparison. Bunny is used
+/// store-only Network Storage data plane. All reads and writes go through
+/// The store — no workspace fallback, no newest-wins comparison. workspace is used
 /// only for snapshot backups (separate service).
 ///
 /// - Reads/writes route by <c>collectionType</c>: global collections use the
 ///   <c>global_records</c> table, per-player collections use <c>records</c>.
 ///   Without this routing, a read/write on a global collection (e.g.
 ///   <c>leaderboard_global</c>) would hit the empty <c>records</c> table.
-/// - Writes fail-closed: a ScyllaDB error throws; nothing is written elsewhere.
+/// - Writes fail-closed: a store error throws; nothing is written elsewhere.
 /// - Tombstones are permanent: a soft-delete is never resurrected.
-/// - A ScyllaDB miss returns NotFound (the record does not exist).
+/// - A store miss returns NotFound (the record does not exist).
 /// </summary>
 public sealed class StoreNetworkStorageDataPlane(
     INetworkStorageStore store) : INetworkStorageDataPlane
@@ -59,8 +59,8 @@ public sealed class StoreNetworkStorageDataPlane(
 
     /// <summary>
     /// Resolve whether a collection is <c>collectionType: "global"</c> by reading
-    /// its <c>definition_json</c> from ScyllaDB. Mirrors
-    /// <see cref="ScyllaEndpointShadowDataSource.IsGlobalCollectionAsync"/> and
+    /// its <c>definition_json</c> from the store. Mirrors
+    /// <see cref="StoreEndpointDataSource.IsGlobalCollectionAsync"/> and
     /// <see cref="NativeQueryExecutor.IsGlobalCollectionAsync"/>: defaults to
     /// <c>false</c> (per-steamid) when the collection is missing, the field is
     /// absent, or the lookup fails — matching every other read/write path.

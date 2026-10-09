@@ -72,7 +72,7 @@ public sealed class NetworkStorageKeyParityTests
     }
 
     [Fact]
-    public async Task CreateProjectKeyAsync_SecretKey_StoresInScyllaAndWritesCdn()
+    public async Task CreateProjectKeyAsync_SecretKey_StoresInStoreAndWritesCdn()
     {
         var userId = 99L;
         var projectId = "proj_test_" + Guid.NewGuid().ToString("N")[..12];
@@ -85,9 +85,9 @@ public sealed class NetworkStorageKeyParityTests
             })
             .Build();
         var cdnWrites = new List<CdnWriteRecord>();
-        var bunny = new RecordingBunnyWorkspaceClient(cdnWrites);
+        var workspace = new RecordingWorkspaceClient(cdnWrites);
 
-        var service = new NetworkStorageProjectService(bunny, bunnyStorageEnumerator: null!, config, new RecordingCdnWriter(cdnWrites), scyllaStore: new InMemoryNetworkStorageStore(), logger: Microsoft.Extensions.Logging.Abstractions.NullLogger<NetworkStorageProjectService>.Instance);
+        var service = new NetworkStorageProjectService(workspace, workspaceStorageEnumerator: null!, config, new RecordingCdnWriter(cdnWrites), networkStore: new InMemoryNetworkStorageStore(), logger: Microsoft.Extensions.Logging.Abstractions.NullLogger<NetworkStorageProjectService>.Instance);
 
         var (key, rawKey) = await service.CreateProjectKeyAsync(userId, projectId, "Test Secret", "secret", null, CancellationToken.None);
 
@@ -97,7 +97,7 @@ public sealed class NetworkStorageKeyParityTests
         Assert.StartsWith("sbox_sk_", key.Key);
         Assert.NotEqual(rawKey, key.Key); // stored key is masked
 
-        // ScyllaDB is the sole API-key store: the new key is queryable from it.
+        // The store is the sole API-key store: the new key is queryable from it.
         var keys = await service.GetProjectKeysAsync(userId, projectId, CancellationToken.None);
         Assert.Single(keys);
         Assert.Equal(key.KeyIdentifier, keys[0].KeyIdentifier);
@@ -123,7 +123,7 @@ public sealed class NetworkStorageKeyParityTests
         return Convert.ToHexString(signature).ToLowerInvariant();
     }
 
-    private sealed class RecordingBunnyWorkspaceClient(List<CdnWriteRecord> records) : IWorkspaceStore
+    private sealed class RecordingWorkspaceClient(List<CdnWriteRecord> records) : IWorkspaceStore
     {
         public Task<IReadOnlyList<WorkspaceProject>> GetUserProjectsAsync(long userId, CancellationToken cancellationToken)
             => Task.FromResult<IReadOnlyList<WorkspaceProject>>([]);

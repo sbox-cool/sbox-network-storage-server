@@ -15,7 +15,7 @@ public sealed record OwnerPagesModel(string ProjectId, string ProjectName, IRead
 
 /// <summary>
 /// Published pages served publicly at <c>/pages/{project}/{slug}</c> (and <c>/api/pages/...</c>) by
-/// <c>PagesCandidateHandler</c>: markdown pages or key/value data pages, e.g. patch notes or a message of the day.
+/// <c>PagesHandler</c>: markdown pages or key/value data pages, e.g. patch notes or a message of the day.
 /// </summary>
 [Authorize(AuthenticationSchemes = OwnerHostingExtensions.Scheme)]
 public sealed partial class OwnerPagesController(INetworkStorageProjectService projects, INetworkStorageStore store,

@@ -10,7 +10,7 @@ namespace SboxNetworkStorage.Server.Tests;
 /// <summary>
 /// The stats heartbeat is a ~2s-interval best-effort presence ping. A slow or
 /// unavailable store must never hold the worker or emit a 500 (the source of the
-/// <c>POST /v3/storage/*/stats/heartbeat</c> 15s Bunny-write TaskCanceledException).
+/// <c>POST /v3/storage/*/stats/heartbeat</c> 15s workspace-write TaskCanceledException).
 /// </summary>
 public sealed class NativeStatsHeartbeatHandlerTests
 {
@@ -84,14 +84,14 @@ public sealed class NativeStatsHeartbeatHandlerTests
     }
 
     [Fact]
-    public async Task Heartbeat_RecordKey_PassesScyllaValidation_AndPersists()
+    public async Task Heartbeat_RecordKey_PassesStoreValidation_AndPersists()
     {
         // Regression (2026-06-21): the handler keyed the player-stats record as
-        // "{steamId}.json" (a Bunny-era filename). After the ScyllaDB cutover the
+        // "{steamId}.json" (a workspace-era filename). After the store cutover the
         // data plane rejects any record key containing '.', so every heartbeat
         // read+write threw ArgumentException and the handler returned
         // persisted:false — silently freezing player-stats. The no-op FakeDataPlane
-        // hid this; ValidatingDataPlane mirrors ScyllaDbResourceStore.ValidateRecordKey.
+        // hid this; ValidatingDataPlane mirrors INetworkStorageStore.ValidateRecordKey.
         var plane = new ValidatingDataPlane();
         var result = await Handler(plane).RunAsync(ProjectId, ApiKey, SteamId, null, CancellationToken.None);
 
@@ -148,7 +148,7 @@ public sealed class NativeStatsHeartbeatHandlerTests
     {
         // fire-and-forget analytics write. The 200 response flushed and the
         // request completed immediately, RequestAborted fired, and the in-flight
-        // ScyllaDB write was cancelled before it committed. Over an hour of 30s
+        // The store write was cancelled before it committed. Over an hour of 30s
         // heartbeats, only the ones that completed fast enough landed; the rest
         // silently vanished — which is why the dashboard showed "last event 1h
         // ago" despite the client sending heartbeats continuously. The fix uses
@@ -195,7 +195,7 @@ public sealed class NativeStatsHeartbeatHandlerTests
             CancellationToken cancellationToken)
         {
             // First call is the join? No — handler emits heartbeat by default.
-            // Simulate a ScyllaDB round-trip that takes longer than the
+            // Simulate a store round-trip that takes longer than the
             // request lifetime (the realistic cause of the cancellation).
             Token = cancellationToken;
             EventType = eventType;
@@ -258,10 +258,10 @@ public sealed class NativeStatsHeartbeatHandlerTests
             => Task.CompletedTask;
     }
 
-    // Mirrors ScyllaDbResourceStore.ValidateRecordKey: the production data plane
+    // Mirrors INetworkStorageStore.ValidateRecordKey: the production data plane
     // throws on any record key outside ^[a-zA-Z0-9_:-]{1,256}$. The no-op
     // FakeDataPlane accepts every key and so hides record-key regressions; this
-    // one surfaces them the way real ScyllaDB does.
+    // one surfaces them the way real store does.
     private sealed class ValidatingDataPlane : INetworkStorageDataPlane
     {
         private static readonly System.Text.RegularExpressions.Regex RecordKeyPattern =

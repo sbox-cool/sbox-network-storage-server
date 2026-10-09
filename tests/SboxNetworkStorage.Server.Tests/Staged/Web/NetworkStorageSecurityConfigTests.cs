@@ -11,7 +11,7 @@ using SboxNetworkStorage.Infrastructure.NetworkStorage.Storage;
 
 namespace SboxNetworkStorage.Server.Tests;
 
-public abstract class NetworkStorageSecurityConfigCandidateTests<TFactory> : IClassFixture<TFactory>
+public abstract class NetworkStorageSecurityConfigTests<TFactory> : IClassFixture<TFactory>
     where TFactory : SelfHostFactory
 {
     private const string ProjectJson = """
@@ -28,7 +28,7 @@ public abstract class NetworkStorageSecurityConfigCandidateTests<TFactory> : ICl
     private readonly SelfHostFactory factory;
     private readonly HttpClient client;
 
-    protected NetworkStorageSecurityConfigCandidateTests(TFactory factory)
+    protected NetworkStorageSecurityConfigTests(TFactory factory)
     {
         Skip.IfNot(factory.IsAvailable, factory.SkipReason);
         this.factory = factory;
@@ -77,7 +77,7 @@ public abstract class NetworkStorageSecurityConfigCandidateTests<TFactory> : ICl
     [SkippableFact]
     public async Task NullIntegerFieldsFallBackToDefaultsInsteadOfThrowing()
     {
-        // ScyllaDB stores unset numeric project settings as JSON null. JsonElement.TryGetInt32
+        // The store stores unset numeric project settings as JSON null. JsonElement.TryGetInt32
         // throws InvalidOperationException on a Null-kind element, so the builder must guard
         // against it and fall back to the defaults rather than 500.
         const string nullProjectJson = """
@@ -130,7 +130,7 @@ public abstract class NetworkStorageSecurityConfigCandidateTests<TFactory> : ICl
     }
 
     [SkippableFact]
-    public async Task LiveRouteServesScyllaProjectConfigWithoutPublishedBlob()
+    public async Task LiveRouteServesStoreProjectConfigWithoutPublishedBlob()
     {
         using var liveClient = factory.WithWebHostBuilder(builder =>
         {
@@ -246,6 +246,6 @@ public abstract class NetworkStorageSecurityConfigCandidateTests<TFactory> : ICl
     }
 }
 
-public sealed class NetworkStorageSecurityConfigCandidateTests_Sqlite(SqliteHostFactory factory) : NetworkStorageSecurityConfigCandidateTests<SqliteHostFactory>(factory);
+public sealed class NetworkStorageSecurityConfigTests_Sqlite(SqliteHostFactory factory) : NetworkStorageSecurityConfigTests<SqliteHostFactory>(factory);
 
-public sealed class NetworkStorageSecurityConfigCandidateTests_Postgres(PostgresHostFactory factory) : NetworkStorageSecurityConfigCandidateTests<PostgresHostFactory>(factory);
+public sealed class NetworkStorageSecurityConfigTests_Postgres(PostgresHostFactory factory) : NetworkStorageSecurityConfigTests<PostgresHostFactory>(factory);

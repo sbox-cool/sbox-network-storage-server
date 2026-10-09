@@ -9,8 +9,8 @@ namespace SboxNetworkStorage.Server.Tests.NetworkStorage;
 
 /// <summary>
 /// Task 3.5 (fix-usage-and-query-telemetry): usage read paths —
-/// ScyllaMetadataWorkspaceClient.GetProjectUsageAsync ScyllaDB-authoritative
-/// read with Bunny fallback, and the workspace endpoint fallback avg-duration
+/// StoreMetadataWorkspaceClient.GetProjectUsageAsync store-authoritative
+/// read with workspace fallback, and the workspace endpoint fallback avg-duration
 /// fix (duration_ms_sum / calls, not duration_samples).
 /// </summary>
 public sealed class UsageReadPathTests
@@ -26,7 +26,7 @@ public sealed class UsageReadPathTests
             durationMsSum, durationSamples, storageDeltaBytes, computeUnits);
 
     [Fact]
-    public async Task ScyllaMonthlyRow_MapsToWorkspaceUsage()
+    public async Task StoreMonthlyRow_MapsToWorkspaceUsage()
     {
         var store = new InMemoryNetworkStorageStore();
         await store.IncrementProjectUsageAsync("proj1", Month, DateTimeOffset.UtcNow.ToString("yyyy-MM-dd"), null,
@@ -129,7 +129,7 @@ public sealed class UsageReadPathTests
         Assert.NotNull(monthly);
         Assert.Equal(-500, monthly!.Value.GetProperty("storage_delta_bytes").GetInt64());
 
-        // The reader (ScyllaMetadataWorkspaceClient.MapMonthlyUsage) clamps:
+        // The reader (StoreMetadataWorkspaceClient.MapMonthlyUsage) clamps:
         var storageBytes = Math.Max(0, monthly.Value.GetProperty("storage_delta_bytes").GetInt64());
         Assert.Equal(0, storageBytes);
     }

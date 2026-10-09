@@ -8,7 +8,7 @@ public sealed record NetworkStorageRouteClassification(
     NetworkStorageAlias Alias,
     NetworkStorageRouteEntry? Entry)
 {
-    /// <summary>True when the path resolves to a known cataloged Bun route.</summary>
+    /// <summary>True when the path resolves to a known cataloged legacy server route.</summary>
     public bool IsKnownRoute => Entry is not null;
 
     /// <summary>True for a public Network Storage ingress alias (excludes internal/unknown).</summary>
@@ -26,7 +26,7 @@ public sealed record NetworkStorageRouteClassification(
     /// <summary>True only when a cataloged mutating route matched; unknown routes are never treated as mutating.</summary>
     public bool IsMutating => Entry?.IsMutating ?? false;
 
-    /// <summary>True when the matched route is in scope to be mirrored as a native candidate.</summary>
+    /// <summary>True when the matched route is in scope to be mirrored as a native route.</summary>
     public bool IsMirrored => Entry is { Disposition: NetworkStorageRouteDisposition.Mirror };
 
     /// <summary>Named route parameters (for example <c>projectId</c>, <c>steamId</c>) for the matched route.</summary>

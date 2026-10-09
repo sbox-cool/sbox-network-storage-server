@@ -8,7 +8,7 @@ public sealed record EndpointTraceWrite(string Collection, string Key, IReadOnly
 
 /// <summary>
 /// Opt-in observer for test runs: collects the executed step trace and the writes the
-/// endpoint would perform. Passing one to <see cref="NativeEndpointShadowExecutor.TryExecuteAsync"/>
+/// endpoint would perform. Passing one to <see cref="EndpointExecutor.TryExecuteAsync"/>
 /// does not change execution semantics.
 /// </summary>
 public sealed class EndpointDryRunTrace

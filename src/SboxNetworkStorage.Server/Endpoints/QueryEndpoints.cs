@@ -12,17 +12,17 @@ using SboxNetworkStorage.Server.Middleware;
 namespace SboxNetworkStorage.Server.Endpoints;
 
 /// <summary>
-/// Native .NET Network Storage query API endpoints — the cutover of the Bun
+/// Native .NET Network Storage query API endpoints — the cutover of the legacy server
 /// <c>controllers/queries-controller.js</c> <c>routeQueryApi</c> handler to
 /// ASP.NET Core. Serves <c>GET /v3/queries/{projectId}/{queryId}</c> (and the
 /// <c>/v1</c> + <c>/api/storage</c> aliases) directly via
-/// <see cref="NativeQueryExecutor"/> over ScyllaDB, so query traffic no longer
-/// proxies to the legacy Bun storage runtime.
+/// <see cref="NativeQueryExecutor"/> over the store, so query traffic no longer
+/// proxies to the legacy server storage runtime.
 ///
-/// <para>Wire-contract parity with Bun: success responses are HTTP 200 with
+/// <para>Wire-contract parity with legacy server: success responses are HTTP 200 with
 /// <c>{ ok, query, queryId, queryName, generatedAt, lastran, ttl, updatedAt,
 /// ...resultFields }</c>; errors use HTTP status codes + <c>{ error: { code,
-/// message } }</c> matching the Bun handler exactly.</para>
+/// message } }</c> matching the legacy server handler exactly.</para>
 /// </summary>
 public static class QueryEndpoints
 {
@@ -102,9 +102,9 @@ public static class QueryEndpoints
             return;
         }
 
-        // ── Read the query definition from ScyllaDB ──
-        var scyllaStore = context.RequestServices.GetRequiredService<INetworkStorageStore>();
-        var queryRow = await scyllaStore.ReadQueryAsync(projectId, queryId, context.RequestAborted);
+        // ── Read the query definition from the store ──
+        var networkStore = context.RequestServices.GetRequiredService<INetworkStorageStore>();
+        var queryRow = await networkStore.ReadQueryAsync(projectId, queryId, context.RequestAborted);
         if (!queryRow.HasValue)
         {
             await QueryErrorAsync(context, requestId, StatusCodes.Status404NotFound, "NOT_FOUND", "Query not found.");
@@ -162,7 +162,7 @@ public static class QueryEndpoints
 
         if (result is null)
         {
-            // Query not found in ScyllaDB (definition_json missing or empty).
+            // Query not found in the store (definition_json missing or empty).
             await QueryErrorAsync(context, requestId, StatusCodes.Status404NotFound, "NOT_FOUND", "Query not found.");
             return;
         }

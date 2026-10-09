@@ -73,8 +73,8 @@ public sealed class CloudflaredInstaller(HttpClient http, CloudflaredAsset? asse
                 await using var existing = new FileStream(destination, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
                 await using var candidate = File.OpenRead(staged);
                 var existingHash = await SHA256.HashDataAsync(existing, ct);
-                var candidateHash = await SHA256.HashDataAsync(candidate, ct);
-                if (CryptographicOperations.FixedTimeEquals(existingHash, candidateHash))
+                var newHash = await SHA256.HashDataAsync(candidate, ct);
+                if (CryptographicOperations.FixedTimeEquals(existingHash, newHash))
                     return destination; // Windows cannot replace a running executable; identical pinned bytes need no replacement.
             }
             File.Move(staged, destination, overwrite: true);

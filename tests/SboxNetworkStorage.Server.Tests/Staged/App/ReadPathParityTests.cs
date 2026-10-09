@@ -8,11 +8,11 @@ using Xunit.Abstractions;
 namespace SboxNetworkStorage.Server.Tests.NetworkStorage;
 
 /// <summary>
-/// End-to-end comparison: feed the SAME ScyllaDB row through all three real
+/// End-to-end comparison: feed the SAME the store row through all three real
 /// read paths and assert they return identical data. This is the "website and
 /// API are synced" proof — not just that a shared helper works, but that the
-/// actual production classes (ScyllaNetworkStorageDataPlane,
-/// ScyllaEndpointShadowDataSource, and the browse-API extraction via RecordRow)
+/// actual production classes (StoreNetworkStorageDataPlane,
+/// StoreEndpointDataSource, and the browse-API extraction via RecordRow)
 /// all produce the same output for the same input.
 ///
 /// Each test prints the input row and each path's output so the comparison is
@@ -96,7 +96,7 @@ public class ReadPathParityTests
         var dataPlane = new StoreNetworkStorageDataPlane(store);
         var dpResult = await dataPlane.ReadRecordAsync(1, projectId, collectionId, recordKey, CancellationToken.None);
 
-        _output.WriteLine("── Path 1: ScyllaNetworkStorageDataPlane (direct API / game SDK) ──");
+        _output.WriteLine("── Path 1: StoreNetworkStorageDataPlane (direct API / game SDK) ──");
         _output.WriteLine($"  Found: {dpResult.Found}  Source: {dpResult.Source}");
         if (dpResult.Found)
             _output.WriteLine($"  Output: {JsonSerializer.Serialize(dpResult.Value)}");
@@ -106,7 +106,7 @@ public class ReadPathParityTests
         var executorSrc = new StoreEndpointDataSource(store, Microsoft.Extensions.Logging.Abstractions.NullLogger<StoreEndpointDataSource>.Instance);
         var execResult = await executorSrc.ReadRecordAsync(projectId, collectionId, recordKey, CancellationToken.None);
 
-        _output.WriteLine("── Path 2: ScyllaEndpointShadowDataSource (game client executor) ──");
+        _output.WriteLine("── Path 2: StoreEndpointDataSource (game client executor) ──");
         _output.WriteLine($"  Found: {execResult is not null}");
         if (execResult is not null)
             _output.WriteLine($"  Output: {JsonSerializer.Serialize(execResult)}");
@@ -420,7 +420,7 @@ public class ReadPathParityTests
 
     /// <summary>
     /// Store that tracks global vs per-player read/write routing. Mirrors the
-    /// real ScyllaDbResourceStore row shapes (BuildCollectionRow, BuildGlobalRecordRow).
+    /// real INetworkStorageStore row shapes (BuildCollectionRow, BuildGlobalRecordRow).
     /// </summary>
     private sealed class GlobalAwareStore : EmptyNetworkStorageStore
     {
