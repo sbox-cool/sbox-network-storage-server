@@ -1,29 +1,33 @@
 using System.Text.Json;
 using System.Linq;
 using SboxNetworkStorage.Application.NetworkStorage;
+using SboxNetworkStorage.Infrastructure.NetworkStorage.Analytics;
 using SboxNetworkStorage.Infrastructure.NetworkStorage.Storage;
 using SboxNetworkStorage.Domain.Workspace;
-
 namespace SboxNetworkStorage.Infrastructure.NetworkStorage;
 
 /// <summary>
-/// Read-only native candidate for <c>GET /v3/storage/:projectId/:collectionId/:steamId/ledger</c>.
+/// Read-only native handler for <c>GET /v3/storage/:projectId/:collectionId/:steamId/ledger</c>.
 /// Reads the authoritative <c>ledger_entries</c> projection written by
 /// <c>PlayerAnalyticsIngester</c>, matching the production player-ledger reader.
 /// An existing record without tracked-field changes has an empty ledger.
-/// Reads only; never mutates any store.
+/// Flushes queued analytics first so the read reflects prior writes; never
+/// writes ledger entries itself.
 /// </summary>
 public sealed class StorageLedgerReadHandler : INetworkStorageHandler
 {
     private readonly IStorageApiKeyResolver _apiKeyResolver;
     private readonly INetworkStorageStore _store;
+    private readonly AnalyticsWriterService _writer;
 
     public StorageLedgerReadHandler(
         IStorageApiKeyResolver apiKeyResolver,
-        INetworkStorageStore store)
+        INetworkStorageStore store,
+        AnalyticsWriterService writer)
     {
         _apiKeyResolver = apiKeyResolver;
         _store = store;
+        _writer = writer;
     }
 
     public NetworkStorageRouteFamily Family => NetworkStorageRouteFamily.StorageLedger;
@@ -72,6 +76,9 @@ public sealed class StorageLedgerReadHandler : INetworkStorageHandler
         var keyType = auth.KeyType;
 
         var storagePathsRead = new[] { $"ledger_entries/{projectId}/{collectionId}/{steamId}" };
+        // Analytics (including player presence) drains in the background; flush first
+        // so a just-written record, profile or entry is visible to this read.
+        await _writer.FlushAsync(request.CancellationToken);
         IReadOnlyList<JsonElement> rows;
         bool recordExists;
         bool playerKnown;
@@ -82,7 +89,7 @@ public sealed class StorageLedgerReadHandler : INetworkStorageHandler
                 ? await _store.ReadRecordAsync(projectId, collectionId, steamId, request.CancellationToken)
                 : null;
             recordExists = record is { } row && RecordRow.ExtractPayload(row) is not null;
-            // Bun never 404s a present collection's ledger on missing history: a
+            // legacy server never 404s a present collection's ledger on missing history: a
             // deleted record with past activity still reads 200-empty. A player
             // profile (written on endpoint/analytics activity) marks the player
             // known; a key with no record, no entries and no profile is missing.

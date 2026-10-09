@@ -196,6 +196,24 @@ public sealed class DataPlanePerformanceTests
     }
 
     [Fact]
+    public async Task Analytics_flush_writes_events_the_background_loop_has_already_collected()
+    {
+        var queue = new AnalyticsEventQueue();
+        var source = new CountingAnalyticsStore();
+        using var writer = Writer(queue, source, TimeProvider.System);
+        await writer.StartAsync(Ct);
+        try
+        {
+            queue.Enqueue(Event(1));
+            // Let the loop move the event out of the queue; it then waits out its 1 s window.
+            await Task.Delay(200, Ct);
+            await writer.FlushAsync(Ct);
+            Assert.Equal(1, source.Inner.PlayerAnalyticsEvents.Count);
+        }
+        finally { await writer.StopAsync(Ct); }
+    }
+
+    [Fact]
     public async Task Analytics_retention_defaults_to_90_days_and_runs_daily()
     {
         var time = new ManualTime();

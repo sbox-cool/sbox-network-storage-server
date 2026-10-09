@@ -30,6 +30,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the `legacyPlayerProjections` setting.
 - Unattended update timers run hourly, with up to 15 minutes of randomized delay.
 - Hosted-service `X-Sboxcool-*` debug response headers are no longer sent.
+- Player ledger reads include analytics queued by earlier writes, so a record or
+  entry written a moment ago is visible to the next read.
+- A body over its limit on a known route is read and discarded when its declared
+  length is at most 4 MiB, so the client receives the `413` response instead of a
+  connection reset. Larger declared bodies are rejected without being read.
 
 ### Added
 - Optional owner authenticator enrollment with encrypted confirmed secrets,

@@ -79,6 +79,39 @@ public abstract class RequestLimitsHttpTests<TFactory> : IClassFixture<TFactory>
     }
 
     [SkippableFact]
+    public async Task OversizedDataPlaneBodyUpToFourMiB_IsDrainedSoTheClientReceivesThe413()
+    {
+        var project = await factory.CreateProjectAsync();
+        using var host = Limited(_ => { });
+        using var client = host.CreateClient();
+        using var payload = Json(2_200_000);
+        var length = payload.Headers.ContentLength!.Value;
+        using var response = await client.PostAsync(
+            $"/v3/storage/{project.ProjectId}/players/76561198000000001?apiKey={project.SecretKey}",
+            payload);
+
+        Assert.Equal(HttpStatusCode.RequestEntityTooLarge, response.StatusCode);
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.Equal("PAYLOAD_TOO_LARGE", body.RootElement.GetProperty("error").GetString());
+        Assert.Equal(length, host.BodyBytesRead);
+    }
+
+    [SkippableFact]
+    public async Task DeclaredGigabyteBodyToAMappedDataPlaneRoute_IsRejectedWithoutReading()
+    {
+        var project = await factory.CreateProjectAsync();
+        using var host = Limited(_ => { });
+        using var client = host.CreateClient();
+        using var content = new GeneratedContent(total: 8 * OneMiB, declaredLength: 1L << 30);
+        using var response = await client.PostAsync(
+            $"/v3/storage/{project.ProjectId}/players/76561198000000001?apiKey={project.SecretKey}",
+            content);
+
+        Assert.Equal(HttpStatusCode.RequestEntityTooLarge, response.StatusCode);
+        Assert.Equal(0, host.BodyBytesRead);
+    }
+
+    [SkippableFact]
     public async Task ChunkedBodyOverTheLimit_IsCutOffAtTheLimitWhileTheHandlerReads()
     {
         var project = await factory.CreateProjectAsync();

@@ -287,6 +287,9 @@ machine, and `CF-Connecting-IP` only from the local tunnel connector while
 | `server.limits.auth_session_per_second` | `30` | Sustained requests per second on auth-session routes |
 
 A body over its limit is answered with `413` and `{ "error": "PAYLOAD_TOO_LARGE" }`.
+On a known route the server reads and discards an over-limit body of up to 4 MiB so
+the client sees that response; a declared length above 4 MiB, or any path that is
+not a route, is rejected without reading the body.
 A client over its rate limit is answered with `429`, a `Retry-After` header and
 `{ "error": "RATE_LIMITED" }`. The dashboard import keeps its own limit, and owner
 login keeps its fixed limit of 10 attempts per minute per address.

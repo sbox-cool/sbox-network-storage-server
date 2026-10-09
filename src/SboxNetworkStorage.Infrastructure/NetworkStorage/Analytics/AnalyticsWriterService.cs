@@ -31,6 +31,8 @@ public sealed class AnalyticsWriterService(
 
     private readonly ILogger _logger = loggerFactory.CreateLogger<AnalyticsWriterService>();
     private readonly SemaphoreSlim _writeGate = new(1, 1);
+    private readonly object _collectLock = new();
+    private List<AnalyticsEvent> _collecting = new(BatchSize);
     private DateTimeOffset? _nextPurge;
     private long _reportedDropped;
 
@@ -41,9 +43,9 @@ public sealed class AnalyticsWriterService(
             while (!stoppingToken.IsCancellationRequested)
             {
                 await PurgeIfDueAsync(stoppingToken);
-                var batch = await CollectAsync(stoppingToken);
+                await CollectAsync(stoppingToken);
                 ReportDropped();
-                if (batch.Count > 0) await WriteBatchAsync(batch, CancellationToken.None);
+                await FlushAsync(CancellationToken.None);
             }
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -55,15 +57,26 @@ public sealed class AnalyticsWriterService(
         await FlushAsync(CancellationToken.None);
     }
 
-    /// <summary>Writes everything currently buffered, in batches of at most <see cref="BatchSize"/>.</summary>
+    /// <summary>
+    /// Writes every event that was enqueued before the call, whether still queued, collected by the background
+    /// loop or being written by it, in batches of at most <see cref="BatchSize"/>.
+    /// </summary>
     public async Task FlushAsync(CancellationToken ct)
     {
-        while (true)
+        await _writeGate.WaitAsync(ct);
+        try
         {
-            var batch = new List<AnalyticsEvent>(BatchSize);
-            while (batch.Count < BatchSize && queue.Reader.TryRead(out var analyticsEvent)) batch.Add(analyticsEvent);
-            if (batch.Count == 0) break;
-            await WriteBatchAsync(batch, ct);
+            while (true)
+            {
+                var batch = TakeBatch();
+                if (batch.Count == 0) break;
+                // Not cancellable: the batch has left the queue, so an abandoned write would lose it.
+                await WriteBatchAsync(batch, CancellationToken.None);
+            }
+        }
+        finally
+        {
+            _writeGate.Release();
         }
         ReportDropped();
     }
@@ -103,46 +116,66 @@ public sealed class AnalyticsWriterService(
         return deleted;
     }
 
-    /// <summary>Collects up to <see cref="BatchSize"/> events, waiting at most <see cref="FlushInterval"/> for them.</summary>
-    private async Task<List<AnalyticsEvent>> CollectAsync(CancellationToken stoppingToken)
+    /// <summary>
+    /// Moves events from the queue into the collecting batch until it holds <see cref="BatchSize"/> events or
+    /// <see cref="FlushInterval"/> passes. Collected events stay visible to <see cref="FlushAsync"/> the whole time.
+    /// </summary>
+    private async Task CollectAsync(CancellationToken stoppingToken)
     {
-        var batch = new List<AnalyticsEvent>(BatchSize);
         using var window = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
         window.CancelAfter(FlushInterval);
         try
         {
-            while (batch.Count < BatchSize && await queue.Reader.WaitToReadAsync(window.Token))
+            while (Collect() < BatchSize && await queue.Reader.WaitToReadAsync(window.Token))
             {
-                while (batch.Count < BatchSize && queue.Reader.TryRead(out var analyticsEvent)) batch.Add(analyticsEvent);
             }
         }
         catch (OperationCanceledException)
         {
-            // Keep already-collected events on shutdown too; the caller flushes them before draining the queue.
+            // Window elapsed or shutting down; the caller flushes what was collected.
         }
-        return batch;
     }
 
+    private int Collect()
+    {
+        lock (_collectLock)
+        {
+            while (_collecting.Count < BatchSize && queue.Reader.TryRead(out var analyticsEvent)) _collecting.Add(analyticsEvent);
+            return _collecting.Count;
+        }
+    }
+
+    /// <summary>Next batch to write, oldest first: the collecting batch, else up to <see cref="BatchSize"/> queued events.</summary>
+    private List<AnalyticsEvent> TakeBatch()
+    {
+        lock (_collectLock)
+        {
+            if (_collecting.Count > 0)
+            {
+                var collected = _collecting;
+                _collecting = new List<AnalyticsEvent>(BatchSize);
+                return collected;
+            }
+
+            var batch = new List<AnalyticsEvent>(BatchSize);
+            while (batch.Count < BatchSize && queue.Reader.TryRead(out var analyticsEvent)) batch.Add(analyticsEvent);
+            return batch;
+        }
+    }
+
+    /// <summary>Writes one batch; the caller holds <c>_writeGate</c>. A failed batch is rolled back and reported, never thrown.</summary>
     private async Task WriteBatchAsync(IReadOnlyList<AnalyticsEvent> batch, CancellationToken ct)
     {
-        await _writeGate.WaitAsync(ct);
         try
         {
-            try
-            {
-                await WriteTransactionAsync(batch, ct);
-                RecordSuccess(batch[0].ProjectId);
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                _logger.LogWarning(ex, "Writing a batch of {Count} analytics events failed; the transaction was rolled back", batch.Count);
-                if (failureTracker.RecordFailure())
-                    _ = failureTracker.FireTransitionAlertAsync(batch[0].ProjectId, failureTracker.ConsecutiveFailures, CancellationToken.None);
-            }
+            await WriteTransactionAsync(batch, ct);
+            RecordSuccess(batch[0].ProjectId);
         }
-        finally
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            _writeGate.Release();
+            _logger.LogWarning(ex, "Writing a batch of {Count} analytics events failed; the transaction was rolled back", batch.Count);
+            if (failureTracker.RecordFailure())
+                _ = failureTracker.FireTransitionAlertAsync(batch[0].ProjectId, failureTracker.ConsecutiveFailures, CancellationToken.None);
         }
     }
 

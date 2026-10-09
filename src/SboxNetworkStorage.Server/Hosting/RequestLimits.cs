@@ -165,6 +165,9 @@ public sealed class ClientAddressMiddleware(RequestDelegate next, IOptions<Reque
 /// </summary>
 public sealed class RequestBodyLimitMiddleware(RequestDelegate next, IOptions<RequestLimitOptions> options)
 {
+    /// <summary>Largest declared body that is read and discarded before answering 413.</summary>
+    private const long MaxDrainBytes = 4 * 1024 * 1024;
+
     public async Task InvokeAsync(HttpContext context)
     {
         var endpoint = context.GetEndpoint();
@@ -186,6 +189,26 @@ public sealed class RequestBodyLimitMiddleware(RequestDelegate next, IOptions<Re
 
         if (context.Request.ContentLength > max)
         {
+            // Mapped routes drain a modestly oversized upload (bounded memory, no temp
+            // file) so the client receives the 413 envelope instead of a reset connection
+            // racing its upload. A declared length above MaxDrainBytes, and any unmapped
+            // path, is rejected without reading a byte: those are the cheapest pre-auth
+            // DoS surface.
+            if (endpoint is not null && context.Request.ContentLength <= MaxDrainBytes)
+            {
+                if (feature is { IsReadOnly: false })
+                {
+                    feature.MaxRequestBodySize = MaxDrainBytes;
+                }
+                try
+                {
+                    await context.Request.Body.CopyToAsync(Stream.Null, context.RequestAborted);
+                }
+                catch (Exception ex) when (ex is OperationCanceledException or IOException or BadHttpRequestException)
+                {
+                    // Client went away mid-upload; still answer 413 if possible.
+                }
+            }
             await RejectAsync(context, max);
             return;
         }

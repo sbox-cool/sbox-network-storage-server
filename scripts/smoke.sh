@@ -54,7 +54,8 @@ parse_key() {
 public="$(cli key create "$project" --type public | parse_key)"
 secret="$(cli key create "$project" --type secret | parse_key)"
 if (exec 3<>/dev/tcp/127.0.0.1/$port) 2>/dev/null; then exec 3<&-; exec 3>&-; echo "Port $port is already in use by another server; refusing to run against a stale instance" >&2; exit 1; fi
-cli start > "$work/server.log" 2>&1 &
+# exec so $! is the server itself: a backgrounded shell function would leave the server running after cleanup kills the subshell.
+(exec "${server[@]}" start --config-dir "$work/config" --data-dir "$work/data" > "$work/server.log" 2>&1) &
 pid=$!
 healthy=false
 for ((i=0; i<120; i++)); do
