@@ -13,8 +13,9 @@ public sealed class ShippedAssemblyHygieneTests
         "SboxNetworkStorage.Storage.Relational", "SboxNetworkStorage.Storage.Sqlite", "SboxNetworkStorage.Storage.Postgres"
     ];
 
-    // These exact route templates describe excluded historical client requests. Keeping their
-    // catalog classification avoids changing wire compatibility; descriptions/logs are not exempt.
+    // These exact strings are wire-compatibility identifiers: excluded historical client route templates
+    // (keeping their catalog classification avoids changing wire compatibility) and the .NET host's
+    // single-file extraction variable, whose name contains "BUN". Descriptions/logs are not exempt.
     private static readonly HashSet<string> WireCompatibilityStrings = new(StringComparer.Ordinal)
     {
         "/v3/prototype/spacetimedb/:projectId/checkpoint",
@@ -26,7 +27,8 @@ public sealed class ShippedAssemblyHygieneTests
         "/v3/prototype/spacetimedb/:projectId/rate-limit-rules",
         "/v3/prototype/spacetimedb/:projectId/status",
         "/v3/prototype/spacetimedb/:projectId/storage/:collectionId/:key",
-        "/v3/prototype/spacetimedb/:projectId/workflows"
+        "/v3/prototype/spacetimedb/:projectId/workflows",
+        "DOTNET_BUNDLE_EXTRACT_BASE_DIR="
     };
 
     private static readonly string[] RemovedTypes =
