@@ -166,6 +166,19 @@ overwrite dashboard edits, so reconcile changes with your checked-in YAML/JSON
 source. Endpoint expressions use double braces, such as `{{steamId}}` and
 `{{player.level}}`.
 
+The definition editor keeps **Check definition** and **Save live definition**
+alongside the source. Expand the endpoint or collection builder for routing,
+storage and snippet controls. Expand **Examples** below the editor to browse
+complete definitions; **Use example** replaces the editor text and asks for
+confirmation when it is not empty. Review the replacement before saving.
+
+**Check definition** validates the current text without saving or executing it.
+It reports server diagnostics, not a guarantee of runtime success. If the text
+changes during a check, check again. A failed request never counts as successful
+validation. Catalog failures offer **Retry examples** while direct editing stays
+available. **Create needed definitions** reports created, existing and failed
+dependencies separately; retrying keeps definitions that already exist.
+
 Analytics, audit/request logs, errors and usage tabs read stored runtime data.
 Empty panels mean no matching data has been recorded, not synthetic activity.
 The console does not replace every screen or workflow in the managed dashboard.

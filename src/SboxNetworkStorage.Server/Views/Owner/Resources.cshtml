@@ -7,39 +7,47 @@
 <div class="page-heading"><div><h1>@title</h1><p>Definitions for @Model.ProjectName.</p></div><a class="button secondary" href="@url">Project overview</a></div>
 @if (Model.Saved) { <p class="notice success" role="status">Resource saved. The live definition is shown below.</p> }
 @if (Model.Error is not null) { <div class="notice error" role="alert"><strong>Could not save this definition</strong><pre>@Model.Error</pre><p>Correct the reported field or source syntax and save again. Your input has been preserved.</p></div> }
-<div class="editor-grid">
+<div class="editor-grid resource-editor">
 @if (Model.Kind != "game-values")
 {
-    <aside class="card resource-list"><h2>Resources <span class="badge">@Model.Items.Count</span></h2><a class="button secondary" href="@url/resources/@Model.Kind">+ New @Model.Kind</a>
-    @if (Model.Items.Count == 0) { <p class="muted">No resources yet. Start with a definition on the right.</p> }
+    <aside class="resource-list"><h2>Resources <span class="badge">@Model.Items.Count</span></h2><a class="button secondary" href="@url/resources/@Model.Kind">New @Model.Kind</a>
+    @if (Model.Items.Count == 0) { <p class="muted">No resources yet. Create a definition in the editor.</p> }
     <ul>@foreach (var item in Model.Items) { <li><a href="@url/resources/@Model.Kind?id=@Uri.EscapeDataString(item.Id)" aria-current="@(item.Id == Model.Id ? "page" : null)"><strong>@item.Name</strong><code>@item.Id</code></a></li> }</ul></aside>
 }
+<div class="resource-workspace">
+<section class="card definition-panel">
+<div class="section-heading definition-heading">
+    <h2>@(Model.Id is null && Model.Kind != "game-values" ? "Create definition" : "Edit definition")</h2>
+    <div class="actions definition-actions"><button type="button" class="secondary" id="builder-check">Check definition</button><button type="submit" form="resource-definition-form">Save live definition</button></div>
+</div>
+<p class="muted" id="definition-help">Write YAML or edit the saved source. Saving updates this resource only. Older JSON definitions are still accepted but deprecated.</p>
+<div id="check-results" aria-live="polite"></div>
 @if (Model.Kind == "endpoint")
 {
-<section class="card"><div class="section-heading"><h2>Endpoint builder</h2><span class="badge">Guided</span></div>
-<p>Set the routing fields, then insert step skeletons at the cursor. Review the YAML before saving.</p>
+<details class="resource-tools"><summary>Endpoint builder</summary>
+<p class="muted">Set the routing fields or insert a step at the cursor, then review the YAML before saving.</p>
 <div class="form-grid"><label>Method <select id="builder-method"><option>GET</option><option>POST</option></select></label><label>Enabled <select id="builder-enabled"><option value="true">On</option><option value="false">Off</option></select></label><div class="actions"><button type="button" class="secondary" id="builder-apply-endpoint">Apply method and enabled</button></div></div>
-<div class="form-grid"><label>Step type <select id="builder-step"><option value="read">read: load one record</option><option value="write">write: save player data</option><option value="condition">condition: guard with onFail</option><option value="transform">transform: compute a value</option><option value="filter">filter: match many records</option><option value="webhook">webhook: Discord notice</option></select></label><div class="actions"><button type="button" class="secondary" id="builder-add-step">Insert step</button></div></div></section>
+<div class="form-grid"><label>Step type <select id="builder-step"><option value="read">read: load one record</option><option value="write">write: save player data</option><option value="condition">condition: guard with onFail</option><option value="transform">transform: compute a value</option><option value="filter">filter: match many records</option><option value="webhook">webhook: Discord notice</option></select></label><div class="actions"><button type="button" class="secondary" id="builder-add-step">Insert step</button></div></div></details>
 }
 @if (Model.Kind == "collection")
 {
-<section class="card"><div class="section-heading"><h2>Collection builder</h2><span class="badge">Guided</span></div>
-<p>Set the storage kind, then insert schema fields at the cursor. Place new fields under <code>schema:</code> before saving.</p>
+<details class="resource-tools"><summary>Collection builder</summary>
+<p class="muted">Set the storage kind or insert a field at the cursor. Place new fields under <code>schema:</code> before saving.</p>
 <div class="form-grid"><label>Storage kind <select id="builder-collection-type"><option value="per-steamid">Per player</option><option value="global">Global</option></select></label><div class="actions"><button type="button" class="secondary" id="builder-apply-collection">Apply storage kind</button></div></div>
-<div class="form-grid"><label>Field name <input id="builder-field-name" maxlength="64" placeholder="coins" /></label><label>Field type <select id="builder-field-type"><option value="number">number</option><option value="string">string</option><option value="boolean">boolean</option><option value="array">array</option><option value="object">object</option></select></label><div class="actions"><button type="button" class="secondary" id="builder-add-field">Insert field</button></div></div></section>
+<div class="form-grid"><label>Field name <input id="builder-field-name" maxlength="64" placeholder="coins" /></label><label>Field type <select id="builder-field-type"><option value="number">number</option><option value="string">string</option><option value="boolean">boolean</option><option value="array">array</option><option value="object">object</option></select></label><div class="actions"><button type="button" class="secondary" id="builder-add-field">Insert field</button></div></div></details>
 }
-<section class="card"><div class="section-heading"><h2>Examples</h2><span class="badge">Working</span></div>
-<p>Every example saves without diagnostics and runs as-is. Insert one, create its needed definitions, then save.</p>
-<div id="example-gallery"><p class="muted">Loading examples...</p></div></section>
-<section class="card"><div class="section-heading"><h2>@(Model.Id is null && Model.Kind != "game-values" ? "Create definition" : "Edit definition")</h2><span class="badge">YAML</span></div>
-<p>Author this resource in YAML. Saving keeps your source text, so what you wrote is what you keep editing. Raw JSON is still accepted for older edits but is deprecated. Editor pushes can overwrite dashboard edits. Coordinate authoring with your checked-in source.</p>
-<form method="post" action="@url/resources/@Model.Kind">
+<form id="resource-definition-form" method="post" action="@url/resources/@Model.Kind">
 @Html.AntiForgeryToken()
 @if (Model.Id is not null) { <input type="hidden" name="id" value="@Model.Id" /> }
-<label for="definition">@title definition (YAML)</label><textarea class="code-editor" id="definition" name="definition" rows="24" required spellcheck="false">@Model.Definition</textarea>
-<p class="muted">Saving updates this resource only; it does not remove other synced resources. Editor pushes can overwrite dashboard edits. Coordinate authoring with your checked-in source.</p><div class="actions"><button type="button" class="secondary" id="builder-check">Check definition</button> <button type="submit">Save live definition</button></div>
-<div id="check-results" aria-live="polite"></div>
-</form></section></div>
+<label for="definition">@title definition (YAML)</label>
+<textarea class="code-editor" id="definition" name="definition" rows="24" required spellcheck="false" aria-describedby="definition-help definition-sync">@Model.Definition</textarea>
+<p class="muted definition-sync" id="definition-sync">Editor pushes can overwrite dashboard edits. Coordinate changes with your checked-in source.</p>
+</form></section>
+<details class="resource-examples"><summary>Examples</summary>
+<p class="muted">Examples show complete definitions that validate. Use an example to replace the editor text, create any needed definitions, then review before saving.</p>
+<div id="example-gallery"><p class="muted">Loading examples...</p></div>
+</details>
+</div></div>
 <script src="/owner-assets/resource-builder.js" defer></script>
 <script src="/owner-assets/builder-catalog.js" defer></script>
 
