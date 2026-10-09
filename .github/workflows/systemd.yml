@@ -35,7 +35,12 @@ jobs:
           sudo -E sbox-ns setup --non-interactive --database sqlite --listen 127.0.0.1:8080 $dirs
           sudo -E sbox-ns service install $dirs
           sudo systemd-analyze verify /etc/systemd/system/sbox-ns.service
-          sudo systemd-analyze security --offline=yes --threshold=2.0 /etc/systemd/system/sbox-ns.service
+          # --offline and --threshold need systemd 254+ (Ubuntu 24.04); older releases still run verify and a real start.
+          if systemd-analyze security --help 2>&1 | grep -q -- '--offline'; then
+            sudo systemd-analyze security --offline=yes --threshold=2.0 /etc/systemd/system/sbox-ns.service
+          else
+            echo "systemd $(systemctl --version | head -n1) cannot score units offline; skipping the exposure score on this runner"
+          fi
           sudo systemctl start sbox-ns
           for attempt in $(seq 1 60); do
             curl -fsS http://127.0.0.1:8080/health && break
