@@ -12,3 +12,18 @@ public interface IStorageApiKeyResolver
     /// </summary>
     Task<StorageApiKeyAuthResult?> ResolveApiKeyAsync(string apiKey, string projectId, CancellationToken cancellationToken);
 }
+
+/// <summary>Optional capability: drops cached key resolutions so permission,
+/// enable/disable and revocation changes take effect immediately.</summary>
+public interface IApiKeyCacheInvalidator
+{
+    void InvalidateProjectKeys(string projectId);
+}
+
+/// <summary>No-op invalidator for resolvers without a cache (tests, fakes).</summary>
+public sealed class NullApiKeyCacheInvalidator : IApiKeyCacheInvalidator
+{
+    public static readonly NullApiKeyCacheInvalidator Instance = new();
+    private NullApiKeyCacheInvalidator() { }
+    public void InvalidateProjectKeys(string projectId) { }
+}

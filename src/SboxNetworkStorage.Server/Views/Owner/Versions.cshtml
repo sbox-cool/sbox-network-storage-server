@@ -1,0 +1,67 @@
+@model SboxNetworkStorage.Server.Owner.OwnerVersionsModel
+@using SboxNetworkStorage.Server.Owner
+@{
+    Layout = "~/Views/Owner/_Layout.cshtml";
+    var url = "/dashboard/projects/" + Uri.EscapeDataString(Model.ProjectId);
+    string When(long ms) => DateTimeOffset.FromUnixTimeMilliseconds(ms).ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss 'UTC'", System.Globalization.CultureInfo.InvariantCulture);
+    string SourceLabel(string source) => source switch
+    {
+        "owner-dashboard" => "Dashboard save", "sync" => "Sync Tool push", "put" => "Management API PUT",
+        "patch" => "Sync Tool single push", "restore" => "Restored version", _ => source,
+    };
+    var isLatest = Model.Selected is not null && Model.Versions.Count > 0 && Model.Versions[0].Name == Model.Selected.Name;
+}
+<link rel="stylesheet" href="/owner-assets/m/manage.css" />
+<div class="page-heading"><div><h1>Version history</h1><p>Every save of an endpoint or workflow is kept, newest first (up to 50 per resource), for @Model.ProjectName.</p></div><a class="button secondary" href="@url">Project overview</a></div>
+@if (Model.Restored) { <p class="notice success" role="status">Version restored. It is now the live definition and was recorded as a new version.</p> }
+@if (Model.Error is not null) { <div class="notice error" role="alert"><strong>Could not restore this version</strong><pre>@Model.Error</pre></div> }
+<div class="manage-versions">
+    <aside class="card resource-list">
+        <h2>Resources</h2>
+        @if (Model.Resources.Count == 0) { <p class="muted">No endpoints or workflows yet.</p> }
+        @foreach (var group in Model.Resources.GroupBy(resource => resource.Kind))
+        {
+            <h3>@(group.Key == "endpoint" ? "Endpoints" : "Workflows")</h3>
+            <ul>@foreach (var resource in group) { <li><a href="@url/versions?kind=@resource.Kind&id=@Uri.EscapeDataString(resource.Id)" aria-current="@(resource.Kind == Model.Kind && resource.Id == Model.Id ? "page" : null)"><strong>@resource.Name</strong><code>@resource.Count saved</code></a></li> }</ul>
+        }
+    </aside>
+    @if (Model.Kind is null)
+    {
+        <section class="card empty-state"><h2>Choose a resource</h2><p>Pick an endpoint or workflow to see its saved versions.</p></section>
+    }
+    else
+    {
+        <section class="card">
+            <h2>Versions of <code>@Model.Id</code> <span class="badge">@Model.Versions.Count</span></h2>
+            @if (Model.Versions.Count == 0) { <p class="muted">No versions recorded yet. The next save records one.</p> }
+            <ol class="manage-version-list">
+            @foreach (var (version, index) in Model.Versions.Select((version, index) => (version, index)))
+            {
+                <li><a href="@url/versions?kind=@Model.Kind&id=@Uri.EscapeDataString(Model.Id!)&v=@version.Name" aria-current="@(Model.Selected?.Name == version.Name ? "page" : null)">
+                    <strong>@When(version.SavedAtUnixMs)</strong>@if (index == 0) { <span class="badge positive">Latest</span> }
+                    <span class="muted">@SourceLabel(version.Source) · <code>@(version.Hash[..8])</code></span></a></li>
+            }
+            </ol>
+        </section>
+        @if (Model.Selected is { } selected)
+        {
+            <section class="card manage-version-detail">
+                <div class="section-heading"><h2>@When(selected.SavedAtUnixMs)</h2>
+                    @if (!isLatest)
+                    {
+                        <form method="post" action="@url/versions/restore">@Html.AntiForgeryToken()<input type="hidden" name="kind" value="@Model.Kind" /><input type="hidden" name="id" value="@Model.Id" /><input type="hidden" name="v" value="@selected.Name" /><button type="submit">Restore this version</button></form>
+                    }
+                </div>
+                <h3>Changes from this version to the live definition</h3>
+                @if (Model.Diff is null) { <p class="muted">The definition is too large to compare line by line.</p> }
+                else if (Model.Diff.All(line => line.Op == ' ')) { <p class="muted">This version matches the live definition.</p> }
+                else
+                {
+                    <pre class="manage-diff">@foreach (var line in Model.Diff) {<span class="@(line.Op switch { '+' => "manage-diff-add", '-' => "manage-diff-del", _ => "" })">@line.Op @line.Text
+</span>}</pre>
+                }
+                <details><summary>Full source of this version</summary><pre>@Model.SelectedText</pre></details>
+            </section>
+        }
+    }
+</div>

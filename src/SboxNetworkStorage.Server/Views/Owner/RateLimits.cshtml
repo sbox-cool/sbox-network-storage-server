@@ -1,0 +1,83 @@
+@model SboxNetworkStorage.Server.Owner.OwnerRateLimitsModel
+@using SboxNetworkStorage.Server.Owner
+@{
+    Layout = "~/Views/Owner/_Layout.cshtml";
+    var url = "/dashboard/projects/" + Uri.EscapeDataString(Model.ProjectId);
+    var editing = Model.Editing;
+    var labels = new Dictionary<string, string> { ["perMinute"] = "Per minute", ["perHour"] = "Per hour", ["perDay"] = "Per day", ["perWeek"] = "Per week", ["perMonth"] = "Per month", ["perYear"] = "Per year" };
+    string Describe(OwnerRateLimitRule rule) => string.Join(", ", OwnerRateLimitsController.WindowKeys.Where(rule.Windows.ContainsKey).Select(key => $"{rule.Windows[key]:N0} {labels[key].ToLowerInvariant()}"));
+}
+<link rel="stylesheet" href="/owner-assets/m/manage.css" />
+<div class="page-heading"><div><h1>Rate limit rules</h1><p>Cap how fast a field can grow per player or across the project, for @Model.ProjectName.</p></div><a class="button secondary" href="@url">Project overview</a></div>
+@if (Model.Saved) { <p class="notice success" role="status">Rate limit rules saved.</p> }
+@if (Model.Error is not null) { <p class="error" role="alert">@Model.Error</p> }
+<aside class="notice"><strong>How these rules are used</strong><p>Rules are saved with the project and served to the editor Sync Tool through <code>GET /v3/manage/@Model.ProjectId/rate-limit-rules</code>. This server does not enforce field windows at runtime. Write volume per collection is enforced by the collection <code>rateLimits.savesPerDay</code> setting.</p></aside>
+<section class="card">
+    <div class="section-heading"><h2>Rules <span class="badge">@Model.Rules.Count</span></h2></div>
+    @if (Model.Rules.Count == 0)
+    {
+        <div class="empty-state"><h3>No rules yet</h3><p>Start from a preset below or define a rule for one field.</p></div>
+    }
+    else
+    {
+        <div class="table-scroll"><table>
+            <thead><tr><th>Rule</th><th>Target</th><th>Scope</th><th>Windows</th><th>When exceeded</th><th>Status</th><th>Actions</th></tr></thead>
+            <tbody>
+            @foreach (var rule in Model.Rules)
+            {
+                <tr>
+                    <td><strong>@(string.IsNullOrEmpty(rule.Name) ? rule.Id : rule.Name)</strong><br /><code>@rule.Id</code></td>
+                    <td><code>@rule.Collection</code> · <code>@rule.Field</code></td>
+                    <td>@(rule.Scope == "global" ? "Global" : "Per player")</td>
+                    <td>@Describe(rule)</td>
+                    <td>@(rule.Action switch { "clamp" => "Clamp to max", "flag" => "Flag and allow", _ => "Reject write" })@(rule.Webhook ? " + webhook" : "")</td>
+                    <td><span class="badge @(rule.Enabled ? "positive" : "")">@(rule.Enabled ? "Enabled" : "Disabled")</span></td>
+                    <td class="actions">
+                        <a class="button secondary" href="@url/rate-limits?edit=@Uri.EscapeDataString(rule.Id)#rule-form">Edit</a>
+                        <form method="post" action="@url/rate-limits/delete">@Html.AntiForgeryToken()<input type="hidden" name="id" value="@rule.Id" /><button class="danger" type="submit">Delete</button></form>
+                    </td>
+                </tr>
+            }
+            </tbody>
+        </table></div>
+    }
+    <h3>Presets</h3>
+    <div class="actions">
+        @foreach (var (key, preset) in OwnerRateLimitsController.Presets)
+        {
+            <form method="post" action="@url/rate-limits/preset">@Html.AntiForgeryToken()<input type="hidden" name="preset" value="@key" /><button class="secondary" type="submit" title="@Describe(preset)">Add @preset.Name.ToLowerInvariant()</button></form>
+        }
+    </div>
+</section>
+<section class="card" id="rule-form">
+    <h2>@(editing is null ? "Add a rule" : "Edit " + editing.Id)</h2>
+    <form method="post" action="@url/rate-limits" class="manage-form">
+        @Html.AntiForgeryToken()
+        <input type="hidden" name="originalId" value="@editing?.Id" />
+        <div class="form-grid">
+            <label>Rule id <input name="id" value="@editing?.Id" maxlength="64" pattern="[A-Za-z0-9_]{1,64}" placeholder="Generated from the target" /></label>
+            <label>Name <input name="name" value="@editing?.Name" maxlength="80" placeholder="Gold hourly cap" /></label>
+            <label>Collection <input name="collection" value="@(editing?.Collection ?? "*")" list="rl-collections" required /></label>
+            <label>Field <input name="field" value="@(editing?.Field ?? "*")" list="rl-fields" required /></label>
+            <label>Scope <select name="scope"><option value="per_player" selected="@(editing?.Scope != "global")">Per player</option><option value="global" selected="@(editing?.Scope == "global")">Global</option></select></label>
+            <label>When exceeded <select name="action">
+                <option value="reject" selected="@(editing is null || editing.Action == "reject")">Reject the write</option>
+                <option value="clamp" selected="@(editing?.Action == "clamp")">Clamp to the maximum</option>
+                <option value="flag" selected="@(editing?.Action == "flag")">Flag and allow</option>
+            </select></label>
+        </div>
+        <fieldset class="manage-windows"><legend>Time windows (leave empty to turn a window off)</legend>
+            <div class="form-grid">
+            @foreach (var key in OwnerRateLimitsController.WindowKeys)
+            {
+                <label>@labels[key] <input type="number" min="1" max="1000000000" step="1" name="@key" value="@(editing is not null && editing.Windows.TryGetValue(key, out var limit) ? limit.ToString(System.Globalization.CultureInfo.InvariantCulture) : "")" /></label>
+            }
+            </div>
+        </fieldset>
+        <label class="check"><input type="checkbox" name="webhook" value="true" checked="@(editing?.Webhook == true)" /> Post to the project webhook when the limit is hit</label>
+        <label class="check"><input type="checkbox" name="enabled" value="true" checked="@(editing?.Enabled ?? true)" /> Enabled</label>
+        <div class="actions"><button type="submit">@(editing is null ? "Add rule" : "Save rule")</button>@if (editing is not null) { <a class="button secondary" href="@url/rate-limits">Cancel</a> }</div>
+    </form>
+    <datalist id="rl-collections"><option value="*"></option>@foreach (var collection in Model.Collections) { <option value="@collection"></option> }</datalist>
+    <datalist id="rl-fields"><option value="*"></option>@foreach (var field in Model.Fields) { <option value="@field"></option> }</datalist>
+</section>

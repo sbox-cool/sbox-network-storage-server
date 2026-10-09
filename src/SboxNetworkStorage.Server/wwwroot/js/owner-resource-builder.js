@@ -22,14 +22,8 @@
     }
     textarea.focus();
   }
-  var steps = {
-    read: "- id: \"load-player\"\n  type: \"read\"\n  collection: \"players\"\n  key: \"{{steamId}}\"\n",
-    write: "- id: \"grant\"\n  type: \"write\"\n  collection: \"players\"\n  key: \"{{steamId}}\"\n  ops:\n    - op: \"increment\"\n      path: \"coins\"\n      amount: \"{{input.amount}}\"\n",
-    condition: "- id: \"has-profile\"\n  type: \"condition\"\n  check:\n    field: \"{{player.coins}}\"\n    op: \"exists\"\n  onFail:\n    status: 409\n    error: \"PROFILE_MISSING\"\n",
-    transform: "- id: \"total\"\n  type: \"transform\"\n  expression: \"{{input.amount}}\"\n",
-    filter: "- id: \"rich\"\n  type: \"filter\"\n  collection: \"players\"\n  where:\n    field: \"coins\"\n    op: \">=\"\n    value: 100\n",
-    webhook: "- id: \"notify\"\n  type: \"webhook\"\n  url: \"https://discord.com/api/webhooks/…\"\n  title: \"Grant\"\n  description: \"{{steamId}} received {{input.amount}} coins\"\n"
-  };
+  // Step snippets come from the catalog API (owner-builder-catalog.js), which serves
+  // one working default per supported step type from the builder tour definition.
   function on(id, handler) {
     var node = document.getElementById(id);
     if (node) node.addEventListener("click", handler);
@@ -37,9 +31,6 @@
   on("builder-apply-endpoint", function () {
     setScalar("method", document.getElementById("builder-method").value);
     setScalar("enabled", document.getElementById("builder-enabled").value);
-  });
-  on("builder-add-step", function () {
-    insert(steps[document.getElementById("builder-step").value] || steps.read);
   });
   on("builder-apply-collection", function () {
     setScalar("collectionType", document.getElementById("builder-collection-type").value);

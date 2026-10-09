@@ -37,10 +37,10 @@ public abstract class OwnerAuthoringTests<TFactory> : IDisposable where TFactory
         using var client = await LoggedInClientAsync(factory);
         foreach (var (kind, id, source) in new[]
         {
-            ("collection", "player_stats", "kind: collection\nid: player_stats\nname: player_stats\ncollectionType: player\nschema: {}"),
+            ("collection", "player_stats", "kind: collection\nid: player_stats\nname: player_stats\ncollectionType: per-steamid\nschema: {}"),
             ("endpoint", "health", "kind: endpoint\nid: health\nslug: health\nmethod: GET\nenabled: true\nresponse:\n  ok: true"),
             ("workflow", "setup", "kind: workflow\nid: setup\nname: Setup\nsteps: []"),
-            ("query", "scores", "kind: query\nid: scores\nname: Scores\ntype: list\nsources:\n  - collectionId: player_stats\nconfig:\n  limit: 20")
+            ("query", "scores", "kind: query\nid: scores\nname: Scores\ntype: count\nsources:\n  - collectionId: player_stats\nconfig:\n  limit: 20")
         })
         {
             var url = $"/dashboard/projects/{project.ProjectId}/resources/{kind}";
@@ -128,14 +128,14 @@ public abstract class OwnerAuthoringTests<TFactory> : IDisposable where TFactory
         using var client = await LoggedInClientAsync(factory);
         var root = $"/dashboard/projects/{project.ProjectId}";
         var page = await client.GetStringAsync(root + "/resources/game-values");
-        using var saved = await client.PostAsync(root + "/resources/game-values", Form(("definition", "{\"dailyReward\":25,\"season\":\"autumn\"}"), ("__RequestVerificationToken", Csrf(page))));
+        using var saved = await client.PostAsync(root + "/resources/game-values", Form(("definition", "{\"items\":[{\"id\":\"rewards\",\"type\":\"group\",\"entries\":{\"dailyReward\":25,\"season\":\"autumn\"}}]}"), ("__RequestVerificationToken", Csrf(page))));
         Assert.Equal(HttpStatusCode.Redirect, saved.StatusCode);
         Assert.Contains("dailyReward", await client.GetStringAsync(root + "/resources/game-values"));
         await using (var scope = factory.Services.CreateAsyncScope())
         {
             var store = scope.ServiceProvider.GetRequiredService<INetworkStorageStore>();
             var row = await store.ReadGameValuesAsync(project.ProjectId, CancellationToken.None);
-            Assert.Equal(25, Column(row!.Value, "payload_json").GetProperty("dailyReward").GetInt32());
+            Assert.Equal(25, Column(row!.Value, "payload_json").GetProperty("items")[0].GetProperty("entries").GetProperty("dailyReward").GetInt32());
             await store.IncrementProjectUsageAsync(project.ProjectId, "2026-10", "2026-10-08", "health", new UsageDelta(731, 500, 20, 8, 55, 99, 3, 300, 8, 5, 12), CancellationToken.None);
             await store.InsertStorageErrorAsync(project.ProjectId, 1791417600000, "error-safe-id", "secret-value-not-for-ui", "sensitive-stack", "runtime", "/v3/records", "error", CancellationToken.None);
         }

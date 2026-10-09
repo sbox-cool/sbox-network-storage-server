@@ -1,0 +1,43 @@
+@model SboxNetworkStorage.Server.Owner.OwnerPagesModel
+@{
+    Layout = "~/Views/Owner/_Layout.cshtml";
+    var url = "/dashboard/projects/" + Uri.EscapeDataString(Model.ProjectId);
+    var editing = Model.Editing;
+    var isExisting = editing is not null && Model.Pages.Any(pg => pg.Slug == editing.Slug);
+}
+<link rel="stylesheet" href="/owner-assets/m/manage.css" />
+<div class="page-heading"><div><h1>Pages</h1><p>Public content your game can fetch without a key, such as patch notes or a message of the day, for @Model.ProjectName.</p></div><a class="button secondary" href="@url">Project overview</a></div>
+@if (Model.Saved) { <p class="notice success" role="status">Pages saved.</p> }
+@if (Model.Error is not null) { <p class="error" role="alert">@Model.Error</p> }
+<div class="editor-grid">
+    <aside class="card resource-list"><h2>Pages <span class="badge">@Model.Pages.Count</span></h2><a class="button secondary" href="@url/pages">+ New page</a>
+        @if (Model.Pages.Count == 0) { <p class="muted">No pages yet.</p> }
+        <ul>@foreach (var pg in Model.Pages) { <li><a href="@url/pages?slug=@Uri.EscapeDataString(pg.Slug)" aria-current="@(pg.Slug == editing?.Slug ? "page" : null)"><strong>@pg.Title</strong><code>@pg.Slug · @(pg.Type == "keyvalue" ? "key/value" : "markdown")</code></a></li> }</ul>
+    </aside>
+    <section class="card">
+        <div class="section-heading"><h2>@(isExisting ? "Edit " + editing!.Title : "New page")</h2>
+            @if (isExisting)
+            {
+                <div class="actions"><a class="button secondary" href="/pages/@Uri.EscapeDataString(Model.ProjectId)/@Uri.EscapeDataString(editing!.Slug)" rel="noreferrer">Open public JSON</a>
+                <form method="post" action="@url/pages/delete">@Html.AntiForgeryToken()<input type="hidden" name="slug" value="@editing.Slug" /><button class="danger" type="submit">Delete page</button></form></div>
+            }
+        </div>
+        @if (isExisting) { <p class="muted">Public URL: <code>/pages/@Model.ProjectId/@(editing!.Slug)</code>@(editing.UpdatedAt is null ? "" : " · updated " + editing.UpdatedAt)</p> }
+        <form method="post" action="@url/pages">
+            @Html.AntiForgeryToken()
+            <input type="hidden" name="originalSlug" value="@(isExisting ? editing!.Slug : "")" />
+            <div class="form-grid">
+                <label>Title <input name="title" value="@editing?.Title" required maxlength="120" placeholder="Patch notes" /></label>
+                <label>Slug <input name="slug" value="@editing?.Slug" required maxlength="64" pattern="[a-z0-9][a-z0-9_\-]{0,63}" placeholder="patch-notes" /></label>
+                <label>Type <select name="type">
+                    <option value="markdown" selected="@(editing?.Type != "keyvalue")">Markdown text</option>
+                    <option value="keyvalue" selected="@(editing?.Type == "keyvalue")">Key/value data (JSON object)</option>
+                </select></label>
+            </div>
+            <label for="page-content">Content</label>
+            <textarea id="page-content" class="code-editor" name="content" rows="16" spellcheck="false" placeholder="## Version 1.2&#10;- New quests">@editing?.Content</textarea>
+            <p class="muted">Markdown pages return <code>markdown</code>; key/value pages return the object as <code>data</code>.</p>
+            <button type="submit">@(isExisting ? "Save page" : "Publish page")</button>
+        </form>
+    </section>
+</div>

@@ -1,0 +1,646 @@
+# Collections, game values, workflows and queries. Most are companions that
+# the endpoint examples create with one click; each is also a gallery entry.
+- id: collection.players
+  kind: collection
+  category: Player data
+  title: Player profile collection
+  summary: One record per player with a ledger-tracked gold balance, progress, inventory and quest history.
+  source: |
+    sourceVersion: 1
+    kind: collection
+    id: players
+    name: players
+    description: One record per player. Endpoints change it; clients read it.
+    collectionType: per-steamid
+    accessMode: endpoint
+    maxRecords: 1
+    allowRecordDelete: false
+    rateLimits:
+      mode: player
+      savesPerDay: 8640
+    rateLimitAction: reject
+    schema:
+      type: object
+      properties:
+        gold:
+          type: number
+          default: 0
+          min: 0
+          _ledger: true
+          description: Spendable currency. Only endpoints change it.
+        xp:
+          type: number
+          default: 0
+          min: 0
+        level:
+          type: number
+          default: 1
+          min: 1
+        tier:
+          type: string
+          enum:
+            - bronze
+            - silver
+            - gold
+        kills:
+          type: number
+          default: 0
+        health:
+          type: number
+          default: 100
+        name:
+          type: string
+        last_daily:
+          type: string
+          description: UTC date (YYYY-MM-DD) of the last daily reward.
+        telegram_id:
+          type: string
+        inventory:
+          type: array
+          items:
+            type: object
+            properties:
+              item_id:
+                type: string
+              name:
+                type: string
+        completed_quests:
+          type: array
+          items:
+            type: string
+        materials:
+          type: object
+          additionalProperties:
+            type: number
+
+- id: collection.player_saves
+  kind: collection
+  category: Player data
+  title: Save slots
+  summary: Up to five records per player, keyed steamId_saveId, for games with several save files. Players may delete slots.
+  source: |
+    sourceVersion: 1
+    kind: collection
+    id: player_saves
+    name: player_saves
+    description: Save slots keyed {{steamId}}_{{input.saveId}}.
+    collectionType: per-steamid
+    accessMode: endpoint
+    maxRecords: 5
+    allowRecordDelete: true
+    requireSaveVersion: false
+    schema:
+      type: object
+      properties:
+        label:
+          type: string
+        level:
+          type: number
+          min: 1
+        created_at:
+          type: datetime
+        updated_at:
+          type: datetime
+
+- id: collection.wallets
+  kind: collection
+  category: Anti-cheat
+  title: Wallet with anti-cheat flags
+  summary: Required fields, a unique wallet id, a ledger balance and per-window limits, with a clamp rate limit on saves.
+  source: |
+    sourceVersion: 1
+    kind: collection
+    id: wallets
+    name: wallets
+    description: Currency wallet with integrity flags.
+    collectionType: per-steamid
+    accessMode: endpoint
+    maxRecords: 1
+    allowRecordDelete: false
+    rateLimits:
+      mode: player
+      savesPerDay: 2000
+    rateLimitAction: clamp
+    webhookOnRateLimit: false
+    schema:
+      type: object
+      required:
+        - wallet_id
+        - coins
+      properties:
+        wallet_id:
+          type: string
+          _unique: true
+        coins:
+          type: number
+          min: 0
+          default: 0
+          _ledger: true
+          _maxPerHour: 1000
+          _maxPerDay: 5000
+        gems:
+          type: number
+          min: 0
+          default: 0
+          _maxPerWeek: 50
+        created_at:
+          type: datetime
+
+- id: collection.telegram_links
+  kind: collection
+  category: Integrations
+  title: Telegram link mapping (global)
+  summary: A global collection keyed tg_<telegram id> that maps an external bot user to a player.
+  source: |
+    sourceVersion: 1
+    kind: collection
+    id: telegram_links
+    name: telegram_links
+    description: Shared records keyed tg_<telegram user id>.
+    collectionType: global
+    accessMode: endpoint
+    allowRecordDelete: true
+    schema:
+      type: object
+      properties:
+        steam_id:
+          type: player
+        telegram_id:
+          type: string
+        linked_at:
+          type: datetime
+
+- id: game-values.economy
+  kind: game-values
+  category: Economy
+  title: Economy groups
+  summary: Pickup values, action costs and rewards read as {{values.<group>.<key>}}.
+  source: |
+    items:
+      - id: pickups
+        type: group
+        name: Pickups
+        entries:
+          coin_gold: 5
+          chest_gold: 50
+      - id: costs
+        type: group
+        name: Costs
+        entries:
+          heal: 20
+          respawn: 10
+      - id: rewards
+        type: group
+        name: Rewards
+        entries:
+          daily_gold: 50
+          kill_xp: 25
+
+- id: game-values.shop_items
+  kind: game-values
+  category: Economy
+  title: Shop items table
+  summary: Prices the purchase example looks up with source values.
+  source: |
+    items:
+      - id: shop_items
+        type: table
+        name: Shop items
+        columns:
+          - key: item_id
+            type: string
+          - key: name
+            type: string
+          - key: cost
+            type: number
+        rows:
+          - item_id: sword
+            name: Iron Sword
+            cost: 100
+          - item_id: shield
+            name: Wooden Shield
+            cost: 60
+          - item_id: potion
+            name: Health Potion
+            cost: 15
+
+- id: game-values.enemies
+  kind: game-values
+  category: Combat
+  title: Enemies table
+  summary: Gold and xp drops per enemy type.
+  source: |
+    items:
+      - id: enemies
+        type: table
+        name: Enemies
+        columns:
+          - key: enemy_type
+            type: string
+          - key: name
+            type: string
+          - key: gold_drop
+            type: number
+          - key: xp_drop
+            type: number
+        rows:
+          - enemy_type: goblin
+            name: Goblin
+            gold_drop: 10
+            xp_drop: 20
+          - enemy_type: orc
+            name: Orc
+            gold_drop: 25
+            xp_drop: 50
+          - enemy_type: dragon
+            name: Dragon
+            gold_drop: 500
+            xp_drop: 1000
+
+- id: game-values.mining_nodes
+  kind: game-values
+  category: Combat
+  title: Mining nodes table
+  summary: Level requirement, ore type and rewards per node.
+  source: |
+    items:
+      - id: mining_nodes
+        type: table
+        name: Mining nodes
+        columns:
+          - key: node_id
+            type: string
+          - key: name
+            type: string
+          - key: level_required
+            type: number
+          - key: ore_type
+            type: string
+          - key: ore_amount
+            type: number
+          - key: xp_reward
+            type: number
+        rows:
+          - node_id: copper_rock
+            name: Copper rock
+            level_required: 1
+            ore_type: copper
+            ore_amount: 2
+            xp_reward: 10
+          - node_id: iron_rock
+            name: Iron rock
+            level_required: 3
+            ore_type: iron
+            ore_amount: 1
+            xp_reward: 25
+
+- id: game-values.quests
+  kind: game-values
+  category: Progression
+  title: Quests table
+  summary: Rewards per quest id.
+  source: |
+    items:
+      - id: quests
+        type: table
+        name: Quests
+        columns:
+          - key: quest_id
+            type: string
+          - key: name
+            type: string
+          - key: gold_reward
+            type: number
+          - key: xp_reward
+            type: number
+        rows:
+          - quest_id: first_steps
+            name: First steps
+            gold_reward: 25
+            xp_reward: 50
+          - quest_id: goblin_hunt
+            name: Goblin hunt
+            gold_reward: 40
+            xp_reward: 120
+
+- id: game-values.recipes
+  kind: game-values
+  category: Progression
+  title: Recipes table
+  summary: Material costs and outputs for crafting.
+  source: |
+    items:
+      - id: recipes
+        type: table
+        name: Recipes
+        columns:
+          - key: recipe_id
+            type: string
+          - key: material
+            type: string
+          - key: material_cost
+            type: number
+          - key: output_item
+            type: string
+          - key: output_name
+            type: string
+        rows:
+          - recipe_id: copper_dagger
+            material: copper
+            material_cost: 2
+            output_item: copper_dagger
+            output_name: Copper Dagger
+          - recipe_id: iron_sword
+            material: iron
+            material_cost: 3
+            output_item: iron_sword
+            output_name: Iron Sword
+
+- id: game-values.consumables
+  kind: game-values
+  category: Progression
+  title: Consumables table
+  summary: Which stat each consumable changes and by how much.
+  source: |
+    items:
+      - id: consumables
+        type: table
+        name: Consumables
+        columns:
+          - key: item_id
+            type: string
+          - key: name
+            type: string
+          - key: stat
+            type: string
+          - key: amount
+            type: number
+        rows:
+          - item_id: potion
+            name: Health Potion
+            stat: health
+            amount: 25
+          - item_id: xp_scroll
+            name: XP Scroll
+            stat: xp
+            amount: 100
+
+- id: game-values.loot_table
+  kind: game-values
+  category: Combat
+  title: Weighted loot table
+  summary: Drop weights for random_select; higher weight drops more often.
+  source: |
+    items:
+      - id: loot_table
+        type: table
+        name: Loot table
+        columns:
+          - key: item_id
+            type: string
+          - key: name
+            type: string
+          - key: weight
+            type: number
+          - key: rarity
+            type: string
+        rows:
+          - item_id: bones
+            name: Bones
+            weight: 70
+            rarity: common
+          - item_id: gem
+            name: Gem
+            weight: 25
+            rarity: rare
+          - item_id: crown
+            name: Crown
+            weight: 5
+            rarity: legendary
+
+- id: workflow.streak_bonus
+  kind: workflow
+  category: Flow
+  title: Streak bonus workflow
+  summary: Reusable logic run from a condition route. Reads its streak param and returns bonus gold.
+  source: |
+    sourceVersion: 1
+    kind: workflow
+    id: streak_bonus
+    name: Streak bonus
+    description: Five gold per streak day, capped at ten days.
+    params:
+      streak:
+        type: number
+        description: Days in a row
+    steps:
+      - id: bonus
+        type: compute
+        values:
+          amount: "min({{streak}}, 10) * 5"
+    returns:
+      bonus: "{{bonus.amount}}"
+
+- id: workflow.level_from_xp
+  kind: workflow
+  category: Progression
+  title: Level from xp workflow
+  summary: Shared compute and switch logic called from endpoints with an xp param; returns level and tier.
+  source: |
+    sourceVersion: 1
+    kind: workflow
+    id: level_from_xp
+    name: Level from xp
+    description: One level per 100 xp; tiers at level 5 and 10.
+    params:
+      xp:
+        type: number
+        description: Total xp
+    steps:
+      - id: stats
+        type: compute
+        values:
+          level: "floor({{xp}} / 100) + 1"
+      - id: tier
+        type: switch
+        cases:
+          - when:
+              field: stats.level
+              op: ">="
+              value: 10
+            then: gold
+          - when:
+              field: stats.level
+              op: ">="
+              value: 5
+            then: silver
+        default: bronze
+    returns:
+      level: "{{stats.level}}"
+      tier: "{{tier}}"
+
+- id: query.top_xp
+  kind: query
+  category: Leaderboards
+  title: XP leaderboard with a join
+  summary: Ranks players by xp and left-joins each player's Telegram link through telegram_id.
+  requires: [collection.players, collection.telegram_links]
+  calls:
+    - method: GET
+  source: |
+    sourceVersion: 1
+    kind: query
+    id: top_xp
+    name: Top XP
+    type: leaderboard
+    sources:
+      - collectionId: players
+        alias: player
+    config:
+      field: xp
+      order: desc
+      limit: 10
+      fields:
+        - name
+        - xp
+        - level
+        - tier
+      joins:
+        - sourceCollectionId: telegram_links
+          alias: telegram
+          localKey: telegram_id
+          foreignKey: telegram_id
+          type: left
+    cache:
+      ttlSeconds: 60
+    requiresSecretKey: false
+
+- id: query.total_gold
+  kind: query
+  category: Stats
+  title: Total gold in circulation
+  summary: A sum query over every player's gold.
+  requires: [collection.players]
+  calls:
+    - method: GET
+  source: |
+    sourceVersion: 1
+    kind: query
+    id: total_gold
+    name: Total gold
+    type: sum
+    sources:
+      - collectionId: players
+    config:
+      field: gold
+    cache:
+      ttlSeconds: 300
+
+- id: query.daily_claimers
+  kind: query
+  category: Stats
+  title: Players who claimed a daily reward
+  summary: A count query with an exists condition on last_daily.
+  requires: [collection.players]
+  calls:
+    - method: GET
+  source: |
+    sourceVersion: 1
+    kind: query
+    id: daily_claimers
+    name: Daily claimers
+    type: count
+    sources:
+      - collectionId: players
+    config:
+      field: last_daily
+      condition: exists
+    cache:
+      ttlSeconds: 300
+
+- id: collection.starter_players
+  kind: collection
+  category: Getting started
+  title: Starter player collection
+  summary: The smallest useful per-player collection, shown on the dashboard home page.
+  source: |
+    sourceVersion: 1
+    kind: collection
+    id: starter_players
+    name: starter_players
+    collectionType: per-steamid
+    accessMode: endpoint
+    maxRecords: 1
+    allowRecordDelete: false
+    schema:
+      type: object
+      properties:
+        coins:
+          type: number
+          default: 0
+          min: 0
+        level:
+          type: number
+          default: 1
+          min: 1
+
+- id: endpoint.grant-coins
+  kind: endpoint
+  category: Getting started
+  title: Grant coins
+  summary: Read the player, guard with a condition on the read result, then add coins with an inc op.
+  requires: [collection.starter_players]
+  calls:
+    - input: '{"amount":5}'
+    - input: '{"amount":0}'
+      status: 400
+  source: |
+    sourceVersion: 1
+    kind: endpoint
+    id: grant-coins
+    name: Grant coins
+    method: POST
+    enabled: true
+    input:
+      type: object
+      properties:
+        amount:
+          type: number
+      required:
+        - amount
+    steps:
+      - id: player
+        type: read
+        collection: starter_players
+        key: "{{steamId}}"
+      - id: can_grant
+        type: condition
+        check:
+          all:
+            - field: input.amount
+              op: ">"
+              value: 0
+            - field: player.coins|0
+              op: "<"
+              value: 1000000
+        onFail:
+          status: 400
+          error: INVALID_GRANT
+          message: Send a positive amount below the coin cap.
+      - id: total
+        type: transform
+        expression: "{{player.coins|0}} + {{input.amount}}"
+      - id: grant
+        type: write
+        collection: starter_players
+        key: "{{steamId}}"
+        ops:
+          - op: inc
+            path: coins
+            value: "{{input.amount}}"
+            source: grant
+            reason: Granted by endpoint
+    response:
+      status: 200
+      body:
+        coins: "{{total}}"

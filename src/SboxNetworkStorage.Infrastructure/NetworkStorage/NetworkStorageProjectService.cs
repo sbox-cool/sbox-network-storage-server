@@ -25,7 +25,8 @@ public sealed class NetworkStorageProjectService(
     IConfiguration configuration,
     IStorageKeyCdnWriter keyCdnWriter,
     INetworkStorageStore scyllaStore,
-    ILogger<NetworkStorageProjectService> logger)
+    ILogger<NetworkStorageProjectService> logger,
+    IApiKeyCacheInvalidator? keyCache = null)
     : INetworkStorageProjectService
 {
     // Most-recent audit-log entries pulled from ScyllaDB for the dashboard
@@ -415,6 +416,7 @@ public sealed class NetworkStorageProjectService(
             await keyCdnWriter.WritePublicKeyFileAsync(key, storageOwnerUserId, projectId, newEnabled, "public", cancellationToken);
             await UpdateKeyInIndexByKeyAsync(projectId, key, newEnabled, cancellationToken);
         }
+        keyCache?.InvalidateProjectKeys(projectId);
     }
 
     public async Task RemoveProjectKeyAsync(long storageOwnerUserId, string projectId, string key, CancellationToken cancellationToken)
@@ -441,6 +443,7 @@ public sealed class NetworkStorageProjectService(
             await keyCdnWriter.DeletePublicKeyFileAsync(key, projectId, cancellationToken);
             await RemoveKeyFromIndexByKeyAsync(projectId, key, cancellationToken);
         }
+        keyCache?.InvalidateProjectKeys(projectId);
     }
 
     public async Task UpdateProjectKeyPermissionsAsync(
@@ -463,6 +466,7 @@ public sealed class NetworkStorageProjectService(
         await keyCdnWriter.UpdateSecretKeyFileAsync(keyIdentifier, projectId,
             new Dictionary<string, object> { ["permissions"] = permissions }, cancellationToken);
         await UpdateKeyPermissionsInIndexAsync(projectId, keyIdentifier, permissions, cancellationToken);
+        keyCache?.InvalidateProjectKeys(projectId);
     }
 
     public async Task DeleteProjectAsync(long storageOwnerUserId, string projectId, CancellationToken cancellationToken)

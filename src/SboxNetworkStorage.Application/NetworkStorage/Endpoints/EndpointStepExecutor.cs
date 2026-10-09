@@ -57,6 +57,16 @@ public sealed class EndpointStepExecutor
                 return Fail(400, $"Step \"{stepKey}\" exceeded visit limit ({MaxStepVisits}).", step);
 
             var terminal = await ExecuteStepAsync(step, context, request, pendingWrites, ct);
+            if (request.OnStep is not null)
+            {
+                var failed = terminal is EndpointExecutionResult { Ok: false }
+                    || terminal is RouteOutcome { Done: true, TerminalResult.Ok: false };
+                request.OnStep(new EndpointStepTrace(
+                    step.GetValueOrDefault("id") as string ?? stepKey,
+                    step.GetValueOrDefault("type") as string ?? "",
+                    context.GetValueOrDefault(stepKey),
+                    !failed));
+            }
 
             // If the step returned a route outcome, apply it.
             if (terminal is RouteOutcome route)
@@ -1458,7 +1468,8 @@ public sealed record EndpointExecutionRequest(
     Func<string, CancellationToken, Task<Dictionary<string, object?>?>>? LoadWorkflow = null,
     Func<string, Dictionary<string, object?>, CancellationToken, Task<(bool Ok, int Status, string? Error)>>? ExecuteWebhookAsync = null,
     bool SkipWebhooks = false,
-    bool SkipSleep = false);
+    bool SkipSleep = false,
+    Action<EndpointStepTrace>? OnStep = null);
 
 /// <summary>
 /// Raised when an endpoint definition uses a feature the native executor does not

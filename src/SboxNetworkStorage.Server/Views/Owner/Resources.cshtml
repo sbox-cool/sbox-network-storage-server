@@ -18,7 +18,7 @@
 {
 <section class="card"><div class="section-heading"><h2>Endpoint builder</h2><span class="badge">Guided</span></div>
 <p>Set the routing fields, then insert step skeletons at the cursor. Review the YAML before saving.</p>
-<div class="form-grid"><label>Method <select id="builder-method"><option>GET</option><option>POST</option><option>PUT</option><option>DELETE</option></select></label><label>Enabled <select id="builder-enabled"><option value="true">On</option><option value="false">Off</option></select></label><div class="actions"><button type="button" class="secondary" id="builder-apply-endpoint">Apply method and enabled</button></div></div>
+<div class="form-grid"><label>Method <select id="builder-method"><option>GET</option><option>POST</option></select></label><label>Enabled <select id="builder-enabled"><option value="true">On</option><option value="false">Off</option></select></label><div class="actions"><button type="button" class="secondary" id="builder-apply-endpoint">Apply method and enabled</button></div></div>
 <div class="form-grid"><label>Step type <select id="builder-step"><option value="read">read: load one record</option><option value="write">write: save player data</option><option value="condition">condition: guard with onFail</option><option value="transform">transform: compute a value</option><option value="filter">filter: match many records</option><option value="webhook">webhook: Discord notice</option></select></label><div class="actions"><button type="button" class="secondary" id="builder-add-step">Insert step</button></div></div></section>
 }
 @if (Model.Kind == "collection")
@@ -28,13 +28,18 @@
 <div class="form-grid"><label>Storage kind <select id="builder-collection-type"><option value="per-steamid">Per player</option><option value="global">Global</option></select></label><div class="actions"><button type="button" class="secondary" id="builder-apply-collection">Apply storage kind</button></div></div>
 <div class="form-grid"><label>Field name <input id="builder-field-name" maxlength="64" placeholder="coins" /></label><label>Field type <select id="builder-field-type"><option value="number">number</option><option value="string">string</option><option value="boolean">boolean</option><option value="array">array</option><option value="object">object</option></select></label><div class="actions"><button type="button" class="secondary" id="builder-add-field">Insert field</button></div></div></section>
 }
+<section class="card"><div class="section-heading"><h2>Examples</h2><span class="badge">Working</span></div>
+<p>Every example saves without diagnostics and runs as-is. Insert one, create its needed definitions, then save.</p>
+<div id="example-gallery"><p class="muted">Loading examples...</p></div></section>
 <section class="card"><div class="section-heading"><h2>@(Model.Id is null && Model.Kind != "game-values" ? "Create definition" : "Edit definition")</h2><span class="badge">YAML</span></div>
 <p>Author this resource in YAML. Saving keeps your source text, so what you wrote is what you keep editing. Raw JSON is still accepted for older edits but is deprecated. Editor pushes can overwrite dashboard edits. Coordinate authoring with your checked-in source.</p>
 <form method="post" action="@url/resources/@Model.Kind">
 @Html.AntiForgeryToken()
 @if (Model.Id is not null) { <input type="hidden" name="id" value="@Model.Id" /> }
 <label for="definition">@title definition (YAML)</label><textarea class="code-editor" id="definition" name="definition" rows="24" required spellcheck="false">@Model.Definition</textarea>
-<p class="muted">Saving updates this resource only; it does not remove other synced resources. Editor pushes can overwrite dashboard edits. Coordinate authoring with your checked-in source.</p><button type="submit">Save live definition</button>
+<p class="muted">Saving updates this resource only; it does not remove other synced resources. Editor pushes can overwrite dashboard edits. Coordinate authoring with your checked-in source.</p><div class="actions"><button type="button" class="secondary" id="builder-check">Check definition</button> <button type="submit">Save live definition</button></div>
+<div id="check-results" aria-live="polite"></div>
 </form></section></div>
 <script src="/owner-assets/resource-builder.js" defer></script>
+<script src="/owner-assets/builder-catalog.js" defer></script>
 

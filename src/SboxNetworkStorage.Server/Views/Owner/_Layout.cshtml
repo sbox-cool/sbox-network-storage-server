@@ -22,6 +22,11 @@
         ["logs"] = "<path d=\"M5.5 4h8M5.5 8h8M5.5 12h8M2.5 4h.01M2.5 8h.01M2.5 12h.01\"/>",
         ["errors"] = "<path d=\"M8 2 14.5 13.5h-13zM8 6.5v3.5M8 12h.01\"/>",
         ["usage"] = "<path d=\"M2.5 12.5a6 6 0 0 1 11 0M8 12.5 11 8\"/>",
+        ["tests"] = "<path d=\"M4.5 2.5v11l9-5.5z\"/>",
+        ["versions"] = "<circle cx=\"8\" cy=\"8\" r=\"5.5\"/><path d=\"M8 5v3l2 1.5\"/>",
+        ["rate-limits"] = "<path d=\"M2.5 4h11M2.5 8h7M2.5 12h4\"/>",
+        ["webhooks"] = "<path d=\"M14 2 7 9M14 2l-4.5 12-2.5-5-5-2.5z\"/>",
+        ["pages"] = "<path d=\"M4 1.5h5.5L12.5 4.5v10h-8.5zM9.5 1.5v3h3M6 8h4.5M6 11h4.5\"/>",
     };
     string Icon(string name) => "<svg class=\"nav-icon\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\">" + icons[name] + "</svg>";
     var demo = Context.Items.ContainsKey(SboxNetworkStorage.Server.Demo.DemoReadOnlyMiddleware.ContextKey);
@@ -56,6 +61,11 @@
         @foreach (var kind in new[] { "collection", "endpoint", "workflow", "query", "game-values" })
         {
             <a href="@projectUrl/resources/@kind" aria-current="@(path.EndsWith("/resources/" + kind, StringComparison.Ordinal) ? "page" : null)">@Html.Raw(Icon(kind))@(kind switch { "game-values" => "Game values", "query" => "Queries", _ => char.ToUpperInvariant(kind[0]) + kind[1..] + "s" })</a>
+        }
+        <p class="nav-label">Manage</p>
+        @foreach (var (pg, label) in new[] { ("tests", "Endpoint tests"), ("versions", "Version history"), ("rate-limits", "Rate limit rules"), ("webhooks", "Webhooks"), ("pages", "Pages") })
+        {
+            <a href="@projectUrl/@(pg)" aria-current="@(path.EndsWith("/" + pg, StringComparison.Ordinal) ? "page" : null)">@Html.Raw(Icon(pg))@label</a>
         }
         <p class="nav-label">Observe</p>
         @foreach (var tab in new[] { "analytics", "logs", "errors", "usage" })

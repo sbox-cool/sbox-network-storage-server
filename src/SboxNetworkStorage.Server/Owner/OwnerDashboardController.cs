@@ -20,6 +20,15 @@ public sealed class OwnerDashboardController(INetworkStorageProjectService proje
 {
     private const long Owner = NetworkStorageServices.LocalOwnerUserId;
 
+    /// <summary>Permission scopes enforced by ApiKeyPermissionPolicy for secret keys.</summary>
+    public static readonly string[] KeyScopes = ["endpoints", "queries", "collections", "workflows", "game_values", "rate_limits", "settings"];
+
+    /// <summary>Access levels: r reads definitions, w writes them, x executes (tests, direct collection data API).</summary>
+    public static readonly IReadOnlyDictionary<string, string> KeyLevels = new Dictionary<string, string>(StringComparer.Ordinal)
+    {
+        ["none"] = "No access", ["r"] = "Read", ["rw"] = "Read and write", ["x"] = "Execute", ["rx"] = "Read and execute", ["rwx"] = "Full",
+    };
+
     [AllowAnonymous]
     [HttpGet("/")]
     public IActionResult Index() => Redirect("/dashboard");
@@ -55,7 +64,7 @@ public sealed class OwnerDashboardController(INetworkStorageProjectService proje
     public async Task<IActionResult> Settings(string projectId, [FromForm] string? tab, CancellationToken ct)
     {
         if (await LoadProjectAsync(projectId, ct) is null) return NotFound();
-        if (tab is not ("project" or "security" or "player-keys")) return BadRequest("Unknown settings tab.");
+        if (tab is not ("project" or "security" or "player-keys" or "revisions")) return BadRequest("Unknown settings tab.");
         var form = await Request.ReadFormAsync(ct);
         var values = form.ToDictionary(pair => pair.Key, pair => pair.Value.ToString(), StringComparer.Ordinal);
         if (tab == "project" && (values.GetValueOrDefault("name")?.Trim().Length is not (>= 1 and <= 64)
@@ -63,6 +72,10 @@ public sealed class OwnerDashboardController(INetworkStorageProjectService proje
             return await ProjectErrorAsync(projectId, "Name must contain 1–64 characters; description may contain at most 256.", ct);
         if (tab == "player-keys" && values.GetValueOrDefault("playerKeyMode") is not ("player" or "playerSave"))
             return BadRequest("Invalid player key mode.");
+        if (tab == "revisions" && (values.GetValueOrDefault("revisionEnforcementMode") is not ("force_upgrade" or "allow_continue")
+            || values.GetValueOrDefault("revisionPostGraceAction") is not ("block_writes" or "block_all")
+            || values.GetValueOrDefault("revisionNotifyMessage")?.Length > 500))
+            return await ProjectErrorAsync(projectId, "Choose an enforcement mode and post-grace action; the notice may contain at most 500 characters.", ct);
         await projects.UpdateProjectSettingsAsync(Owner, projectId, tab, values, ct);
         await AuditAsync(projectId, "project.settings", new { tab }, ct);
         return Redirect(ProjectUrl(projectId));
@@ -88,6 +101,25 @@ public sealed class OwnerDashboardController(INetworkStorageProjectService proje
     [HttpPost("/dashboard/projects/{projectId}/keys/revoke")]
     public Task<IActionResult> RevokeKey(string projectId, [FromForm] string? key, CancellationToken ct)
         => ChangeKeyAsync(projectId, key, true, ct);
+
+    [HttpPost("/dashboard/projects/{projectId}/keys/permissions")]
+    public async Task<IActionResult> KeyPermissions(string projectId, [FromForm] string? keyIdentifier, CancellationToken ct)
+    {
+        var model = await LoadProjectAsync(projectId, ct);
+        if (model is null) return NotFound();
+        if (keyIdentifier is null || !model.Keys.Any(key => key.KeyType == "secret" && key.KeyIdentifier == keyIdentifier)) return NotFound();
+        var form = await Request.ReadFormAsync(ct);
+        var permissions = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var scope in KeyScopes)
+        {
+            var level = form["scope_" + scope].ToString();
+            if (!KeyLevels.ContainsKey(level)) return await ProjectErrorAsync(projectId, $"Choose an access level for {scope}.", ct);
+            permissions[scope] = level;
+        }
+        await projects.UpdateProjectKeyPermissionsAsync(Owner, projectId, keyIdentifier, permissions, ct);
+        await AuditAsync(projectId, "key.permissions", new { keyIdentifier, permissions }, ct);
+        return Redirect(ProjectUrl(projectId) + "#api-keys");
+    }
 
     [HttpPost("/dashboard/projects/{projectId}/delete")]
     public async Task<IActionResult> DeleteProject(string projectId, [FromForm] string? confirmation, CancellationToken ct)

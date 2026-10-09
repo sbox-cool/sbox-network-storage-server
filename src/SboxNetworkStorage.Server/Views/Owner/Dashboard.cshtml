@@ -41,9 +41,9 @@ definition:
       collection: "players"
       key: "{{steamId}}"
       ops:
-        - op: "increment"
+        - op: "inc"
           path: "coins"
-          amount: "{{input.amount}}"</pre></div></div><p class="muted">In game code, read and call with the public key only. Secret keys stay in editor tooling and trusted servers.</p></section>
+          value: "{{input.amount}}"</pre></div></div><p class="muted">In game code, read and call with the public key only. Secret keys stay in editor tooling and trusted servers.</p></section>
 <section class="grid">
 <article class="card" id="create-project"><h2>Create project</h2><p>One isolated backend for your game.</p><form method="post" action="/dashboard/projects">@Html.AntiForgeryToken()<label>Name <input name="name" required maxlength="64" placeholder="My game" /></label><label>Description <textarea name="description" maxlength="256" rows="3" placeholder="What are you building?"></textarea></label><label class="check"><input type="checkbox" name="requireSboxAuth" value="true" checked /> Require Facepunch s&box authentication</label><button type="submit">Create project</button></form></article>
 <article class="card"><h2>Import a portable project</h2><p>Restore a self-hosted project archive on this instance. The archive retains its original project ID; import refuses an ID that already exists and never overwrites a live project.</p><form method="post" action="/dashboard/import" enctype="multipart/form-data">@Html.AntiForgeryToken()<label>Project archive (.tar.gz) <input type="file" name="archive" accept=".tar.gz,.tgz,application/gzip" required /></label><p class="muted">Maximum 64 MiB compressed / 256 MiB expanded. Archives contain player data and API-key hashes: store and transfer them securely. This is self-hosted portability, not a claim of managed-host export compatibility.</p><button type="submit" class="secondary">Import project</button></form></article>

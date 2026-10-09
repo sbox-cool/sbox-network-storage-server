@@ -1,0 +1,632 @@
+# Flow control, logic, data, server-only and integration endpoint examples.
+# Replayed after endpoints.yml by OwnerResourceExamplesTests.
+- id: endpoint.open-chest
+  kind: endpoint
+  category: Flow
+  title: Routed chest rewards
+  summary: A condition routes veterans to a later step with goto, a skip route jumps over the veteran bonus, and a run route calls a workflow with params.
+  requires: [collection.players, workflow.streak_bonus]
+  calls:
+    - input: '{"streak":3}'
+  source: |
+    sourceVersion: 1
+    kind: endpoint
+    id: open-chest
+    name: Open chest
+    description: Level 5+ players get the veteran bonus; a 3+ day streak adds a workflow bonus.
+    method: POST
+    enabled: true
+    input:
+      type: object
+      properties:
+        streak:
+          type: number
+    steps:
+      - id: player
+        type: read
+        collection: players
+        key: "{{steamId}}"
+      - id: is_veteran
+        type: condition
+        check:
+          field: player.level|1
+          op: ">="
+          value: 5
+        onTrue:
+          action: goto
+          step: veteran_bonus
+        onFalse: continue
+      - id: rookie_bonus
+        type: transform
+        value: 10
+      - id: after_rookie
+        type: condition
+        check:
+          field: rookie_bonus
+          op: exists
+        onTrue:
+          action: skip
+          count: 1
+        onFalse: continue
+      - id: veteran_bonus
+        type: transform
+        value: 50
+      - id: streak_check
+        type: condition
+        check:
+          field: input.streak|0
+          op: ">="
+          value: 3
+        params:
+          streak: "{{input.streak}}"
+        onTrue:
+          action: run
+          flow: streak_bonus
+          as: streak
+        onFalse: continue
+      - id: grant
+        type: write
+        collection: players
+        key: "{{steamId}}"
+        ops:
+          - op: inc
+            path: gold
+            valueExpression: "{{rookie_bonus|0}} + {{veteran_bonus|0}} + {{streak.bonus|0}}"
+            source: chest
+            reason: Opened a chest
+    response:
+      status: 200
+      body:
+        rookie_bonus: "{{rookie_bonus|0}}"
+        veteran_bonus: "{{veteran_bonus|0}}"
+        streak_bonus: "{{streak.bonus|0}}"
+
+- id: endpoint.double-xp
+  kind: endpoint
+  category: Flow
+  title: Double xp block
+  summary: A block runs only when its when condition holds and adds a step-level let alias; op-level when picks which inc applies; endpoint let names the read result.
+  requires: [collection.players]
+  calls:
+    - input: '{"xp":10,"double_xp":true}'
+    - input: '{"xp":10}'
+  source: |
+    sourceVersion: 1
+    kind: endpoint
+    id: double-xp
+    name: Double xp
+    description: Doubles the xp gain during a double xp event.
+    method: POST
+    enabled: true
+    let:
+      me: player
+    input:
+      type: object
+      properties:
+        xp:
+          type: number
+        double_xp:
+          type: boolean
+      required:
+        - xp
+    steps:
+      - id: player
+        type: read
+        collection: players
+        key: "{{steamId}}"
+      - id: double_event
+        type: block
+        when:
+          field: input.double_xp
+          op: "=="
+          value: true
+        let:
+          gain: input.xp
+        steps:
+          - id: doubled
+            type: transform
+            expression: "{{gain}} * 2"
+      - id: grant
+        type: write
+        collection: players
+        key: "{{steamId}}"
+        ops:
+          - op: inc
+            path: xp
+            value: "{{doubled}}"
+            when:
+              field: doubled
+              op: exists
+          - op: inc
+            path: xp
+            value: "{{input.xp}}"
+            when:
+              field: doubled
+              op: not_exists
+    response:
+      status: 200
+      body:
+        previous_xp: "{{me.xp|0}}"
+        gained: "{{doubled|{{input.xp}}}}"
+
+- id: endpoint.rename-player
+  kind: endpoint
+  category: Logic
+  title: Assert and condition errors
+  summary: An assert fails with its own status and errorCode (422 NAME_REQUIRED); a condition rejects with a condition error (409 NAME_UNCHANGED).
+  requires: [collection.players]
+  calls:
+    - input: '{"name":"Ada"}'
+    - input: '{"name":"Ada"}'
+      status: 409
+    - input: '{}'
+      status: 422
+  source: |
+    sourceVersion: 1
+    kind: endpoint
+    id: rename-player
+    name: Rename player
+    description: Sets a display name. Shows the two error shapes.
+    method: POST
+    enabled: true
+    input:
+      type: object
+      properties:
+        name:
+          type: string
+    steps:
+      - id: player
+        type: read
+        collection: players
+        key: "{{steamId}}"
+      - id: name_given
+        type: assert
+        check:
+          field: input.name
+          op: exists
+        status: 422
+        errorCode: NAME_REQUIRED
+        message: Send a name.
+      - id: name_changed
+        type: condition
+        check:
+          field: input.name
+          op: "!="
+          value: "{{player.name}}"
+        onFail:
+          status: 409
+          error: NAME_UNCHANGED
+          message: That is already your name.
+      - id: save
+        type: write
+        collection: players
+        key: "{{steamId}}"
+        ops:
+          - op: set
+            path: name
+            value: "{{input.name}}"
+    response:
+      status: 200
+      body:
+        name: "{{input.name}}"
+
+- id: endpoint.save-slot
+  kind: endpoint
+  category: Data
+  title: Save slots (playerSave keys)
+  summary: Stores one record per save slot under the key steamId_saveId in a collection that allows five records per player.
+  requires: [collection.player_saves]
+  calls:
+    - input: '{"saveId":"slot1","label":"Forest run","level":3}'
+    - input: '{"label":"No slot"}'
+      status: 400
+  source: |
+    sourceVersion: 1
+    kind: endpoint
+    id: save-slot
+    name: Save slot
+    description: Writes a save slot. Pair with the playerSave key mode on the project page.
+    method: POST
+    enabled: true
+    input:
+      type: object
+      properties:
+        saveId:
+          type: string
+        label:
+          type: string
+        level:
+          type: number
+      required:
+        - saveId
+    steps:
+      - id: has_slot
+        type: condition
+        check:
+          field: input.saveId
+          op: exists
+        onFail:
+          status: 400
+          error: SAVE_ID_REQUIRED
+          message: Send saveId.
+      - id: slot
+        type: read
+        collection: player_saves
+        key: "{{steamId}}_{{input.saveId}}"
+      - id: save
+        type: write
+        collection: player_saves
+        key: "{{steamId}}_{{input.saveId}}"
+        ops:
+          - op: set
+            path: label
+            value: "{{input.label}}"
+          - op: set
+            path: level
+            value: "{{input.level|1}}"
+          - op: set_if_null
+            path: created_at
+            value: "{{now}}"
+          - op: set
+            path: updated_at
+            value: "{{now}}"
+    response:
+      status: 200
+      body:
+        slot: "{{input.saveId}}"
+        created_at: "{{slot.created_at|{{now}}}}"
+
+- id: endpoint.server-grant
+  kind: endpoint
+  category: Server
+  title: Server-only grant
+  summary: requiresSecretKey refuses public keys before any step runs, and a _hasSecretKey condition keeps the guard inside the flow too.
+  requires: [collection.players]
+  calls:
+    - input: '{"amount":5,"reason":"Match win"}'
+      secret: true
+    - input: '{"amount":5}'
+      status: 401
+  source: |
+    sourceVersion: 1
+    kind: endpoint
+    id: server-grant
+    name: Server grant
+    description: Called by a dedicated server with the secret key to grant gold to a player.
+    method: POST
+    enabled: true
+    requiresSecretKey: true
+    input:
+      type: object
+      properties:
+        amount:
+          type: number
+        reason:
+          type: string
+      required:
+        - amount
+    steps:
+      - id: server_only
+        type: condition
+        check:
+          field: _hasSecretKey
+          op: "=="
+          value: true
+        onFail:
+          status: 403
+          error: SERVER_ONLY
+          message: Only a dedicated server can grant gold.
+      - id: valid_amount
+        type: condition
+        check:
+          field: input.amount
+          op: ">"
+          value: 0
+        onFail:
+          status: 400
+          error: INVALID_AMOUNT
+          message: Amount must be positive.
+      - id: grant
+        type: write
+        collection: players
+        key: "{{steamId}}"
+        ops:
+          - op: inc
+            path: gold
+            value: "{{input.amount}}"
+            source: server
+            reason: "{{input.reason|Server grant}}"
+    response:
+      status: 200
+      body:
+        granted: "{{input.amount}}"
+
+- id: endpoint.notify-kill
+  kind: endpoint
+  category: Integrations
+  title: Discord kill feed
+  summary: Awards xp, counts kills and posts a Discord embed with fields. Replace the placeholder webhook URL with your channel's URL.
+  requires: [collection.players]
+  calls:
+    - input: '{"target_name":"Orc","xp_reward":15}'
+  source: |
+    sourceVersion: 1
+    kind: endpoint
+    id: notify-kill
+    name: Notify kill
+    description: Records a kill and announces it in Discord.
+    method: POST
+    enabled: true
+    input:
+      type: object
+      properties:
+        target_name:
+          type: string
+        xp_reward:
+          type: number
+      required:
+        - target_name
+        - xp_reward
+    steps:
+      - id: player
+        type: read
+        collection: players
+        key: "{{steamId}}"
+      - id: reward
+        type: write
+        collection: players
+        key: "{{steamId}}"
+        ops:
+          - op: inc
+            path: xp
+            value: "{{input.xp_reward}}"
+            source: combat
+            reason: "Killed {{input.target_name}}"
+          - op: inc
+            path: kills
+            value: 1
+            source: combat
+            reason: "Killed {{input.target_name}}"
+      - id: total_kills
+        type: transform
+        expression: "{{player.kills|0}} + 1"
+      - id: notify
+        type: webhook
+        url: "https://discord.com/api/webhooks/YOUR_ID/YOUR_TOKEN"
+        title: Kill feed
+        description: "{{steamId}} eliminated {{input.target_name}}"
+        color: "ef4444"
+        fields:
+          - name: XP earned
+            value: "{{input.xp_reward}}"
+            inline: true
+          - name: Total kills
+            value: "{{total_kills}}"
+            inline: true
+    response:
+      status: 200
+      body:
+        success: true
+        total_kills: "{{total_kills}}"
+        delivered: "{{notify.ok}}"
+
+- id: endpoint.link-telegram
+  kind: endpoint
+  category: Integrations
+  title: Link a Telegram account
+  summary: The game links the player to a Telegram user id by writing a mapping record in a global collection and tagging the player record.
+  requires: [collection.players, collection.telegram_links]
+  calls:
+    - input: '{"telegram_user_id":"4242"}'
+  source: |
+    sourceVersion: 1
+    kind: endpoint
+    id: link-telegram
+    name: Link Telegram
+    description: Stores tg_<telegram id> -> steam id so a bot can find the player.
+    method: POST
+    enabled: true
+    input:
+      type: object
+      properties:
+        telegram_user_id:
+          type: string
+      required:
+        - telegram_user_id
+    steps:
+      - id: has_id
+        type: condition
+        check:
+          field: input.telegram_user_id
+          op: exists
+        onFail:
+          status: 400
+          error: TELEGRAM_ID_REQUIRED
+          message: Send telegram_user_id.
+      - id: link
+        type: write
+        collection: telegram_links
+        key: "tg_{{input.telegram_user_id}}"
+        ops:
+          - op: set
+            path: steam_id
+            value: "{{steamId}}"
+          - op: set
+            path: telegram_id
+            value: "{{input.telegram_user_id}}"
+          - op: set
+            path: linked_at
+            value: "{{now}}"
+      - id: tag
+        type: write
+        collection: players
+        key: "{{steamId}}"
+        ops:
+          - op: set
+            path: telegram_id
+            value: "{{input.telegram_user_id}}"
+    response:
+      status: 200
+      body:
+        linked: true
+
+- id: endpoint.telegram-stats
+  kind: endpoint
+  category: Integrations
+  title: Telegram bot stats
+  summary: A bot server calls with the secret key; the mapping record finds the link and a lookup scans players for the tagged record.
+  requires: [collection.players, collection.telegram_links]
+  calls:
+    - input: '{"telegram_user_id":"4242"}'
+      secret: true
+    - input: '{"telegram_user_id":"9999"}'
+      secret: true
+      status: 404
+    - input: '{"telegram_user_id":"4242"}'
+      status: 401
+  source: |
+    sourceVersion: 1
+    kind: endpoint
+    id: telegram-stats
+    name: Telegram stats
+    description: Returns gold, xp and level for a linked Telegram user. Server-only.
+    method: POST
+    enabled: true
+    requiresSecretKey: true
+    input:
+      type: object
+      properties:
+        telegram_user_id:
+          type: string
+      required:
+        - telegram_user_id
+    steps:
+      - id: link
+        type: read
+        collection: telegram_links
+        key: "tg_{{input.telegram_user_id}}"
+      - id: linked
+        type: condition
+        check:
+          field: link.steam_id
+          op: exists
+        onFail:
+          status: 404
+          error: NOT_LINKED
+          message: No game account is linked to this Telegram user.
+      - id: player
+        type: lookup
+        collection: players
+        where:
+          field: telegram_id
+          op: "=="
+          value: "{{input.telegram_user_id}}"
+        required: true
+        onMissing:
+          status: 404
+          errorCode: PLAYER_NOT_FOUND
+          message: The linked player has no profile.
+    response:
+      status: 200
+      body:
+        steam_id: "{{link.steam_id}}"
+        gold: "{{player.gold|0}}"
+        xp: "{{player.xp|0}}"
+        level: "{{player.level|1}}"
+
+- id: endpoint.recipe-book
+  kind: endpoint
+  category: Data
+  title: Fetch several table rows
+  summary: lookup_many with asMap returns the requested recipes keyed by recipe_id in one step.
+  requires: [game-values.recipes]
+  calls:
+    - input: '{"recipe_ids":["copper_dagger","iron_sword"]}'
+  source: |
+    sourceVersion: 1
+    kind: endpoint
+    id: recipe-book
+    name: Recipe book
+    description: Returns the recipes for a list of ids.
+    method: POST
+    enabled: true
+    input:
+      type: object
+      properties:
+        recipe_ids:
+          type: array
+      required:
+        - recipe_ids
+    steps:
+      - id: has_ids
+        type: condition
+        check:
+          field: input.recipe_ids
+          op: exists
+        onFail:
+          status: 400
+          error: RECIPE_IDS_REQUIRED
+          message: Send recipe_ids as a list.
+      - id: recipes
+        type: lookup_many
+        source: values
+        table: recipes
+        keyField: recipe_id
+        keys: "{{input.recipe_ids}}"
+        asMap: true
+    response:
+      status: 200
+      body:
+        recipes: "{{recipes}}"
+
+- id: endpoint.player-profile
+  kind: endpoint
+  category: Data
+  title: Read my profile (GET)
+  summary: A GET endpoint shapes the stored record with object, array, sort and merge steps before returning it.
+  requires: [collection.players]
+  calls:
+    - method: GET
+      input: '{}'
+  source: |
+    sourceVersion: 1
+    kind: endpoint
+    id: player-profile
+    name: Player profile
+    description: Returns a summary of the caller's record. GET input comes from the query string.
+    method: GET
+    enabled: true
+    steps:
+      - id: player
+        type: read
+        collection: players
+        key: "{{steamId}}"
+        required: true
+        onMissing:
+          status: 404
+          errorCode: PROFILE_NOT_FOUND
+          message: Play a round first.
+      - id: summary
+        type: object
+        fields:
+          gold: "{{player.gold|0}}"
+          xp: "{{player.xp|0}}"
+          level: "{{player.level|1}}"
+      - id: badges
+        type: array
+        items:
+          - "{{player.tier|bronze}}"
+          - player
+      - id: sorted_badges
+        type: sort
+        source: "{{badges}}"
+        direction: asc
+      - id: profile
+        type: merge
+        sources:
+          - "{{summary}}"
+          - badges: "{{sorted_badges}}"
+            name: "{{player.name|Unnamed}}"
+    response:
+      status: 200
+      body: "{{profile}}"

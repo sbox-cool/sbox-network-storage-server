@@ -29,13 +29,14 @@ internal static class ManagementMutationConstants
     public const string ValidationFailedCode = "VALIDATION_FAILED";
 }
 
-public sealed class ManagementMutationCandidateHandler : INetworkStorageCandidateHandler
+public sealed partial class ManagementMutationCandidateHandler : INetworkStorageCandidateHandler
 {
     private readonly IStorageApiKeyResolver _apiKeyResolver;
     private readonly IBunnyWorkspaceClient _workspaceClient;
     private readonly INetworkStorageStore _store;
     private readonly TimeProvider _time;
     private readonly NativeEndpointShadowExecutor? _endpointExecutor;
+    private readonly IQueryValuesContextProvider? _valuesProvider;
 
     public ManagementMutationCandidateHandler(
         IStorageApiKeyResolver apiKeyResolver,
@@ -51,20 +52,26 @@ public sealed class ManagementMutationCandidateHandler : INetworkStorageCandidat
         IBunnyWorkspaceClient workspaceClient,
         INetworkStorageStore store,
         TimeProvider time,
-        NativeEndpointShadowExecutor? endpointExecutor)
+        NativeEndpointShadowExecutor? endpointExecutor,
+        IQueryValuesContextProvider? valuesProvider = null)
     {
         _apiKeyResolver = apiKeyResolver;
         _workspaceClient = workspaceClient;
         _store = store;
         _time = time;
         _endpointExecutor = endpointExecutor;
+        _valuesProvider = valuesProvider;
     }
 
     public NetworkStorageRouteFamily Family => NetworkStorageRouteFamily.Management;
 
-    /// <summary>Owner-panel adapter sharing the editor compiler and native management writes; never creates a credential.</summary>
+    /// <summary>
+    /// Owner-panel adapter sharing the editor compiler and native management writes; never creates a credential.
+    /// <paramref name="versionSource"/> labels the endpoint/workflow version snapshot this save records.
+    /// </summary>
     public async Task<NetworkStorageCandidateResult> SaveOwnerResourceAsync(
-        long ownerUserId, string projectId, string kind, JsonElement resource, CancellationToken ct)
+        long ownerUserId, string projectId, string kind, JsonElement resource, CancellationToken ct,
+        string versionSource = "owner-dashboard")
     {
         var projects = await _workspaceClient.GetUserProjectsAsync(ownerUserId, ct);
         if (!projects.Any(project => project.Id == projectId))
@@ -101,7 +108,7 @@ public sealed class ManagementMutationCandidateHandler : INetworkStorageCandidat
         }
         request = request with { Body = JsonSerializer.Serialize(new Dictionary<string, object> { [kind + "s"] = new[] { compiled } }) };
         var preflight = await PreflightSyncAsync(request, projectId, "owner");
-        return preflight.StatusCode >= 400 ? preflight : await PutSyncAsync(request, projectId);
+        return preflight.StatusCode >= 400 ? preflight : await PutSyncAsync(request, projectId, ownerUserId, versionSource);
     }
 
     public bool CanHandle(NetworkStorageRouteClassification route) =>
@@ -201,7 +208,7 @@ public sealed class ManagementMutationCandidateHandler : INetworkStorageCandidat
                     $"{ManagementMutationConstants.UserStoragePrefix}/{ownerUserId}/{projectId}/endpoints.json",
                     action: "write_resource", route: $"{method} /v3/manage/{projectId}/endpoints",
                     resourceKind: "endpoints")
-                : await PutEndpointsAsync(request, projectId),
+                : await PutEndpointsAsync(request, projectId, ownerUserId),
 
             "DELETE:endpoints" => request.SuppressSideEffects
                 ? DryRunResult(ownerUserId, projectId, auth.KeyType,
@@ -229,7 +236,7 @@ public sealed class ManagementMutationCandidateHandler : INetworkStorageCandidat
                     $"{ManagementMutationConstants.UserStoragePrefix}/{ownerUserId}/{projectId}/workflows.json",
                     action: "write_resource", route: $"{method} /v3/manage/{projectId}/workflows",
                     resourceKind: "workflows")
-                : await PutWorkflowsAsync(request, projectId),
+                : await PutWorkflowsAsync(request, projectId, ownerUserId),
 
             "DELETE:workflows" => request.SuppressSideEffects
                 ? DryRunResult(ownerUserId, projectId, auth.KeyType,
@@ -271,25 +278,33 @@ public sealed class ManagementMutationCandidateHandler : INetworkStorageCandidat
                 action: "update_project_settings", route: $"PUT /v3/manage/{projectId}/settings",
                 resourceKind: "project-settings"),
 
-            "PATCH:endpoints" => DryRunResult(ownerUserId, projectId, auth.KeyType,
-                $"{ManagementMutationConstants.UserStoragePrefix}/{ownerUserId}/{projectId}/endpoints.json",
-                action: "upsert_resource", route: $"PATCH /v3/manage/{projectId}/endpoints",
-                resourceKind: "endpoint"),
+            "PATCH:endpoints" => request.SuppressSideEffects
+                ? DryRunResult(ownerUserId, projectId, auth.KeyType,
+                    $"{ManagementMutationConstants.UserStoragePrefix}/{ownerUserId}/{projectId}/endpoints.json",
+                    action: "upsert_resource", route: $"PATCH /v3/manage/{projectId}/endpoints",
+                    resourceKind: "endpoint")
+                : await PatchResourceAsync(request, projectId, ownerUserId, "endpoint"),
 
-            "PATCH:collections" => DryRunResult(ownerUserId, projectId, auth.KeyType,
-                $"{ManagementMutationConstants.UserStoragePrefix}/{ownerUserId}/{projectId}/collections.json",
-                action: "upsert_resource", route: $"PATCH /v3/manage/{projectId}/collections",
-                resourceKind: "collection"),
+            "PATCH:collections" => request.SuppressSideEffects
+                ? DryRunResult(ownerUserId, projectId, auth.KeyType,
+                    $"{ManagementMutationConstants.UserStoragePrefix}/{ownerUserId}/{projectId}/collections.json",
+                    action: "upsert_resource", route: $"PATCH /v3/manage/{projectId}/collections",
+                    resourceKind: "collection")
+                : await PatchResourceAsync(request, projectId, ownerUserId, "collection"),
 
-            "PATCH:workflows" => DryRunResult(ownerUserId, projectId, auth.KeyType,
-                $"{ManagementMutationConstants.UserStoragePrefix}/{ownerUserId}/{projectId}/workflows.json",
-                action: "upsert_resource", route: $"PATCH /v3/manage/{projectId}/workflows",
-                resourceKind: "workflow"),
+            "PATCH:workflows" => request.SuppressSideEffects
+                ? DryRunResult(ownerUserId, projectId, auth.KeyType,
+                    $"{ManagementMutationConstants.UserStoragePrefix}/{ownerUserId}/{projectId}/workflows.json",
+                    action: "upsert_resource", route: $"PATCH /v3/manage/{projectId}/workflows",
+                    resourceKind: "workflow")
+                : await PatchResourceAsync(request, projectId, ownerUserId, "workflow"),
 
-            "PUT:tests" => DryRunResult(ownerUserId, projectId, auth.KeyType,
-                $"{ManagementMutationConstants.UserStoragePrefix}/{ownerUserId}/{projectId}/tests.json",
-                action: "write_resource", route: $"PUT /v3/manage/{projectId}/tests",
-                resourceKind: "tests"),
+            "PUT:tests" => request.SuppressSideEffects
+                ? DryRunResult(ownerUserId, projectId, auth.KeyType,
+                    $"{ManagementMutationConstants.UserStoragePrefix}/{ownerUserId}/{projectId}/tests.json",
+                    action: "write_resource", route: $"PUT /v3/manage/{projectId}/tests",
+                    resourceKind: "tests")
+                : await PutTestsAsync(request, projectId, ownerUserId),
 
             "DELETE:keys" => DryRunResult(ownerUserId, projectId, auth.KeyType,
                 $"{ManagementMutationConstants.UserStoragePrefix}/{ownerUserId}/{projectId}/key-index.json",
@@ -307,7 +322,7 @@ public sealed class ManagementMutationCandidateHandler : INetworkStorageCandidat
                     },
                     action: "sync_project", route: $"PUT /v3/manage/{projectId}/sync",
                     resourceKind: "project-sync")
-                : await PutSyncAsync(request, projectId),
+                : await PutSyncAsync(request, projectId, ownerUserId, "sync"),
 
             "POST:source-upgrade" => DryRunResult(ownerUserId, projectId, auth.KeyType,
                 Array.Empty<string>(),
@@ -321,15 +336,19 @@ public sealed class ManagementMutationCandidateHandler : INetworkStorageCandidat
 
             "POST:auto-test" => await AutoTestAsync(request, projectId, ownerUserId, auth.KeyType),
 
-            "POST:run-tests" => DryRunResult(ownerUserId, projectId, auth.KeyType,
-                Array.Empty<string>(),
-                action: "run_tests", route: $"POST /v3/manage/{projectId}/run-tests",
-                resourceKind: "run-tests"),
+            "POST:run-tests" => request.SuppressSideEffects
+                ? DryRunResult(ownerUserId, projectId, auth.KeyType,
+                    Array.Empty<string>(),
+                    action: "run_tests", route: $"POST /v3/manage/{projectId}/run-tests",
+                    resourceKind: "run-tests")
+                : await RunSavedTestsAsync(projectId, ownerUserId, project.PlayerKeyMode, auth.KeyType, request.CancellationToken),
 
-            "POST:test-endpoint" => DryRunResult(ownerUserId, projectId, auth.KeyType,
-                Array.Empty<string>(),
-                action: "test_endpoint", route: $"POST /v3/manage/{projectId}/test-endpoint",
-                resourceKind: "test-endpoint"),
+            "POST:test-endpoint" => request.SuppressSideEffects
+                ? DryRunResult(ownerUserId, projectId, auth.KeyType,
+                    Array.Empty<string>(),
+                    action: "test_endpoint", route: $"POST /v3/manage/{projectId}/test-endpoint",
+                    resourceKind: "test-endpoint")
+                : await TestEndpointAsync(request, projectId, ownerUserId, project.PlayerKeyMode, auth.KeyType),
 
             "POST:suggest-tests" => DryRunResult(ownerUserId, projectId, auth.KeyType,
                 Array.Empty<string>(),
@@ -459,7 +478,7 @@ public sealed class ManagementMutationCandidateHandler : INetworkStorageCandidat
             request.CancellationToken);
     }
 
-    private async Task<NetworkStorageCandidateResult> PutEndpointsAsync(NetworkStorageCandidateRequest request, string projectId)
+    private async Task<NetworkStorageCandidateResult> PutEndpointsAsync(NetworkStorageCandidateRequest request, string projectId, long ownerUserId)
     {
         var (items, validationError) = ParseResourceArray(request.Body, "endpoint", requiredField: "slug");
         if (validationError is not null)
@@ -471,19 +490,23 @@ public sealed class ManagementMutationCandidateHandler : INetworkStorageCandidat
             projectId,
             items,
             "endpoint",
-            (id, slug, _, def, version, ct) => _store.UpsertEndpointAsync(
-                projectId, id,
-                slug,
-                GetOptionalString(def, "method") ?? "GET",
-                GetOptionalBool(def, "enabled") ?? true,
-                def,
-                GetOptionalString(def, "versionHash"),
-                version,
-                ct),
+            async (id, slug, _, def, version, ct) =>
+            {
+                await _store.UpsertEndpointAsync(
+                    projectId, id,
+                    slug,
+                    GetOptionalString(def, "method") ?? "GET",
+                    GetOptionalBool(def, "enabled") ?? true,
+                    def,
+                    GetOptionalString(def, "versionHash"),
+                    version,
+                    ct);
+                await RecordVersionAsync(ownerUserId, projectId, "endpoint", id, def, "put", version, ct);
+            },
             request.CancellationToken);
     }
 
-    private async Task<NetworkStorageCandidateResult> PutWorkflowsAsync(NetworkStorageCandidateRequest request, string projectId)
+    private async Task<NetworkStorageCandidateResult> PutWorkflowsAsync(NetworkStorageCandidateRequest request, string projectId, long ownerUserId)
     {
         var (items, validationError) = ParseResourceArray(request.Body, "workflow", requiredField: "name");
         if (validationError is not null)
@@ -495,7 +518,11 @@ public sealed class ManagementMutationCandidateHandler : INetworkStorageCandidat
             projectId,
             items,
             "workflow",
-            (id, name, _, def, version, ct) => _store.UpsertWorkflowAsync(projectId, id, name, def, GetOptionalString(def, "versionHash"), version, ct),
+            async (id, name, _, def, version, ct) =>
+            {
+                await _store.UpsertWorkflowAsync(projectId, id, name, def, GetOptionalString(def, "versionHash"), version, ct);
+                await RecordVersionAsync(ownerUserId, projectId, "workflow", id, def, "put", version, ct);
+            },
             request.CancellationToken);
     }
 
@@ -604,7 +631,8 @@ public sealed class ManagementMutationCandidateHandler : INetworkStorageCandidat
     /// routes. Mirrors the Bun <c>PUT /sync</c> response shape:
     /// <c>{ ok, endpoints?, collections?, workflows? }</c> with per-section results.
     /// </summary>
-    private async Task<NetworkStorageCandidateResult> PutSyncAsync(NetworkStorageCandidateRequest request, string projectId)
+    private async Task<NetworkStorageCandidateResult> PutSyncAsync(NetworkStorageCandidateRequest request, string projectId,
+        long ownerUserId, string versionSource)
     {
         if (!TryParseBody(request.Body, out var doc, out var parseError))
         {
@@ -621,38 +649,13 @@ public sealed class ManagementMutationCandidateHandler : INetworkStorageCandidat
         var response = new Dictionary<string, object?> { ["ok"] = true, ["source"] = "candidate" };
         var overallOk = true;
 
-        if (TryGetSection(root, "endpoints", out var endpoints))
+        foreach (var (sectionName, resourceKind) in new[] { ("endpoints", "endpoint"), ("collections", "collection"), ("workflows", "workflow") })
         {
-            var section = await SyncSectionAsync(projectId, "endpoint", endpoints, version,
-                (id, name, def, ct) => _store.UpsertEndpointAsync(
-                    projectId, id, name,
-                    GetOptionalString(def, "method") ?? "GET",
-                    GetOptionalBool(def, "enabled") ?? true,
-                    def, GetOptionalString(def, "versionHash"), version, ct),
+            if (!TryGetSection(root, sectionName, out var sectionValue)) continue;
+            var section = await SyncSectionAsync(projectId, resourceKind, sectionValue, version,
+                (id, name, def, ct) => UpsertDefinitionAsync(ownerUserId, projectId, resourceKind, id, name, def, version, versionSource, ct),
                 request.CancellationToken);
-            response["endpoints"] = section.Body;
-            overallOk &= section.Ok;
-        }
-
-        if (TryGetSection(root, "collections", out var collections))
-        {
-            var section = await SyncSectionAsync(projectId, "collection", collections, version,
-                (id, name, def, ct) => _store.UpsertCollectionAsync(
-                    projectId, id, name,
-                    GetOptionalString(def, "visibility") ?? "private",
-                    def, version, ct),
-                request.CancellationToken);
-            response["collections"] = section.Body;
-            overallOk &= section.Ok;
-        }
-
-        if (TryGetSection(root, "workflows", out var workflows))
-        {
-            var section = await SyncSectionAsync(projectId, "workflow", workflows, version,
-                (id, name, def, ct) => _store.UpsertWorkflowAsync(
-                    projectId, id, name, def, GetOptionalString(def, "versionHash"), version, ct),
-                request.CancellationToken);
-            response["workflows"] = section.Body;
+            response[sectionName] = section.Body;
             overallOk &= section.Ok;
         }
 

@@ -1,0 +1,84 @@
+# Starting YAML for a new resource of each kind. Each saves without
+# diagnostics (the query reads the collection skeleton) and runs as-is.
+collection: |
+  sourceVersion: 1
+  kind: collection
+  id: player_stats
+  name: player_stats
+  collectionType: per-steamid
+  accessMode: public
+  maxRecords: 1
+  allowRecordDelete: false
+  schema:
+    type: object
+    properties:
+      score:
+        type: number
+        default: 0
+        min: 0
+      name:
+        type: string
+endpoint: |
+  sourceVersion: 1
+  kind: endpoint
+  id: health-check
+  name: Health check
+  method: GET
+  enabled: true
+  steps:
+    - id: status
+      type: object
+      fields:
+        ok: true
+        time: "{{now}}"
+  response:
+    status: 200
+    body: "{{status}}"
+workflow: |
+  sourceVersion: 1
+  kind: workflow
+  id: double_value
+  name: Double value
+  params:
+    value:
+      type: number
+  steps:
+    - id: result
+      type: transform
+      expression: "{{value}} * 2"
+  returns:
+    doubled: "{{result}}"
+query: |
+  sourceVersion: 1
+  kind: query
+  id: leaderboard
+  name: Leaderboard
+  type: leaderboard
+  sources:
+    - collectionId: player_stats
+  config:
+    field: score
+    order: desc
+    limit: 20
+  cache:
+    ttlSeconds: 60
+game-values: |
+  items:
+    - id: settings
+      type: group
+      name: Settings
+      entries:
+        starting_gold: 100
+    - id: ranks
+      type: table
+      name: Ranks
+      columns:
+        - key: rank_id
+          type: string
+        - key: min_score
+          type: number
+      rows:
+        - rank_id: rookie
+          min_score: 0
+        - rank_id: pro
+          min_score: 1000

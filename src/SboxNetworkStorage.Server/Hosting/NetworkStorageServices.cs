@@ -87,6 +87,9 @@ public static class NetworkStorageServices
         services.AddScoped<INetworkStorageDataPlane>(sp => new ScyllaNetworkStorageDataPlane(sp.GetRequiredService<INetworkStorageStore>()));
         services.AddScoped<IProjectBackupService, ScyllaProjectBackupService>();
         services.AddScoped<IStorageApiKeyResolver, ScyllaStorageApiKeyResolver>();
+        services.AddScoped<IApiKeyCacheInvalidator>(sp => sp.GetService<IStorageApiKeyResolver>() is IApiKeyCacheInvalidator invalidator
+            ? invalidator
+            : NullApiKeyCacheInvalidator.Instance);
         services.AddScoped<IStorageKeyCdnWriter, StorageKeyCdnWriter>();
         services.AddScoped<NetworkStorageManagementService>();
         services.AddScoped<IQueryManagementService>(sp => sp.GetRequiredService<NetworkStorageManagementService>());

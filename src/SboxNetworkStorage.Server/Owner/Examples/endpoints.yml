@@ -1,0 +1,937 @@
+# Endpoint examples (economy, combat, progression). Order is the replay order
+# used by OwnerResourceExamplesTests: each call runs against the state left by
+# the calls before it. Every source must save without diagnostics.
+- id: endpoint.pickup-money
+  kind: endpoint
+  category: Economy
+  title: Pick up money
+  summary: The server decides how much gold a pickup is worth from a game values group, then adds it with a ledger reason.
+  requires: [collection.players, game-values.economy]
+  calls:
+    - input: '{"pickup_type":"chest"}'
+  source: |
+    sourceVersion: 1
+    kind: endpoint
+    id: pickup-money
+    name: Pick up money
+    description: Adds gold for a pickup. The amount comes from game values, never from the client.
+    method: POST
+    enabled: true
+    input:
+      type: object
+      properties:
+        pickup_type:
+          type: string
+      required:
+        - pickup_type
+    steps:
+      - id: amount
+        type: transform
+        value: "{{values.pickups.{{input.pickup_type}}_gold}}"
+      - id: known_pickup
+        type: condition
+        check:
+          field: amount
+          op: exists
+        onFail:
+          status: 404
+          error: UNKNOWN_PICKUP
+          message: "Unknown pickup type {{input.pickup_type}}."
+      - id: give
+        type: write
+        collection: players
+        key: "{{steamId}}"
+        ops:
+          - op: inc
+            path: gold
+            value: "{{amount}}"
+            source: pickup
+            reason: "Picked up {{input.pickup_type}}"
+    response:
+      status: 200
+      body:
+        success: true
+        gold_gained: "{{amount}}"
+
+- id: endpoint.claim-daily
+  kind: endpoint
+  category: Progression
+  title: Daily reward
+  summary: A date check stops a second claim on the same UTC day; the write adds gold and stores the claim date.
+  requires: [collection.players, game-values.economy]
+  calls:
+    - input: '{}'
+    - input: '{}'
+      status: 409
+  source: |
+    sourceVersion: 1
+    kind: endpoint
+    id: claim-daily
+    name: Claim daily reward
+    description: Once per UTC day, adds the daily gold from game values.
+    method: POST
+    enabled: true
+    steps:
+      - id: player
+        type: read
+        collection: players
+        key: "{{steamId}}"
+      - id: not_claimed
+        type: condition
+        check:
+          field: player.last_daily
+          op: "!="
+          value: "{{_dateUTC}}"
+        onFail:
+          status: 409
+          error: ALREADY_CLAIMED
+          message: "Daily reward already claimed. Come back tomorrow."
+      - id: claim
+        type: write
+        collection: players
+        key: "{{steamId}}"
+        ops:
+          - op: inc
+            path: gold
+            value: "{{values.rewards.daily_gold}}"
+            source: daily_reward
+            reason: Daily login
+          - op: set
+            path: last_daily
+            value: "{{_dateUTC}}"
+    response:
+      status: 200
+      body:
+        success: true
+        gold_earned: "{{values.rewards.daily_gold}}"
+
+- id: endpoint.loot-enemy
+  kind: endpoint
+  category: Combat
+  title: Loot an enemy
+  summary: A required lookup on a game values table rejects unknown enemies with onMissing, then two inc ops award gold and xp.
+  requires: [collection.players, game-values.enemies]
+  calls:
+    - input: '{"enemy_type":"goblin"}'
+    - input: '{"enemy_type":"unicorn"}'
+      status: 404
+  source: |
+    sourceVersion: 1
+    kind: endpoint
+    id: loot-enemy
+    name: Loot enemy
+    description: Awards the gold and xp listed for the enemy in the enemies table.
+    method: POST
+    enabled: true
+    input:
+      type: object
+      properties:
+        enemy_type:
+          type: string
+      required:
+        - enemy_type
+    steps:
+      - id: enemy
+        type: lookup
+        source: values
+        table: enemies
+        where:
+          field: enemy_type
+          op: "=="
+          value: "{{input.enemy_type}}"
+        required: true
+        onMissing:
+          status: 404
+          errorCode: UNKNOWN_ENEMY
+          message: "Unknown enemy {{input.enemy_type}}."
+      - id: loot
+        type: write
+        collection: players
+        key: "{{steamId}}"
+        ops:
+          - op: inc
+            path: gold
+            value: "{{enemy.gold_drop}}"
+            source: loot
+            reason: "Looted {{enemy.name}}"
+          - op: inc
+            path: xp
+            value: "{{enemy.xp_drop}}"
+            source: combat
+            reason: "Defeated {{enemy.name}}"
+    response:
+      status: 200
+      body:
+        success: true
+        gold: "{{enemy.gold_drop}}"
+        xp: "{{enemy.xp_drop}}"
+
+- id: endpoint.mine-node
+  kind: endpoint
+  category: Combat
+  title: Mine a resource node
+  summary: Checks the player's level against the node, then increments a dynamic path such as materials.copper.
+  requires: [collection.players, game-values.mining_nodes]
+  calls:
+    - input: '{"node_id":"copper_rock"}'
+  source: |
+    sourceVersion: 1
+    kind: endpoint
+    id: mine-node
+    name: Mine node
+    description: Awards ore into materials.<ore type> and mining xp.
+    method: POST
+    enabled: true
+    input:
+      type: object
+      properties:
+        node_id:
+          type: string
+      required:
+        - node_id
+    steps:
+      - id: player
+        type: read
+        collection: players
+        key: "{{steamId}}"
+      - id: node
+        type: lookup
+        source: values
+        table: mining_nodes
+        where:
+          field: node_id
+          op: "=="
+          value: "{{input.node_id}}"
+      - id: node_exists
+        type: condition
+        check:
+          field: node
+          op: exists
+        onFail:
+          status: 404
+          error: UNKNOWN_NODE
+          message: "Unknown node {{input.node_id}}."
+      - id: level_check
+        type: condition
+        check:
+          field: player.level|1
+          op: ">="
+          value: "{{node.level_required}}"
+        onFail:
+          status: 403
+          error: LEVEL_TOO_LOW
+          message: "Mining {{node.name}} needs level {{node.level_required}}."
+      - id: give_ore
+        type: write
+        collection: players
+        key: "{{steamId}}"
+        ops:
+          - op: inc
+            path: "materials.{{node.ore_type}}"
+            value: "{{node.ore_amount}}"
+            source: mining
+            reason: "Mined {{node.name}}"
+          - op: inc
+            path: xp
+            value: "{{node.xp_reward}}"
+    response:
+      status: 200
+      body:
+        success: true
+        ore_type: "{{node.ore_type}}"
+        amount: "{{node.ore_amount}}"
+
+- id: endpoint.craft-item
+  kind: endpoint
+  category: Progression
+  title: Craft an item
+  summary: Reads the recipe from a table, checks materials at a dynamic path, then spends them and pushes the crafted item.
+  requires: [collection.players, game-values.recipes]
+  calls:
+    - input: '{"recipe_id":"copper_dagger"}'
+    - input: '{"recipe_id":"copper_dagger"}'
+      status: 400
+  source: |
+    sourceVersion: 1
+    kind: endpoint
+    id: craft-item
+    name: Craft item
+    description: Spends recipe materials and adds the crafted item to the inventory.
+    method: POST
+    enabled: true
+    input:
+      type: object
+      properties:
+        recipe_id:
+          type: string
+      required:
+        - recipe_id
+    steps:
+      - id: player
+        type: read
+        collection: players
+        key: "{{steamId}}"
+      - id: recipe
+        type: lookup
+        source: values
+        table: recipes
+        where:
+          field: recipe_id
+          op: "=="
+          value: "{{input.recipe_id}}"
+        required: true
+        onMissing:
+          status: 404
+          errorCode: UNKNOWN_RECIPE
+          message: "Unknown recipe {{input.recipe_id}}."
+      - id: has_materials
+        type: condition
+        check:
+          field: "player.materials.{{recipe.material}}"
+          op: ">="
+          value: "{{recipe.material_cost}}"
+        onFail:
+          status: 400
+          error: MISSING_MATERIALS
+          message: "You need {{recipe.material_cost}} {{recipe.material}}."
+      - id: craft
+        type: write
+        collection: players
+        key: "{{steamId}}"
+        ops:
+          - op: inc
+            path: "materials.{{recipe.material}}"
+            value: "{{-recipe.material_cost}}"
+            source: crafting
+            reason: "Crafted {{recipe.output_name}}"
+          - op: push
+            path: inventory
+            value:
+              item_id: "{{recipe.output_item}}"
+              name: "{{recipe.output_name}}"
+    response:
+      status: 200
+      body:
+        success: true
+        crafted: "{{recipe.output_name}}"
+
+- id: endpoint.purchase-item
+  kind: endpoint
+  category: Economy
+  title: Buy from the shop
+  summary: Looks up the price in a game values table, checks the item exists and the player can pay, then charges and adds it in one write.
+  requires: [collection.players, game-values.shop_items]
+  calls:
+    - input: '{"item_id":"potion"}'
+    - input: '{"item_id":"crown"}'
+      status: 404
+  source: |
+    sourceVersion: 1
+    kind: endpoint
+    id: purchase-item
+    name: Purchase item
+    description: Charges the table price and pushes the item into the inventory.
+    method: POST
+    enabled: true
+    input:
+      type: object
+      properties:
+        item_id:
+          type: string
+      required:
+        - item_id
+    steps:
+      - id: player
+        type: read
+        collection: players
+        key: "{{steamId}}"
+      - id: item
+        type: lookup
+        source: values
+        table: shop_items
+        where:
+          field: item_id
+          op: "=="
+          value: "{{input.item_id}}"
+      - id: item_exists
+        type: condition
+        check:
+          field: item
+          op: exists
+        onFail:
+          status: 404
+          error: ITEM_NOT_FOUND
+          message: "The shop does not sell {{input.item_id}}."
+      - id: can_afford
+        type: condition
+        check:
+          field: player.gold|0
+          op: ">="
+          value: "{{item.cost}}"
+        onFail:
+          status: 400
+          error: INSUFFICIENT_GOLD
+          message: "{{item.name}} costs {{item.cost}} gold."
+      - id: pay_and_add
+        type: write
+        collection: players
+        key: "{{steamId}}"
+        ops:
+          - op: inc
+            path: gold
+            valueExpression: "0 - {{item.cost}}"
+            source: shop
+            reason: "Purchased {{item.name}}"
+          - op: push
+            path: inventory
+            value:
+              item_id: "{{input.item_id}}"
+              name: "{{item.name}}"
+              purchased_at: "{{now}}"
+    response:
+      status: 200
+      body:
+        success: true
+        item: "{{item.name}}"
+        cost: "{{item.cost}}"
+
+- id: endpoint.use-consumable
+  kind: endpoint
+  category: Progression
+  title: Use a consumable
+  summary: Confirms the item is in the inventory, removes it with pull and match, and applies its effect to the stat named in the table.
+  requires: [collection.players, game-values.consumables]
+  calls:
+    - input: '{"item_id":"potion"}'
+    - input: '{"item_id":"potion"}'
+      status: 400
+  source: |
+    sourceVersion: 1
+    kind: endpoint
+    id: use-consumable
+    name: Use consumable
+    description: Removes an owned consumable and adds its effect.
+    method: POST
+    enabled: true
+    input:
+      type: object
+      properties:
+        item_id:
+          type: string
+      required:
+        - item_id
+    steps:
+      - id: player
+        type: read
+        collection: players
+        key: "{{steamId}}"
+      - id: item
+        type: lookup
+        source: values
+        table: consumables
+        where:
+          field: item_id
+          op: "=="
+          value: "{{input.item_id}}"
+        required: true
+        onMissing:
+          status: 404
+          errorCode: UNKNOWN_ITEM
+          message: "{{input.item_id}} is not a consumable."
+      - id: has_inventory
+        type: condition
+        check:
+          field: player.inventory
+          op: exists
+        onFail:
+          status: 400
+          error: NOT_OWNED
+          message: "You do not have {{item.name}}."
+      - id: owns_item
+        type: condition
+        check:
+          field: "{{pluck(player.inventory, item_id)}}"
+          op: contains
+          value: "{{input.item_id}}"
+        onFail:
+          status: 400
+          error: NOT_OWNED
+          message: "You do not have {{item.name}}."
+      - id: consume
+        type: write
+        collection: players
+        key: "{{steamId}}"
+        ops:
+          - op: pull
+            path: inventory
+            match:
+              item_id: "{{input.item_id}}"
+          - op: inc
+            path: "{{item.stat}}"
+            value: "{{item.amount}}"
+            source: consumable
+            reason: "Used {{item.name}}"
+    response:
+      status: 200
+      body:
+        success: true
+        used: "{{item.name}}"
+        stat: "{{item.stat}}"
+
+- id: endpoint.spend-money
+  kind: endpoint
+  category: Economy
+  title: Spend money
+  summary: Reads the cost from a game values group, rejects when the player cannot pay, then subtracts with a negative valueExpression.
+  requires: [collection.players, game-values.economy]
+  calls:
+    - input: '{"action":"heal"}'
+  source: |
+    sourceVersion: 1
+    kind: endpoint
+    id: spend-money
+    name: Spend money
+    description: Charges the cost of an action listed in the costs group.
+    method: POST
+    enabled: true
+    input:
+      type: object
+      properties:
+        action:
+          type: string
+      required:
+        - action
+    steps:
+      - id: player
+        type: read
+        collection: players
+        key: "{{steamId}}"
+      - id: cost
+        type: transform
+        value: "{{values.costs.{{input.action}}}}"
+      - id: known_action
+        type: condition
+        check:
+          field: cost
+          op: exists
+        onFail:
+          status: 404
+          error: UNKNOWN_ACTION
+          message: "Unknown action {{input.action}}."
+      - id: can_afford
+        type: condition
+        check:
+          field: player.gold|0
+          op: ">="
+          value: "{{cost}}"
+        onFail:
+          status: 400
+          error: NOT_ENOUGH_GOLD
+          message: "You cannot afford {{input.action}}."
+      - id: remaining
+        type: transform
+        expression: "{{player.gold|0}} - {{cost}}"
+      - id: pay
+        type: write
+        collection: players
+        key: "{{steamId}}"
+        ops:
+          - op: inc
+            path: gold
+            valueExpression: "0 - {{cost}}"
+            source: "{{input.action}}"
+            reason: "Spent on {{input.action}}"
+    response:
+      status: 200
+      body:
+        success: true
+        spent: "{{cost}}"
+        remaining_gold: "{{remaining}}"
+
+- id: endpoint.transfer-gold
+  kind: endpoint
+  category: Economy
+  title: Transfer gold
+  summary: Reads both players and validates amount, recipient and funds before two writes, so nothing is saved when any check fails.
+  requires: [collection.players]
+  calls:
+    - input: '{"recipient_id":"76561198000000002","amount":10}'
+    - input: '{"recipient_id":"76561198000000002","amount":100000}'
+      status: 400
+  source: |
+    sourceVersion: 1
+    kind: endpoint
+    id: transfer-gold
+    name: Transfer gold
+    description: Moves gold from the caller to another existing player.
+    method: POST
+    enabled: true
+    input:
+      type: object
+      properties:
+        recipient_id:
+          type: string
+        amount:
+          type: number
+      required:
+        - recipient_id
+        - amount
+    steps:
+      - id: valid_amount
+        type: condition
+        check:
+          field: input.amount
+          op: ">"
+          value: 0
+        onFail:
+          status: 400
+          error: INVALID_AMOUNT
+          message: Amount must be positive.
+      - id: not_self
+        type: condition
+        check:
+          field: input.recipient_id
+          op: "!="
+          value: "{{steamId}}"
+        onFail:
+          status: 400
+          error: SELF_TRANSFER
+          message: You cannot send gold to yourself.
+      - id: sender
+        type: read
+        collection: players
+        key: "{{steamId}}"
+      - id: recipient
+        type: read
+        collection: players
+        key: "{{input.recipient_id}}"
+      - id: recipient_exists
+        type: condition
+        check:
+          field: recipient
+          op: exists
+        onFail:
+          status: 404
+          error: RECIPIENT_NOT_FOUND
+          message: That player has no profile yet.
+      - id: has_funds
+        type: condition
+        check:
+          field: sender.gold|0
+          op: ">="
+          value: "{{input.amount}}"
+        onFail:
+          status: 400
+          error: INSUFFICIENT_GOLD
+          message: Not enough gold.
+      - id: deduct
+        type: write
+        collection: players
+        key: "{{steamId}}"
+        ops:
+          - op: inc
+            path: gold
+            value: "{{-input.amount}}"
+            source: transfer
+            reason: "Sent to {{input.recipient_id}}"
+      - id: credit
+        type: write
+        collection: players
+        key: "{{input.recipient_id}}"
+        ops:
+          - op: inc
+            path: gold
+            value: "{{input.amount}}"
+            source: transfer
+            reason: "Received from {{steamId}}"
+    response:
+      status: 200
+      body:
+        success: true
+        sent: "{{input.amount}}"
+
+- id: endpoint.complete-quest
+  kind: endpoint
+  category: Progression
+  title: Complete a quest
+  summary: A not_contains guard blocks repeats, then the write awards gold and xp and pushes the quest id.
+  requires: [collection.players, game-values.quests]
+  calls:
+    - input: '{"quest_id":"first_steps"}'
+    - input: '{"quest_id":"first_steps"}'
+      status: 409
+  source: |
+    sourceVersion: 1
+    kind: endpoint
+    id: complete-quest
+    name: Complete quest
+    description: Awards a quest once per player.
+    method: POST
+    enabled: true
+    input:
+      type: object
+      properties:
+        quest_id:
+          type: string
+      required:
+        - quest_id
+    steps:
+      - id: player
+        type: read
+        collection: players
+        key: "{{steamId}}"
+      - id: quest
+        type: lookup
+        source: values
+        table: quests
+        where:
+          field: quest_id
+          op: "=="
+          value: "{{input.quest_id}}"
+        required: true
+        onMissing:
+          status: 404
+          errorCode: UNKNOWN_QUEST
+          message: "Unknown quest {{input.quest_id}}."
+      - id: not_done
+        type: condition
+        check:
+          field: player.completed_quests
+          op: not_contains
+          value: "{{input.quest_id}}"
+        onFail:
+          status: 409
+          error: ALREADY_COMPLETED
+          message: "{{quest.name}} is already complete."
+      - id: reward
+        type: write
+        collection: players
+        key: "{{steamId}}"
+        ops:
+          - op: inc
+            path: gold
+            value: "{{quest.gold_reward}}"
+            source: quest
+            reason: "Completed {{quest.name}}"
+          - op: inc
+            path: xp
+            value: "{{quest.xp_reward}}"
+            source: quest
+            reason: "Completed {{quest.name}}"
+          - op: push
+            path: completed_quests
+            value: "{{input.quest_id}}"
+    response:
+      status: 200
+      body:
+        success: true
+        quest: "{{quest.name}}"
+
+- id: endpoint.roll-loot
+  kind: endpoint
+  category: Combat
+  title: Roll weighted loot
+  summary: random_select picks one row from a game values table using its weight column, then pushes the drop into the inventory.
+  requires: [collection.players, game-values.loot_table]
+  calls:
+    - input: '{}'
+  source: |
+    sourceVersion: 1
+    kind: endpoint
+    id: roll-loot
+    name: Roll loot
+    description: Rare rows have small weights, so they drop less often.
+    method: POST
+    enabled: true
+    steps:
+      - id: drop
+        type: random_select
+        source: values
+        table: loot_table
+        where:
+          field: weight
+          op: ">"
+          value: 0
+        weightField: weight
+      - id: keep
+        type: write
+        collection: players
+        key: "{{steamId}}"
+        ops:
+          - op: push
+            path: inventory
+            value:
+              item_id: "{{drop.item_id}}"
+              name: "{{drop.name}}"
+              rarity: "{{drop.rarity}}"
+    response:
+      status: 200
+      body:
+        item: "{{drop.name}}"
+        rarity: "{{drop.rarity}}"
+
+- id: endpoint.spin-wheel
+  kind: endpoint
+  category: Random
+  title: Spin the wheel
+  summary: Combines a random int bonus with a weighted pick from inline items and adds both with one valueExpression.
+  requires: [collection.players]
+  calls:
+    - input: '{}'
+  source: |
+    sourceVersion: 1
+    kind: endpoint
+    id: spin-wheel
+    name: Spin the wheel
+    description: Weighted prize plus a 1 to 10 bonus.
+    method: POST
+    enabled: true
+    steps:
+      - id: bonus
+        type: random
+        mode: int
+        min: 1
+        max: 10
+      - id: prize
+        type: random
+        mode: weighted
+        weightField: weight
+        items:
+          - label: Small pouch
+            gold: 5
+            weight: 70
+          - label: Big pouch
+            gold: 25
+            weight: 25
+          - label: Jackpot
+            gold: 100
+            weight: 5
+      - id: pay
+        type: write
+        collection: players
+        key: "{{steamId}}"
+        ops:
+          - op: inc
+            path: gold
+            valueExpression: "{{prize.gold}} + {{bonus}}"
+            source: wheel
+            reason: "Wheel prize {{prize.label}}"
+    response:
+      status: 200
+      body:
+        prize: "{{prize.label}}"
+        bonus: "{{bonus}}"
+
+- id: endpoint.level-tier
+  kind: endpoint
+  category: Progression
+  title: Level and tier from xp
+  summary: compute derives the level from xp and switch maps it to a bronze, silver or gold tier before saving both.
+  requires: [collection.players]
+  calls:
+    - input: '{}'
+  source: |
+    sourceVersion: 1
+    kind: endpoint
+    id: level-tier
+    name: Level and tier
+    description: Recalculates level (one per 100 xp) and tier.
+    method: POST
+    enabled: true
+    steps:
+      - id: player
+        type: read
+        collection: players
+        key: "{{steamId}}"
+      - id: stats
+        type: compute
+        values:
+          xp: "{{player.xp|0}}"
+          level: "floor({{stats.xp}} / 100) + 1"
+      - id: tier
+        type: switch
+        cases:
+          - when:
+              field: stats.level
+              op: ">="
+              value: 10
+            then: gold
+          - when:
+              field: stats.level
+              op: ">="
+              value: 5
+            then: silver
+        default: bronze
+      - id: save
+        type: write
+        collection: players
+        key: "{{steamId}}"
+        ops:
+          - op: set
+            path: level
+            value: "{{stats.level}}"
+          - op: set
+            path: tier
+            value: "{{tier}}"
+    response:
+      status: 200
+      body:
+        level: "{{stats.level}}"
+        tier: "{{tier}}"
+
+- id: endpoint.award-xp
+  kind: endpoint
+  category: Progression
+  title: Award xp through a workflow
+  summary: Calls the level_from_xp workflow with params and saves the level and tier it returns.
+  requires: [collection.players, workflow.level_from_xp]
+  calls:
+    - input: '{"xp":25}'
+  source: |
+    sourceVersion: 1
+    kind: endpoint
+    id: award-xp
+    name: Award xp
+    description: Adds xp, then lets a shared workflow work out level and tier.
+    method: POST
+    enabled: true
+    input:
+      type: object
+      properties:
+        xp:
+          type: number
+      required:
+        - xp
+    steps:
+      - id: player
+        type: read
+        collection: players
+        key: "{{steamId}}"
+      - id: new_xp
+        type: transform
+        expression: "{{player.xp|0}} + {{input.xp}}"
+      - id: progress
+        type: workflow
+        workflow: level_from_xp
+        params:
+          xp: "{{new_xp}}"
+      - id: save
+        type: write
+        collection: players
+        key: "{{steamId}}"
+        ops:
+          - op: set
+            path: xp
+            value: "{{new_xp}}"
+          - op: set
+            path: level
+            value: "{{progress.level}}"
+          - op: set
+            path: tier
+            value: "{{progress.tier}}"
+    response:
+      status: 200
+      body:
+        xp: "{{new_xp}}"
+        level: "{{progress.level}}"
+        tier: "{{progress.tier}}"

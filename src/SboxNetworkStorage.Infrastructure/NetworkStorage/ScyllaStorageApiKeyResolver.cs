@@ -24,11 +24,29 @@ public sealed class ScyllaStorageApiKeyResolver(
     INetworkStorageStore store,
     IMemoryCache memoryCache,
     IConfiguration configuration,
-    ILogger<ScyllaStorageApiKeyResolver> logger) : IStorageApiKeyResolver
+    ILogger<ScyllaStorageApiKeyResolver> logger) : IStorageApiKeyResolver, IApiKeyCacheInvalidator
 {
     private const string PublicCacheKeyPrefix = "scylla-storageapikey:";
     private const string SecretCacheKeyPrefix = "scylla-storagesk:";
     private static readonly TimeSpan CacheTtl = TimeSpan.FromSeconds(60);
+    // One generation per project, shared by every resolver instance: key mutations
+    // cancel it so all cached resolutions for the project drop at once.
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, CancellationTokenSource> CacheGenerations = new(StringComparer.Ordinal);
+
+    public void InvalidateProjectKeys(string projectId)
+    {
+        // Cancel only: live cache entries still reference the token, and reading a
+        // disposed source throws. The generation is garbage once its entries expire.
+        if (CacheGenerations.TryRemove(projectId, out var generation)) generation.Cancel();
+    }
+
+    private static void Cache(IMemoryCache cache, string key, string projectId, StorageApiKeyAuthResult value)
+    {
+        var generation = CacheGenerations.GetOrAdd(projectId, _ => new CancellationTokenSource());
+        cache.Set(key, value, new MemoryCacheEntryOptions { AbsoluteExpirationRelativeToNow = CacheTtl }
+            .AddExpirationToken(new Microsoft.Extensions.Primitives.CancellationChangeToken(generation.Token)));
+    }
+
 
     public async Task<StorageApiKeyAuthResult?> ResolveApiKeyAsync(string apiKey, string projectId, CancellationToken cancellationToken)
     {
@@ -67,7 +85,7 @@ public sealed class ScyllaStorageApiKeyResolver(
             return null;
         }
 
-        memoryCache.Set(cacheKey, resolved, new MemoryCacheEntryOptions { AbsoluteExpirationRelativeToNow = CacheTtl });
+        Cache(memoryCache, cacheKey, projectId, resolved);
         return resolved;
     }
 
@@ -106,7 +124,7 @@ public sealed class ScyllaStorageApiKeyResolver(
 
         var resolved = MapRow(row, projectId);
         if (resolved is not null)
-            memoryCache.Set(cacheKey, resolved, new MemoryCacheEntryOptions { AbsoluteExpirationRelativeToNow = CacheTtl });
+            Cache(memoryCache, cacheKey, projectId, resolved);
         return resolved;
     }
 

@@ -4,6 +4,7 @@
     var project = Model.Project;
     var url = "/dashboard/projects/" + Uri.EscapeDataString(project.Id);
 }
+<link rel="stylesheet" href="/owner-assets/m/manage.css" />
 <div class="page-heading"><div><h1>@project.Name</h1><p>@project.Description</p><code>@project.Id</code></div><a class="button" href="@url/data">Browse data</a></div>
 <section class="grid overview-grid">
     <article class="card metric"><span>Collections</span><strong>@(Model.Resources?.Collections.Count ?? 0)</strong><a href="@url/resources/collection">Manage schemas →</a></article>
@@ -26,13 +27,33 @@
     <h2>API keys</h2>
     <p><code>sbox_ns_...</code> public keys are runtime credentials. <code>sbox_sk_...</code> secret keys must stay server-side.</p>
     <div class="table-scroll"><table>
-        <thead><tr><th>Label</th><th>Type</th><th>Status</th><th>Key identifier</th><th>Actions</th></tr></thead>
+        <thead><tr><th>Label</th><th>Type</th><th>Status</th><th>Key identifier</th><th>Permissions</th><th>Actions</th></tr></thead>
         <tbody>
         @foreach (var key in Model.Keys)
         {
             <tr>
                 <td>@key.Label</td><td>@key.KeyType</td><td>@(key.Enabled ? "Enabled" : "Disabled")</td>
                 <td><code>@(key.KeyType == "public" ? key.Key : key.KeyIdentifier ?? "Secret (hidden)")</code></td>
+                <td>
+                    @if (key.KeyType != "secret") { <span class="muted">Runtime key</span> }
+                    else
+                    {
+                        <details class="key-permissions"><summary>@(key.Permissions is null ? "Full access" : string.Join(", ", key.Permissions.Where(pair => pair.Value != "none").Select(pair => pair.Key + ":" + pair.Value)) is { Length: > 0 } granted ? granted : "No access")</summary>
+                        @if (key.KeyIdentifier is not null)
+                        {
+                            <form method="post" action="@url/keys/permissions">
+                                @Html.AntiForgeryToken()<input name="keyIdentifier" type="hidden" value="@key.KeyIdentifier" />
+                                @foreach (var scope in SboxNetworkStorage.Server.Owner.OwnerDashboardController.KeyScopes)
+                                {
+                                    var current = key.Permissions is null ? "rwx" : key.Permissions.GetValueOrDefault(scope) ?? "none";
+                                    <label>@scope <select name="@("scope_" + scope)">@foreach (var (level, label) in SboxNetworkStorage.Server.Owner.OwnerDashboardController.KeyLevels) { <option value="@level" selected="@(level == current)">@label</option> }</select></label>
+                                }
+                                <button type="submit" class="secondary">Save permissions</button>
+                            </form>
+                        }
+                        </details>
+                    }
+                </td>
                 <td class="actions">
                     <form method="post" action="@url/keys/toggle">
                         @Html.AntiForgeryToken()<input name="key" type="hidden" value="@key.Key" />
@@ -89,11 +110,39 @@
             <button type="submit">Save player-key mode</button>
         </form>
     </article>
+    <article class="card">
+        <h2>Revision policy</h2>
+        <p class="muted">Saved with the project and returned to the editor Sync Tool by the management settings API. This server reports outdated game revisions through revision-init; it does not block outdated clients itself.</p>
+        <form method="post" action="@url/settings">
+            @Html.AntiForgeryToken()<input type="hidden" name="tab" value="revisions" />
+            <label class="check"><input type="checkbox" name="revisionEnforcementEnabled" value="true" checked="@(project.RevisionEnforcementEnabled == true)" /> Enforce revision policy</label>
+            <label>Mode <select name="revisionEnforcementMode">
+                <option value="allow_continue" selected="@(project.RevisionEnforcementMode != "force_upgrade")">Allow outdated players to continue</option>
+                <option value="force_upgrade" selected="@(project.RevisionEnforcementMode == "force_upgrade")">Force an upgrade</option>
+            </select></label>
+            <label>Grace period (minutes) <input type="number" name="revisionGracePeriodMinutes" value="@project.RevisionGracePeriodMinutes" min="5" max="1440" placeholder="None" /></label>
+            <label>After the grace period <select name="revisionPostGraceAction">
+                <option value="block_writes" selected="@(project.RevisionPostGraceAction != "block_all")">Block writes</option>
+                <option value="block_all" selected="@(project.RevisionPostGraceAction == "block_all")">Block all requests</option>
+            </select></label>
+            <label>Escalate after (minutes) <input type="number" name="revisionEscalateAfterMinutes" value="@project.RevisionEscalateAfterMinutes" min="60" max="1440" placeholder="Never" /></label>
+            <label>Notice for outdated players <textarea name="revisionNotifyMessage" maxlength="500">@project.RevisionNotifyMessage</textarea></label>
+            <label class="check"><input type="checkbox" name="revisionShowDefaultMessage" value="true" checked="@(project.RevisionShowDefaultMessage == true)" /> Show the default message</label>
+            <label class="check"><input type="checkbox" name="revisionForceEndpointUpgrade" value="true" checked="@(project.RevisionForceEndpointUpgrade == true)" /> Require upgraded endpoints</label>
+            <label>New version banner <select name="revisionShowNewVersionBanner"><option value="true" selected="@(project.RevisionShowNewVersionBanner != false)">Show</option><option value="false" selected="@(project.RevisionShowNewVersionBanner == false)">Hide</option></select></label>
+            <label>Update options <select name="revisionShowUpdateOptions"><option value="true" selected="@(project.RevisionShowUpdateOptions != false)">Show</option><option value="false" selected="@(project.RevisionShowUpdateOptions == false)">Hide</option></select></label>
+            <label>Outdated popup <select name="revisionShowPopupOnce"><option value="true" selected="@(project.RevisionShowPopupOnce != false)">Once per session</option><option value="false" selected="@(project.RevisionShowPopupOnce == false)">Every time</option></select></label>
+            <label class="check"><input type="checkbox" name="revisionTestOutdatedEditor" value="true" checked="@(project.RevisionTestOutdatedEditor == true)" /> Simulate an outdated client in the editor</label>
+            <label class="check"><input type="checkbox" name="revisionTestOutdatedLive" value="true" checked="@(project.RevisionTestOutdatedLive == true)" /> Simulate an outdated client in live builds</label>
+            <button type="submit">Save revision policy</button>
+        </form>
+    </article>
 </section>
 <section class="card">
     <h2>Synced resources</h2>
     <p>Dashboard authoring and editor sync share the live store. Source-backed definitions keep their YAML/JSON source metadata; coordinate changes with your checked-in editor source.</p>
     <div class="actions resource-links"><a class="button secondary" href="@url/resources/collection">Collections &amp; schemas</a><a class="button secondary" href="@url/resources/endpoint">Endpoints</a><a class="button secondary" href="@url/resources/workflow">Workflows</a><a class="button secondary" href="@url/resources/query">Queries</a><a class="button secondary" href="@url/resources/game-values">Game values</a></div>
+    <div class="actions resource-links"><a class="button secondary" href="@url/tests">Endpoint tests</a><a class="button secondary" href="@url/versions">Version history</a><a class="button secondary" href="@url/rate-limits">Rate limit rules</a><a class="button secondary" href="@url/webhooks">Webhooks</a><a class="button secondary" href="@url/pages">Pages</a></div>
     <h3>Collections</h3>
     <ul>@foreach (var collection in Model.Resources?.Collections ?? []) { <li><a href="@url/data/@Uri.EscapeDataString(collection.Id)"><strong>@collection.Name</strong></a> · @collection.CollectionType · <code>@collection.Id</code> · @collection.Description</li> }</ul>
     <h3>Endpoints</h3>

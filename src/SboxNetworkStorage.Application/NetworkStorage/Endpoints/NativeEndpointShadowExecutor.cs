@@ -56,7 +56,8 @@ public sealed class NativeEndpointShadowExecutor
         CancellationToken ct,
         bool liveServe = false,
         string? playerKeyMode = null,
-        bool enforcePublicAccessGates = false)
+        bool enforcePublicAccessGates = false,
+        EndpointDryRunTrace? trace = null)
     {
         // 1. Load endpoint definition from ScyllaDB.
         Dictionary<string, object?>? endpointDef;
@@ -271,6 +272,7 @@ public sealed class NativeEndpointShadowExecutor
             var rk = ResolveRecordKey(key);
             onDemandCache[$"{cid}:{rk}"] = data;
             durableWrites?.Add((cid, rk, data, false));
+            trace?.PendingWrites.Add(new EndpointTraceWrite(collection, key, data, false));
         }
         void DeleteRecordAction(string collection, string key)
         {
@@ -278,6 +280,7 @@ public sealed class NativeEndpointShadowExecutor
             var rk = ResolveRecordKey(key);
             onDemandCache[$"{cid}:{rk}"] = null;
             durableWrites?.Add((cid, rk, null, true));
+            trace?.PendingWrites.Add(new EndpointTraceWrite(collection, key, null, true));
         }
 
         List<object?> ScanCollection(string collection)
@@ -363,7 +366,8 @@ public sealed class NativeEndpointShadowExecutor
                 ? (url, payload, wct) => _webhookSender.SendAsync(url, payload, wct)
                 : null,
             SkipWebhooks: !liveServe || _webhookSender is null,
-            SkipSleep: !liveServe);
+            SkipSleep: !liveServe,
+            OnStep: trace is null ? null : trace.Steps.Add);
 
         // 5. Execute natively via async path (supports workflows + routed flows).
         //    UnsupportedException → null (caller falls back to Bun).

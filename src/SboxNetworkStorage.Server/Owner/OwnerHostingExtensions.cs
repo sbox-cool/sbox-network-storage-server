@@ -115,7 +115,7 @@ public static class OwnerHostingExtensions
                 var turnstile = context.RequestServices.GetRequiredService<OwnerTurnstile>().Enabled;
                 context.Response.Headers["Content-Security-Policy"] = turnstile
                     ? "default-src 'none'; style-src 'self'; script-src 'self' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; connect-src 'self' https://challenges.cloudflare.com; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
-                    : "default-src 'none'; style-src 'self'; script-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'";
+                    : "default-src 'none'; style-src 'self'; script-src 'self'; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'";
             }
             await next(context);
         });
@@ -130,6 +130,12 @@ public static class OwnerHostingExtensions
             typeof(OwnerHostingExtensions).Assembly.GetManifestResourceStream("SboxNetworkStorage.Server.Owner.demo.js")!, "text/javascript"));
         app.MapGet("/owner-assets/resource-builder.js", () => Results.Stream(
             typeof(OwnerHostingExtensions).Assembly.GetManifestResourceStream("SboxNetworkStorage.Server.Owner.builder.js")!, "text/javascript"));
+        app.MapGet("/owner-assets/builder-catalog.js", () => Results.Stream(
+            typeof(OwnerHostingExtensions).Assembly.GetManifestResourceStream("SboxNetworkStorage.Server.Owner.builder-catalog.js")!, "text/javascript"));
+        app.MapGet("/owner-assets/m/manage.css", () => Results.Stream(
+            typeof(OwnerHostingExtensions).Assembly.GetManifestResourceStream("SboxNetworkStorage.Server.Owner.manage.css")!, "text/css"));
+        app.MapGet("/owner-assets/m/manage.js", () => Results.Stream(
+            typeof(OwnerHostingExtensions).Assembly.GetManifestResourceStream("SboxNetworkStorage.Server.Owner.manage.js")!, "text/javascript"));
         return app;
     }
 }

@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using SboxNetworkStorage.Application.NetworkStorage;
+using SboxNetworkStorage.Application.NetworkStorage.Endpoints;
 using SboxNetworkStorage.Application.Workspace;
 using SboxNetworkStorage.Contracts.Diagnostics;
 using SboxNetworkStorage.Domain.Workspace;
@@ -226,8 +227,7 @@ public static class StorageApiEndpoints
             await context.Response.WriteAsJsonAsync(new { error = "INVALID_BODY" }, JsonOptions);
             return;
         }
-        var currentBytes = Encoding.UTF8.GetByteCount(body.GetRawText());
-        if (currentBytes > maxPayloadBytes)
+        if (Encoding.UTF8.GetByteCount(body.GetRawText()) > maxPayloadBytes)
         {
             await WritePayloadTooLargeAsync(context, maxPayloadBytes);
             return;
@@ -239,13 +239,28 @@ public static class StorageApiEndpoints
         NetworkStorageUsageContext.Set(context, projectId, SboxNetworkStorage.Infrastructure.NetworkStorage.Usage.UsageKind.Write);
 
         var dataPlane = context.RequestServices.GetRequiredService<INetworkStorageDataPlane>();
+        string? invalidOperation = null;
+        var appliedTooLarge = false;
         try
         {
             var previous = await dataPlane.ReadRecordAsync(
                 auth.UserId, projectId, collectionId, recordKey, context.RequestAborted);
             var previousBytes = previous.Found ? Encoding.UTF8.GetByteCount(previous.Value.GetRawText()) : 0;
-            await dataPlane.WriteRecordAsync(auth.UserId, projectId, collectionId, recordKey, body, context.RequestAborted);
-            NetworkStorageUsageContext.AddStorageDelta(context, currentBytes - previousBytes);
+            var document = body;
+            if (IsOperationsRequest(body, out var ops))
+            {
+                var existing = previous.Found ? EndpointExpression.FromJson(previous.Value) as Dictionary<string, object?> : null;
+                var applied = RecordOperations.Apply(existing, (List<object?>)EndpointExpression.FromJson(ops)!);
+                if (applied.Ok) document = JsonSerializer.SerializeToElement(applied.Data);
+                else invalidOperation = applied.Error;
+            }
+            var currentBytes = Encoding.UTF8.GetByteCount(document.GetRawText());
+            appliedTooLarge = currentBytes > maxPayloadBytes;
+            if (invalidOperation is null && !appliedTooLarge)
+            {
+                await dataPlane.WriteRecordAsync(auth.UserId, projectId, collectionId, recordKey, document, context.RequestAborted);
+                NetworkStorageUsageContext.AddStorageDelta(context, currentBytes - previousBytes);
+            }
         }
         catch (Exception ex)
         {
@@ -253,9 +268,32 @@ public static class StorageApiEndpoints
             return;
         }
 
+        if (invalidOperation is not null)
+        {
+            context.Response.StatusCode = StatusCodes.Status400BadRequest;
+            await context.Response.WriteAsJsonAsync(new { error = "INVALID_OPERATION", detail = invalidOperation }, JsonOptions);
+            return;
+        }
+        if (appliedTooLarge)
+        {
+            await WritePayloadTooLargeAsync(context, maxPayloadBytes);
+            return;
+        }
 
         context.Response.StatusCode = StatusCodes.Status200OK;
         await context.Response.WriteAsJsonAsync(new { ok = true }, JsonOptions);
+    }
+
+    /// <summary>
+    /// The game library's UpdateDocument/PatchDocument posts <c>{"ops":[...]}</c>
+    /// to the save route; the managed service applies them to the stored
+    /// document. Storing the body verbatim would replace the player's document.
+    /// </summary>
+    private static bool IsOperationsRequest(JsonElement body, out JsonElement ops)
+    {
+        ops = default;
+        return body.ValueKind == JsonValueKind.Object
+            && body.TryGetProperty("ops", out ops) && ops.ValueKind == JsonValueKind.Array;
     }
 
     private static async Task WritePayloadTooLargeAsync(HttpContext context, int maxPayloadBytes)

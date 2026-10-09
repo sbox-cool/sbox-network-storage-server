@@ -1,0 +1,181 @@
+# The builder tour holds one step of every supported type. The step palette
+# uses the first step of each type as its default, so every default is saved
+# and executed together by OwnerResourceExamplesTests.
+- id: endpoint.builder-tour
+  kind: endpoint
+  category: Builder
+  title: Every step type
+  summary: One working step of each type in the palette, from read and write to block, workflow, webhook and sleep.
+  requires: [collection.players, game-values.shop_items, game-values.loot_table, workflow.level_from_xp]
+  calls:
+    - input: '{"amount":5,"item_id":"sword"}'
+  source: |
+    sourceVersion: 1
+    kind: endpoint
+    id: builder-tour
+    name: Builder tour
+    description: A tour of every step type. Each step's result is available to later steps by its id.
+    method: POST
+    enabled: true
+    input:
+      type: object
+      properties:
+        amount:
+          type: number
+        item_id:
+          type: string
+      required:
+        - amount
+    steps:
+      - id: player
+        type: read
+        collection: players
+        key: "{{steamId}}"
+      - id: below_cap
+        type: condition
+        check:
+          field: player.gold|0
+          op: "<"
+          value: 1000000
+        onFail:
+          status: 409
+          error: GOLD_CAP
+          message: "{{steamId}} already holds the maximum gold."
+      - id: amount_ok
+        type: assert
+        check:
+          all:
+            - field: input.amount
+              op: ">"
+              value: 0
+            - field: input.amount
+              op: "<="
+              value: 1000
+        status: 422
+        errorCode: INVALID_AMOUNT
+        message: Amount must be between 1 and 1000.
+      - id: doubled
+        type: transform
+        expression: "{{input.amount}} * 2"
+      - id: stats
+        type: compute
+        values:
+          gold: "{{player.gold|0}}"
+          next_gold: "{{stats.gold}} + {{input.amount}}"
+      - id: size
+        type: switch
+        cases:
+          - when:
+              field: input.amount
+              op: ">="
+              value: 100
+            then: large
+        default: small
+      - id: summary
+        type: object
+        fields:
+          amount: "{{input.amount}}"
+          size: "{{size}}"
+      - id: tags
+        type: array
+        items:
+          - "{{size}}"
+          - starter
+      - id: details
+        type: merge
+        sources:
+          - "{{summary}}"
+          - source: builder
+      - id: sorted_tags
+        type: sort
+        source: "{{tags}}"
+        direction: asc
+      - id: roll
+        type: random
+        mode: int
+        min: 1
+        max: 6
+      - id: item
+        type: lookup
+        source: values
+        table: shop_items
+        where:
+          field: item_id
+          op: "=="
+          value: "{{input.item_id}}"
+      - id: affordable
+        type: filter
+        source: values
+        table: shop_items
+        where:
+          field: cost
+          op: "<="
+          value: "{{stats.next_gold}}"
+      - id: picks
+        type: lookup_many
+        source: values
+        table: shop_items
+        keyField: item_id
+        keys:
+          - sword
+          - potion
+        asMap: true
+      - id: drop
+        type: random_select
+        source: values
+        table: loot_table
+        where:
+          field: weight
+          op: ">"
+          value: 0
+        weightField: weight
+      - id: bonus_round
+        type: block
+        when:
+          field: input.amount
+          op: ">"
+          value: 0
+        steps:
+          - id: bonus
+            type: transform
+            expression: "{{input.amount}} + 1"
+      - id: progress
+        type: workflow
+        workflow: level_from_xp
+        params:
+          xp: "{{player.xp|0}}"
+      - id: save
+        type: write
+        collection: players
+        key: "{{steamId}}"
+        ops:
+          - op: inc
+            path: gold
+            value: "{{input.amount}}"
+            source: builder
+            reason: Builder tour
+      - id: clear_old
+        type: delete
+        collection: players
+        key: "{{steamId}}_old"
+      - id: notify
+        type: webhook
+        url: "https://discord.com/api/webhooks/YOUR_ID/YOUR_TOKEN"
+        title: Builder tour
+        description: "{{steamId}} added {{input.amount}} gold"
+      - id: pause
+        type: sleep
+        ms: 250
+      - id: done
+        type: response
+    response:
+      status: 200
+      body:
+        ok: true
+        gold: "{{stats.next_gold}}"
+        size: "{{size}}"
+        roll: "{{roll}}"
+        item: "{{item.name}}"
+        drop: "{{drop.name}}"
+        level: "{{progress.level}}"
+        bonus: "{{bonus}}"

@@ -1,0 +1,58 @@
+@model SboxNetworkStorage.Server.Owner.OwnerWebhooksModel
+@using SboxNetworkStorage.Server.Owner
+@{
+    Layout = "~/Views/Owner/_Layout.cshtml";
+    var url = "/dashboard/projects/" + Uri.EscapeDataString(Model.ProjectId);
+    var editing = Model.Editing;
+}
+<link rel="stylesheet" href="/owner-assets/m/manage.css" />
+<div class="page-heading"><div><h1>Webhooks</h1><p>Discord channels your endpoints can notify, for @Model.ProjectName.</p></div><a class="button secondary" href="@url">Project overview</a></div>
+@if (Model.Saved) { <p class="notice success" role="status">Webhook settings saved.</p> }
+@if (Model.Error is not null) { <p class="error" role="alert">@Model.Error</p> }
+<aside class="notice"><strong>How profiles reach your endpoints</strong><p>A <code>webhook</code> step sends to the URL written in the step. Copy a profile's step below into an endpoint or workflow, or pick the profile in the endpoint builder. Changing a profile URL later does not rewrite steps that already contain the old URL. Webhooks are skipped in test runs.</p></aside>
+<section class="card">
+    <h2>Default webhook URL</h2>
+    <form method="post" action="@url/webhooks/default" class="manage-inline">
+        @Html.AntiForgeryToken()
+        <label>Discord webhook URL <input name="defaultUrl" type="url" value="@Model.DefaultUrl" placeholder="https://discord.com/api/webhooks/..." autocomplete="off" /></label>
+        <button type="submit">Save default URL</button>
+    </form>
+</section>
+<section class="card">
+    <div class="section-heading"><h2>Profiles <span class="badge">@Model.Profiles.Count</span></h2></div>
+    @if (Model.Profiles.Count == 0)
+    {
+        <div class="empty-state"><h3>No profiles yet</h3><p>Add one profile per Discord channel, for example purchases or moderation.</p></div>
+    }
+    @foreach (var profile in Model.Profiles)
+    {
+        <article class="manage-profile" id="profile-@profile.Id">
+            <div class="section-heading">
+                <h3><span class="manage-swatch" data-color="@profile.Color" aria-hidden="true"></span>@profile.Name <code>@profile.Id</code></h3>
+                <div class="actions">
+                    <span class="badge @(profile.Enabled ? "positive" : "")">@(profile.Enabled ? "Enabled" : "Disabled")</span>
+                    <a class="button secondary" href="@url/webhooks?edit=@Uri.EscapeDataString(profile.Id)#profile-form">Edit</a>
+                    <form method="post" action="@url/webhooks/profiles/delete">@Html.AntiForgeryToken()<input type="hidden" name="id" value="@profile.Id" /><button class="danger" type="submit">Delete</button></form>
+                </div>
+            </div>
+            <p class="muted"><code>@profile.Url</code></p>
+            <details><summary>Webhook step YAML</summary><pre class="manage-snippet" data-copyable>@OwnerWebhooksController.StepYaml(profile)</pre><button type="button" class="secondary" data-copy-previous>Copy step</button></details>
+        </article>
+    }
+</section>
+<section class="card" id="profile-form">
+    <h2>@(editing is null ? "Add a profile" : "Edit " + editing.Name)</h2>
+    <form method="post" action="@url/webhooks/profiles">
+        @Html.AntiForgeryToken()
+        <input type="hidden" name="originalId" value="@editing?.Id" />
+        <div class="form-grid">
+            <label>Profile id <input name="id" value="@editing?.Id" required maxlength="40" pattern="[a-z0-9_]{1,40}" placeholder="purchases" /></label>
+            <label>Name <input name="name" value="@editing?.Name" required maxlength="64" placeholder="Purchases channel" /></label>
+            <label>Embed color <input name="color" value="@((editing?.Color ?? "#5865f2").TrimStart('#'))" maxlength="7" pattern="#?[0-9a-fA-F]{6}" /></label>
+        </div>
+        <label>Discord webhook URL <input name="url" type="url" value="@editing?.Url" required placeholder="https://discord.com/api/webhooks/..." autocomplete="off" /></label>
+        <label class="check"><input type="checkbox" name="enabled" value="true" checked="@(editing?.Enabled ?? true)" /> Offer this profile in the endpoint builder</label>
+        <div class="actions"><button type="submit">@(editing is null ? "Add profile" : "Save profile")</button>@if (editing is not null) { <a class="button secondary" href="@url/webhooks">Cancel</a> }</div>
+    </form>
+</section>
+<script src="/owner-assets/m/manage.js" defer></script>

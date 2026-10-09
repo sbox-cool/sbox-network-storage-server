@@ -200,6 +200,22 @@ public static class EndpointExecutionEndpoints
                 claimedSteamId);
         if (steamId is null) return;
 
+        // Projects with enableEncryptedRequests advertise it in the signed security
+        // config; the library then sends only {security, encrypted, envelope}.
+        if (HttpMethods.IsPost(context.Request.Method) && EncryptedEndpointEnvelope.TryRead(body, out var envelope))
+        {
+            // The library derives the envelope key from its public ApiKey (x-public-key / ?apiKey).
+            var decrypted = EncryptedEndpointEnvelope.Decrypt(envelope, FirstNonEmpty(publicKey, apiKeyQuery) ?? "",
+                projectId, endpointSlug, hasSecretKey ? null : steamId, ResolveAuthSessionId(context, body, projectId),
+                DateTimeOffset.UtcNow);
+            if (!decrypted.Ok)
+            {
+                await WriteEndpointErrorAsync(context, decrypted.Status, decrypted.Code!, decrypted.Message!);
+                return;
+            }
+            body = decrypted.Payload;
+        }
+
         // Input source matches the Bun execution path: POST reads the JSON body,
         // GET (and other non-POST methods) read query parameters. Reserved auth keys
         // are never surfaced as endpoint input.
@@ -502,6 +518,22 @@ public static class EndpointExecutionEndpoints
             JsonValueKind.Number when name == "steamId" => value.GetRawText(),
             _ => null
         };
+    }
+
+    /// <summary>Id of the valid auth session presented with this request (same sources as identity resolution).</summary>
+    private static string? ResolveAuthSessionId(HttpContext context, JsonElement body, string projectId)
+    {
+        var authorization = context.Request.Headers.Authorization.FirstOrDefault() ?? "";
+        var token = FirstNonEmpty(
+            context.Request.Headers["x-auth-session"].FirstOrDefault(),
+            context.Request.Headers["x-auth-session-token"].FirstOrDefault(),
+            authorization.StartsWith("bearer ", StringComparison.OrdinalIgnoreCase) ? authorization[7..].Trim() : null,
+            context.Request.Query["authSessionToken"].FirstOrDefault(),
+            context.Request.Query["sessionToken"].FirstOrDefault(),
+            ReadBodyString(body, "authSessionToken"), ReadBodyString(body, "sessionToken"));
+        if (token is null) return null;
+        var valid = context.RequestServices.GetRequiredService<INetworkStorageAuthSessionService>().Validate(projectId, token);
+        return valid.Ok ? valid.Session?.Id : null;
     }
 
     private static readonly HashSet<string> ReservedQueryKeys = new(StringComparer.OrdinalIgnoreCase)

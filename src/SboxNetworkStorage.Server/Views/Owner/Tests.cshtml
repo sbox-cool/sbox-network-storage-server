@@ -1,0 +1,140 @@
+@model SboxNetworkStorage.Server.Owner.OwnerTestsModel
+@using System.Text.Json
+@using SboxNetworkStorage.Server.Owner
+@{
+    Layout = "~/Views/Owner/_Layout.cshtml";
+    var url = "/dashboard/projects/" + Uri.EscapeDataString(Model.ProjectId);
+    var form = Model.Form;
+    string Str(JsonElement element, string name) => element.ValueKind == JsonValueKind.Object && element.TryGetProperty(name, out var value)
+        ? value.ValueKind == JsonValueKind.String ? value.GetString() ?? "" : value.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined ? "" : value.GetRawText()
+        : "";
+    bool Flag(JsonElement element, string name) => element.ValueKind == JsonValueKind.Object && element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.True;
+    JsonElement Prop(JsonElement element, string name) => element.ValueKind == JsonValueKind.Object && element.TryGetProperty(name, out var value) ? value : default;
+    IEnumerable<JsonElement> Items(JsonElement element, string name) => Prop(element, name) is { ValueKind: JsonValueKind.Array } list ? list.EnumerateArray() : Enumerable.Empty<JsonElement>();
+}
+<link rel="stylesheet" href="/owner-assets/m/manage.css" />
+<div class="page-heading"><div><h1>Endpoint tests</h1><p>Run endpoints as a player against live data without saving anything, for @Model.ProjectName.</p></div><a class="button secondary" href="@url/resources/endpoint">Endpoints</a></div>
+@if (Model.Notice is not null) { <p class="notice success" role="status">@Model.Notice</p> }
+@if (Model.Error is not null) { <p class="error" role="alert">@Model.Error</p> }
+<aside class="notice"><strong>Dry run</strong><p>Tests use the same executor as live calls and read your real records, but record writes are only collected and shown, never stored. Webhook steps are skipped and sleeps return immediately.</p></aside>
+@if (Model.Endpoints.Count == 0)
+{
+    <section class="card empty-state"><h2>No endpoints yet</h2><p>Create an endpoint first, then come back to try it.</p><a class="button" href="@url/resources/endpoint">Create an endpoint</a></section>
+}
+else
+{
+<section class="card" id="try-it">
+    <div class="section-heading"><h2>Try it</h2>@if (form.TestId is not null) { <span class="badge">Saved test @form.TestId</span> }</div>
+    <form method="post" action="@url/tests/run#result">
+        @Html.AntiForgeryToken()
+        <input type="hidden" name="testId" value="@form.TestId" />
+        <div class="form-grid">
+            <label>Endpoint <select name="endpoint" data-test-endpoint>
+                @foreach (var endpoint in Model.Endpoints)
+                {
+                    <option value="@endpoint.Slug" data-template="@endpoint.InputTemplate" selected="@(endpoint.Slug == form.Endpoint)">@endpoint.Method @endpoint.Slug</option>
+                }
+            </select></label>
+            <label>Player Steam ID <input name="steamId" value="@form.SteamId" list="test-players" inputmode="numeric" maxlength="32" required /></label>
+            <label>Expected outcome <select name="expectOutcome">
+                <option value="pass" selected="@(form.ExpectOutcome == "pass")">Succeeds (2xx)</option>
+                <option value="fail" selected="@(form.ExpectOutcome == "fail")">Is rejected</option>
+                <option value="any" selected="@(form.ExpectOutcome == "any")">Either</option>
+            </select></label>
+            <label>Expected status <input name="expectStatus" value="@form.ExpectStatus" inputmode="numeric" maxlength="3" placeholder="Any" /></label>
+        </div>
+        <label for="test-input">Input (JSON object)</label>
+        <textarea id="test-input" class="code-editor manage-input" name="input" rows="8" spellcheck="false" data-test-input>@form.InputJson</textarea>
+        <label class="check"><input type="checkbox" name="asServer" value="true" checked="@form.AsServer" /> Call as a dedicated server (secret key). Leave off to call as a game client.</label>
+        <label>Test name <input name="name" value="@form.Name" maxlength="120" placeholder="Needed only to save, for example Spend more than balance is rejected" /></label>
+        <div class="actions"><button type="submit" name="intent" value="run">Run test</button><button type="submit" name="intent" value="save" class="secondary">@(form.TestId is null ? "Save and run" : "Update and run")</button>@if (form.TestId is not null) { <a class="button secondary" href="@url/tests">New test</a> }</div>
+    </form>
+    <datalist id="test-players"><option value="@SboxNetworkStorage.Infrastructure.NetworkStorage.ManagementEndpointTestRunner.DefaultSteamId"></option>@foreach (var player in Model.KnownPlayers) { <option value="@player"></option> }</datalist>
+</section>
+}
+@if (Model.Result is { } result)
+{
+    var outcome = Prop(result, "result");
+    var passed = Flag(result, "passed");
+    <section class="card" id="result">
+        <div class="section-heading">
+            <h2>Result: @Str(result, "method") @Str(result, "endpoint")</h2>
+            <div class="actions"><span class="badge @(passed ? "positive" : "manage-failed")">@(passed ? "Passed" : "Failed")</span><span class="badge">HTTP @Str(outcome, "status")</span><span class="badge">@Str(Prop(outcome, "timing"), "total") ms</span></div>
+        </div>
+        @if (!passed && Str(result, "reason") is { Length: > 0 } reason) { <p class="error">@reason</p> }
+        @foreach (var warning in Items(result, "warnings")) { <p class="notice security">@warning.GetString()</p> }
+        <h3>Response body</h3>
+        <pre class="json">@OwnerTestsController.Pretty(Prop(outcome, "body"))</pre>
+        <h3>Steps</h3>
+        @if (!Items(result, "steps").Any()) { <p class="muted">No steps ran.</p> }
+        else
+        {
+            <div class="table-scroll"><table>
+                <thead><tr><th>Step</th><th>Type</th><th>Status</th><th>Value</th></tr></thead>
+                <tbody>
+                @foreach (var step in Items(result, "steps"))
+                {
+                    <tr><td><code>@Str(step, "id")</code></td><td>@Str(step, "type")</td><td>@(Flag(step, "passed") ? "Ran" : "Stopped the run")</td>
+                        <td><details><summary>Show value</summary><pre class="json">@OwnerTestsController.Pretty(Prop(step, "result"))</pre></details></td></tr>
+                }
+                </tbody>
+            </table></div>
+        }
+        <h3>Writes that would run <span class="badge">@Items(result, "pendingWrites").Count()</span></h3>
+        @if (!Items(result, "pendingWrites").Any()) { <p class="muted">This run queued no record writes.</p> }
+        else
+        {
+            <div class="table-scroll"><table>
+                <thead><tr><th>Operation</th><th>Collection</th><th>Key</th><th>Record after the write</th></tr></thead>
+                <tbody>
+                @foreach (var write in Items(result, "pendingWrites"))
+                {
+                    <tr><td>@Str(write, "op")</td><td><code>@Str(write, "collection")</code></td><td><code>@Str(write, "key")</code></td>
+                        <td><details><summary>Show record</summary><pre class="json">@OwnerTestsController.Pretty(Prop(write, "data"))</pre></details></td></tr>
+                }
+                </tbody>
+            </table></div>
+        }
+    </section>
+}
+<section class="card" id="saved-tests">
+    <div class="section-heading"><h2>Saved tests <span class="badge">@Model.Tests.Count</span></h2>
+        @if (Model.Tests.Count > 0) { <form method="post" action="@url/tests/run-all#report">@Html.AntiForgeryToken()<button type="submit">Run all saved tests</button></form> }
+    </div>
+    <p class="muted">Saved tests are shared with the editor Sync Tool test window (<code>tests.json</code>).</p>
+    @if (Model.Tests.Count == 0) { <p class="muted">No saved tests yet. Fill in Try it, give the test a name and choose Save and run.</p> }
+    else
+    {
+        <div class="table-scroll"><table>
+            <thead><tr><th>Test</th><th>Endpoint</th><th>Expects</th><th>Player</th><th>Actions</th></tr></thead>
+            <tbody>
+            @foreach (var test in Model.Tests)
+            {
+                <tr><td><strong>@test.Name</strong><br /><code>@test.Id</code></td><td><code>@test.Endpoint</code></td>
+                    <td>@(test.ExpectOutcome switch { "fail" => "Rejection", "any" => "Either", _ => "Success" })@(test.ExpectStatus is { } status ? $" (HTTP {status})" : "")</td>
+                    <td><code>@test.SteamId</code>@(test.AsServer ? " as server" : "")</td>
+                    <td class="actions"><a class="button secondary" href="@url/tests?test=@Uri.EscapeDataString(test.Id)#try-it">Open</a>
+                        <form method="post" action="@url/tests/delete">@Html.AntiForgeryToken()<input type="hidden" name="id" value="@test.Id" /><button class="danger" type="submit">Delete</button></form></td></tr>
+            }
+            </tbody>
+        </table></div>
+    }
+</section>
+@if (Model.Report is { } report)
+{
+    <section class="card" id="report">
+        <div class="section-heading"><h2>Saved test run</h2><div class="actions"><span class="badge positive">@Str(report, "passed") passed</span><span class="badge @(Str(report, "failed") == "0" ? "" : "manage-failed")">@Str(report, "failed") failed</span></div></div>
+        <div class="table-scroll"><table>
+            <thead><tr><th>Test</th><th>Endpoint</th><th>Result</th><th>Status</th><th>Time</th></tr></thead>
+            <tbody>
+            @foreach (var entry in Items(report, "results"))
+            {
+                <tr><td>@Str(entry, "name")</td><td><code>@Str(entry, "endpoint")</code></td>
+                    <td>@(Flag(entry, "passed") ? "Passed" : "Failed")@if (Str(entry, "reason") is { Length: > 0 } why) { <br /><span class="muted">@why</span> }</td>
+                    <td>@Str(Prop(entry, "result"), "status")</td><td>@Str(Prop(entry, "timing"), "total") ms</td></tr>
+            }
+            </tbody>
+        </table></div>
+    </section>
+}
+<script src="/owner-assets/m/manage.js" defer></script>
