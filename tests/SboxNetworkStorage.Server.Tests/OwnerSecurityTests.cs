@@ -16,11 +16,12 @@ public sealed class OwnerSecurityTests
     [Fact]
     public void TotpMatchesRfc6238AndRejectsReplay()
     {
-        const string secret = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ";
-        Assert.Equal("287082", OwnerTotp.Code(secret, 1));
-        Assert.Equal(1L, OwnerTotp.Match(secret, "287082", -1, DateTimeOffset.FromUnixTimeSeconds(59)));
-        Assert.Null(OwnerTotp.Match(secret, "287082", 1, DateTimeOffset.FromUnixTimeSeconds(59)));
-        Assert.Null(OwnerTotp.Match(secret, "12345x", -1, DateTimeOffset.FromUnixTimeSeconds(59)));
+        // Public RFC 6238 test vector (base32 of "12345678901234567890"), not a credential.
+        const string rfc6238Vector = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ";
+        Assert.Equal("287082", OwnerTotp.Code(rfc6238Vector, 1));
+        Assert.Equal(1L, OwnerTotp.Match(rfc6238Vector, "287082", -1, DateTimeOffset.FromUnixTimeSeconds(59)));
+        Assert.Null(OwnerTotp.Match(rfc6238Vector, "287082", 1, DateTimeOffset.FromUnixTimeSeconds(59)));
+        Assert.Null(OwnerTotp.Match(rfc6238Vector, "12345x", -1, DateTimeOffset.FromUnixTimeSeconds(59)));
     }
 
     [Fact]
