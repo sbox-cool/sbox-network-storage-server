@@ -177,6 +177,7 @@ public sealed class UpdateTrustTests : IDisposable
     [Fact]
     public void State_folder_that_the_service_could_write_is_refused()
     {
+        if (OperatingSystem.IsWindows()) return; // folder-trust checks are Unix permissions; Windows skips them by design.
         var folder = Directory.CreateDirectory(Path.Combine(_root, "state")).FullName;
         File.SetUnixFileMode(folder, UserAll | UnixFileMode.GroupWrite);
 
@@ -188,6 +189,7 @@ public sealed class UpdateTrustTests : IDisposable
     [Fact]
     public void State_folder_owned_by_the_service_user_is_refused_for_root()
     {
+        if (OperatingSystem.IsWindows()) return; // folder-trust checks are Unix permissions; Windows skips them by design.
         var folder = Directory.CreateDirectory(Path.Combine(_root, "state")).FullName;
         File.SetUnixFileMode(folder, UserAll);
         var asRoot = new FolderTrust(effectiveUser: 0, ownerOf: _ => 995);
@@ -201,6 +203,7 @@ public sealed class UpdateTrustTests : IDisposable
     [Fact]
     public void State_folder_that_is_a_symlink_is_refused()
     {
+        if (OperatingSystem.IsWindows()) return; // folder-trust checks are Unix permissions; Windows skips them by design.
         var real = Directory.CreateDirectory(Path.Combine(_root, "real")).FullName;
         File.SetUnixFileMode(real, UserAll);
         var link = Path.Combine(_root, "link");
@@ -229,6 +232,7 @@ public sealed class UpdateTrustTests : IDisposable
     [Fact]
     public void Binary_swap_refuses_a_symlinked_target_and_leaves_its_destination_alone()
     {
+        if (OperatingSystem.IsWindows()) return; // folder-trust checks are Unix permissions; Windows skips them by design.
         var bin = Directory.CreateDirectory(Path.Combine(_root, "bin")).FullName;
         var victim = Path.Combine(_root, "victim");
         File.WriteAllText(victim, "precious");
@@ -246,6 +250,7 @@ public sealed class UpdateTrustTests : IDisposable
     [Fact]
     public void Binary_swap_refuses_a_folder_the_service_could_write()
     {
+        if (OperatingSystem.IsWindows()) return; // folder-trust checks are Unix permissions; Windows skips them by design.
         var bin = Directory.CreateDirectory(Path.Combine(_root, "bin")).FullName;
         File.SetUnixFileMode(bin, UserAll | UnixFileMode.OtherWrite);
         var target = Path.Combine(bin, "sbox-ns");

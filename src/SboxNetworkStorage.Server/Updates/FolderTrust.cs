@@ -12,7 +12,7 @@ namespace SboxNetworkStorage.Server.Updates;
 /// </summary>
 public sealed class FolderTrust(uint effectiveUser, Func<string, uint> ownerOf)
 {
-    public static FolderTrust Host { get; } = new(EffectiveUserId(), StatOwner);
+    public static FolderTrust Host { get; } = new(OperatingSystem.IsWindows() ? 0u : EffectiveUserId(), StatOwner);
 
     [DllImport("libc", EntryPoint = "geteuid")]
     private static extern uint EffectiveUserId();

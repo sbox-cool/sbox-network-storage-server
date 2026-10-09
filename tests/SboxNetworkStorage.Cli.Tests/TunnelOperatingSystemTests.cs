@@ -39,7 +39,10 @@ public sealed class TunnelOperatingSystemTests
             Configure(configDirectory);
             foreach (var path in Directory.EnumerateFiles(configDirectory))
                 File.SetUnixFileMode(path, PrivateFile | UnixFileMode.GroupRead | UnixFileMode.OtherRead);
-            File.SetUnixFileMode(Path.Combine(configDirectory, ConfigLoader.ConfDirectory), PrivateDirectory);
+            // Like the installed layout: operator folders are root-owned and readable by the service group.
+            var confDirectory = Path.Combine(configDirectory, ConfigLoader.ConfDirectory);
+            File.SetUnixFileMode(confDirectory, PrivateDirectory | UnixFileMode.GroupRead | UnixFileMode.GroupExecute);
+            await RunAsync("/usr/bin/chown", ["--", "0:" + gid, confDirectory]);
             // Runtime state lives in the data folder's state folder, which belongs to the service account.
             var stateDirectory = Path.Combine(dataDirectory, StateLayout.FolderName);
             Directory.CreateDirectory(stateDirectory);

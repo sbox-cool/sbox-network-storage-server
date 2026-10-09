@@ -32,6 +32,7 @@ public sealed class SystemdUnitRenderTests : IDisposable
     [Fact]
     public void Service_unit_is_the_install_file_with_placeholders_substituted()
     {
+        if (OperatingSystem.IsWindows()) return; // systemd units quote Windows paths differently; the units are Linux-only.
         var config = ConfigLoader.Load(Path.Combine(_root, "config"), Path.Combine(_root, "data"), environment: _ => null);
         var expected = InstallFile("sbox-ns.service")
             .Replace("@BINARY@", Binary)
@@ -50,6 +51,7 @@ public sealed class SystemdUnitRenderTests : IDisposable
     [Fact]
     public void Unmigrated_layout_keeps_the_config_folder_writable_only_when_asked()
     {
+        if (OperatingSystem.IsWindows()) return; // systemd units quote Windows paths differently; the units are Linux-only.
         var config = ConfigLoader.Load(Path.Combine(_root, "config"), Path.Combine(_root, "data"), environment: _ => null);
 
         var line = SystemdUnits.ServiceUnit(Binary, config, User, writableConfig: true)
