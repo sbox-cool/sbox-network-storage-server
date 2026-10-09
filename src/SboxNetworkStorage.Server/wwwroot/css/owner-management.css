@@ -14,12 +14,13 @@ h3 { font-size: 1rem; }
 p { margin: .5rem 0 1rem; }
 .topbar { display: flex; justify-content: space-between; align-items: center; gap: 1rem; min-height: 84px; padding: 1rem 2rem; border-bottom: 1px solid var(--border); background: var(--card); }
 .brand { display: flex; align-items: center; gap: .8rem; color: var(--text); text-decoration: none; font-size: 1.05rem; font-weight: 750; }
-.brand-mark { display: grid; place-items: center; height: 36px; width: 36px; border-radius: var(--radius-sm); color: var(--accent-text); background: var(--accent); font-size: 1.2rem; font-weight: 750; }
+.brand-mark { display: grid; place-items: center; height: 36px; width: 36px; border-radius: var(--radius-sm); color: var(--accent-text); background: linear-gradient(135deg, var(--accent) 20%, var(--muted) 130%); font-size: 1.2rem; font-weight: 750; }
 .header-meta { display: flex; align-items: center; gap: 1rem; }
 .version { color: var(--muted); font-size: .8rem; }
 .shell { display: grid; grid-template-columns: 220px minmax(0, 1fr); min-height: calc(100vh - 84px); }
 .sidebar { border-right: 1px solid var(--border); padding: 1.6rem 1rem; background: var(--card); }
-.sidebar nav a { display: block; border-radius: var(--radius-sm); padding: .55rem .8rem; margin: .15rem 0; color: var(--muted); text-decoration: none; }
+.sidebar nav a { display: flex; align-items: center; gap: .6rem; border-radius: var(--radius-sm); padding: .55rem .8rem; margin: .15rem 0; color: var(--muted); text-decoration: none; }
+.nav-icon { width: 16px; height: 16px; flex: none; }
 .sidebar nav a:hover { background: var(--surface-2); color: var(--text); }
 .sidebar nav a[aria-current="page"] { background: var(--surface-2); color: var(--text); font-weight: 650; }
 .nav-label { margin: 1.4rem .8rem .5rem; font-size: .85rem; font-weight: 600; color: var(--muted); }
@@ -42,9 +43,13 @@ footer { display: flex; justify-content: space-between; gap: 1rem; flex-wrap: wr
 .grid { margin-bottom: 1.5rem; }
 .overview-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .metric { display: flex; flex-direction: column; gap: .6rem; }
-.metric > span { color: var(--muted); }
-.metric > strong { font-size: 1.5rem; font-variant-numeric: tabular-nums; }
-.metric > strong.status-text { font-size: 1.1rem; color: var(--green); }
+.metric > span { display: flex; align-items: center; gap: .5rem; color: var(--muted); }
+.metric > span > svg { width: 15px; height: 15px; flex: none; }
+.project-card { transition: border-color .15s ease-in-out, transform .15s ease-in-out; }
+.project-card:hover { border-color: var(--muted); transform: translateY(-2px); }
+.project-card h2 a:hover { color: var(--text); }
+.sample-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); gap: 1rem; }
+.sample-grid h3 { font-size: .85rem; color: var(--muted); margin: 0 0 .4rem; }
 .metric > a { font-size: .8rem; }
 .badge { display: inline-block; font-size: .8rem; line-height: 1.5; padding: .15rem .45rem; color: var(--muted); border: 1px solid var(--border); background: var(--surface-2); border-radius: var(--radius-sm); white-space: nowrap; }
 .badge.positive { color: var(--green); border-color: var(--green); }
