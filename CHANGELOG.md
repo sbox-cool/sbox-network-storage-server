@@ -22,6 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   enabled. Plain-HTTP installs never send it.
 - Endpoint collection scans are capped at 1000 rows per request (`SCAN_TOO_LARGE`
   beyond that) instead of reading unbounded collections on every game call.
+- Visual editor guards (precision loss, duplicate keys, sourceText) are covered
+  by `node --test tests/js/`, wired into CI.
 - Dedicated public demo mode (`adminpanel.demo_read_only`) with server-enforced
   read-only access and generated sample data in an isolated SQLite database;
   every mutation, owner login/setup/security/export and game execution route is

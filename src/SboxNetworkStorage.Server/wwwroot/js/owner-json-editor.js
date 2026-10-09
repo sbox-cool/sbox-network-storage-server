@@ -17,22 +17,28 @@
     var number = Number(token);
     return Number.isFinite(number) && decimal(token) === decimal(JSON.stringify(number));
   }
-  function parse(text) {
-    var value = JSON.parse(text);
+  function scanProblems(text) {
     // Skip quoted strings when checking numeric lexemes. JSON.parse would otherwise
     // round long decimal values before the editor knows they were present.
     var tokens = text.match(/"(?:[^"\\]|\\.)*"|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|[{}\[\]:]/g) || [];
     var stack = [];
-    tokens.forEach(function (token, index) {
+    for (var index = 0; index < tokens.length; index++) {
+      var token = tokens[index];
       if (token === "{") stack.push(new Set());
       else if (token === "[") stack.push(null);
       else if (token === "}" || token === "]") stack.pop();
       else if (token[0] === '"' && tokens[index + 1] === ":") {
         var keys = stack[stack.length - 1], key = JSON.parse(token);
-        if (keys.has(key)) throw new Error("Duplicate object keys cannot be represented in visual mode. Use JSON mode to preserve them.");
+        if (keys.has(key)) return "Duplicate object keys cannot be represented in visual mode. Use JSON mode to preserve them.";
         keys.add(key);
-      } else if (/^-?\d/.test(token) && !exactNumber(token)) throw new Error("A number would lose precision in visual mode. Use JSON mode to preserve it.");
-    });
+      } else if (/^-?\d/.test(token) && !exactNumber(token)) return "A number would lose precision in visual mode. Use JSON mode to preserve it.";
+    }
+    return null;
+  }
+  function parse(text) {
+    var value = JSON.parse(text);
+    var problem = scanProblems(text);
+    if (problem) throw new Error(problem);
     function check(node) {
       if (typeof node === "number" && (!Number.isFinite(node) || (Number.isInteger(node) && !Number.isSafeInteger(node)))) throw new Error("A number exceeds the visual editor's safe precision. Use JSON mode to preserve it.");
       if (node && typeof node === "object") Object.keys(node).forEach(function (key) { check(node[key]); });
@@ -137,4 +143,6 @@
       sync();
     });
   });
+  // Test hook only: the browser never defines module, so this is inert in production.
+  if (typeof module !== "undefined" && module.exports) module.exports = { decimal: decimal, exactNumber: exactNumber, scanProblems: scanProblems, parse: parse };
 })();
