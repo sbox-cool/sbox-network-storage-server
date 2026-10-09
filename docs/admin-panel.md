@@ -156,11 +156,10 @@ collection type and expected version.
 ## Authoring and runtime diagnostics
 
 The project overview links to collection/schema, endpoint, workflow and query
-definitions and game values. Edit JSON directly, or keep source-backed definitions
-in a wrapper with `sourceText`, `sourceFormat`, `sourcePath` and `authoringMode`.
-The owner console reuses the editor compiler and management writes. Source text
-remains authoritative when present; saving preserves source metadata and updates
-only the selected resource, not other definitions.
+definitions and game values. Author definitions in YAML; the dashboard stores
+your source text and compiles it with the same compiler as editor sync.
+Raw JSON is still accepted for older edits but is deprecated. Saving preserves
+source metadata and updates only the selected resource, not other definitions.
 
 Saved definitions are available to the runtime immediately. Editor sync can
 overwrite dashboard edits, so reconcile changes with your checked-in YAML/JSON
@@ -204,15 +203,13 @@ your operating system. Your choice is stored in this browser only; it does not
 change other operators' dashboards. All themes work without external assets.
 The shared design rules live in [UI guidelines](ui-guidelines.md).
 
-Record payloads and collection definitions open in JSON mode. Select **Visual**
+Record payloads open in JSON mode. Select **Visual**
 to edit strings, numbers, booleans, objects and arrays without writing JSON.
 You can add or remove nested fields, then switch back to JSON or save directly.
-Unknown fields are kept, including authoring metadata.
+Unknown fields are kept.
 
-Visual mode refuses duplicate keys, numbers that JavaScript would round, and
-definitions with authoritative `sourceText`. Keep those in JSON mode to preserve
-the original text. Editing compiled fields cannot replace editing authoritative
-source. Both modes use the same server-side schema validation, permission checks
+Visual mode refuses duplicate keys and numbers that JavaScript would round.
+Both modes use the same server-side schema validation, permission checks
 and conflict detection.
 
 ## Optional admin security

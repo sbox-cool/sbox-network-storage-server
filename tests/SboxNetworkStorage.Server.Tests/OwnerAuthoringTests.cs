@@ -64,9 +64,42 @@ public abstract class OwnerAuthoringTests<TFactory> : IDisposable where TFactory
             Assert.Equal(id, payload.GetProperty("id").GetString());
             if (kind == "endpoint") Assert.True(payload.GetProperty("response").GetProperty("ok").GetBoolean());
             var editPage = WebUtility.HtmlDecode(await client.GetStringAsync(url + "?id=" + id));
-            Assert.Contains("sourcePath", editPage);
+            Assert.Contains(source, editPage);
             Assert.Contains(id, editPage);
         }
+    }
+    [SkippableFact]
+    public async Task YamlFirstResourcesSaveDisplayAndJsonFallback()
+    {
+        await CreateOwnerAsync(factory);
+        var project = await factory.CreateProjectAsync("YAML first");
+        using var client = await LoggedInClientAsync(factory);
+        var url = $"/dashboard/projects/{project.ProjectId}/resources/collection";
+        var template = WebUtility.HtmlDecode(await client.GetStringAsync(url));
+        Assert.Contains("id: player_stats", template);
+        Assert.DoesNotContain("data-json-editor", template);
+        const string yaml = "id: player_stats\nname: Player stats\ncollectionType: player\nschema:\n  coins:\n    type: number\n";
+        var page = await client.GetStringAsync(url);
+        using var saved = await client.PostAsync(url, Form(("definition", yaml), ("__RequestVerificationToken", Csrf(page))));
+        Assert.Equal(HttpStatusCode.Redirect, saved.StatusCode);
+        await using var scope = factory.Services.CreateAsyncScope();
+        var store = scope.ServiceProvider.GetRequiredService<INetworkStorageStore>();
+        var payload = Column((await store.ReadCollectionAsync(project.ProjectId, "player_stats", CancellationToken.None))!.Value, "definition_json");
+        Assert.Equal(yaml, payload.GetProperty("sourceText").GetString());
+        Assert.Equal("yaml", payload.GetProperty("sourceFormat").GetString());
+        Assert.Equal("dashboard", payload.GetProperty("authoringMode").GetString());
+        Assert.Equal("number", payload.GetProperty("schema").GetProperty("coins").GetProperty("type").GetString());
+        var editPage = WebUtility.HtmlDecode(await client.GetStringAsync(url + "?id=player_stats"));
+        Assert.Contains("coins:", editPage);
+        Assert.DoesNotContain("&quot;id&quot;", editPage);
+        using var legacy = await client.PostAsync(url, Form(("definition", "{\"id\":\"legacy\",\"name\":\"Legacy\",\"collectionType\":\"player\",\"schema\":{}}"), ("__RequestVerificationToken", Csrf(page))));
+        Assert.Equal(HttpStatusCode.Redirect, legacy.StatusCode);
+        Assert.NotNull(await store.ReadCollectionAsync(project.ProjectId, "legacy", CancellationToken.None));
+        var legacyPage = WebUtility.HtmlDecode(await client.GetStringAsync(url + "?id=legacy"));
+        Assert.Contains("id: legacy", legacyPage);
+        using var broken = await client.PostAsync(url, Form(("definition", "id: [unclosed"), ("__RequestVerificationToken", Csrf(page))));
+        Assert.Equal(HttpStatusCode.BadRequest, broken.StatusCode);
+        Assert.Contains("id: [unclosed", WebUtility.HtmlDecode(await broken.Content.ReadAsStringAsync()));
     }
 
     [SkippableFact]

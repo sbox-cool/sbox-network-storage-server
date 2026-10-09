@@ -128,6 +128,8 @@ public static class OwnerHostingExtensions
             typeof(OwnerHostingExtensions).Assembly.GetManifestResourceStream("SboxNetworkStorage.Server.Owner.json-editor.js")!, "text/javascript"));
         app.MapGet("/owner-assets/demo.js", () => Results.Stream(
             typeof(OwnerHostingExtensions).Assembly.GetManifestResourceStream("SboxNetworkStorage.Server.Owner.demo.js")!, "text/javascript"));
+        app.MapGet("/owner-assets/resource-builder.js", () => Results.Stream(
+            typeof(OwnerHostingExtensions).Assembly.GetManifestResourceStream("SboxNetworkStorage.Server.Owner.builder.js")!, "text/javascript"));
         return app;
     }
 }

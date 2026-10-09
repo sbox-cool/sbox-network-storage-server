@@ -14,12 +14,27 @@
     @if (Model.Items.Count == 0) { <p class="muted">No resources yet. Start with a definition on the right.</p> }
     <ul>@foreach (var item in Model.Items) { <li><a href="@url/resources/@Model.Kind?id=@Uri.EscapeDataString(item.Id)" aria-current="@(item.Id == Model.Id ? "page" : null)"><strong>@item.Name</strong><code>@item.Id</code></a></li> }</ul></aside>
 }
-<section class="card"><div class="section-heading"><h2>@(Model.Id is null && Model.Kind != "game-values" ? "Create definition" : "Edit definition")</h2><span class="badge">JSON / YAML source</span></div>
-<p>Use a JSON definition, or a JSON wrapper with <code>sourceText</code>, <code>sourceFormat</code> (<code>yaml</code> or <code>json</code>), <code>sourcePath</code>, and <code>authoringMode</code>. The existing editor compiler preserves source metadata. When a resource has source text, edit that source: it remains authoritative over the compiled fields.</p>
+@if (Model.Kind == "endpoint")
+{
+<section class="card"><div class="section-heading"><h2>Endpoint builder</h2><span class="badge">Guided</span></div>
+<p>Set the routing fields, then insert step skeletons at the cursor. Review the YAML before saving.</p>
+<div class="form-grid"><label>Method <select id="builder-method"><option>GET</option><option>POST</option><option>PUT</option><option>DELETE</option></select></label><label>Enabled <select id="builder-enabled"><option value="true">On</option><option value="false">Off</option></select></label><div class="actions"><button type="button" class="secondary" id="builder-apply-endpoint">Apply method and enabled</button></div></div>
+<div class="form-grid"><label>Step type <select id="builder-step"><option value="read">read: load one record</option><option value="write">write: save player data</option><option value="condition">condition: guard with onFail</option><option value="transform">transform: compute a value</option><option value="filter">filter: match many records</option><option value="webhook">webhook: Discord notice</option></select></label><div class="actions"><button type="button" class="secondary" id="builder-add-step">Insert step</button></div></div></section>
+}
+@if (Model.Kind == "collection")
+{
+<section class="card"><div class="section-heading"><h2>Collection builder</h2><span class="badge">Guided</span></div>
+<p>Set the storage kind, then insert schema fields at the cursor. Place new fields under <code>schema:</code> before saving.</p>
+<div class="form-grid"><label>Storage kind <select id="builder-collection-type"><option value="per-steamid">Per player</option><option value="global">Global</option></select></label><div class="actions"><button type="button" class="secondary" id="builder-apply-collection">Apply storage kind</button></div></div>
+<div class="form-grid"><label>Field name <input id="builder-field-name" maxlength="64" placeholder="coins" /></label><label>Field type <select id="builder-field-type"><option value="number">number</option><option value="string">string</option><option value="boolean">boolean</option><option value="array">array</option><option value="object">object</option></select></label><div class="actions"><button type="button" class="secondary" id="builder-add-field">Insert field</button></div></div></section>
+}
+<section class="card"><div class="section-heading"><h2>@(Model.Id is null && Model.Kind != "game-values" ? "Create definition" : "Edit definition")</h2><span class="badge">YAML</span></div>
+<p>Author this resource in YAML. Saving keeps your source text, so what you wrote is what you keep editing. Raw JSON is still accepted for older edits but is deprecated. Editor pushes can overwrite dashboard edits. Coordinate authoring with your checked-in source.</p>
 <form method="post" action="@url/resources/@Model.Kind">
 @Html.AntiForgeryToken()
 @if (Model.Id is not null) { <input type="hidden" name="id" value="@Model.Id" /> }
-<label for="definition">@title definition</label><textarea class="code-editor" id="definition" data-json-editor="@(Model.Kind == "collection" ? "collection" : null)" name="definition" rows="24" required spellcheck="false">@Model.Definition</textarea>
+<label for="definition">@title definition (YAML)</label><textarea class="code-editor" id="definition" name="definition" rows="24" required spellcheck="false">@Model.Definition</textarea>
 <p class="muted">Saving updates this resource only; it does not remove other synced resources. Editor pushes can overwrite dashboard edits. Coordinate authoring with your checked-in source.</p><button type="submit">Save live definition</button>
 </form></section></div>
-@if (Model.Kind == "collection") { <script src="/owner-assets/json-editor.js" defer></script> }
+<script src="/owner-assets/resource-builder.js" defer></script>
+

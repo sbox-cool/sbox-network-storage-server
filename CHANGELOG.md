@@ -15,9 +15,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   optional operator-configured Turnstile with server-side success, action and
   hostname validation, including explicitly configured sboxns.com tunnel hosts.
 - Owner dashboard supports system, neutral dark, light, slate and warm themes,
-  plus opt-in visual editing of collection definitions and records alongside
-  JSON. Visual mode preserves unknown fields and refuses precision-losing
-  numbers, duplicate keys and authoritative sourceText definitions.
+  plus an opt-in visual editor for record payloads alongside raw editing.
+  Visual mode preserves unknown fields and refuses precision-losing
+  numbers and duplicate keys.
+- Dashboard resource definitions are YAML-first with guided endpoint and
+  collection builders: the editor shows YAML, saves keep YAML source text,
+  and raw JSON is deprecated but still accepted. Record payloads stay JSON.
 - `tls.hsts` sends Strict-Transport-Security on HTTPS responses when TLS is
   enabled. Plain-HTTP installs never send it.
 - Endpoint collection scans are capped at 1000 rows per request (`SCAN_TOO_LARGE`
