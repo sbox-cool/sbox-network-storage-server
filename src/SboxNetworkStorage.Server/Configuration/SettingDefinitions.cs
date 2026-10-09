@@ -63,6 +63,8 @@ public static class SettingDefinitions
             "Contact email registered with Let's Encrypt."),
         new(ServerFile, "tls.acme_accept_terms", SettingType.Boolean, false,
             "Set to true to accept the Let's Encrypt subscriber agreement (required for acme)."),
+        new(ServerFile, "tls.hsts", SettingType.Boolean, true,
+            "Send Strict-Transport-Security on HTTPS responses when TLS is enabled. Plain-HTTP installs never send it."),
         new(ServerFile, "logging.level", SettingType.String, "Information",
             "Minimum log level.", ["Trace", "Debug", "Information", "Warning", "Error"]),
         new(ServerFile, "auth.session_secret_file", SettingType.String, "secrets/auth_session_secret",
