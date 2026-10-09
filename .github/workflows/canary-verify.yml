@@ -39,13 +39,13 @@ env:
   PROMOTE_URL: https://sboxcool.com/api/ops/oss-release-channels/stable
   SOAK_HOURS: "24"
   UPDATE_GRACE_HOURS: "2"
-  PARITY: tools/SboxNetworkStorage.Parity/bin/Release/net8.0/sbox-ns-parity.dll
+  PARITY: tools/SboxNetworkStorage.Parity/bin/Release/net10.0/sbox-ns-parity.dll
 
 jobs:
   verify:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Resolve canary and channel versions
         id: canary
@@ -96,10 +96,10 @@ jobs:
             echo "stable=$stable_version"
           } >> "$GITHUB_OUTPUT"
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
         if: steps.canary.outputs.skip != 'true'
         with:
-          dotnet-version: 8.0.x
+          dotnet-version: 10.0.x
       - if: steps.canary.outputs.skip != 'true'
         run: dotnet build SboxNetworkStorage.sln -c Release
 
@@ -214,7 +214,7 @@ jobs:
             echo "::notice::$VERSION passes parity on the canary; ${AGE} h of ${SOAK_HOURS} h soak done, not promoted yet."
           fi
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
           name: canary-verify

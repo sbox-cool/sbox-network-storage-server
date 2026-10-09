@@ -113,13 +113,4 @@ public sealed class UsageMeteringStoreTests
         Assert.Equal(-150, Long(monthly!.Value, "storage_delta_bytes"));
     }
 
-    [Theory]
-    [InlineData("sboxcool", null, "sboxcool_usage")]
-    [InlineData("sboxcool", "  ", "sboxcool_usage")]
-    [InlineData("sboxcool", "billing_counters", "billing_counters")]
-    public void Effective_Usage_Keyspace_Defaults_To_Main_Keyspace_Suffix(string keyspace, string? configured, string expected)
-    {
-        var options = new ScyllaDbOptions { Keyspace = keyspace, UsageKeyspace = configured };
-        Assert.Equal(expected, options.EffectiveUsageKeyspace);
-    }
 }

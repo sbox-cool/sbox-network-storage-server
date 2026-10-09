@@ -23,10 +23,10 @@ public abstract class NetworkStorageRateLimitsCandidateTests<TFactory> : IClassF
         Skip.IfNot(factory.IsAvailable, factory.SkipReason);
         this.factory = factory;
     }
-    private static NetworkStorageCandidateRequest BuildRequest(string projectId, string? apiKey = "sk-test-key")
+    private static NetworkStorageRequest BuildRequest(string projectId, string? apiKey = "sk-test-key")
     {
         var route = NetworkStorageRouteClassifier.Classify("GET", $"/v3/storage/{projectId}/rate-limits");
-        return new NetworkStorageCandidateRequest(
+        return new NetworkStorageRequest(
             route,
             new Dictionary<string, string>(),
             ContentType: null,
@@ -70,22 +70,24 @@ public abstract class NetworkStorageRateLimitsCandidateTests<TFactory> : IClassF
         var resolver = new FakeResolver(new StorageApiKeyAuthResult(
             UserId: 42, ProjectId: "demo-project", Enabled: true, KeyType: "secret"));
         var projectService = new FakeProjectService(new ProjectRateLimits(endpointLimits, rules));
+        var store = new InMemoryNetworkStorageStore();
+        await store.UpsertRateLimitRulesAsync("demo-project", root.GetProperty("rules"), 1, CancellationToken.None);
+        await store.UpsertEndpointAsync("demo-project", "published", "published", "POST", true,
+            JsonSerializer.SerializeToElement(new { rateLimit = root.GetProperty("endpointRateLimits") }), null, 1, CancellationToken.None);
 
-        var handler = new RateLimitsCandidateHandler(resolver, projectService, new InMemoryNetworkStorageStore(), Options.Create(new ScyllaDbOptions()), (Microsoft.Extensions.Logging.Abstractions.NullLogger<RateLimitsCandidateHandler>.Instance));
+        var handler = new RateLimitsHandler(resolver, projectService, store, Microsoft.Extensions.Logging.Abstractions.NullLogger<RateLimitsHandler>.Instance);
         var result = await handler.ExecuteAsync(BuildRequest("demo-project"));
 
         Assert.Equal(200, result.StatusCode);
         Assert.Null(result.PublicErrorCode);
         Assert.Equal("secret", result.AuthDecision);
-        Assert.Contains("network-storage/users/42/demo-project/rate-limit-rules.json", result.StoragePathsRead);
 
         var json = JsonSerializer.SerializeToElement(result.Body);
         Assert.True(json.GetProperty("ok").GetBoolean());
-        Assert.Equal("configuration", json.GetProperty("source").GetString());
         Assert.Equal("demo-project", json.GetProperty("projectId").GetString());
 
         // Verify endpointRateLimits shape
-        var erl = json.GetProperty("endpointRateLimits");
+        var erl = json.GetProperty("endpointRateLimits").GetProperty("published");
         Assert.True(erl.GetProperty("enabled").GetBoolean());
 
         var perPlayer = erl.GetProperty("perPlayer");
@@ -129,7 +131,7 @@ public abstract class NetworkStorageRateLimitsCandidateTests<TFactory> : IClassF
             UserId: 42, ProjectId: "demo-project", Enabled: true, KeyType: "public"));
         var projectService = new FakeProjectService(new ProjectRateLimits(EndpointRateLimits: null, Rules: null));
 
-        var handler = new RateLimitsCandidateHandler(resolver, projectService, new InMemoryNetworkStorageStore(), Options.Create(new ScyllaDbOptions()), (Microsoft.Extensions.Logging.Abstractions.NullLogger<RateLimitsCandidateHandler>.Instance));
+        var handler = new RateLimitsHandler(resolver, projectService, new InMemoryNetworkStorageStore(), (Microsoft.Extensions.Logging.Abstractions.NullLogger<RateLimitsHandler>.Instance));
         var result = await handler.ExecuteAsync(BuildRequest("demo-project"));
 
         Assert.Equal(200, result.StatusCode);
@@ -138,10 +140,8 @@ public abstract class NetworkStorageRateLimitsCandidateTests<TFactory> : IClassF
 
         var json = JsonSerializer.SerializeToElement(result.Body);
         Assert.True(json.GetProperty("ok").GetBoolean());
-        Assert.Equal("configuration", json.GetProperty("source").GetString());
 
-        // EndpointRateLimits null in the response
-        Assert.Equal(JsonValueKind.Null, json.GetProperty("endpointRateLimits").ValueKind);
+        Assert.Empty(json.GetProperty("endpointRateLimits").EnumerateObject());
 
         // Rules should be empty array
         var rules = json.GetProperty("rules");
@@ -155,7 +155,7 @@ public abstract class NetworkStorageRateLimitsCandidateTests<TFactory> : IClassF
             UserId: 42, ProjectId: "demo-project", Enabled: true, KeyType: "secret"));
         var projectService = new FakeProjectService(new ProjectRateLimits(null, null));
 
-        var handler = new RateLimitsCandidateHandler(resolver, projectService, new InMemoryNetworkStorageStore(), Options.Create(new ScyllaDbOptions()), (Microsoft.Extensions.Logging.Abstractions.NullLogger<RateLimitsCandidateHandler>.Instance));
+        var handler = new RateLimitsHandler(resolver, projectService, new InMemoryNetworkStorageStore(), (Microsoft.Extensions.Logging.Abstractions.NullLogger<RateLimitsHandler>.Instance));
 
         // No API key in credentials
         var result = await handler.ExecuteAsync(BuildRequest("demo-project", apiKey: null));
@@ -178,7 +178,7 @@ public abstract class NetworkStorageRateLimitsCandidateTests<TFactory> : IClassF
         var resolver = new FakeResolver(null); // key not resolved
         var projectService = new FakeProjectService(new ProjectRateLimits(null, null));
 
-        var handler = new RateLimitsCandidateHandler(resolver, projectService, new InMemoryNetworkStorageStore(), Options.Create(new ScyllaDbOptions()), (Microsoft.Extensions.Logging.Abstractions.NullLogger<RateLimitsCandidateHandler>.Instance));
+        var handler = new RateLimitsHandler(resolver, projectService, new InMemoryNetworkStorageStore(), (Microsoft.Extensions.Logging.Abstractions.NullLogger<RateLimitsHandler>.Instance));
         var result = await handler.ExecuteAsync(BuildRequest("demo-project", apiKey: "sk-invalid"));
 
         Assert.Equal(401, result.StatusCode);
@@ -197,7 +197,7 @@ public abstract class NetworkStorageRateLimitsCandidateTests<TFactory> : IClassF
             UserId: 42, ProjectId: "demo-project", Enabled: false, KeyType: "public"));
         var projectService = new FakeProjectService(new ProjectRateLimits(null, null));
 
-        var handler = new RateLimitsCandidateHandler(resolver, projectService, new InMemoryNetworkStorageStore(), Options.Create(new ScyllaDbOptions()), (Microsoft.Extensions.Logging.Abstractions.NullLogger<RateLimitsCandidateHandler>.Instance));
+        var handler = new RateLimitsHandler(resolver, projectService, new InMemoryNetworkStorageStore(), (Microsoft.Extensions.Logging.Abstractions.NullLogger<RateLimitsHandler>.Instance));
         var result = await handler.ExecuteAsync(BuildRequest("demo-project", apiKey: "sk-disabled"));
 
         Assert.Equal(401, result.StatusCode);
@@ -207,9 +207,7 @@ public abstract class NetworkStorageRateLimitsCandidateTests<TFactory> : IClassF
     [SkippableFact]
     public void CanHandleAcceptsGetRateLimits()
     {
-        var handler = new RateLimitsCandidateHandler(
-            new FakeResolver(null), new FakeProjectService(new ProjectRateLimits(null, null)),
-            new InMemoryNetworkStorageStore(), Options.Create(new ScyllaDbOptions()), (Microsoft.Extensions.Logging.Abstractions.NullLogger<RateLimitsCandidateHandler>.Instance));
+        var handler = new RateLimitsHandler(new FakeResolver(null), new FakeProjectService(new ProjectRateLimits(null, null)), new InMemoryNetworkStorageStore(), (Microsoft.Extensions.Logging.Abstractions.NullLogger<RateLimitsHandler>.Instance));
 
         var route = NetworkStorageRouteClassifier.Classify("GET", "/v3/storage/my-project/rate-limits");
         Assert.True(handler.CanHandle(route));
@@ -219,9 +217,7 @@ public abstract class NetworkStorageRateLimitsCandidateTests<TFactory> : IClassF
     [SkippableFact]
     public void CanHandleRejectsNonGet()
     {
-        var handler = new RateLimitsCandidateHandler(
-            new FakeResolver(null), new FakeProjectService(new ProjectRateLimits(null, null)),
-            new InMemoryNetworkStorageStore(), Options.Create(new ScyllaDbOptions()), (Microsoft.Extensions.Logging.Abstractions.NullLogger<RateLimitsCandidateHandler>.Instance));
+        var handler = new RateLimitsHandler(new FakeResolver(null), new FakeProjectService(new ProjectRateLimits(null, null)), new InMemoryNetworkStorageStore(), (Microsoft.Extensions.Logging.Abstractions.NullLogger<RateLimitsHandler>.Instance));
 
         var route = NetworkStorageRouteClassifier.Classify("POST", "/v3/storage/my-project/rate-limits");
         Assert.False(handler.CanHandle(route));
@@ -254,7 +250,7 @@ public abstract class NetworkStorageRateLimitsCandidateTests<TFactory> : IClassF
 
         using var liveClient = factory.WithWebHostBuilder(builder =>
         {
-            builder.ConfigureServices(services => services.Configure<ScyllaDbOptions>(o => o.Primary = false));
+            
             builder.ConfigureServices(services =>
             {
                 services.RemoveAll<IStorageApiKeyResolver>();
@@ -271,7 +267,7 @@ public abstract class NetworkStorageRateLimitsCandidateTests<TFactory> : IClassF
         using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         var json = document.RootElement;
         Assert.True(json.GetProperty("ok").GetBoolean());
-        Assert.Equal("configuration", json.GetProperty("source").GetString());
+        Assert.Equal("store", json.GetProperty("source").GetString());
         Assert.Equal("demo-project", json.GetProperty("projectId").GetString());
     }
 

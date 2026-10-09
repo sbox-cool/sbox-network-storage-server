@@ -5,7 +5,7 @@ using Microsoft.Extensions.Configuration;
 
 namespace SboxNetworkStorage.Infrastructure.NetworkStorage;
 
-public static class StorageKeyCrypto
+public static partial class StorageKeyCrypto
 {
     private const int KeyHexLength = 64;
 
@@ -26,13 +26,16 @@ public static class StorageKeyCrypto
         return value.Trim();
     }
 
+    [GeneratedRegex("^[0-9a-fA-F]+$", RegexOptions.None, 100)]
+    private static partial Regex HexPattern();
+
     public static byte[]? GetKeyBytes(IConfiguration configuration)
     {
         var hex = GetConfiguredKeyHex(configuration);
         if (string.IsNullOrEmpty(hex) || hex.Length < KeyHexLength) return null;
 
         var normalized = hex[..KeyHexLength];
-        if (!Regex.IsMatch(normalized, "^[0-9a-fA-F]+$")) return null;
+        if (!HexPattern().IsMatch(normalized)) return null;
 
         var bytes = Convert.FromHexString(normalized);
         return bytes.Length == 32 ? bytes : null;

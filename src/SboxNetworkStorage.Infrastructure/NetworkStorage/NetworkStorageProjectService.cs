@@ -20,7 +20,7 @@ namespace SboxNetworkStorage.Infrastructure.NetworkStorage;
 public sealed record CdnKeyIndex(IReadOnlyList<CdnKeyIndexEntry> Keys);
 public sealed record CdnKeyIndexEntry(string Key, string KeyType, bool Enabled, string? KeyIdentifier, DateTimeOffset CreatedAt);
 public sealed class NetworkStorageProjectService(
-    IBunnyWorkspaceClient bunnyWorkspaceClient,
+    IWorkspaceStore bunnyWorkspaceClient,
     IWorkspaceStorageEnumerator bunnyStorageEnumerator,
     IConfiguration configuration,
     IStorageKeyCdnWriter keyCdnWriter,
@@ -49,7 +49,7 @@ public sealed class NetworkStorageProjectService(
         var projectId = GenerateProjectId();
         var now = DateTimeOffset.UtcNow;
 
-        var project = new BunnyProject(
+        var project = new WorkspaceProject(
             Id: projectId,
             Name: name,
             Description: string.IsNullOrEmpty(description) ? null : description[..Math.Min(description.Length, 256)],
@@ -66,69 +66,32 @@ public sealed class NetworkStorageProjectService(
         return new NetworkStorageProjectCreateResult(projectId);
     }
 
-    // Self-hosted servers have no organizations: the owner's project list is authoritative.
+    // Self-hosted servers have one owner and no organizations, so a stored project is the owner's project.
+    // The project row is read directly rather than listing and loading every project the owner has.
     public async Task<NetworkStorageProjectAccessResult?> ResolveProjectAccessAsync(
         long userId,
         string projectId,
         CancellationToken cancellationToken)
     {
-        var projects = await bunnyWorkspaceClient.GetUserProjectsAsync(userId, cancellationToken);
-        var project = projects.FirstOrDefault(p =>
-            string.Equals(p.Id, projectId, StringComparison.OrdinalIgnoreCase));
+        if (!StorageIdValidation.IsValidCollectionId(projectId))
+        {
+            return null;
+        }
 
-        return project is null
-            ? null
-            : await BuildAccessResultAsync(project, organization: null, userId, organizationId: null, canManage: true, cancellationToken);
-    }
+        var payload = await scyllaStore.ReadProjectAsync(projectId, cancellationToken);
+        if (payload is not { } row)
+        {
+            return null;
+        }
 
-    /// <summary>
-    /// Builds a project access result, running the three independent lookups —
-    /// resource counts (which already fan out internally), team-member count, and
-    /// rate-limit rules — concurrently instead of one after another. The
-    /// rate-limit-rules read is skipped entirely when endpoint rate limits are
-    /// already known to be enabled from project metadata.
-    /// </summary>
-    private async Task<NetworkStorageProjectAccessResult> BuildAccessResultAsync(
-        BunnyProject project,
-        WorkspaceInfo? organization,
-        long storageOwnerUserId,
-        string? organizationId,
-        bool canManage,
-        CancellationToken cancellationToken)
-    {
-        var countsTask = LoadResourceCountsAsync(storageOwnerUserId, project.Id, cancellationToken);
-        var teamTask = CountTeamMembersAsync(storageOwnerUserId, project.Id, organizationId, cancellationToken);
-        var endpointRateLimitsEnabled = HasEnabledEndpointRateLimits(project.EndpointRateLimits);
-        var rateRulesTask = endpointRateLimitsEnabled
-            ? null
-            : ReadRateLimitRulesAsync(storageOwnerUserId, project.Id, cancellationToken);
-
-        await Task.WhenAll(rateRulesTask is null
-            ? new Task[] { countsTask, teamTask }
-            : new Task[] { countsTask, teamTask, rateRulesTask });
-
-        var resourceCounts = await countsTask;
-        var teamMemberCount = await teamTask;
-        var hasRateLimits = endpointRateLimitsEnabled
-            || (rateRulesTask is not null && (await rateRulesTask).Any(rule => rule.Enabled));
-
+        var project = StoreMetadataWorkspaceClient.ReconstructProject(row, projectId);
         return new NetworkStorageProjectAccessResult(
             Project: project,
-            Organization: organization,
-            StorageOwnerUserId: storageOwnerUserId,
-            CollectionCount: resourceCounts.CollectionCount,
-            ApiKeyCount: resourceCounts.ApiKeyCount,
-            TeamMemberCount: teamMemberCount,
-            QueryCount: resourceCounts.QueryCount,
-            WorkflowCount: resourceCounts.WorkflowCount,
-            EndpointCount: resourceCounts.EndpointCount,
+            Organization: null,
+            StorageOwnerUserId: userId,
             RequireSboxAuth: project.RequireSboxAuth ?? true,
             PlayerKeyMode: project.PlayerKeyMode ?? "player",
-            HasRateLimits: hasRateLimits,
-            CanManage: canManage,
-            HeartbeatStatus: null,
-            HeartbeatColor: null,
-            HeartbeatText: null);
+            CanManage: true);
     }
 
     public async Task<NetworkStorageProjectResources?> GetProjectResourcesAsync(long userId, string projectId, CancellationToken cancellationToken)
@@ -173,14 +136,6 @@ public sealed class NetworkStorageProjectService(
             TeamMode: isOrganizationProject ? "org" : "legacy");
     }
 
-    // Self-hosted servers have a single owner and no team/organization membership.
-    private static Task<int> CountTeamMembersAsync(
-        long storageOwnerUserId,
-        string projectId,
-        string? organizationId,
-        CancellationToken cancellationToken)
-        => Task.FromResult(1);
-
     private static Task<NetworkStorageTeamUser?> LoadTeamOwnerAsync(
         long storageOwnerUserId,
         CancellationToken cancellationToken)
@@ -214,7 +169,7 @@ public sealed class NetworkStorageProjectService(
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            logger.LogWarning(ex, "ScyllaDB unavailable while listing API keys for project {ProjectId}; returning empty list", projectId);
+            logger.LogWarning(ex, "Store unavailable while listing API keys for project {ProjectId}; returning empty list", projectId);
             return [];
         }
         if (rows.Count > 0)
@@ -256,7 +211,7 @@ public sealed class NetworkStorageProjectService(
     private static bool ReadJsonBool(JsonElement row, string name)
         => row.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.True;
 
-    private async Task<JsonElement?> FindScyllaApiKeyRowAsync(long userId, string projectId, string key, CancellationToken cancellationToken)
+    private async Task<JsonElement?> FindStoreApiKeyRowAsync(long userId, string projectId, string key, CancellationToken cancellationToken)
     {
         var rows = await scyllaStore.ListApiKeysAsync(projectId, cancellationToken);
         foreach (var row in rows)
@@ -274,7 +229,7 @@ public sealed class NetworkStorageProjectService(
         return null;
     }
 
-    private async Task UpsertScyllaApiKeyRowAsync(
+    private async Task UpsertStoreApiKeyRowAsync(
         JsonElement row,
         string projectId,
         bool? enabledOverride,
@@ -392,14 +347,14 @@ public sealed class NetworkStorageProjectService(
 
     public async Task ToggleProjectKeyAsync(long storageOwnerUserId, string projectId, string key, CancellationToken cancellationToken)
     {
-        var row = await FindScyllaApiKeyRowAsync(storageOwnerUserId, projectId, key, cancellationToken);
+        var row = await FindStoreApiKeyRowAsync(storageOwnerUserId, projectId, key, cancellationToken);
         if (row is not { ValueKind: JsonValueKind.Object })
         {
             return;
         }
 
         var newEnabled = !ReadJsonBool(row.Value, "enabled");
-        await UpsertScyllaApiKeyRowAsync(row.Value, projectId, newEnabled, null, cancellationToken);
+        await UpsertStoreApiKeyRowAsync(row.Value, projectId, newEnabled, null, cancellationToken);
 
         if (key.StartsWith("sbox_sk_", StringComparison.OrdinalIgnoreCase))
         {
@@ -421,7 +376,7 @@ public sealed class NetworkStorageProjectService(
 
     public async Task RemoveProjectKeyAsync(long storageOwnerUserId, string projectId, string key, CancellationToken cancellationToken)
     {
-        var row = await FindScyllaApiKeyRowAsync(storageOwnerUserId, projectId, key, cancellationToken);
+        var row = await FindStoreApiKeyRowAsync(storageOwnerUserId, projectId, key, cancellationToken);
         if (row is not { ValueKind: JsonValueKind.Object })
         {
             return;
@@ -462,7 +417,7 @@ public sealed class NetworkStorageProjectService(
             return;
         }
 
-        await UpsertScyllaApiKeyRowAsync(row, projectId, null, permissions, cancellationToken);
+        await UpsertStoreApiKeyRowAsync(row, projectId, null, permissions, cancellationToken);
         await keyCdnWriter.UpdateSecretKeyFileAsync(keyIdentifier, projectId,
             new Dictionary<string, object> { ["permissions"] = permissions }, cancellationToken);
         await UpdateKeyPermissionsInIndexAsync(projectId, keyIdentifier, permissions, cancellationToken);
@@ -520,6 +475,11 @@ public sealed class NetworkStorageProjectService(
                     var keyMode = formValues.GetValueOrDefault("playerKeyMode");
                     if (keyMode == "player" || keyMode == "playerSave")
                         project = project with { PlayerKeyMode = keyMode };
+                    break;
+                }
+            case "legacy-projections":
+                {
+                    project = project with { LegacyPlayerProjections = IsChecked(formValues.GetValueOrDefault("legacyPlayerProjections")) };
                     break;
                 }
             case "webhooks":
@@ -766,7 +726,7 @@ public sealed class NetworkStorageProjectService(
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            logger.LogWarning(ex, "ScyllaDB usage detail read failed for {ProjectId} — totals-only usage page", projectId);
+            logger.LogWarning(ex, "Store usage detail read failed for {ProjectId} — totals-only usage page", projectId);
         }
 
         return new ProjectUsageData(
@@ -813,32 +773,6 @@ public sealed class NetworkStorageProjectService(
         // mapped from the authoritative rate-limit-rules.json (windows schema).
         var rules = await ReadRateLimitRulesAsync(storageOwnerUserId, projectId, cancellationToken);
         return new ProjectRateLimits(EndpointRateLimits: null, Rules: rules);
-    }
-
-    private static bool HasEnabledEndpointRateLimits(Dictionary<string, object>? endpointRateLimits)
-    {
-        if (endpointRateLimits is null || !endpointRateLimits.TryGetValue("enabled", out var enabled))
-        {
-            return false;
-        }
-
-        return enabled switch
-        {
-            bool value => value,
-            JsonElement { ValueKind: JsonValueKind.True } => true,
-            JsonElement { ValueKind: JsonValueKind.String } element => IsTruthy(element.GetString()),
-            string value => IsTruthy(value),
-            _ => false
-        };
-    }
-
-    private static bool IsTruthy(string? value)
-    {
-        return value is not null
-            && (string.Equals(value, "true", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(value, "1", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(value, "on", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(value, "yes", StringComparison.OrdinalIgnoreCase));
     }
 
     private async Task<IReadOnlyList<RateLimitRule>> ReadRateLimitRulesAsync(long storageOwnerUserId, string projectId, CancellationToken cancellationToken)
@@ -996,25 +930,6 @@ public sealed class NetworkStorageProjectService(
         );
     }
 
-    private async Task<(int CollectionCount, int ApiKeyCount, int QueryCount, int WorkflowCount, int EndpointCount)> LoadResourceCountsAsync(long storageOwnerUserId, string projectId, CancellationToken cancellationToken)
-    {
-        var collectionsTask = ReadResourceListAsync<CollectionResource>(storageOwnerUserId, projectId, "collections.json", cancellationToken);
-        var endpointsTask = ReadResourceListAsync<EndpointResource>(storageOwnerUserId, projectId, "endpoints.json", cancellationToken);
-        var keysTask = GetProjectKeysAsync(storageOwnerUserId, projectId, cancellationToken);
-        var queriesTask = bunnyWorkspaceClient.GetProjectResourceAsync<List<object>>(storageOwnerUserId, projectId, "queries.json", cancellationToken);
-        var workflowsTask = bunnyWorkspaceClient.GetProjectResourceAsync<List<object>>(storageOwnerUserId, projectId, "workflows.json", cancellationToken);
-
-        await Task.WhenAll(collectionsTask, endpointsTask, keysTask, queriesTask, workflowsTask);
-
-        return (
-            (await collectionsTask).Count,
-            (await keysTask).Count,
-            (await queriesTask)?.Count ?? 0,
-            (await workflowsTask)?.Count ?? 0,
-            (await endpointsTask).Count
-        );
-    }
-
     private static string GenerateProjectId()
     {
         var bytes = new byte[12];
@@ -1055,7 +970,7 @@ public sealed class NetworkStorageProjectService(
             : null;
     }
 
-    private static string NormalizeRevisionMode(BunnyProject project)
+    private static string NormalizeRevisionMode(WorkspaceProject project)
     {
         if (string.IsNullOrWhiteSpace(project.RevisionEnforcementMode)
             && string.Equals(project.RevisionPostGraceAction, "allow_readonly", StringComparison.OrdinalIgnoreCase))
@@ -1113,13 +1028,13 @@ public sealed class NetworkStorageProjectService(
 
     private async Task<bool> GetKeyEnabledStateAsync(long userId, string projectId, string apiKey, CancellationToken cancellationToken)
     {
-        var row = await FindScyllaApiKeyRowAsync(userId, projectId, apiKey, cancellationToken);
+        var row = await FindStoreApiKeyRowAsync(userId, projectId, apiKey, cancellationToken);
         return row is { ValueKind: JsonValueKind.Object } && ReadJsonBool(row.Value, "enabled");
     }
 
     private async Task<string?> GetSecretKeyIdentifierAsync(long userId, string projectId, string maskedKey, CancellationToken cancellationToken)
     {
-        var row = await FindScyllaApiKeyRowAsync(userId, projectId, maskedKey, cancellationToken);
+        var row = await FindStoreApiKeyRowAsync(userId, projectId, maskedKey, cancellationToken);
         return row is { ValueKind: JsonValueKind.Object } ? ReadJsonNullableString(row.Value, "key_identifier") : null;
     }
     // ── CDN key-index helpers ──
@@ -1215,7 +1130,7 @@ public sealed class NetworkStorageProjectService(
 
         // ScyllaDB is the live store for audit logs. The Bunny CDN holds only
         // legacy entries written before the ScyllaDB cutover.
-        var scyllaEntries = await TryReadFromScyllaAsync(
+        var scyllaEntries = await TryReadFromStoreAsync(
             projectId, search, action, date, cancellationToken);
 
         if (scyllaEntries.Count > 0)
@@ -1228,7 +1143,7 @@ public sealed class NetworkStorageProjectService(
             storageOwnerUserId, projectId, search, action, date, sort, page, pageSize, cancellationToken);
     }
 
-    private async Task<IReadOnlyList<ProjectAuditLogEntry>> TryReadFromScyllaAsync(
+    private async Task<IReadOnlyList<ProjectAuditLogEntry>> TryReadFromStoreAsync(
         string projectId, string? search, string? action, string? date,
         CancellationToken cancellationToken)
     {
@@ -1266,7 +1181,7 @@ public sealed class NetworkStorageProjectService(
         }
         catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
         {
-            logger.LogWarning(ex, "Failed to read audit logs from ScyllaDB for project {ProjectId}", projectId);
+            logger.LogWarning(ex, "Failed to read audit logs from Store for project {ProjectId}", projectId);
             return Array.Empty<ProjectAuditLogEntry>();
         }
     }
@@ -1384,7 +1299,7 @@ public sealed class NetworkStorageProjectService(
         string sort, int page, int pageSize, CancellationToken cancellationToken)
     {
         // List available log date files from CDN
-        IReadOnlyList<BunnyStorageEntry> logFiles;
+        IReadOnlyList<WorkspaceStorageEntry> logFiles;
         try
         {
             logFiles = await bunnyStorageEnumerator.ListProjectResourceAsync(

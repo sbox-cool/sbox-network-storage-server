@@ -28,7 +28,7 @@ public abstract class NetworkStorageGameValuesCandidateTests<TFactory> : IClassF
         }).CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
     }
 
-    private static NetworkStorageCandidateRequest BuildRequest(
+    private static NetworkStorageRequest BuildRequest(
         string projectId,
         string? apiKey = "sbox_sk_testpublickey")
     {
@@ -39,7 +39,7 @@ public abstract class NetworkStorageGameValuesCandidateTests<TFactory> : IClassF
             query["apiKey"] = apiKey;
         }
 
-        return new NetworkStorageCandidateRequest(
+        return new NetworkStorageRequest(
             route,
             query,
             ContentType: null,
@@ -55,6 +55,19 @@ public abstract class NetworkStorageGameValuesCandidateTests<TFactory> : IClassF
             CancellationToken: CancellationToken.None);
     }
 
+    private static async Task<InMemoryNetworkStorageStore> StoreWithValuesAsync(JsonElement values, JsonElement collections)
+    {
+        var store = new InMemoryNetworkStorageStore();
+        await store.UpsertGameValuesAsync("demo-project", values, null, 1, CancellationToken.None);
+        foreach (var collection in collections.EnumerateArray())
+        {
+            await store.UpsertCollectionAsync("demo-project", collection.GetProperty("id").GetString()!,
+                collection.GetProperty("name").GetString(), "public",
+                collection, 1, CancellationToken.None);
+        }
+        return store;
+    }
+
     // ── Success: valid public key → 200 + client-format body ──
 
     [SkippableFact]
@@ -66,22 +79,14 @@ public abstract class NetworkStorageGameValuesCandidateTests<TFactory> : IClassF
         var gv = fixtureDoc.RootElement.GetProperty("gameValues").Clone();
         var collections = fixtureDoc.RootElement.GetProperty("collections").Clone();
         var expected = fixtureDoc.RootElement.GetProperty("expectedClientFormat");
-        var handler = new GameValuesCandidateHandler(
-            new FakeKeyResolver("test-public-key", "demo-project", "public"),
-            new FakeBunnyGameValues(gv, collections, "demo-project"),
-            new InMemoryNetworkStorageStore(),
-            Options.Create(new ScyllaDbOptions()),
-            (Microsoft.Extensions.Logging.Abstractions.NullLogger<GameValuesCandidateHandler>.Instance));
+        var store = await StoreWithValuesAsync(gv, collections);
+        var handler = new GameValuesHandler(new FakeKeyResolver("test-public-key", "demo-project", "public"), new FakeBunnyGameValues(gv, collections, "demo-project"), store, Microsoft.Extensions.Logging.Abstractions.NullLogger<GameValuesHandler>.Instance);
 
         var result = await handler.ExecuteAsync(BuildRequest("demo-project", apiKey: "test-public-key"));
 
         Assert.Equal(200, result.StatusCode);
         Assert.Null(result.PublicErrorCode);
         Assert.Equal("public", result.AuthDecision);
-        Assert.Contains(result.StoragePathsRead,
-            p => p.EndsWith("game-values.json", StringComparison.Ordinal));
-        Assert.Contains(result.StoragePathsRead,
-            p => p.EndsWith("collections.json", StringComparison.Ordinal));
 
         var json = JsonSerializer.SerializeToElement(result.Body);
 
@@ -132,16 +137,19 @@ public abstract class NetworkStorageGameValuesCandidateTests<TFactory> : IClassF
         var gv = fixtureDoc.RootElement.GetProperty("gameValues").Clone();
         var collections = fixtureDoc.RootElement.GetProperty("collections").Clone();
         var expected = fixtureDoc.RootElement.GetProperty("expectedClientFormat");
+        var store = await StoreWithValuesAsync(gv, collections);
 
         using var liveClient = factory.WithWebHostBuilder(builder =>
         {
-            builder.ConfigureServices(services => services.Configure<ScyllaDbOptions>(o => o.Primary = false));
+            
             builder.ConfigureServices(services =>
             {
                 services.RemoveAll<IStorageApiKeyResolver>();
                 services.AddScoped<IStorageApiKeyResolver>(_ => new FakeKeyResolver("test-public-key", "demo-project", "public"));
-                services.RemoveAll<IBunnyWorkspaceClient>();
-                services.AddScoped<IBunnyWorkspaceClient>(_ => new FakeBunnyGameValues(gv, collections, "demo-project"));
+                services.RemoveAll<IWorkspaceStore>();
+                services.AddScoped<IWorkspaceStore>(_ => new FakeBunnyGameValues(gv, collections, "demo-project"));
+                services.RemoveAll<INetworkStorageStore>();
+                services.AddSingleton<INetworkStorageStore>(store);
             });
         }).CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
 
@@ -160,12 +168,7 @@ public abstract class NetworkStorageGameValuesCandidateTests<TFactory> : IClassF
     [SkippableFact]
     public async Task MissingApiKeyReturnsUnauthorized()
     {
-        var handler = new GameValuesCandidateHandler(
-            new FakeKeyResolver(null, "demo-project", null),
-            new FakeBunnyGameValues(default, default, "demo-project"),
-            new InMemoryNetworkStorageStore(),
-            Options.Create(new ScyllaDbOptions()),
-            (Microsoft.Extensions.Logging.Abstractions.NullLogger<GameValuesCandidateHandler>.Instance));
+        var handler = new GameValuesHandler(new FakeKeyResolver(null, "demo-project", null), new FakeBunnyGameValues(default, default, "demo-project"), new InMemoryNetworkStorageStore(), (Microsoft.Extensions.Logging.Abstractions.NullLogger<GameValuesHandler>.Instance));
 
         var result = await handler.ExecuteAsync(BuildRequest("demo-project", apiKey: null));
 
@@ -180,12 +183,7 @@ public abstract class NetworkStorageGameValuesCandidateTests<TFactory> : IClassF
     [SkippableFact]
     public async Task InvalidApiKeyReturnsUnauthorized()
     {
-        var handler = new GameValuesCandidateHandler(
-            new FakeKeyResolver("bad-key", "demo-project", null),
-            new FakeBunnyGameValues(default, default, "demo-project"),
-            new InMemoryNetworkStorageStore(),
-            Options.Create(new ScyllaDbOptions()),
-            (Microsoft.Extensions.Logging.Abstractions.NullLogger<GameValuesCandidateHandler>.Instance));
+        var handler = new GameValuesHandler(new FakeKeyResolver("bad-key", "demo-project", null), new FakeBunnyGameValues(default, default, "demo-project"), new InMemoryNetworkStorageStore(), (Microsoft.Extensions.Logging.Abstractions.NullLogger<GameValuesHandler>.Instance));
 
         var result = await handler.ExecuteAsync(BuildRequest("demo-project", apiKey: "bad-key"));
 
@@ -202,18 +200,13 @@ public abstract class NetworkStorageGameValuesCandidateTests<TFactory> : IClassF
     [SkippableFact]
     public async Task DisabledProjectReturnsProjectDisabled()
     {
-        var handler = new GameValuesCandidateHandler(
-            new FakeKeyResolver("disabled-key", "disabled-project", "public"),
-            new FakeBunnyGameValues(
-                default, default, "disabled-project",
-                projects: new List<BunnyProject>
-                {
-                    new(Id: "disabled-project", Name: "Disabled", Description: null, Enabled: false,
-                        CreatedAt: null, UpdatedAt: null, CompiledAt: null)
-                }),
-            new InMemoryNetworkStorageStore(),
-            Options.Create(new ScyllaDbOptions()),
-            (Microsoft.Extensions.Logging.Abstractions.NullLogger<GameValuesCandidateHandler>.Instance));
+        var handler = new GameValuesHandler(new FakeKeyResolver("disabled-key", "disabled-project", "public"), new FakeBunnyGameValues(
+            default, default, "disabled-project",
+            projects: new List<WorkspaceProject>
+            {
+                new(Id: "disabled-project", Name: "Disabled", Description: null, Enabled: false,
+                    CreatedAt: null, UpdatedAt: null, CompiledAt: null)
+            }), new InMemoryNetworkStorageStore(), (Microsoft.Extensions.Logging.Abstractions.NullLogger<GameValuesHandler>.Instance));
 
         var result = await handler.ExecuteAsync(BuildRequest("disabled-project", apiKey: "disabled-key"));
 
@@ -229,19 +222,14 @@ public abstract class NetworkStorageGameValuesCandidateTests<TFactory> : IClassF
     [SkippableFact]
     public async Task StoreReadFailureReturnsError()
     {
-        var handler = new GameValuesCandidateHandler(
-            new FakeKeyResolver("readfail-key", "fail-project", "secret"),
-            new FakeBunnyGameValues(
-                default, default, "fail-project",
-                projects: new List<BunnyProject>
-                {
-                    new(Id: "fail-project", Name: "Failer", Description: null, Enabled: true,
-                        CreatedAt: null, UpdatedAt: null, CompiledAt: null)
-                },
-                throwsOnRead: true),
-            new InMemoryNetworkStorageStore(),
-            Options.Create(new ScyllaDbOptions()),
-            (Microsoft.Extensions.Logging.Abstractions.NullLogger<GameValuesCandidateHandler>.Instance));
+        var handler = new GameValuesHandler(new FakeKeyResolver("readfail-key", "fail-project", "secret"), new FakeBunnyGameValues(
+            default, default, "fail-project",
+            projects: new List<WorkspaceProject>
+            {
+                new(Id: "fail-project", Name: "Failer", Description: null, Enabled: true,
+                    CreatedAt: null, UpdatedAt: null, CompiledAt: null)
+            },
+            throwsOnRead: true), new UnavailableStore(), Microsoft.Extensions.Logging.Abstractions.NullLogger<GameValuesHandler>.Instance);
 
         var result = await handler.ExecuteAsync(BuildRequest("fail-project", apiKey: "readfail-key"));
 
@@ -253,6 +241,12 @@ public abstract class NetworkStorageGameValuesCandidateTests<TFactory> : IClassF
     // ── Shadow endpoint integration test ──
 
     // ── Fakes ──
+
+    private sealed class UnavailableStore : InMemoryNetworkStorageStore
+    {
+        public override Task<JsonElement?> ReadGameValuesAsync(string projectId, CancellationToken ct)
+            => throw new InvalidOperationException("Store unavailable");
+    }
 
     private sealed class FakeKeyResolver : IStorageApiKeyResolver
     {
@@ -284,19 +278,19 @@ public abstract class NetworkStorageGameValuesCandidateTests<TFactory> : IClassF
         }
     }
 
-    private sealed class FakeBunnyGameValues : IBunnyWorkspaceClient
+    private sealed class FakeBunnyGameValues : IWorkspaceStore
     {
         private readonly JsonElement _gameValues;
         private readonly JsonElement _collections;
         private readonly string _projectId;
-        private readonly IReadOnlyList<BunnyProject>? _projects;
+        private readonly IReadOnlyList<WorkspaceProject>? _projects;
         private readonly bool _throwsOnRead;
 
         public FakeBunnyGameValues(
             JsonElement gameValues,
             JsonElement collections,
             string projectId,
-            IReadOnlyList<BunnyProject>? projects = null,
+            IReadOnlyList<WorkspaceProject>? projects = null,
             bool throwsOnRead = false)
         {
             _gameValues = gameValues;
@@ -323,14 +317,14 @@ public abstract class NetworkStorageGameValuesCandidateTests<TFactory> : IClassF
             return Task.FromResult((T?)result);
         }
 
-        public Task<IReadOnlyList<BunnyProject>> GetUserProjectsAsync(long userId, CancellationToken cancellationToken)
+        public Task<IReadOnlyList<WorkspaceProject>> GetUserProjectsAsync(long userId, CancellationToken cancellationToken)
         {
             if (_projects is not null)
                 return Task.FromResult(_projects);
 
             // Default: return a project matching _projectId, enabled
-            return Task.FromResult<IReadOnlyList<BunnyProject>>(
-                new List<BunnyProject>
+            return Task.FromResult<IReadOnlyList<WorkspaceProject>>(
+                new List<WorkspaceProject>
                 {
                     new(Id: _projectId, Name: "Test Project", Description: null, Enabled: true,
                         CreatedAt: null, UpdatedAt: null, CompiledAt: null)
@@ -340,7 +334,7 @@ public abstract class NetworkStorageGameValuesCandidateTests<TFactory> : IClassF
         public Task<WorkspaceProjectUsage?> GetProjectUsageAsync(long userId, string projectId, string monthKey, CancellationToken cancellationToken)
             => Task.FromResult<WorkspaceProjectUsage?>(null);
 
-        public Task SaveUserProjectsAsync(long userId, IReadOnlyList<BunnyProject> projects, CancellationToken cancellationToken)
+        public Task SaveUserProjectsAsync(long userId, IReadOnlyList<WorkspaceProject> projects, CancellationToken cancellationToken)
             => Task.CompletedTask;
 
         public Task<string?> GetProjectResourceTextAsync(long userId, string projectId, string resourcePath, CancellationToken cancellationToken)

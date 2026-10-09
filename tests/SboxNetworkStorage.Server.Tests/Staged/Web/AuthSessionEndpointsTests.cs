@@ -40,7 +40,7 @@ public abstract class AuthSessionEndpointsTests<TFactory> : IClassFixture<TFacto
         return _factory.WithWebHostBuilder(builder =>
         {
             // A dead Bun storage-api port: a 502 would prove the request proxied to Bun.
-            builder.ConfigureServices(services => services.Configure<ScyllaDbOptions>(o => o.Primary = false));
+            
             builder.UseSetting("NETWORK_STORAGE_AUTH_SESSION_SECRET", "integration-test-secret");
             builder.ConfigureServices(services =>
             {
@@ -83,8 +83,6 @@ public abstract class AuthSessionEndpointsTests<TFactory> : IClassFixture<TFacto
         // Wire-contract parity: HTTP 200 always; logical status lives in the body.
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.True(response.Headers.TryGetValues("X-Request-Id", out _));
-        Assert.True(response.Headers.TryGetValues("X-Sboxcool-Route-Owner", out var owner));
-        Assert.Equal(".NET native", Assert.Single(owner));
 
         var body = await BodyAsync(response);
         Assert.True(body.GetProperty("ok").GetBoolean());
@@ -245,11 +243,9 @@ public abstract class AuthSessionEndpointsTests<TFactory> : IClassFixture<TFacto
     {
         public Task<NetworkStorageProjectAccessResult?> ResolveProjectAccessAsync(long userId, string projectId, CancellationToken cancellationToken)
             => Task.FromResult<NetworkStorageProjectAccessResult?>(new NetworkStorageProjectAccessResult(
-                new BunnyProject(projectId, "Test Project", null, Enabled: enabled, null, null, null, EnableAuthSessions: authSessions, AuthSessionTtlSeconds: 3600),
+                new WorkspaceProject(projectId, "Test Project", null, Enabled: enabled, null, null, null, EnableAuthSessions: authSessions, AuthSessionTtlSeconds: 3600),
                 Organization: null, StorageOwnerUserId: userId,
-                CollectionCount: 0, ApiKeyCount: 0, TeamMemberCount: 0, QueryCount: 0, WorkflowCount: 0, EndpointCount: 0,
-                RequireSboxAuth: false, PlayerKeyMode: null, HasRateLimits: false, CanManage: true,
-                HeartbeatStatus: null, HeartbeatColor: null, HeartbeatText: null));
+                RequireSboxAuth: false, PlayerKeyMode: null, CanManage: true));
 
         public Task<NetworkStorageProjectCreateResult> CreateProjectAsync(long userId, string name, string? description, bool enabled, bool requireSboxAuth, string keyMode, string organizationId, CancellationToken cancellationToken)
             => throw new NotImplementedException();

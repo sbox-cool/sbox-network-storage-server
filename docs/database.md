@@ -32,6 +32,11 @@ passwords, no server to run. Copy the file only while the server is stopped;
 for live backups use `sbox-ns db backup`, which backs up consistently while
 running.
 
+Each connection opens with `journal_mode=WAL` and `synchronous=NORMAL`.
+WAL keeps committed transactions atomic across an application crash; NORMAL
+avoids a disk sync on every commit. An OS crash or power loss can lose recent
+commits, so use reliable local storage and keep backups.
+
 ## PostgreSQL
 
 ```toml
@@ -110,6 +115,22 @@ server also migrates on start. Take a backup before upgrading to a release
 that needs a migration; releases list the minimum version they upgrade from,
 so old installs may need to step through an intermediate release
 (see [self-hosting.md](self-hosting.md#updates)).
+
+Schema version 3 adds project/slug endpoint and project/key-identifier API-key
+indexes, plus surrogate primary keys for request logs and storage errors.
+Events sharing a project and millisecond are now kept separately. Existing log
+rows are preserved by the migration. Version 2 remains the earlier
+legacy-player-projection opt-in migration.
+
+Before applying or testing migrations against an existing database, run
+`sbox-ns db backup`. Migrations are forward-only; rollback requires restoring
+the pre-migration backup with the matching older binary.
+
+Endpoint record writes and deletes commit in one store transaction on both
+backends. A failure rolls back the complete endpoint flush instead of issuing
+compensating writes. Analytics batches also commit transactionally; their
+retention and bounded buffer are documented in
+[configuration.md](configuration.md#analytics-retention-and-buffering).
 
 ## Backups and restores
 

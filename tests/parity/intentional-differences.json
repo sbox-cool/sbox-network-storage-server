@@ -1,6 +1,9 @@
 {
   "schemaVersion": 1,
   "differences": [
+    { "scenario": "*", "step": "*", "path": "header:x-sboxcool-route-owner", "reason": "Hosted-service debug header: self-hosted servers send no X-Sboxcool-* response headers." },
+    { "scenario": "*", "step": "*", "path": "header:x-sboxcool-network-storage-served-by", "reason": "Hosted-service debug header: self-hosted servers send no X-Sboxcool-* response headers." },
+    { "scenario": "*", "step": "*", "path": "header:x-sboxcool-route-owner-description", "reason": "Hosted-service debug header: self-hosted servers send no X-Sboxcool-* response headers." },
     { "scenario": "manage-queries", "step": "list", "path": "*", "reason": "Live-unimplemented: managed service answers 501 MANAGEMENT_MUTATION_NOT_IMPLEMENTED and fails the corpus contract; this server implements the route." },
     { "scenario": "manage-queries", "step": "list-after-delete", "path": "*", "reason": "Live-unimplemented: managed service answers 501 MANAGEMENT_MUTATION_NOT_IMPLEMENTED and fails the corpus contract; this server implements the route." },
     { "scenario": "manage-package-and-revision", "step": "package-sync", "path": "*", "reason": "Live-unimplemented: managed service answers 200 with an empty body and fails the corpus contract; this server returns the synced gamePackage." },

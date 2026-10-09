@@ -12,7 +12,30 @@ internal static class SqliteMigrations
     public static readonly IReadOnlyList<SchemaMigration> All =
     [
         new(1, "Network Storage tables, usage counters, workspace objects", V1),
+        new(2, "Existing projects keep the built-in player projections", V2),
+        new(3, "Endpoint slug and API key identifier indexes; request log and error surrogate ids", V3),
     ];
+
+    // The log tables are rebuilt as rowid tables: event_id is the surrogate key, so events that share a
+    // project and millisecond are all kept. Existing rows are copied in their previous (project, time) order.
+    private static string V3(string p) => $"""
+        CREATE INDEX ix_endpoints_project_slug ON {p}endpoints (project_id, slug);
+        CREATE INDEX ix_api_keys_project_key_identifier ON {p}api_keys (project_id, key_identifier);
+        CREATE TABLE {p}storage_errors_v3 (event_id INTEGER PRIMARY KEY, project_id TEXT NOT NULL, created_at_unix_ms INTEGER NOT NULL, error_id TEXT, message TEXT, stack_trace TEXT, source TEXT, request_path TEXT, severity TEXT) STRICT;
+        INSERT INTO {p}storage_errors_v3 (project_id, created_at_unix_ms, error_id, message, stack_trace, source, request_path, severity) SELECT project_id, created_at_unix_ms, error_id, message, stack_trace, source, request_path, severity FROM {p}storage_errors ORDER BY project_id, created_at_unix_ms;
+        DROP TABLE {p}storage_errors;
+        ALTER TABLE {p}storage_errors_v3 RENAME TO storage_errors;
+        CREATE INDEX ix_storage_errors_project_time ON {p}storage_errors (project_id, created_at_unix_ms DESC);
+        CREATE TABLE {p}storage_request_log_v3 (event_id INTEGER PRIMARY KEY, project_id TEXT NOT NULL, created_at_unix_ms INTEGER NOT NULL, method TEXT, path TEXT, status_code INTEGER, duration_ms INTEGER, api_key_identifier TEXT) STRICT;
+        INSERT INTO {p}storage_request_log_v3 (project_id, created_at_unix_ms, method, path, status_code, duration_ms, api_key_identifier) SELECT project_id, created_at_unix_ms, method, path, status_code, duration_ms, api_key_identifier FROM {p}storage_request_log ORDER BY project_id, created_at_unix_ms;
+        DROP TABLE {p}storage_request_log;
+        ALTER TABLE {p}storage_request_log_v3 RENAME TO storage_request_log;
+        CREATE INDEX ix_storage_request_log_project_time ON {p}storage_request_log (project_id, created_at_unix_ms DESC);
+        """;
+    // Projects that exist before the opt-in flag keep their behavior; new projects start with it off.
+    private static string V2(string p) => $"""
+        UPDATE {p}projects SET payload_json = json_set(payload_json, '$.legacyPlayerProjections', json('true')) WHERE json_valid(payload_json) AND json_type(payload_json) = 'object';
+        """;
 
     private static string V1(string p) => $"""
         CREATE TABLE {p}projects (project_id TEXT NOT NULL PRIMARY KEY, workspace_id TEXT, storage_owner_user_id TEXT, payload_json TEXT, version INTEGER, updated_at_unix_ms INTEGER) STRICT, WITHOUT ROWID;
@@ -46,3 +69,4 @@ internal static class SqliteMigrations
         CREATE TABLE {p}workspace_objects (path TEXT NOT NULL PRIMARY KEY, content TEXT NOT NULL, size_bytes INTEGER NOT NULL, updated_at_unix_ms INTEGER NOT NULL) STRICT, WITHOUT ROWID;
         """;
 }
+

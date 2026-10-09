@@ -121,8 +121,9 @@ public abstract class IngressValidationAndFlushLimitRegressionTests<TFactory> : 
         using var oversized = await PostEndpointAsync(client, project, "save-profile",
             new { playerName = new string('x', 1_200_000) });
         Assert.Equal(HttpStatusCode.RequestEntityTooLarge, oversized.StatusCode);
+        // Far beyond the data-plane body limit: rejected by the route's request size limit.
         var error = await oversized.Content.ReadFromJsonAsync<JsonElement>();
-        Assert.Equal("PAYLOAD_TOO_LARGE", error.GetProperty("error").GetProperty("code").GetString());
+        Assert.Equal("PAYLOAD_TOO_LARGE", error.GetProperty("error").GetString());
 
         using var read = await client.GetAsync(directPath);
         Assert.Equal(HttpStatusCode.OK, read.StatusCode);

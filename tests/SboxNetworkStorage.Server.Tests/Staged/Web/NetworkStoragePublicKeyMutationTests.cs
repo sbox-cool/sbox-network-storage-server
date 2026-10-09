@@ -110,15 +110,15 @@ public sealed class NetworkStoragePublicKeyMutationTests
             => Task.CompletedTask;
     }
 
-    private sealed class StubBunnyWorkspaceClient : IBunnyWorkspaceClient
+    private sealed class StubBunnyWorkspaceClient : IWorkspaceStore
     {
-        public Task<IReadOnlyList<BunnyProject>> GetUserProjectsAsync(long userId, CancellationToken cancellationToken)
-            => Task.FromResult<IReadOnlyList<BunnyProject>>([]);
+        public Task<IReadOnlyList<WorkspaceProject>> GetUserProjectsAsync(long userId, CancellationToken cancellationToken)
+            => Task.FromResult<IReadOnlyList<WorkspaceProject>>([]);
 
         public Task<WorkspaceProjectUsage?> GetProjectUsageAsync(long userId, string projectId, string monthKey, CancellationToken cancellationToken)
             => Task.FromResult<WorkspaceProjectUsage?>(null);
 
-        public Task SaveUserProjectsAsync(long userId, IReadOnlyList<BunnyProject> projects, CancellationToken cancellationToken)
+        public Task SaveUserProjectsAsync(long userId, IReadOnlyList<WorkspaceProject> projects, CancellationToken cancellationToken)
             => Task.CompletedTask;
 
         public Task<T?> GetProjectResourceAsync<T>(long userId, string projectId, string resourcePath, CancellationToken cancellationToken)

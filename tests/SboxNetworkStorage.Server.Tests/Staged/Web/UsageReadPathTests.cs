@@ -46,7 +46,7 @@ public sealed class UsageReadPathTests
     {
         var current = new WorkspaceProjectUsage(10, 200, 500, 1, 800, 55)
         {
-            Source = "scylla-live",
+            Source = "store-live",
         };
         var retained = new WorkspaceProjectUsage(15, 180, 700, 2, 1_200, 40)
         {
@@ -54,7 +54,7 @@ public sealed class UsageReadPathTests
             LastUpdatedAt = DateTimeOffset.Parse("2026-01-02T03:04:05Z"),
         };
 
-        var merged = ScyllaMetadataWorkspaceClient.MergeRecoveredUsage(current, retained);
+        var merged = StoreMetadataWorkspaceClient.MergeRecoveredUsage(current, retained);
 
         Assert.Equal(10, merged!.Requests);
         Assert.Equal(200, merged.BytesIn);
@@ -62,7 +62,7 @@ public sealed class UsageReadPathTests
         Assert.Equal(1, merged.Errors);
         Assert.Equal(1_200, merged.StorageBytes);
         Assert.Equal(55, merged.ComputeUnits);
-        Assert.Equal("scylla-live+retained-storage", merged.Source);
+        Assert.Equal("store-live+retained-storage", merged.Source);
         Assert.Equal(retained.LastUpdatedAt, merged.LastUpdatedAt);
     }
 

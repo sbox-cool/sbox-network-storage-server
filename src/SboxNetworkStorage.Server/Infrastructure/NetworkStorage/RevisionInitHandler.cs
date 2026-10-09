@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using SboxNetworkStorage.Application.NetworkStorage;
 using SboxNetworkStorage.Application.Workspace;
 using SboxNetworkStorage.Domain.Workspace;
+using SboxNetworkStorage.Server.Middleware;
 
 namespace SboxNetworkStorage.Server.Infrastructure.NetworkStorage;
 
@@ -18,7 +19,7 @@ namespace SboxNetworkStorage.Server.Infrastructure.NetworkStorage;
 /// so no management scope is required. Read-only; never mutates the store.
 /// </summary>
 public sealed class RevisionInitHandler(
-    IBunnyWorkspaceClient workspaceClient,
+    IWorkspaceStore workspaceClient,
     IStorageApiKeyResolver apiKeyResolver,
     INetworkStorageProjectService projectService,
     ILogger<RevisionInitHandler> logger)
@@ -50,6 +51,8 @@ public sealed class RevisionInitHandler(
         var access = await projectService.ResolveProjectAccessAsync(auth.UserId, projectId, cancellationToken);
         if (access is null)
             return RevisionInitError(context, 401, "UNAUTHORIZED", "Invalid API key.");
+        NetworkStorageUsageContext.SetAuthenticated(context, projectId);
+
         if (!access.Project.Enabled)
             return RevisionInitError(context, 403, "PROJECT_DISABLED", "This project is currently disabled.");
 

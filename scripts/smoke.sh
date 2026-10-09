@@ -17,7 +17,7 @@ cd "$root"
 if ! $no_build; then
   dotnet build SboxNetworkStorage.sln -c Release
 fi
-server=(dotnet "$root/src/SboxNetworkStorage.Server/bin/Release/net8.0/sbox-ns.dll")
+server=(dotnet "$root/src/SboxNetworkStorage.Server/bin/Release/net10.0/sbox-ns.dll")
 if [[ -n "$binary" ]]; then
   if [[ "$binary" == *.dll ]]; then server=(dotnet "$binary"); else server=("$binary"); fi
 fi
@@ -65,4 +65,4 @@ done
 $healthy || { echo 'Server did not become healthy' >&2; exit 1; }
 args=(check --target "http://127.0.0.1:$port" --project-id "$project" --public-key "$public" --secret-key "$secret" --corpus "$root/tests/parity/corpus")
 if [[ -n "$out" ]]; then args+=(--out "$out"); fi
-dotnet "$root/tools/SboxNetworkStorage.Parity/bin/Release/net8.0/sbox-ns-parity.dll" "${args[@]}"
+dotnet "$root/tools/SboxNetworkStorage.Parity/bin/Release/net10.0/sbox-ns-parity.dll" "${args[@]}"

@@ -20,7 +20,7 @@ public abstract class NetworkStorageStatsReadCandidateTests<TFactory> : IClassFi
         client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
     }
 
-    private static NetworkStorageCandidateRequest BuildRequest(
+    private static NetworkStorageRequest BuildRequest(
         string projectId,
         string steamId,
         string? apiKey = "sbox_sk_testpublickey",
@@ -33,7 +33,7 @@ public abstract class NetworkStorageStatsReadCandidateTests<TFactory> : IClassFi
             query["apiKey"] = apiKey;
         }
 
-        return new NetworkStorageCandidateRequest(
+        return new NetworkStorageRequest(
             route,
             query,
             ContentType: null,
@@ -59,7 +59,7 @@ public abstract class NetworkStorageStatsReadCandidateTests<TFactory> : IClassFi
         using var fixtureDoc = JsonDocument.Parse(fixture);
         var expectedStats = fixtureDoc.RootElement.Clone();
 
-        var handler = new StatsReadCandidateHandler(
+        var handler = new StatsReadHandler(
             new FakeKeyResolver("test-public-key", "demo-project", "public"),
             new FakeBunnyStats(expectedStats, "76561197960287930"));
 
@@ -83,7 +83,7 @@ public abstract class NetworkStorageStatsReadCandidateTests<TFactory> : IClassFi
     [SkippableFact]
     public async Task MissingStatsFileReturnsNotFound()
     {
-        var handler = new StatsReadCandidateHandler(
+        var handler = new StatsReadHandler(
             new FakeKeyResolver("test-public-key", "demo-project", "public"),
             new FakeBunnyStats(default, "nonexistent-player"));
 
@@ -101,7 +101,7 @@ public abstract class NetworkStorageStatsReadCandidateTests<TFactory> : IClassFi
     [SkippableFact]
     public async Task MissingApiKeyReturnsUnauthorized()
     {
-        var handler = new StatsReadCandidateHandler(
+        var handler = new StatsReadHandler(
             new FakeKeyResolver(null, "demo-project", null),
             new FakeBunnyStats(default, "some-player"));
 
@@ -120,7 +120,7 @@ public abstract class NetworkStorageStatsReadCandidateTests<TFactory> : IClassFi
     [SkippableFact]
     public async Task InvalidApiKeyReturnsUnauthorized()
     {
-        var handler = new StatsReadCandidateHandler(
+        var handler = new StatsReadHandler(
             new FakeKeyResolver("bad-key", "demo-project", null),
             new FakeBunnyStats(default, "some-player"));
 
@@ -140,7 +140,7 @@ public abstract class NetworkStorageStatsReadCandidateTests<TFactory> : IClassFi
     public void CanHandleReturnsFalseForPost()
     {
         var route = NetworkStorageRouteClassifier.Classify("POST", "/api/storage/demo-project/stats/some-player");
-        var handler = new StatsReadCandidateHandler(
+        var handler = new StatsReadHandler(
             new FakeKeyResolver("test-public-key", "demo-project", "public"),
             new FakeBunnyStats(default, "some-player"));
 
@@ -153,7 +153,7 @@ public abstract class NetworkStorageStatsReadCandidateTests<TFactory> : IClassFi
     public void CanHandleReturnsTrueForGet()
     {
         var route = NetworkStorageRouteClassifier.Classify("GET", "/api/storage/demo-project/stats/some-player");
-        var handler = new StatsReadCandidateHandler(
+        var handler = new StatsReadHandler(
             new FakeKeyResolver("test-public-key", "demo-project", "public"),
             new FakeBunnyStats(default, "some-player"));
 
@@ -193,7 +193,7 @@ public abstract class NetworkStorageStatsReadCandidateTests<TFactory> : IClassFi
         }
     }
 
-    private sealed class FakeBunnyStats : IBunnyWorkspaceClient
+    private sealed class FakeBunnyStats : IWorkspaceStore
     {
         private readonly JsonElement _stats;
         private readonly string _matchingSteamId;
@@ -209,9 +209,9 @@ public abstract class NetworkStorageStatsReadCandidateTests<TFactory> : IClassFi
             _throwsOnRead = throwsOnRead;
         }
 
-        public Task<IReadOnlyList<BunnyProject>> GetUserProjectsAsync(long userId, CancellationToken cancellationToken)
-            => Task.FromResult<IReadOnlyList<BunnyProject>>(
-                new List<BunnyProject>
+        public Task<IReadOnlyList<WorkspaceProject>> GetUserProjectsAsync(long userId, CancellationToken cancellationToken)
+            => Task.FromResult<IReadOnlyList<WorkspaceProject>>(
+                new List<WorkspaceProject>
                 {
                     new(Id: "demo-project", Name: "Test Project", Description: null, Enabled: true,
                         CreatedAt: null, UpdatedAt: null, CompiledAt: null)
@@ -238,7 +238,7 @@ public abstract class NetworkStorageStatsReadCandidateTests<TFactory> : IClassFi
         public Task<WorkspaceProjectUsage?> GetProjectUsageAsync(long userId, string projectId, string monthKey, CancellationToken cancellationToken)
             => Task.FromResult<WorkspaceProjectUsage?>(null);
 
-        public Task SaveUserProjectsAsync(long userId, IReadOnlyList<BunnyProject> projects, CancellationToken cancellationToken)
+        public Task SaveUserProjectsAsync(long userId, IReadOnlyList<WorkspaceProject> projects, CancellationToken cancellationToken)
             => Task.CompletedTask;
 
         public Task<string?> GetProjectResourceTextAsync(long userId, string projectId, string resourcePath, CancellationToken cancellationToken)

@@ -13,15 +13,15 @@ namespace SboxNetworkStorage.Server.Tests.NetworkStorage;
 /// </summary>
 public sealed class QueryRunTelemetryTests
 {
-    private static (ScyllaQueryRunRecorder Recorder, InMemoryNetworkStorageStore Store) BuildRecorder()
+    private static (StoreQueryRunRecorder Recorder, InMemoryNetworkStorageStore Store) BuildRecorder()
     {
         var store = new InMemoryNetworkStorageStore();
         var services = new ServiceCollection();
         services.AddSingleton<INetworkStorageStore>(store);
         var provider = services.BuildServiceProvider();
-        var recorder = new ScyllaQueryRunRecorder(
+        var recorder = new StoreQueryRunRecorder(
             provider.GetRequiredService<IServiceScopeFactory>(),
-            NullLogger<ScyllaQueryRunRecorder>.Instance);
+            NullLogger<StoreQueryRunRecorder>.Instance);
         return (recorder, store);
     }
 

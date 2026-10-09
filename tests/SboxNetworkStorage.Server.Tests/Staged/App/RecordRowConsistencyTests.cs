@@ -220,7 +220,7 @@ public class RecordRowConsistencyTests
         Assert.NotNull(jsonPayload);
 
         // Executor path: value-model object via ExtractRecordPayload
-        var executorPayload = ScyllaEndpointShadowDataSource.ExtractRecordPayload(row);
+        var executorPayload = StoreEndpointDataSource.ExtractRecordPayload(row);
         Assert.NotNull(executorPayload);
 
         // Both must report the same totalLevel
@@ -236,7 +236,7 @@ public class RecordRowConsistencyTests
 
         // All three paths must treat a tombstone as missing.
         Assert.Null(RecordRow.ExtractPayload(row));
-        Assert.Null(ScyllaEndpointShadowDataSource.ExtractRecordPayload(row));
+        Assert.Null(StoreEndpointDataSource.ExtractRecordPayload(row));
     }
 
     [Fact]
@@ -251,7 +251,7 @@ public class RecordRowConsistencyTests
         });
 
         Assert.Null(RecordRow.ExtractPayload(row));
-        Assert.Null(ScyllaEndpointShadowDataSource.ExtractRecordPayload(row));
+        Assert.Null(StoreEndpointDataSource.ExtractRecordPayload(row));
     }
 
     [Fact]
@@ -263,7 +263,7 @@ public class RecordRowConsistencyTests
             deleted: false);
 
         var jsonPayload = RecordRow.ExtractPayload(row);
-        var executorPayload = ScyllaEndpointShadowDataSource.ExtractRecordPayload(row);
+        var executorPayload = StoreEndpointDataSource.ExtractRecordPayload(row);
 
         Assert.NotNull(jsonPayload);
         Assert.NotNull(executorPayload);

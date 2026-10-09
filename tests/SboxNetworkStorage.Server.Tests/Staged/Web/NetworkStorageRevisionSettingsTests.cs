@@ -24,7 +24,7 @@ public sealed class NetworkStorageRevisionSettingsTests
     {
         var now = DateTimeOffset.UtcNow;
         var bunny = new FakeBunny();
-        bunny.Projects.Add(new BunnyProject("proj_one", "One", null, true, now, now, null));
+        bunny.Projects.Add(new WorkspaceProject("proj_one", "One", null, true, now, now, null));
         var service = CreateService(bunny);
 
         await service.UpdateProjectSettingsAsync(
@@ -66,15 +66,15 @@ public sealed class NetworkStorageRevisionSettingsTests
         Assert.Single(bunny.ProjectSaves);
     }
 
-    private sealed class FakeBunny : IBunnyWorkspaceClient
+    private sealed class FakeBunny : IWorkspaceStore
     {
-        public List<BunnyProject> Projects { get; } = new();
-        public List<IReadOnlyList<BunnyProject>> ProjectSaves { get; } = new();
+        public List<WorkspaceProject> Projects { get; } = new();
+        public List<IReadOnlyList<WorkspaceProject>> ProjectSaves { get; } = new();
 
-        public Task<IReadOnlyList<BunnyProject>> GetUserProjectsAsync(long userId, CancellationToken cancellationToken)
-            => Task.FromResult<IReadOnlyList<BunnyProject>>(Projects.ToList());
+        public Task<IReadOnlyList<WorkspaceProject>> GetUserProjectsAsync(long userId, CancellationToken cancellationToken)
+            => Task.FromResult<IReadOnlyList<WorkspaceProject>>(Projects.ToList());
 
-        public Task SaveUserProjectsAsync(long userId, IReadOnlyList<BunnyProject> projects, CancellationToken cancellationToken)
+        public Task SaveUserProjectsAsync(long userId, IReadOnlyList<WorkspaceProject> projects, CancellationToken cancellationToken)
         {
             ProjectSaves.Add(projects);
             Projects.Clear();

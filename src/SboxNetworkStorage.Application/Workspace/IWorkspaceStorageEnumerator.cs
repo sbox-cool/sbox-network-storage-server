@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 namespace SboxNetworkStorage.Application.Workspace;
 
 /// <summary>A single object returned by a Bunny edge-storage directory listing.</summary>
-public sealed record BunnyStorageEntry(
+public sealed record WorkspaceStorageEntry(
     string ObjectName,
     bool IsDirectory,
     DateTimeOffset? LastChanged = null,
@@ -25,5 +25,5 @@ public interface IWorkspaceStorageEnumerator
     /// <c>network-storage/users/{userId}/{projectId}/</c>. Returns an empty list when the
     /// directory does not exist.
     /// </summary>
-    Task<IReadOnlyList<BunnyStorageEntry>> ListProjectResourceAsync(long userId, string projectId, string resourcePath, CancellationToken cancellationToken);
+    Task<IReadOnlyList<WorkspaceStorageEntry>> ListProjectResourceAsync(long userId, string projectId, string resourcePath, CancellationToken cancellationToken);
 }

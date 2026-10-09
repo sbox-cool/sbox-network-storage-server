@@ -48,7 +48,7 @@ public sealed class UsageTelemetryTests : IDisposable
         await service.StopAsync(CancellationToken.None);
 
         Assert.Empty(handler.Bodies);
-        Assert.False(File.Exists(UsageTelemetry.IdPath(config)));
+        Assert.False(File.Exists(config.TelemetryIdPath));
     }
 
     [Fact]
@@ -91,7 +91,7 @@ public sealed class UsageTelemetryTests : IDisposable
         var root = json.RootElement;
         Assert.Equal(ContractFields, root.EnumerateObject().Select(p => p.Name));
         Assert.Equal(1, root.GetProperty("schema").GetInt32());
-        Assert.Equal(PrivateIdFile.Read(UsageTelemetry.IdPath(config)), root.GetProperty("installId").GetGuid());
+        Assert.Equal(PrivateIdFile.Read(config.TelemetryIdPath), root.GetProperty("installId").GetGuid());
         Assert.Contains(root.GetProperty("os").GetString(), new[] { "linux", "windows", "macos", "other" });
         Assert.Contains(root.GetProperty("arch").GetString(), new[] { "x64", "arm64", "other" });
         Assert.Equal("sqlite", root.GetProperty("database").GetString());
@@ -113,25 +113,25 @@ public sealed class UsageTelemetryTests : IDisposable
 
         Assert.Equal(CliApp.Ok, await TelemetryCommands.RunAsync(Context("telemetry", "enable")));
         Assert.True(Load().GetBoolean("telemetry.enabled"));
-        var telemetryId = PrivateIdFile.Read(UsageTelemetry.IdPath(config));
+        var telemetryId = PrivateIdFile.Read(config.TelemetryIdPath);
         Assert.NotNull(telemetryId);
         Assert.Equal(4, telemetryId!.Value.ToString("D")[14] - '0'); // UUIDv4
         Assert.NotEqual(installId, telemetryId);
         Assert.Equal(installId, PrivateIdFile.Read(installIdPath));
         if (!OperatingSystem.IsWindows())
-            Assert.Equal(UnixFileMode.UserRead | UnixFileMode.UserWrite, File.GetUnixFileMode(UsageTelemetry.IdPath(config)));
+            Assert.Equal(UnixFileMode.UserRead | UnixFileMode.UserWrite, File.GetUnixFileMode(config.TelemetryIdPath));
 
         Assert.Equal(CliApp.Ok, await TelemetryCommands.RunAsync(Context("telemetry", "disable")));
         Assert.False(Load().GetBoolean("telemetry.enabled"));
         Assert.Equal(CliApp.Ok, await TelemetryCommands.RunAsync(Context("telemetry", "enable")));
-        Assert.Equal(telemetryId, PrivateIdFile.Read(UsageTelemetry.IdPath(config)));
+        Assert.Equal(telemetryId, PrivateIdFile.Read(config.TelemetryIdPath));
     }
 
     [Fact]
     public async Task Telemetry_enable_without_install_id_never_creates_one()
     {
         Assert.Equal(CliApp.Ok, await TelemetryCommands.RunAsync(Context("telemetry", "enable")));
-        Assert.True(File.Exists(UsageTelemetry.IdPath(Load())));
+        Assert.True(File.Exists(Load().TelemetryIdPath));
         Assert.False(File.Exists(Path.Combine(DataDir, "install-id")));
     }
 
@@ -142,7 +142,7 @@ public sealed class UsageTelemetryTests : IDisposable
         var error = await Assert.ThrowsAsync<CliException>(() => TelemetryCommands.RunAsync(Context("telemetry", "enable")));
         Assert.Contains("HTTPS", error.Message);
         Assert.False(Load().GetBoolean("telemetry.enabled"));
-        Assert.False(File.Exists(UsageTelemetry.IdPath(Load())));
+        Assert.False(File.Exists(Load().TelemetryIdPath));
     }
 
     [Theory]

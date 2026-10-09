@@ -382,7 +382,7 @@ internal sealed partial class NetworkStorageStepValidator
         }
         catch (ExpressionException)
         {
-            _bag.Error("INVALID_CONDITION_OP", $"{label}: operator \"{op}\" is not supported. Use ==, !=, >, <, >=, <=, contains, not_contains, in, not_in, starts_with, not_starts_with, exists or not_exists.", path);
+            _bag.Error("INVALID_CONDITION_OP", $"{label}: operator \"{op}\" is not supported. Use ==, !=, >, <, >=, <=, contains, not_contains, in, not_in, starts_with, not_starts_with, matches, exists or not_exists.", path);
             return false;
         }
     }
@@ -395,9 +395,9 @@ internal sealed partial class NetworkStorageStepValidator
             ? value.GetString()
             : null;
 
-    [GeneratedRegex("^[A-Za-z_][A-Za-z0-9_]*$")]
+    [GeneratedRegex("^[A-Za-z_][A-Za-z0-9_]*$", RegexOptions.None, 100)]
     internal static partial Regex StepIdPattern();
 
-    [GeneratedRegex("^[0-9a-fA-F]{6}$")]
+    [GeneratedRegex("^[0-9a-fA-F]{6}$", RegexOptions.None, 100)]
     private static partial Regex HexColor();
 }

@@ -19,12 +19,12 @@ public sealed record OwnerPagesModel(string ProjectId, string ProjectName, IRead
 /// </summary>
 [Authorize(AuthenticationSchemes = OwnerHostingExtensions.Scheme)]
 public sealed partial class OwnerPagesController(INetworkStorageProjectService projects, INetworkStorageStore store,
-    IBunnyWorkspaceClient workspace, IAuditLogger audit) : Controller
+    IWorkspaceStore workspace, IAuditLogger audit) : Controller
 {
     private const string Route = "/dashboard/projects/{projectId}/pages";
     private const int MaxContentLength = 100_000;
 
-    [GeneratedRegex("^[a-z0-9][a-z0-9_-]{0,63}$")]
+    [GeneratedRegex("^[a-z0-9][a-z0-9_-]{0,63}$", RegexOptions.None, 100)]
     private static partial Regex SlugPattern();
 
     [HttpGet(Route)]

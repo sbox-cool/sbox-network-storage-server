@@ -5,9 +5,9 @@ using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using SboxNetworkStorage.Application.NetworkStorage;
 using SboxNetworkStorage.Application.Workspace;
-using SboxNetworkStorage.Contracts.Diagnostics;
 using SboxNetworkStorage.Domain.Workspace;
-using SboxNetworkStorage.Server.Routing;
+using SboxNetworkStorage.Server.Middleware;
+
 
 namespace SboxNetworkStorage.Server.Endpoints;
 
@@ -28,7 +28,7 @@ namespace SboxNetworkStorage.Server.Endpoints;
 /// Bun body shapes; errors use HTTP status codes + <c>{ error: { code, message,
 /// docsUrl } }</c> matching the Bun <c>errorResponse</c> / <c>ERRORS</c> map.</para>
 /// </summary>
-public static class RecordsEndpoints
+public static partial class RecordsEndpoints
 {
     private const string Wiki = "https://sboxcool.com/wiki/network-storage-v3";
 
@@ -65,32 +65,24 @@ public static class RecordsEndpoints
         foreach (var prefix in V3V1Prefixes)
         {
             endpoints.MapGet($"{prefix}/{{projectId}}/{{collectionId}}/{{steamId}}/records", ListRecordsAsync)
-                .WithDisplayName($"Network Storage records list ({prefix})")
-                .WithRouteOwner(RouteOwner.DotNetNative, "ASP.NET Core native Network Storage player records list (no Bun proxy)");
+                .WithDisplayName($"Network Storage records list ({prefix})");
             endpoints.MapPost($"{prefix}/{{projectId}}/{{collectionId}}/{{steamId}}/records", CreateRecordAsync)
-                .WithDisplayName($"Network Storage records create ({prefix})")
-                .WithRouteOwner(RouteOwner.DotNetNative, "ASP.NET Core native Network Storage player record create (no Bun proxy)");
+                .WithDisplayName($"Network Storage records create ({prefix})");
             endpoints.MapDelete($"{prefix}/{{projectId}}/{{collectionId}}/{{steamId}}/records/{{recordId}}", DeleteRecordAsync)
-                .WithDisplayName($"Network Storage records delete ({prefix})")
-                .WithRouteOwner(RouteOwner.DotNetNative, "ASP.NET Core native Network Storage player record delete (no Bun proxy)");
+                .WithDisplayName($"Network Storage records delete ({prefix})");
             endpoints.MapPatch($"{prefix}/{{projectId}}/{{collectionId}}/{{steamId}}/records/{{recordId}}", RenameRecordAsync)
-                .WithDisplayName($"Network Storage records rename ({prefix})")
-                .WithRouteOwner(RouteOwner.DotNetNative, "ASP.NET Core native Network Storage player record rename (no Bun proxy)");
+                .WithDisplayName($"Network Storage records rename ({prefix})");
         }
 
         // /api/storage/{projectId}/{collectionId}/{steamId}/records aliases
         endpoints.MapGet("/api/storage/{projectId}/{collectionId}/{steamId}/records", ListRecordsAsync)
-            .WithDisplayName("Network Storage records list (api/storage alias)")
-            .WithRouteOwner(RouteOwner.DotNetNative, "ASP.NET Core native Network Storage player records list via /api/storage alias (no Bun proxy)");
+            .WithDisplayName("Network Storage records list (api/storage alias)");
         endpoints.MapPost("/api/storage/{projectId}/{collectionId}/{steamId}/records", CreateRecordAsync)
-            .WithDisplayName("Network Storage records create (api/storage alias)")
-            .WithRouteOwner(RouteOwner.DotNetNative, "ASP.NET Core native Network Storage player record create via /api/storage alias (no Bun proxy)");
+            .WithDisplayName("Network Storage records create (api/storage alias)");
         endpoints.MapDelete("/api/storage/{projectId}/{collectionId}/{steamId}/records/{recordId}", DeleteRecordAsync)
-            .WithDisplayName("Network Storage records delete (api/storage alias)")
-            .WithRouteOwner(RouteOwner.DotNetNative, "ASP.NET Core native Network Storage player record delete via /api/storage alias (no Bun proxy)");
+            .WithDisplayName("Network Storage records delete (api/storage alias)");
         endpoints.MapPatch("/api/storage/{projectId}/{collectionId}/{steamId}/records/{recordId}", RenameRecordAsync)
-            .WithDisplayName("Network Storage records rename (api/storage alias)")
-            .WithRouteOwner(RouteOwner.DotNetNative, "ASP.NET Core native Network Storage player record rename via /api/storage alias (no Bun proxy)");
+            .WithDisplayName("Network Storage records rename (api/storage alias)");
 
         return endpoints;
     }
@@ -107,7 +99,6 @@ public static class RecordsEndpoints
 
         var index = await ReadRecordIndexAsync(context, ownerUserId, projectId, collection!.Id, steamId);
 
-        context.Response.Headers["X-Sboxcool-Route-Owner"] = RouteOwner.DotNetNative.ToDisplayName();
         context.Response.StatusCode = StatusCodes.Status200OK;
         context.Response.ContentType = "application/json; charset=utf-8";
         await context.Response.WriteAsJsonAsync(new
@@ -158,7 +149,6 @@ public static class RecordsEndpoints
         index.Records.Add(new RecordIndexEntry(recordId, recordName, now, now, false));
         await WriteRecordIndexAsync(context, ownerUserId, projectId, collection.Id, steamId, index);
 
-        context.Response.Headers["X-Sboxcool-Route-Owner"] = RouteOwner.DotNetNative.ToDisplayName();
         context.Response.StatusCode = StatusCodes.Status200OK;
         context.Response.ContentType = "application/json; charset=utf-8";
         await context.Response.WriteAsJsonAsync(new { ok = true, recordId, recordName }, JsonOptions, context.RequestAborted);
@@ -199,7 +189,6 @@ public static class RecordsEndpoints
         index.Records.RemoveAll(r => string.Equals(r.RecordId, recordId, StringComparison.Ordinal));
         await WriteRecordIndexAsync(context, ownerUserId, projectId, collection.Id, steamId, index);
 
-        context.Response.Headers["X-Sboxcool-Route-Owner"] = RouteOwner.DotNetNative.ToDisplayName();
         context.Response.StatusCode = StatusCodes.Status200OK;
         context.Response.ContentType = "application/json; charset=utf-8";
         await context.Response.WriteAsJsonAsync(new { ok = true }, JsonOptions, context.RequestAborted);
@@ -243,7 +232,6 @@ public static class RecordsEndpoints
         index.Records.Add(updated);
         await WriteRecordIndexAsync(context, ownerUserId, projectId, collection.Id, steamId, index);
 
-        context.Response.Headers["X-Sboxcool-Route-Owner"] = RouteOwner.DotNetNative.ToDisplayName();
         context.Response.StatusCode = StatusCodes.Status200OK;
         context.Response.ContentType = "application/json; charset=utf-8";
         await context.Response.WriteAsJsonAsync(new { ok = true, recordId, recordName }, JsonOptions, context.RequestAborted);
@@ -277,6 +265,8 @@ public static class RecordsEndpoints
         var access = await projectService.ResolveProjectAccessAsync(auth.UserId, projectId, context.RequestAborted);
         if (access is null)
             return Fail("UNAUTHORIZED");
+
+        NetworkStorageUsageContext.SetAuthenticated(context, projectId);
 
         if (!access.Project.Enabled)
             return Fail("PROJECT_DISABLED");
@@ -322,7 +312,7 @@ public static class RecordsEndpoints
     private static async Task<RecordIndex> ReadRecordIndexAsync(
         HttpContext context, long ownerUserId, string projectId, string collectionId, string steamId)
     {
-        var bunny = context.RequestServices.GetRequiredService<IBunnyWorkspaceClient>();
+        var bunny = context.RequestServices.GetRequiredService<IWorkspaceStore>();
         var relativePath = string.Format(System.Globalization.CultureInfo.InvariantCulture, IndexFileTemplate, collectionId, steamId);
 
         RecordIndexData? data;
@@ -346,7 +336,7 @@ public static class RecordsEndpoints
     private static async Task WriteRecordIndexAsync(
         HttpContext context, long ownerUserId, string projectId, string collectionId, string steamId, RecordIndex index)
     {
-        var bunny = context.RequestServices.GetRequiredService<IBunnyWorkspaceClient>();
+        var bunny = context.RequestServices.GetRequiredService<IWorkspaceStore>();
         var relativePath = string.Format(System.Globalization.CultureInfo.InvariantCulture, IndexFileTemplate, collectionId, steamId);
         var data = new RecordIndexData { Records = index.Records };
         await bunny.PutProjectResourceAsync(ownerUserId, projectId, relativePath, data, context.RequestAborted);
@@ -355,10 +345,10 @@ public static class RecordsEndpoints
     // ── Helpers ──
 
     private static bool IsValidSteamId(string? steamId)
-        => !string.IsNullOrEmpty(steamId) && SteamIdPattern.IsMatch(steamId);
+        => !string.IsNullOrEmpty(steamId) && SteamIdPattern().IsMatch(steamId);
 
-    private static readonly System.Text.RegularExpressions.Regex SteamIdPattern =
-        new("^[a-zA-Z0-9_-]+$", System.Text.RegularExpressions.RegexOptions.Compiled);
+    [System.Text.RegularExpressions.GeneratedRegex("^[a-zA-Z0-9_-]+$", System.Text.RegularExpressions.RegexOptions.None, 100)]
+    private static partial System.Text.RegularExpressions.Regex SteamIdPattern();
 
     /// <summary>Generate a 6-hex record id (mirror Bun <c>generateRecordId</c>).</summary>
     private static string GenerateRecordId()
@@ -380,7 +370,6 @@ public static class RecordsEndpoints
     private static async Task ErrorAsync(HttpContext context, string code, string? detail = null)
     {
         var (status, message, docsUrl) = Errors[code];
-        context.Response.Headers["X-Sboxcool-Route-Owner"] = RouteOwner.DotNetNative.ToDisplayName();
         context.Response.StatusCode = status;
         context.Response.ContentType = "application/json; charset=utf-8";
         var errorObj = new Dictionary<string, object?>(StringComparer.Ordinal)
@@ -410,3 +399,4 @@ public static class RecordsEndpoints
         string UpdatedAt,
         bool IsLegacy);
 }
+

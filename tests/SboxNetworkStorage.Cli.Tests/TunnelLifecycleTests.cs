@@ -78,7 +78,7 @@ public sealed class TunnelLifecycleTests : IDisposable
         await Assert.ThrowsAsync<InvalidDataException>(() => manager.EnableAsync(Load(), CancellationToken.None));
         foreach (var pair in before) Assert.Equal(pair.Value, Load().Values[pair.Key].Value);
         Assert.Equal("previous-token", File.ReadAllText(TunnelManager.TokenPath(Load())));
-        Assert.False(File.Exists(CloudflaredInstaller.ExecutablePath(_dir)));
+        Assert.False(File.Exists(CloudflaredInstaller.ExecutablePath(Load().ExecutablesDirectory)));
     }
 
     [Fact]
@@ -111,7 +111,7 @@ public sealed class TunnelLifecycleTests : IDisposable
         Assert.Equal("https://own.example.test", Load().GetString("server.public_url"));
         Assert.False(Load().GetBoolean("tunnel.enabled"));
         Assert.False(File.Exists(TunnelManager.TokenPath(Load())));
-        Assert.False(File.Exists(CloudflaredInstaller.ExecutablePath(_dir)));
+        Assert.False(File.Exists(CloudflaredInstaller.ExecutablePath(Load().ExecutablesDirectory)));
     }
 
     private sealed class InvalidHostnameHandler : HttpMessageHandler

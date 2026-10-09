@@ -38,10 +38,10 @@ public abstract class NetworkStorageSecurityConfigCandidateTests<TFactory> : ICl
         }).CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
     }
 
-    private static NetworkStorageCandidateRequest BuildRequest(string projectId)
+    private static NetworkStorageRequest BuildRequest(string projectId)
     {
         var route = NetworkStorageRouteClassifier.Classify("GET", $"/v3/security-config/{projectId}");
-        return new NetworkStorageCandidateRequest(
+        return new NetworkStorageRequest(
             route,
             new Dictionary<string, string>(),
             ContentType: null,
@@ -55,18 +55,18 @@ public abstract class NetworkStorageSecurityConfigCandidateTests<TFactory> : ICl
     [SkippableFact]
     public async Task ProjectMetadataReturnsSignedBunCompatiblePayload()
     {
-        var handler = new SecurityConfigCandidateHandler(new StubProjectStore(ProjectJson), TimeProvider.System);
+        var handler = new SecurityConfigHandler(new StubProjectStore(ProjectJson), TimeProvider.System);
 
         var result = await handler.ExecuteAsync(BuildRequest("demo-project"));
 
         Assert.Equal(200, result.StatusCode);
         Assert.Null(result.PublicErrorCode);
         Assert.Equal("anonymous", result.AuthDecision);
-        Assert.Contains("scylladb/projects/demo-project", result.StoragePathsRead);
+        Assert.Contains("store/projects/demo-project", result.StoragePathsRead);
 
         var json = JsonSerializer.SerializeToElement(result.Body);
         Assert.True(json.GetProperty("ok").GetBoolean());
-        Assert.Equal("scylladb", json.GetProperty("source").GetString());
+        Assert.Equal("store", json.GetProperty("source").GetString());
         var config = json.GetProperty("config");
         Assert.Equal("demo-project", config.GetProperty("projectId").GetString());
         Assert.True(config.GetProperty("settings").GetProperty("enableAuthSessions").GetBoolean());
@@ -90,7 +90,7 @@ public abstract class NetworkStorageSecurityConfigCandidateTests<TFactory> : ICl
               "analytics": { "enabled": false }
             }
             """;
-        var handler = new SecurityConfigCandidateHandler(new StubProjectStore(nullProjectJson), TimeProvider.System);
+        var handler = new SecurityConfigHandler(new StubProjectStore(nullProjectJson), TimeProvider.System);
 
         var result = await handler.ExecuteAsync(BuildRequest("demo-project"));
 
@@ -105,7 +105,7 @@ public abstract class NetworkStorageSecurityConfigCandidateTests<TFactory> : ICl
     [SkippableFact]
     public async Task MissingProjectReturnsNotFoundCode()
     {
-        var handler = new SecurityConfigCandidateHandler(new StubProjectStore(), TimeProvider.System);
+        var handler = new SecurityConfigHandler(new StubProjectStore(), TimeProvider.System);
 
         var result = await handler.ExecuteAsync(BuildRequest("demo-project"));
 
@@ -119,7 +119,7 @@ public abstract class NetworkStorageSecurityConfigCandidateTests<TFactory> : ICl
     [SkippableFact]
     public async Task StoreErrorReturnsReadFailedCode()
     {
-        var handler = new SecurityConfigCandidateHandler(new StubProjectStore(throws: true), TimeProvider.System);
+        var handler = new SecurityConfigHandler(new StubProjectStore(throws: true), TimeProvider.System);
 
         var result = await handler.ExecuteAsync(BuildRequest("demo-project"));
 
@@ -145,12 +145,12 @@ public abstract class NetworkStorageSecurityConfigCandidateTests<TFactory> : ICl
         using var response = await liveClient.GetAsync("/v3/security-config/demo-project");
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Contains("max-age=15", response.Headers.CacheControl?.ToString());
-        Assert.Equal("scylladb", response.Headers.GetValues("X-Security-Config-Source").Single());
+        Assert.Equal("store", response.Headers.GetValues("X-Security-Config-Source").Single());
 
         using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         var root = document.RootElement;
         Assert.True(root.GetProperty("ok").GetBoolean());
-        Assert.Equal("scylladb", root.GetProperty("source").GetString());
+        Assert.Equal("store", root.GetProperty("source").GetString());
         AssertSecurityConfigSignature(root.GetProperty("config"));
     }
 

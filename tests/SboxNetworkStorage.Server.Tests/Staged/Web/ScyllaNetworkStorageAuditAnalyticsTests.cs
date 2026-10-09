@@ -44,7 +44,7 @@ public sealed class ScyllaNetworkStorageAuditAnalyticsTests
     public async Task AuditLog_WrittenToScylla_RoundTripsThroughBrowseProjectLogs()
     {
         var store = new InMemoryNetworkStorageStore();
-        var auditLogger = new ScyllaAuditLogger(store, NullLogger<ScyllaAuditLogger>.Instance);
+        var auditLogger = new StoreAuditLogger(store, NullLogger<StoreAuditLogger>.Instance);
 
         await auditLogger.LogActionAsync(MakeAudit("proj_audit", "collection-create", "players"), CancellationToken.None);
 
@@ -69,7 +69,7 @@ public sealed class ScyllaNetworkStorageAuditAnalyticsTests
     public async Task BrowseProjectLogs_FiltersByAction()
     {
         var store = new InMemoryNetworkStorageStore();
-        var auditLogger = new ScyllaAuditLogger(store, NullLogger<ScyllaAuditLogger>.Instance);
+        var auditLogger = new StoreAuditLogger(store, NullLogger<StoreAuditLogger>.Instance);
         await auditLogger.LogActionAsync(MakeAudit("proj_filter", "collection-create", "players"), CancellationToken.None);
         await auditLogger.LogActionAsync(MakeAudit("proj_filter", "endpoint-update", "save"), CancellationToken.None);
 
@@ -87,7 +87,7 @@ public sealed class ScyllaNetworkStorageAuditAnalyticsTests
     public async Task BrowseProjectLogs_OtherProjectIsolated()
     {
         var store = new InMemoryNetworkStorageStore();
-        var auditLogger = new ScyllaAuditLogger(store, NullLogger<ScyllaAuditLogger>.Instance);
+        var auditLogger = new StoreAuditLogger(store, NullLogger<StoreAuditLogger>.Instance);
         await auditLogger.LogActionAsync(MakeAudit("proj_a", "collection-create", "players"), CancellationToken.None);
 
         var service = CreateService(store);

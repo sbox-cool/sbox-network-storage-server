@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text.Json.Serialization;
 
 namespace SboxNetworkStorage.Domain.Workspace;
 
@@ -45,7 +46,7 @@ public sealed record WorkspaceProjectUsage(
     public DateTimeOffset? LastUpdatedAt { get; init; }
 }
 
-public sealed record BunnyProject(
+public sealed record WorkspaceProject(
     string Id,
     string Name,
     string? Description,
@@ -75,25 +76,8 @@ public sealed record BunnyProject(
     Dictionary<string, object>? Webhooks = null,
     string? DiscordWebhook = null,
     Dictionary<string, object>? Analytics = null,
-    Dictionary<string, object>? EndpointRateLimits = null
-);
-
-public sealed record WorkspaceProject(
-    string Id,
-    string Name,
-    string? Description,
-    bool Enabled,
-    DateTimeOffset? CreatedAt,
-    DateTimeOffset? UpdatedAt,
-    DateTimeOffset? CompiledAt,
-    bool IsPinned,
-    int CollectionCount,
-    int EndpointCount,
-    int WorkflowCount,
-    string? LastActivityAt,
-    long LastActivityMs,
-    bool ActivityLoaded,
-    WorkspaceProjectUsage? Usage
+    Dictionary<string, object>? EndpointRateLimits = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? LegacyPlayerProjections = null
 );
 
 public sealed record WorkspaceProjectContext(

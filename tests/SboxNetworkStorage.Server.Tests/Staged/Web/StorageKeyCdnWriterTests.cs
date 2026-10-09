@@ -71,7 +71,7 @@ public sealed class StorageKeyCdnWriterTests
         Assert.Equal("proj_3", root.GetProperty("projectId").GetString());
     }
 
-    private sealed class InMemoryBunnyClient : IBunnyWorkspaceClient
+    private sealed class InMemoryBunnyClient : IWorkspaceStore
     {
         private static readonly JsonSerializerOptions Options = new()
         {
@@ -103,13 +103,13 @@ public sealed class StorageKeyCdnWriterTests
             return Task.CompletedTask;
         }
 
-        public Task<IReadOnlyList<BunnyProject>> GetUserProjectsAsync(long userId, CancellationToken cancellationToken)
+        public Task<IReadOnlyList<WorkspaceProject>> GetUserProjectsAsync(long userId, CancellationToken cancellationToken)
             => throw new NotImplementedException();
 
         public Task<WorkspaceProjectUsage?> GetProjectUsageAsync(long userId, string projectId, string monthKey, CancellationToken cancellationToken)
             => throw new NotImplementedException();
 
-        public Task SaveUserProjectsAsync(long userId, IReadOnlyList<BunnyProject> projects, CancellationToken cancellationToken)
+        public Task SaveUserProjectsAsync(long userId, IReadOnlyList<WorkspaceProject> projects, CancellationToken cancellationToken)
             => throw new NotImplementedException();
 
         public Task<T?> GetProjectResourceAsync<T>(long userId, string projectId, string resourcePath, CancellationToken cancellationToken)

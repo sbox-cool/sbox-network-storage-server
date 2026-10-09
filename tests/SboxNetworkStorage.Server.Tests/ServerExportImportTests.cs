@@ -54,6 +54,21 @@ public abstract class ServerExportImportTests<TFactory> : IDisposable
     }
 
     [SkippableFact]
+    public async Task RoundTripCarriesTheLegacyPlayerProjectionsFlag()
+    {
+        var projectId = await SeedAsync();
+        var payload = JsonNode.Parse((await Source.ReadProjectAsync(projectId, Ct))!.Value.GetRawText())!.AsObject();
+        payload["legacyPlayerProjections"] = true;
+        await Source.UpsertProjectAsync(projectId, Json(payload), 1, Ct);
+        var archive = await ExportAsync(Source, factory.Config, includeSecrets: false);
+        var target = await factory.NewStoreAsync();
+
+        await ImportAsync(archive, target, factory.Config, new ImportOptions(Force: false, RestoreConfig: false));
+
+        Assert.True((await target.ReadProjectAsync(projectId, Ct))!.Value.GetProperty("legacyPlayerProjections").GetBoolean());
+    }
+
+    [SkippableFact]
     public async Task ProjectArchivePreservesOtherProjectsAndRejectsOverwrite()
     {
         var id = await SeedAsync();
@@ -398,8 +413,13 @@ public abstract class ServerExportImportTests<TFactory> : IDisposable
         }
         else
         {
+            // Operator-provided secret files (not generated state) restore into the config folder's secrets folder.
             link = Path.Combine(targetConfig.ConfigDirectory, "secrets");
-            Directory.Delete(link, recursive: true);
+            if (Directory.Exists(link))
+            {
+                Directory.Delete(link, recursive: true);
+            }
+
             Directory.CreateSymbolicLink(link, outside.ConfigDirectory);
         }
 
@@ -413,6 +433,32 @@ public abstract class ServerExportImportTests<TFactory> : IDisposable
             Assert.Equal(outsideBefore, ConfigSnapshot(outside.ConfigDirectory));
             Assert.Equal(serverBefore, File.ReadAllText(Path.Combine(targetConfig.ConfigDirectory, SettingDefinitions.ServerFile)));
             Assert.False(File.Exists(Path.Combine(targetConfig.ConfigDirectory, SettingDefinitions.ServerFile) + ConfigArchive.BackupSuffix));
+        }
+        finally
+        {
+            Directory.Delete(link);
+        }
+    }
+
+    [SkippableFact]
+    public async Task ConfigRestoreRejectsASymlinkedStateSecretsFolderWithoutOutsideMutation()
+    {
+        Skip.If(OperatingSystem.IsWindows(), "Creating symbolic links requires elevated permissions on Windows.");
+        var source = CreateConfigFolder("source");
+        var archive = await ExportAsync(Source, source, includeSecrets: true);
+        var outside = CreateConfigFolder("outside");
+        var outsideBefore = ConfigSnapshot(outside.ConfigDirectory);
+        var targetConfig = CreateConfigFolder("target");
+        var link = Path.Combine(targetConfig.StateDirectory, "secrets");
+        Directory.Delete(link, recursive: true);
+        Directory.CreateSymbolicLink(link, outside.ConfigDirectory);
+        try
+        {
+            var target = await factory.NewStoreAsync();
+            await Assert.ThrowsAsync<ExportArchiveException>(() =>
+                ImportAsync(archive, target, targetConfig, new ImportOptions(false, RestoreConfig: true)));
+
+            Assert.Equal(outsideBefore, ConfigSnapshot(outside.ConfigDirectory));
         }
         finally
         {
@@ -453,8 +499,10 @@ public abstract class ServerExportImportTests<TFactory> : IDisposable
         var result = await ImportAsync(archive, await factory.NewStoreAsync(), targetConfig, new ImportOptions(false, RestoreConfig: true));
 
         Assert.NotEmpty(result.ConfigFilesWritten);
-        var key = Path.Combine(targetConfig.ConfigDirectory, "secrets", "storage_encryption_key");
-        Assert.Equal(File.ReadAllText(Path.Combine(source.ConfigDirectory, "secrets", "storage_encryption_key")), File.ReadAllText(key));
+        // Generated secrets are restored into the state folder, never the config folder.
+        var key = Path.Combine(targetConfig.StateDirectory, "secrets", "storage_encryption_key");
+        Assert.Equal(File.ReadAllText(Path.Combine(source.StateDirectory, "secrets", "storage_encryption_key")), File.ReadAllText(key));
+        Assert.False(Directory.Exists(Path.Combine(targetConfig.ConfigDirectory, "secrets")));
         Assert.True(File.Exists(key + ConfigArchive.BackupSuffix));
         Assert.Equal(File.ReadAllText(Path.Combine(source.ConfigDirectory, SettingDefinitions.ServerFile)),
             File.ReadAllText(Path.Combine(targetConfig.ConfigDirectory, SettingDefinitions.ServerFile)));

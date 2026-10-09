@@ -12,7 +12,9 @@ using Microsoft.Extensions.Logging;
 using SboxNetworkStorage.Application.NetworkStorage;
 using SboxNetworkStorage.Application.Workspace;
 using SboxNetworkStorage.Domain.Workspace;
+using SboxNetworkStorage.Server.Middleware;
 using SboxNetworkStorage.Infrastructure.NetworkStorage;
+using SboxNetworkStorage.Infrastructure.NetworkStorage.Metadata;
 
 namespace SboxNetworkStorage.Server.Infrastructure.NetworkStorage;
 
@@ -23,9 +25,10 @@ namespace SboxNetworkStorage.Server.Infrastructure.NetworkStorage;
 /// revision overrides when the revision changes.
 /// </summary>
 public sealed class PackageSyncHandler(
-    IBunnyWorkspaceClient workspaceClient,
+    IWorkspaceStore workspaceClient,
     IStorageApiKeyResolver apiKeyResolver,
-    ILogger<PackageSyncHandler> logger)
+    ILogger<PackageSyncHandler> logger,
+    ProjectMetadataCache metadataCache)
 {
     // Write scopes aggregated by a package sync. Must stay aligned with
     // ManagementMutationCandidateHandler.AllManagementScopes.
@@ -51,6 +54,8 @@ public sealed class PackageSyncHandler(
 
         if (auth is null || !auth.Enabled || !string.Equals(auth.KeyType, "secret", StringComparison.OrdinalIgnoreCase))
             return PackageSyncError(context, 401, "UNAUTHORIZED", "Invalid or missing management API key.");
+
+        NetworkStorageUsageContext.SetAuthenticated(context, projectId);
 
         // Package sync publishes the game package and promotes staged revisions,
         // aggregating every managed resource category. A secret key alone is not
@@ -98,6 +103,7 @@ public sealed class PackageSyncHandler(
         {
             promoted = await PromoteRevisionOverridesAsync(ownerUserId, projectId, cancellationToken);
         }
+        metadataCache.Invalidate(projectId);
         var responseGamePackage = WithUnixTimestamps(gamePackage);
         context.Response.StatusCode = StatusCodes.Status200OK;
         return Results.Json(new

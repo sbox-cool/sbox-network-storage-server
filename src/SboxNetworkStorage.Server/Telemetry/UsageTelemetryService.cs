@@ -47,9 +47,9 @@ public sealed class UsageTelemetryService(
         UsageTelemetryPayload payload;
         try
         {
-            if (PrivateIdFile.LoadOrCreate(UsageTelemetry.IdPath(config)) is not { } id)
+            if (PrivateIdFile.LoadOrCreate(config.TelemetryIdPath) is not { } id)
             {
-                logger.LogDebug("The usage statistics ID file is invalid; delete {Path} to generate a new one", UsageTelemetry.IdPath(config));
+                logger.LogDebug("The usage statistics ID file is invalid; delete {Path} to generate a new one", config.TelemetryIdPath);
                 return;
             }
             payload = await UsageTelemetry.BuildAsync(config, store, id, UsageTelemetry.ProcessUptime(), DateTimeOffset.UtcNow, ct);

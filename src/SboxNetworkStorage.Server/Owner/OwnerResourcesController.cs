@@ -19,7 +19,7 @@ public sealed record OwnerResourcesModel(string ProjectId, string ProjectName, s
 
 [Authorize(AuthenticationSchemes = OwnerHostingExtensions.Scheme)]
 public sealed class OwnerResourcesController(INetworkStorageProjectService projects, INetworkStorageStore store,
-    ManagementMutationCandidateHandler mutations, IAuditLogger audit) : Controller
+    ManagementMutationHandler mutations, IAuditLogger audit) : Controller
 {
     private const long Owner = NetworkStorageServices.LocalOwnerUserId;
     private const string Root = "/dashboard/projects/{projectId}/resources";
@@ -136,7 +136,7 @@ public sealed class OwnerResourcesController(INetworkStorageProjectService proje
         return Json(new { created, skipped, failed }, Web);
     }
 
-    private async Task<(IReadOnlyList<DefinitionDiagnostic> Diagnostics, NetworkStorageCandidateResult? Result)> SaveAsync(
+    private async Task<(IReadOnlyList<DefinitionDiagnostic> Diagnostics, NetworkStorageResult? Result)> SaveAsync(
         string projectId, string kind, JsonElement resource, string? resourceId, OwnerProjectResources resources, CancellationToken ct)
     {
         var diagnostics = NetworkStorageDefinitionValidator.ValidateResource(resource, kind, resources.ValidationContext(resourceId), out _);

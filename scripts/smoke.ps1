@@ -17,7 +17,7 @@ Push-Location $root
 try {
     if (!$NoBuild) { Invoke-Checked dotnet @('build', 'SboxNetworkStorage.sln', '-c', 'Release') }
     $exe = 'dotnet'
-    $prefix = @((Join-Path $root 'src/SboxNetworkStorage.Server/bin/Release/net8.0/sbox-ns.dll'))
+    $prefix = @((Join-Path $root 'src/SboxNetworkStorage.Server/bin/Release/net10.0/sbox-ns.dll'))
     if ($Binary) {
         $Binary = [IO.Path]::GetFullPath($Binary)
         if ($Binary.EndsWith('.dll')) { $prefix = @($Binary) } else { $exe = $Binary; $prefix = @() }
@@ -57,7 +57,7 @@ try {
         Start-Sleep -Milliseconds 500
     }
     if (!$healthy) { throw 'Server did not become healthy' }
-    $arguments = @((Join-Path $root 'tools/SboxNetworkStorage.Parity/bin/Release/net8.0/sbox-ns-parity.dll'),
+    $arguments = @((Join-Path $root 'tools/SboxNetworkStorage.Parity/bin/Release/net10.0/sbox-ns-parity.dll'),
         'check', '--target', "http://127.0.0.1:$Port", '--project-id', $project,
         '--public-key', $public, '--secret-key', $secret, '--corpus', (Join-Path $root 'tests/parity/corpus'))
     if ($Out) { $arguments += @('--out', $Out) }

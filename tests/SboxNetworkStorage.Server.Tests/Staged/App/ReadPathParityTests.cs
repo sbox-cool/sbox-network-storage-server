@@ -93,7 +93,7 @@ public class ReadPathParityTests
         var recordKey = row.TryGetProperty("record_key", out var rk) ? rk.GetString()! : "default";
 
         // ── Path 1: Data plane (direct API: GET /api/storage/{p}/{c}/{key}) ──
-        var dataPlane = new ScyllaNetworkStorageDataPlane(store);
+        var dataPlane = new StoreNetworkStorageDataPlane(store);
         var dpResult = await dataPlane.ReadRecordAsync(1, projectId, collectionId, recordKey, CancellationToken.None);
 
         _output.WriteLine("── Path 1: ScyllaNetworkStorageDataPlane (direct API / game SDK) ──");
@@ -103,10 +103,7 @@ public class ReadPathParityTests
         _output.WriteLine("");
 
         // ── Path 2: Endpoint executor (game client: save-all / load-player) ──
-        var executorSrc = new ScyllaEndpointShadowDataSource(
-            store,
-            Microsoft.Extensions.Logging.Abstractions.NullLogger<ScyllaEndpointShadowDataSource>.Instance,
-            Microsoft.Extensions.Options.Options.Create(new ScyllaDbOptions { Primary = true }));
+        var executorSrc = new StoreEndpointDataSource(store, Microsoft.Extensions.Logging.Abstractions.NullLogger<StoreEndpointDataSource>.Instance);
         var execResult = await executorSrc.ReadRecordAsync(projectId, collectionId, recordKey, CancellationToken.None);
 
         _output.WriteLine("── Path 2: ScyllaEndpointShadowDataSource (game client executor) ──");
@@ -167,14 +164,11 @@ public class ReadPathParityTests
         _output.WriteLine($"  Body: {JsonSerializer.Serialize(payload)}");
         _output.WriteLine("");
 
-        var dataPlane = new ScyllaNetworkStorageDataPlane(store);
+        var dataPlane = new StoreNetworkStorageDataPlane(store);
         await dataPlane.WriteRecordAsync(1, projectId, collectionId, key, payload, CancellationToken.None);
 
         // Read via executor (game client)
-        var execSrc = new ScyllaEndpointShadowDataSource(
-            store,
-            Microsoft.Extensions.Logging.Abstractions.NullLogger<ScyllaEndpointShadowDataSource>.Instance,
-            Microsoft.Extensions.Options.Options.Create(new ScyllaDbOptions { Primary = true }));
+        var execSrc = new StoreEndpointDataSource(store, Microsoft.Extensions.Logging.Abstractions.NullLogger<StoreEndpointDataSource>.Instance);
         var execResult = await execSrc.ReadRecordAsync(projectId, collectionId, key, CancellationToken.None);
 
         // Read via data plane (API)
@@ -217,14 +211,15 @@ public class ReadPathParityTests
         _output.WriteLine($"  Payload: {JsonSerializer.Serialize(payload)}");
         _output.WriteLine("");
 
-        var execSrc = new ScyllaEndpointShadowDataSource(
-            store,
-            Microsoft.Extensions.Logging.Abstractions.NullLogger<ScyllaEndpointShadowDataSource>.Instance,
-            Microsoft.Extensions.Options.Options.Create(new ScyllaDbOptions { Primary = true }));
-        await execSrc.WriteRecordAsync(projectId, collectionId, key, payload, CancellationToken.None);
+        var execSrc = new StoreEndpointDataSource(store, Microsoft.Extensions.Logging.Abstractions.NullLogger<StoreEndpointDataSource>.Instance);
+        await using (var transaction = await execSrc.BeginWriteTransactionAsync(CancellationToken.None))
+        {
+            await transaction.WriteRecordAsync(projectId, collectionId, key, payload, CancellationToken.None);
+            await transaction.CommitAsync(CancellationToken.None);
+        }
 
         // Read via data plane (API / dashboard)
-        var dataPlane = new ScyllaNetworkStorageDataPlane(store);
+        var dataPlane = new StoreNetworkStorageDataPlane(store);
         var dpResult = await dataPlane.ReadRecordAsync(1, projectId, collectionId, key, CancellationToken.None);
 
         // Read via executor (game client)
@@ -315,10 +310,7 @@ public class ReadPathParityTests
         store.Collections.Add(("proj", "leaderboard_global", "global"));
         store.GlobalRecords[("proj", "leaderboard_global", "default")] = globalRow;
 
-        var executorSrc = new ScyllaEndpointShadowDataSource(
-            store,
-            Microsoft.Extensions.Logging.Abstractions.NullLogger<ScyllaEndpointShadowDataSource>.Instance,
-            Microsoft.Extensions.Options.Options.Create(new ScyllaDbOptions { Primary = true }));
+        var executorSrc = new StoreEndpointDataSource(store, Microsoft.Extensions.Logging.Abstractions.NullLogger<StoreEndpointDataSource>.Instance);
 
         // Act: the leaderboard endpoint reads leaderboard_global/default.
         var result = await executorSrc.ReadRecordAsync("proj", "leaderboard_global", "default", CancellationToken.None);
@@ -354,10 +346,7 @@ public class ReadPathParityTests
         store.Collections.Add(("proj", "players", "per-steamid"));
         store.Records[("proj", "players", "76561198021524886")] = row;
 
-        var executorSrc = new ScyllaEndpointShadowDataSource(
-            store,
-            Microsoft.Extensions.Logging.Abstractions.NullLogger<ScyllaEndpointShadowDataSource>.Instance,
-            Microsoft.Extensions.Options.Options.Create(new ScyllaDbOptions { Primary = true }));
+        var executorSrc = new StoreEndpointDataSource(store, Microsoft.Extensions.Logging.Abstractions.NullLogger<StoreEndpointDataSource>.Instance);
 
         var result = await executorSrc.ReadRecordAsync("proj", "players", "76561198021524886", CancellationToken.None);
 
@@ -380,10 +369,7 @@ public class ReadPathParityTests
         var store = new GlobalAwareStore();
         store.Collections.Add(("proj", "leaderboard_global", "global"));
 
-        var executorSrc = new ScyllaEndpointShadowDataSource(
-            store,
-            Microsoft.Extensions.Logging.Abstractions.NullLogger<ScyllaEndpointShadowDataSource>.Instance,
-            Microsoft.Extensions.Options.Options.Create(new ScyllaDbOptions { Primary = true }));
+        var executorSrc = new StoreEndpointDataSource(store, Microsoft.Extensions.Logging.Abstractions.NullLogger<StoreEndpointDataSource>.Instance);
 
         var payload = new Dictionary<string, object?>
         {
@@ -393,7 +379,11 @@ public class ReadPathParityTests
             },
         };
 
-        await executorSrc.WriteRecordAsync("proj", "leaderboard_global", "default", payload, CancellationToken.None);
+        await using (var transaction = await executorSrc.BeginWriteTransactionAsync(CancellationToken.None))
+        {
+            await transaction.WriteRecordAsync("proj", "leaderboard_global", "default", payload, CancellationToken.None);
+            await transaction.CommitAsync(CancellationToken.None);
+        }
 
         Assert.Equal(1, store.GlobalRecordWrites);
         Assert.Equal(0, store.RecordWrites);
@@ -419,10 +409,7 @@ public class ReadPathParityTests
         store.Collections.Add(("proj", "col", null));
         store.Records[("proj", "col", "default")] = row;
 
-        var executorSrc = new ScyllaEndpointShadowDataSource(
-            store,
-            Microsoft.Extensions.Logging.Abstractions.NullLogger<ScyllaEndpointShadowDataSource>.Instance,
-            Microsoft.Extensions.Options.Options.Create(new ScyllaDbOptions { Primary = true }));
+        var executorSrc = new StoreEndpointDataSource(store, Microsoft.Extensions.Logging.Abstractions.NullLogger<StoreEndpointDataSource>.Instance);
 
         var result = await executorSrc.ReadRecordAsync("proj", "col", "default", CancellationToken.None);
 
@@ -437,6 +424,9 @@ public class ReadPathParityTests
     /// </summary>
     private sealed class GlobalAwareStore : EmptyNetworkStorageStore
     {
+        public override Task<IStoreTransaction> BeginTransactionAsync(CancellationToken ct)
+            => Task.FromResult<IStoreTransaction>(new SboxNetworkStorage.Server.Tests.Support.PassThroughStoreTransaction(this));
+
         public List<(string ProjectId, string CollectionId, string? CollectionType)> Collections { get; } = new();
         public Dictionary<(string, string, string), JsonElement> Records { get; } = new();
         public Dictionary<(string, string, string), JsonElement> GlobalRecords { get; } = new();
@@ -519,6 +509,9 @@ public class ReadPathParityTests
     /// <summary>Dictionary-backed store: actually stores and retrieves records.</summary>
     private sealed class DictStore : EmptyNetworkStorageStore
     {
+        public override Task<IStoreTransaction> BeginTransactionAsync(CancellationToken ct)
+            => Task.FromResult<IStoreTransaction>(new SboxNetworkStorage.Server.Tests.Support.PassThroughStoreTransaction(this));
+
         private readonly Dictionary<string, JsonElement> _records = new();
 
         public override Task UpsertRecordAsync(string projectId, string collectionId, string recordKey, JsonElement payloadJson, bool deleted, long version, CancellationToken ct)
@@ -544,3 +537,4 @@ public class ReadPathParityTests
             => Task.FromResult<IReadOnlyList<JsonElement>>(_records.Values.ToArray());
     }
 }
+

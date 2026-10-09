@@ -21,8 +21,7 @@ public static class TelemetryCommands
                 return CliApp.Ok;
             case "disable":
             {
-                var config = context.LoadValidConfig();
-                ConfigFiles.SetValue(config.ConfigDirectory, SettingDefinitions.Find("telemetry.enabled")!, false);
+                SetEnabled(context.LoadValidConfig(), false);
                 Console.WriteLine("Anonymous usage statistics disabled. Restart the server to apply (sbox-ns service restart).");
                 return CliApp.Ok;
             }
@@ -53,7 +52,7 @@ public static class TelemetryCommands
         var endpoint = config.GetString("telemetry.endpoint");
         Console.WriteLine($"Anonymous usage statistics: {(enabled ? "enabled" : "disabled")}");
         Console.WriteLine($"Endpoint: {endpoint}{(UsageTelemetry.ValidateEndpoint(endpoint) is null ? " (invalid: HTTPS required except loopback)" : string.Empty)}");
-        Console.WriteLine($"Telemetry ID file: {UsageTelemetry.IdPath(config)} ({(File.Exists(UsageTelemetry.IdPath(config)) ? "present" : "not created")})");
+        Console.WriteLine($"Telemetry ID file: {config.TelemetryIdPath} ({(File.Exists(config.TelemetryIdPath) ? "present" : "not created")})");
         Console.WriteLine(enabled
             ? "Sent about 10 minutes after the server starts, then every 24 hours. Preview: sbox-ns telemetry preview"
             : "Nothing is sent. Opt in with: sbox-ns telemetry enable");
@@ -64,7 +63,7 @@ public static class TelemetryCommands
         if (UsageTelemetry.ValidateEndpoint(config.GetString("telemetry.endpoint")) is null)
             throw new CliException("telemetry.endpoint must be an HTTPS endpoint (HTTP is allowed only on loopback for local tests).", CliApp.Usage);
         _ = LoadOrCreateId(config);
-        ConfigFiles.SetValue(config.ConfigDirectory, SettingDefinitions.Find("telemetry.enabled")!, true);
+        SetEnabled(config, true);
         Console.WriteLine("Anonymous usage statistics enabled. Restart the server to apply (sbox-ns service restart).");
         Console.WriteLine("See exactly what is sent with: sbox-ns telemetry preview");
     }
@@ -72,7 +71,7 @@ public static class TelemetryCommands
     /// <summary>The exact JSON the server would send now, without sending it or creating the telemetry ID.</summary>
     private static async Task<string> PreviewAsync(EffectiveConfig config)
     {
-        var id = PrivateIdFile.Read(UsageTelemetry.IdPath(config));
+        var id = PrivateIdFile.Read(config.TelemetryIdPath);
         if (id is null)
             Console.Error.WriteLine("No telemetry ID exists yet; showing a random placeholder. A new random ID is created on enable.");
         await using var services = CliServices.Build(config);
@@ -83,7 +82,27 @@ public static class TelemetryCommands
         return UsageTelemetry.Serialize(payload);
     }
 
+    /// <summary>
+    /// State layout: the managed telemetry overlay in the state folder, so the operator's server.toml is never written.
+    /// Legacy layout: <c>server.toml</c> in the config folder, as before.
+    /// </summary>
+    private static void SetEnabled(EffectiveConfig config, bool enabled)
+    {
+        if (config.Layout == ConfigLayout.Legacy)
+        {
+            ConfigFiles.SetValue(config.ConfigDirectory, SettingDefinitions.Find("telemetry.enabled")!, enabled);
+            return;
+        }
+
+        ManagedOverlay.Write(config, StateLayout.TelemetryOverlayFile,
+            "Managed by sbox-ns telemetry enable|disable.", new Dictionary<string, object> { ["telemetry.enabled"] = enabled });
+    }
+
     private static Guid LoadOrCreateId(EffectiveConfig config)
-        => PrivateIdFile.LoadOrCreate(UsageTelemetry.IdPath(config))
-            ?? throw new CliException($"The telemetry ID file {UsageTelemetry.IdPath(config)} is invalid. Delete it to generate a new random ID.");
+    {
+        using var identity = RuntimeIdentity.Enter(config);
+        config.EnsureRuntimeDirectory();
+        return PrivateIdFile.LoadOrCreate(config.TelemetryIdPath)
+            ?? throw new CliException($"The telemetry ID file {config.TelemetryIdPath} is invalid. Delete it to generate a new random ID.");
+    }
 }

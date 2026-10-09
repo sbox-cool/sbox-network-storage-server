@@ -13,7 +13,27 @@ internal static class PostgresMigrations
     public static readonly IReadOnlyList<SchemaMigration> All =
     [
         new(1, "Network Storage tables, usage counters, workspace objects", V1),
+        new(2, "Existing projects keep the built-in player projections", V2),
+        new(3, "Endpoint slug and API key identifier indexes; request log and error surrogate ids", V3),
     ];
+
+    // Identity values are generated for existing rows too. Project/time indexes retain chronological reads.
+    private static string V3(string p) => $"""
+        CREATE INDEX ix_endpoints_project_slug ON {p}endpoints (project_id, slug);
+        CREATE INDEX ix_api_keys_project_key_identifier ON {p}api_keys (project_id, key_identifier);
+        ALTER TABLE {p}storage_errors DROP CONSTRAINT storage_errors_pkey;
+        ALTER TABLE {p}storage_errors ADD COLUMN event_id bigint GENERATED ALWAYS AS IDENTITY;
+        ALTER TABLE {p}storage_errors ADD PRIMARY KEY (event_id);
+        CREATE INDEX ix_storage_errors_project_time ON {p}storage_errors (project_id, created_at_unix_ms DESC);
+        ALTER TABLE {p}storage_request_log DROP CONSTRAINT storage_request_log_pkey;
+        ALTER TABLE {p}storage_request_log ADD COLUMN event_id bigint GENERATED ALWAYS AS IDENTITY;
+        ALTER TABLE {p}storage_request_log ADD PRIMARY KEY (event_id);
+        CREATE INDEX ix_storage_request_log_project_time ON {p}storage_request_log (project_id, created_at_unix_ms DESC);
+        """;
+    // Projects that exist before the opt-in flag keep their behavior; new projects start with it off.
+    private static string V2(string p) => $"""
+        UPDATE {p}projects SET payload_json = (payload_json::jsonb || jsonb_build_object('legacyPlayerProjections', true))::text WHERE substr(ltrim(payload_json), 1, 1) = chr(123);
+        """;
 
     private const string Key = "text COLLATE \"C\" NOT NULL";
 
@@ -49,3 +69,4 @@ internal static class PostgresMigrations
         CREATE TABLE {p}workspace_objects (path {Key} PRIMARY KEY, content text NOT NULL, size_bytes bigint NOT NULL, updated_at_unix_ms bigint NOT NULL);
         """;
 }
+

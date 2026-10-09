@@ -22,7 +22,7 @@ namespace SboxNetworkStorage.Application.NetworkStorage.Endpoints;
 /// Output (<see cref="EndpointExecutionResult"/>) mirrors Bun's
 /// <c>executeEndpoint</c> success/condition-reject/fail shapes.
 /// </summary>
-public sealed class EndpointStepExecutor
+public sealed partial class EndpointStepExecutor
 {
     private static readonly HashSet<string> SupportedTypes = new(StringComparer.Ordinal)
     {
@@ -994,7 +994,8 @@ public sealed class EndpointStepExecutor
         return new EndpointExecutionResult(true, ToInt(responseDef.GetValueOrDefault("status"), 200), body);
     }
 
-    private static readonly Regex EchoTokenRegex = new("\\{\\{\\s*([a-zA-Z0-9_.$]+)\\s*\\}\\}", RegexOptions.Compiled);
+    [GeneratedRegex("\\{\\{\\s*([a-zA-Z0-9_.$]+)\\s*\\}\\}", RegexOptions.None, 100)]
+    private static partial Regex EchoTokenRegex();
 
     private static Dictionary<string, object?> BuildEchoResponse(List<object?> echo, Dictionary<string, object?> context)
     {
@@ -1002,7 +1003,7 @@ public sealed class EndpointStepExecutor
         foreach (var entry in echo)
         {
             if (entry is not string tpl || !tpl.Contains("{{", StringComparison.Ordinal)) continue;
-            var match = EchoTokenRegex.Match(tpl);
+            var match = EchoTokenRegex().Match(tpl);
             if (!match.Success) continue;
             var path = match.Groups[1].Value;
             var key = path.Contains('.') ? path[(path.LastIndexOf('.') + 1)..] : path;

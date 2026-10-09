@@ -39,11 +39,20 @@ public static class QuickstartCommand
         }
 
         var config = context.LoadValidConfig();
+        var runtimeArguments = new List<string> { "quickstart", name };
+        foreach (var option in context.Args.Options)
+        {
+            runtimeArguments.Add("--" + option.Key);
+            runtimeArguments.Add(option.Value);
+        }
+        if (json) runtimeArguments.Add("--json");
+        if (await RuntimeCommand.TryRunAsync(config, runtimeArguments) is { } runtimeExit)
+            return runtimeExit;
         await using var services = CliServices.Build(config);
         await services.GetRequiredService<INetworkStorageStoreAdmin>().MigrateAsync(ct);
         await using var scope = services.CreateAsyncScope();
         var projects = scope.ServiceProvider.GetRequiredService<INetworkStorageProjectService>();
-        var workspace = scope.ServiceProvider.GetRequiredService<IBunnyWorkspaceClient>();
+        var workspace = scope.ServiceProvider.GetRequiredService<IWorkspaceStore>();
 
         var existing = (await workspace.GetUserProjectsAsync(Owner, ct))
             .Where(p => string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase))

@@ -74,7 +74,8 @@ public sealed record SboxAuthCheck(
     string? ProxySignature,
     string ApiKey,
     string ProjectId,
-    string EndpointSlug);
+    string EndpointSlug,
+    string ClientIp);
 
 /// <summary>Outcome of an s&amp;box auth check. <see cref="SteamId"/> is the verified Steam id.</summary>
 public sealed record SboxAuthResult(bool Ok, string? SteamId, string? Error);

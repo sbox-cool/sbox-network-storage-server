@@ -1,0 +1,11 @@
+# ECDSA P-256 release trust anchors; current key first, offline rotation key second.
+-----BEGIN PUBLIC KEY-----
+MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAExfYmy6yAOb5bRmkZN7D4Z97aH+Zg
+sUwT8DH9R9CrDEr+7Cn3y5PddKFlcf0Sx+5a3Ap/fqvhOlRTGSqkEzLw7g==
+-----END PUBLIC KEY-----
+
+-----BEGIN PUBLIC KEY-----
+MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEgz9uz00EZ6FpZYXZUgWDsSQkENtd
++dxeL1p0ICLZko6RTnEg0lziHLChCFuk/lrwjbZX7nMQuqtyeArf9aEseg==
+-----END PUBLIC KEY-----
+

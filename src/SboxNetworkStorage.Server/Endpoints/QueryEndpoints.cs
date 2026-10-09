@@ -5,9 +5,9 @@ using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using SboxNetworkStorage.Domain.Workspace;
 using SboxNetworkStorage.Application.NetworkStorage;
-using SboxNetworkStorage.Contracts.Diagnostics;
 using SboxNetworkStorage.Infrastructure.NetworkStorage.Storage;
-using SboxNetworkStorage.Server.Routing;
+using SboxNetworkStorage.Server.Middleware;
+
 
 namespace SboxNetworkStorage.Server.Endpoints;
 
@@ -42,14 +42,12 @@ public static class QueryEndpoints
         foreach (var prefix in V3V1Prefixes)
         {
             endpoints.MapGet($"{prefix}/{{projectId}}/{{queryId}}", ExecuteQueryAsync)
-                .WithDisplayName($"Network Storage query API ({prefix})")
-                .WithRouteOwner(RouteOwner.DotNetNative, "ASP.NET Core native Network Storage query execution (no Bun proxy)");
+                .WithDisplayName($"Network Storage query API ({prefix})");
         }
 
         // /api/storage/{projectId}/queries/{queryId} alias
         endpoints.MapGet("/api/storage/{projectId}/queries/{queryId}", ExecuteQueryAsync)
-            .WithDisplayName("Network Storage query API (api/storage alias)")
-            .WithRouteOwner(RouteOwner.DotNetNative, "ASP.NET Core native Network Storage query execution via /api/storage alias (no Bun proxy)");
+            .WithDisplayName("Network Storage query API (api/storage alias)");
 
         return endpoints;
     }
@@ -84,6 +82,8 @@ public static class QueryEndpoints
             await QueryErrorAsync(context, requestId, StatusCodes.Status401Unauthorized, "UNAUTHORIZED", "Invalid API key.");
             return;
         }
+
+        NetworkStorageUsageContext.SetAuthenticated(context, projectId);
 
         if (!access.Project.Enabled)
         {
@@ -201,7 +201,6 @@ public static class QueryEndpoints
             context.Response.Headers["Cache-Control"] = "no-store, max-age=0";
         }
 
-        context.Response.Headers["X-Sboxcool-Route-Owner"] = RouteOwner.DotNetNative.ToDisplayName();
         context.Response.StatusCode = StatusCodes.Status200OK;
         context.Response.ContentType = "application/json; charset=utf-8";
         await context.Response.WriteAsJsonAsync(body, JsonOptions, context.RequestAborted);
@@ -329,7 +328,6 @@ public static class QueryEndpoints
 
     private static async Task QueryErrorAsync(HttpContext context, string requestId, int status, string code, string message)
     {
-        context.Response.Headers["X-Sboxcool-Route-Owner"] = RouteOwner.DotNetNative.ToDisplayName();
         context.Response.StatusCode = status;
         context.Response.ContentType = "application/json; charset=utf-8";
         await context.Response.WriteAsJsonAsync(new
@@ -375,3 +373,4 @@ public static class QueryEndpoints
         public string? Code => Source == "SECRET_KEY_INVALID" ? "SECRET_KEY_INVALID" : null;
     }
 }
+

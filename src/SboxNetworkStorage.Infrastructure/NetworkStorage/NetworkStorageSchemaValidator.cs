@@ -191,6 +191,6 @@ internal static partial class NetworkStorageSchemaValidator
     private static bool IsTrue(JsonElement owner, string name) =>
         owner.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.True;
 
-    [GeneratedRegex("^[A-Za-z_$][A-Za-z0-9_$-]{0,63}$")]
+    [GeneratedRegex("^[A-Za-z_$][A-Za-z0-9_$-]{0,63}$", RegexOptions.None, 100)]
     private static partial Regex FieldName();
 }

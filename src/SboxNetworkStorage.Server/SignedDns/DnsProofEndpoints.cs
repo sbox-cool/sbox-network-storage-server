@@ -1,9 +1,8 @@
 using System.Text.RegularExpressions;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.RateLimiting;
-using SboxNetworkStorage.Contracts.Diagnostics;
 using SboxNetworkStorage.Server.Configuration;
-using SboxNetworkStorage.Server.Routing;
+
 using SboxNetworkStorage.Server.Tunnels;
 
 namespace SboxNetworkStorage.Server.SignedDns;
@@ -17,7 +16,7 @@ public static partial class DnsProofEndpoints
     public const string Path = "/.well-known/sbox-ns/dns-proof/{nonce}";
     private const string RateLimitPolicy = "dns-proof";
 
-    [GeneratedRegex("^[0-9a-f]{32}$", RegexOptions.CultureInvariant)]
+    [GeneratedRegex("^[0-9a-f]{32}$", RegexOptions.CultureInvariant, 100)]
     private static partial Regex NoncePattern();
 
     public static IServiceCollection AddDnsProof(this IServiceCollection services)
@@ -36,8 +35,7 @@ public static partial class DnsProofEndpoints
                 return identity is null ? Results.NotFound() : Results.Json(new { signature = identity.SignDnsProof(nonce) });
             })
             .AllowAnonymous()
-            .RequireRateLimiting(RateLimitPolicy)
-            .WithRouteOwner(RouteOwner.DotNetNative, "Signed DNS ownership proof for the sboxns.com registry");
+            .RequireRateLimiting(RateLimitPolicy);
         return endpoints;
     }
 }

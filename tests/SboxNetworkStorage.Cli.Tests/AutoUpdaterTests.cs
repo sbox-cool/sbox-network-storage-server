@@ -4,6 +4,7 @@ using Microsoft.Data.Sqlite;
 using SboxNetworkStorage.Server.Cli;
 using SboxNetworkStorage.Server.Configuration;
 using SboxNetworkStorage.Server.Hosting;
+using SboxNetworkStorage.Server.Operations;
 using SboxNetworkStorage.Server.Updates;
 
 namespace SboxNetworkStorage.Cli.Tests;
@@ -19,6 +20,7 @@ public sealed class AutoUpdaterTests : IDisposable
     private readonly string _dataRoot;
     private readonly string _binary;
     private readonly string _staged;
+    private readonly UpdateState _state;
 
     public AutoUpdaterTests()
     {
@@ -31,6 +33,7 @@ public sealed class AutoUpdaterTests : IDisposable
         // The fake binaries hold their version, which the fake /health reports.
         File.WriteAllText(_binary, "1.0.0");
         File.WriteAllText(_staged, "1.1.0");
+        _state = new UpdateState(Path.Combine(_root, "update-state"), FolderTrust.Host);
     }
 
     public void Dispose()
@@ -93,12 +96,12 @@ public sealed class AutoUpdaterTests : IDisposable
 
         Assert.Equal(InstallOutcome.Succeeded, result.Outcome);
         Assert.Equal("1.1.0", File.ReadAllText(_binary));
-        Assert.Equal("1.0.0", File.ReadAllText(_binary + ".previous"));
+        Assert.Equal("1.0.0", File.ReadAllText(_state.PreviousBinaryPath));
         Assert.Equal(["stop sbox-ns@alpha", "stop sbox-ns@beta", "migrate alpha", "migrate beta", "start sbox-ns@alpha", "start sbox-ns@beta"], host.Calls);
         foreach (var instance in instances)
         {
             Assert.Equal(["before", "migrated"], Rows(instance));
-            var record = UpdateRecord.Read(instance.Config)!;
+            var record = _state.Read(instance.Name)!;
             Assert.Equal(UpdateRecord.Succeeded, record.Status);
             Assert.Equal(("1.0.0", "1.1.0", "auto"), (record.FromVersion, record.ToVersion, record.Mode));
             Assert.True(File.Exists(record.BackupPath));
@@ -106,11 +109,50 @@ public sealed class AutoUpdaterTests : IDisposable
 
         // rollback --all-instances undoes it for every instance.
         host.Calls.Clear();
-        var records = instances.Select(i => (i, UpdateRecord.Read(i.Config)!)).ToList();
-        Assert.Empty(await updater.RollbackRecordedAsync(records, CancellationToken.None));
+        var records = instances.Select(i => (i, _state.Read(i.Name)!)).ToList();
+        Assert.Empty(await updater.RollbackRecordedAsync(records, _binary, CancellationToken.None));
         Assert.Equal("1.0.0", File.ReadAllText(_binary));
+        // Runtime files go back to the config folders before the older binary is restored and started.
+        Assert.Equal(["stop sbox-ns@alpha", "stop sbox-ns@beta", "revert-layout alpha,beta", "start sbox-ns@alpha", "start sbox-ns@beta"], host.Calls);
         Assert.All(instances, instance => Assert.Equal(["before"], Rows(instance)));
-        Assert.All(instances, instance => Assert.Null(UpdateRecord.Read(instance.Config)));
+        Assert.All(instances, instance => Assert.Null(_state.Read(instance.Name)));
+    }
+
+    [Fact]
+    public async Task Rollback_keeps_the_new_binary_when_the_layout_cannot_be_reverted()
+    {
+        var instances = CreateInstances();
+        var host = new FakeHost(this);
+        var updater = Updater(host, broken: null);
+        await updater.InstallAsync("1.0.0", "1.1.0", _staged, _binary, instances, "auto", CancellationToken.None);
+        var records = instances.Select(i => (i, _state.Read(i.Name)!)).ToList();
+        host.FailLayoutRevert = true;
+
+        var problems = await updater.RollbackRecordedAsync(records, _binary, CancellationToken.None);
+
+        // An older binary would generate new secrets if it started without them in the config folder.
+        Assert.Contains(problems, p => p.StartsWith("revert layout", StringComparison.Ordinal));
+        Assert.Equal("1.1.0", File.ReadAllText(_binary));
+        Assert.All(instances, instance => Assert.NotNull(_state.Read(instance.Name)));
+    }
+
+    [Fact]
+    public async Task Rollback_restores_only_the_fixed_binary_and_never_follows_paths_in_a_record()
+    {
+        var instances = CreateInstances();
+        var updater = Updater(new FakeHost(this), broken: null);
+        await updater.InstallAsync("1.0.0", "1.1.0", _staged, _binary, instances, "auto", CancellationToken.None);
+        var victim = Path.Combine(_root, "victim");
+        var attackerBinary = Path.Combine(_root, "attacker-binary");
+        File.WriteAllText(victim, "precious");
+        File.WriteAllText(attackerBinary, "evil");
+        var forged = instances.Select(i => (i, _state.Read(i.Name)! with { BinaryPath = victim, PreviousBinaryPath = attackerBinary })).ToList();
+
+        Assert.Empty(await updater.RollbackRecordedAsync(forged, _binary, CancellationToken.None));
+
+        Assert.Equal("1.0.0", File.ReadAllText(_binary));
+        Assert.Equal("precious", File.ReadAllText(victim));
+        Assert.Equal("evil", File.ReadAllText(attackerBinary));
     }
 
     [Fact]
@@ -133,16 +175,16 @@ public sealed class AutoUpdaterTests : IDisposable
         foreach (var instance in instances)
         {
             Assert.Equal(["before"], Rows(instance));
-            var record = UpdateRecord.Read(instance.Config)!;
+            var record = _state.Read(instance.Name)!;
             Assert.True(record.IsFailed);
             Assert.Equal("1.1.0", record.ToVersion);
             Assert.Contains("beta did not report healthy", record.Reason);
         }
 
-        var rollback = await Assert.ThrowsAsync<CliException>(() => Task.Run(() => UpdateCommands.RequireRollbackable(UpdateRecord.Read(instances[0].Config)!)));
+        var rollback = await Assert.ThrowsAsync<CliException>(() => Task.Run(() => UpdateCommands.RequireRollbackable(_state.Read(instances[0].Name)!)));
         Assert.Contains("automatic recovery was attempted", rollback.Message);
         var next = AutoUpdatePolicy.EvaluateRelease(new AutoUpdateSettings(true, "stable", new UpdateWindow(TimeSpan.Zero, TimeSpan.FromHours(24)), 0),
-            "1.0.0", new ReleaseInfo("1.1.0", null, false, false, null, null), UpdateRecord.Read(instances[0].Config)!.ToVersion, DateTimeOffset.UtcNow);
+            "1.0.0", new ReleaseInfo("1.1.0", null, false, false, null, null), _state.Read(instances[0].Name)!.ToVersion, DateTimeOffset.UtcNow);
         Assert.False(next.Install);
     }
 
@@ -160,7 +202,7 @@ public sealed class AutoUpdaterTests : IDisposable
         Assert.Contains("rollback incomplete", result.Reason);
         Assert.Equal("1.0.0", File.ReadAllText(_binary));
         Assert.All(instances, instance => Assert.Equal(["before"], Rows(instance)));
-        Assert.All(instances, instance => Assert.True(UpdateRecord.Read(instance.Config)!.IsFailed));
+        Assert.All(instances, instance => Assert.True(_state.Read(instance.Name)!.IsFailed));
     }
 
     [Fact]
@@ -174,11 +216,11 @@ public sealed class AutoUpdaterTests : IDisposable
         Assert.Contains("stop sbox-ns@beta", result.Reason);
         Assert.Equal("1.1.0", File.ReadAllText(_binary));
         Assert.All(instances, instance => Assert.Equal(["before", "migrated"], Rows(instance)));
-        Assert.All(instances, instance => Assert.True(File.Exists(UpdateRecord.Read(instance.Config)!.BackupPath)));
+        Assert.All(instances, instance => Assert.True(File.Exists(_state.Read(instance.Name)!.BackupPath)));
     }
 
     private AutoUpdater Updater(FakeHost host, string? broken)
-        => new(host, new HttpClient(new FakeHealth(this, broken)), _ => { })
+        => new(host, _state, new HttpClient(new FakeHealth(this, broken)), _ => { })
         {
             HealthTimeout = TimeSpan.FromMilliseconds(300),
             HealthPollInterval = TimeSpan.FromMilliseconds(20),
@@ -231,6 +273,8 @@ public sealed class AutoUpdaterTests : IDisposable
 
         public string? FailStopAfterMigrationOf { get; init; }
 
+        public bool FailLayoutRevert { get; set; }
+
         private bool _migrationAttempted;
 
         public Task<bool> IsActiveAsync(string unit, CancellationToken ct) => Task.FromResult(true);
@@ -259,6 +303,24 @@ public sealed class AutoUpdaterTests : IDisposable
 
             Execute(instance, "INSERT INTO marker VALUES ('migrated');");
             return Task.FromResult(0);
+        }
+
+        public async Task<int> BackupAsync(string binary, ServerInstance instance, string outputPath, CancellationToken ct)
+        {
+            await DatabaseBackup.BackupAsync(instance.Config, outputPath, ct);
+            return 0;
+        }
+
+        public async Task<int> RestoreAsync(string binary, ServerInstance instance, string backupPath, CancellationToken ct)
+        {
+            await DatabaseBackup.RestoreAsync(instance.Config, backupPath, ct);
+            return 0;
+        }
+
+        public Task<int> RevertLayoutAsync(string binary, IReadOnlyList<ServerInstance> instances, CancellationToken ct)
+        {
+            Calls.Add($"revert-layout {string.Join(",", instances.Select(i => i.Name))}");
+            return Task.FromResult(FailLayoutRevert ? 1 : 0);
         }
     }
 

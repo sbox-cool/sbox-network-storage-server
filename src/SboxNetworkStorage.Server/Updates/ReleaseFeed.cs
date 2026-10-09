@@ -87,8 +87,9 @@ public sealed record SemanticVersion(int Major, int Minor, int Patch, string? Pr
 /// <summary>
 /// Resolves the latest release: the sboxcool.com feed for <c>updates.channel</c> first,
 /// then the GitHub Releases API. Requests carry only the channel, current version and platform.
+/// The release repository and feed URL are compiled into the binary (<see cref="UpdateTrust"/>).
 /// </summary>
-public sealed class ReleaseFeed(HttpClient http, EffectiveConfig config)
+public sealed class ReleaseFeed(HttpClient http, EffectiveConfig config, UpdateTrust? trust = null)
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -100,16 +101,18 @@ public sealed class ReleaseFeed(HttpClient http, EffectiveConfig config)
         return client;
     }
 
-    public string GitHubRepository => config.GetString("updates.github_repo");
+    public UpdateTrust Trust { get; } = trust ?? UpdateTrust.Compiled;
+
+    public string GitHubRepository => Trust.Repository;
 
     public string Channel => config.GetString("updates.channel");
 
-    /// <summary><c>updates.feed_url</c> with <c>channel=&lt;updates.channel&gt;</c> added to its query.</summary>
+    /// <summary>The compiled feed URL with <c>channel=&lt;updates.channel&gt;</c> added to its query.</summary>
     public string FeedUrl
     {
         get
         {
-            var url = config.GetString("updates.feed_url");
+            var url = Trust.FeedUrl;
             return $"{url}{(url.Contains('?') ? '&' : '?')}channel={Uri.EscapeDataString(Channel)}";
         }
     }

@@ -14,6 +14,13 @@ public interface INetworkStorageStore
     /// <summary>Maximum accepted JSON payload size in UTF-8 bytes, matching the configured store limit.</summary>
     int MaxPayloadBytes { get; }
 
+    /// <summary>
+    /// Opens a transaction. Every call on <see cref="IStoreTransaction.Store"/> joins it; nothing is visible to
+    /// other callers until <see cref="IStoreTransaction.CommitAsync"/> succeeds, and disposing the transaction
+    /// without committing discards every write. Calls on this store instance never join the transaction.
+    /// </summary>
+    Task<IStoreTransaction> BeginTransactionAsync(CancellationToken ct);
+
     // ── projects ────────────────────────────────────────────────────
     Task UpsertProjectAsync(string projectId, JsonElement payload, long version, CancellationToken ct);
     Task<JsonElement?> ReadProjectAsync(string projectId, CancellationToken ct);
@@ -116,6 +123,13 @@ public interface INetworkStorageStore
     Task<IReadOnlyList<JsonElement>> ListPlayerAnalyticsEventsAsync(string projectId, string collectionId, string recordKey, int limit, CancellationToken ct);
     Task DeletePlayerAnalyticsEventsAsync(string projectId, string collectionId, string recordKey, CancellationToken ct);
 
+    /// <summary>
+    /// Deletes timeline events, project issues and legacy analytics rows whose <c>created_at_unix_ms</c> is
+    /// strictly before <paramref name="beforeUnixMs"/> across all projects. Returns the number of rows deleted.
+    /// Profiles and sessions are state, not history, and are kept.
+    /// </summary>
+    Task<long> PurgeAnalyticsBeforeAsync(long beforeUnixMs, CancellationToken ct);
+
     // ── player_analytics_events (V4 — per-player event timeline) ─────
     Task InsertPlayerAnalyticsEventV2Async(string projectId, string steamId, long createdAtUnixMs, string eventId, string eventType, string category, string label, string endpointSlug, string collectionId, JsonElement payloadJson, CancellationToken ct);
     Task<IReadOnlyList<JsonElement>> ListPlayerEventsAsync(string projectId, string steamId, long fromUnixMs, long toUnixMs, int limit, CancellationToken ct);
@@ -196,6 +210,16 @@ public interface INetworkStorageStore
     /// Returns an empty list when nothing exists under the directory.
     /// </summary>
     Task<IReadOnlyList<WorkspaceObjectEntry>> ListWorkspaceObjectsAsync(string directoryPath, CancellationToken ct);
+}
+
+/// <summary>A store transaction. Dispose without committing to roll back.</summary>
+public interface IStoreTransaction : IAsyncDisposable
+{
+    /// <summary>A store whose every operation runs inside this transaction.</summary>
+    INetworkStorageStore Store { get; }
+
+    /// <summary>Makes every write made through <see cref="Store"/> durable and visible. Call at most once.</summary>
+    Task CommitAsync(CancellationToken ct);
 }
 
 /// <summary>Trusted observed record state for comparisons against writers that reuse versions.</summary>

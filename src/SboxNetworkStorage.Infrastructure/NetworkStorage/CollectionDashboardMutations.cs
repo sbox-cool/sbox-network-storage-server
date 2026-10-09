@@ -11,15 +11,18 @@ namespace SboxNetworkStorage.Infrastructure.NetworkStorage;
 /// <summary>
 /// Dashboard form mutations for collections.json (ported from Bun collection-routes.js).
 /// </summary>
-internal static class CollectionDashboardMutations
+internal static partial class CollectionDashboardMutations
 {
+    [System.Text.RegularExpressions.GeneratedRegex(@"^[A-Za-z_$][A-Za-z0-9_$-]{0,63}$", System.Text.RegularExpressions.RegexOptions.None, 100)]
+    private static partial System.Text.RegularExpressions.Regex FieldNamePattern();
+
     private static readonly HashSet<string> SchemaTypes = new(StringComparer.Ordinal)
     {
         "string", "number", "boolean", "object", "array", "player", "playerSave", "datetime"
     };
 
     public static async Task CreateCollectionAsync(
-        IBunnyWorkspaceClient bunnyWorkspaceClient,
+        IWorkspaceStore bunnyWorkspaceClient,
         long storageOwnerUserId,
         string projectId,
         IReadOnlyDictionary<string, string> formValues,
@@ -95,7 +98,7 @@ internal static class CollectionDashboardMutations
     }
 
     public static async Task UpdateCollectionAsync(
-        IBunnyWorkspaceClient bunnyWorkspaceClient,
+        IWorkspaceStore bunnyWorkspaceClient,
         long storageOwnerUserId,
         string projectId,
         IReadOnlyDictionary<string, string> formValues,
@@ -151,7 +154,7 @@ internal static class CollectionDashboardMutations
     }
 
     public static async Task DeleteCollectionAsync(
-        IBunnyWorkspaceClient bunnyWorkspaceClient,
+        IWorkspaceStore bunnyWorkspaceClient,
         long storageOwnerUserId,
         string projectId,
         string collectionId,
@@ -166,7 +169,7 @@ internal static class CollectionDashboardMutations
     }
 
     public static async Task UpdateCollectionValuesAsync(
-        IBunnyWorkspaceClient bunnyWorkspaceClient,
+        IWorkspaceStore bunnyWorkspaceClient,
         long storageOwnerUserId,
         string projectId,
         IReadOnlyDictionary<string, string> formValues,
@@ -199,7 +202,7 @@ internal static class CollectionDashboardMutations
     }
 
     private static async Task SaveCollectionsAsync(
-        IBunnyWorkspaceClient bunnyWorkspaceClient,
+        IWorkspaceStore bunnyWorkspaceClient,
         long storageOwnerUserId,
         string projectId,
         List<Dictionary<string, object?>> collections,
@@ -227,7 +230,7 @@ internal static class CollectionDashboardMutations
     }
 
     public static async Task ResetCollectionDataAsync(
-        IBunnyWorkspaceClient bunnyWorkspaceClient,
+        IWorkspaceStore bunnyWorkspaceClient,
         long storageOwnerUserId,
         string projectId,
         string collectionId,
@@ -265,7 +268,7 @@ internal static class CollectionDashboardMutations
            string.Equals(value, "1", StringComparison.OrdinalIgnoreCase);
 
     private static async Task<List<Dictionary<string, object?>>> LoadCollectionsAsync(
-        IBunnyWorkspaceClient bunnyWorkspaceClient,
+        IWorkspaceStore bunnyWorkspaceClient,
         long storageOwnerUserId,
         string projectId,
         CancellationToken cancellationToken)
@@ -404,7 +407,7 @@ internal static class CollectionDashboardMutations
             return;
         }
 
-        if (!System.Text.RegularExpressions.Regex.IsMatch(name, @"^[A-Za-z_$][A-Za-z0-9_$-]{0,63}$"))
+        if (!FieldNamePattern().IsMatch(name))
             errors.Add($"{path}: field name must start with a letter, _ or $, and only contain letters, numbers, _, $, or -.");
 
         if (node.TryGetValue("type", out var typeObj) && typeObj is string type && !SchemaTypes.Contains(type))

@@ -24,7 +24,6 @@ public abstract class NetworkStorageGatewayDispatchTests<TFactory> : IClassFixtu
         using var response = await client.GetAsync("/v3/unknown-unmatched-path");
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
-        Assert.Equal(".NET native", response.Headers.GetValues("X-Sboxcool-Route-Owner").Single());
     }
 
     [SkippableFact]

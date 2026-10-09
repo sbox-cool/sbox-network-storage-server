@@ -7,6 +7,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Caching.Memory;
+using SboxNetworkStorage.Infrastructure.NetworkStorage.Metadata;
 using SboxNetworkStorage.Application.NetworkStorage;
 using SboxNetworkStorage.Application.Workspace;
 using SboxNetworkStorage.Domain.Workspace;
@@ -123,14 +125,29 @@ public sealed class PackageSyncHandlerTests
         Assert.Equal(401, context.Response.StatusCode);
     }
 
+    [Fact]
+    public async Task Successful_package_sync_invalidates_the_project_metadata_generation()
+    {
+        using var memory = new MemoryCache(new MemoryCacheOptions());
+        var cache = new ProjectMetadataCache(memory);
+        var store = new InMemoryNetworkStorageStore();
+        var before = await cache.GetAsync(store, ProjectId, default);
+        var handler = new PackageSyncHandler(new StatefulWorkspaceClient(),
+            new FixedApiKeyResolver(new StorageApiKeyAuthResult(OwnerId, ProjectId, true, "secret", null)),
+            NullLogger<PackageSyncHandler>.Instance, cache);
+        await handler.HandleAsync(BuildContext("{}"), ProjectId, default);
+        Assert.NotSame(before, await cache.GetAsync(store, ProjectId, default));
+    }
+
     private static PackageSyncHandler CreateHandler(
-        IBunnyWorkspaceClient workspace,
+        IWorkspaceStore workspace,
         long authUserId = OwnerId,
         string keyType = "secret",
         bool enabled = true)
     {
         var resolver = new FixedApiKeyResolver(new StorageApiKeyAuthResult(authUserId, ProjectId, enabled, keyType, null));
-        return new PackageSyncHandler(workspace, resolver, NullLogger<PackageSyncHandler>.Instance);
+        return new PackageSyncHandler(workspace, resolver, NullLogger<PackageSyncHandler>.Instance,
+            new ProjectMetadataCache(new MemoryCache(new MemoryCacheOptions())));
     }
 
     private static DefaultHttpContext BuildContext(string body, bool withKey = true)
@@ -151,7 +168,7 @@ public sealed class PackageSyncHandlerTests
             => Task.FromResult<StorageApiKeyAuthResult?>(result);
     }
 
-    private sealed class StatefulWorkspaceClient : IBunnyWorkspaceClient
+    private sealed class StatefulWorkspaceClient : IWorkspaceStore
     {
         private static readonly JsonSerializerOptions Options = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
         private readonly Dictionary<string, string> _store = new();
@@ -170,13 +187,13 @@ public sealed class PackageSyncHandlerTests
             return Task.CompletedTask;
         }
 
-        public Task<IReadOnlyList<BunnyProject>> GetUserProjectsAsync(long userId, CancellationToken cancellationToken)
-            => Task.FromResult<IReadOnlyList<BunnyProject>>(new List<BunnyProject>());
+        public Task<IReadOnlyList<WorkspaceProject>> GetUserProjectsAsync(long userId, CancellationToken cancellationToken)
+            => Task.FromResult<IReadOnlyList<WorkspaceProject>>(new List<WorkspaceProject>());
 
         public Task<WorkspaceProjectUsage?> GetProjectUsageAsync(long userId, string projectId, string monthKey, CancellationToken cancellationToken)
             => Task.FromResult<WorkspaceProjectUsage?>(null);
 
-        public Task SaveUserProjectsAsync(long userId, IReadOnlyList<BunnyProject> projects, CancellationToken cancellationToken)
+        public Task SaveUserProjectsAsync(long userId, IReadOnlyList<WorkspaceProject> projects, CancellationToken cancellationToken)
             => Task.CompletedTask;
 
         public Task<string?> GetProjectResourceTextAsync(long userId, string projectId, string resourcePath, CancellationToken cancellationToken)

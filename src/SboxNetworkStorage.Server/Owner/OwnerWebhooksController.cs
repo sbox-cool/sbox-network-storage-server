@@ -20,14 +20,14 @@ public sealed record OwnerWebhooksModel(string ProjectId, string ProjectName, st
 /// <c>profiles.json</c> feeds the resource builder's webhook step picker.
 /// </summary>
 [Authorize(AuthenticationSchemes = OwnerHostingExtensions.Scheme)]
-public sealed partial class OwnerWebhooksController(INetworkStorageProjectService projects, IBunnyWorkspaceClient workspace,
+public sealed partial class OwnerWebhooksController(INetworkStorageProjectService projects, IWorkspaceStore workspace,
     IAuditLogger audit) : Controller
 {
     private const string Route = "/dashboard/projects/{projectId}/webhooks";
 
-    [GeneratedRegex("^[a-z0-9_]{1,40}$")]
+    [GeneratedRegex("^[a-z0-9_]{1,40}$", RegexOptions.None, 100)]
     private static partial Regex ProfileIdPattern();
-    [GeneratedRegex("^#?[0-9a-fA-F]{6}$")]
+    [GeneratedRegex("^#?[0-9a-fA-F]{6}$", RegexOptions.None, 100)]
     private static partial Regex ColorPattern();
 
     /// <summary>The executor only sends to Discord webhook URLs (EndpointStepExecutor webhook step).</summary>

@@ -26,7 +26,7 @@ public abstract class NetworkStorageManagementReadCandidateTests<TFactory> : ICl
         }).CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
     }
 
-    private static NetworkStorageCandidateRequest BuildRequest(
+    private static NetworkStorageRequest BuildRequest(
         string projectId,
         string? apiKey = "sbox_sk_testsecretkey",
         string? routeSuffix = "endpoints",
@@ -42,7 +42,7 @@ public abstract class NetworkStorageManagementReadCandidateTests<TFactory> : ICl
             query["apiKey"] = apiKey;
         }
 
-        return new NetworkStorageCandidateRequest(
+        return new NetworkStorageRequest(
             route,
             query,
             ContentType: null,
@@ -74,7 +74,7 @@ public abstract class NetworkStorageManagementReadCandidateTests<TFactory> : ICl
         const string sampleJson = """[{"name":"speed","values":{"walk":10}}]""";
         var gv = ParseJson(sampleJson);
 
-        var handler = new ManagementReadCandidateHandler(
+        var handler = new ManagementReadHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
             new FakeBunnyManagement("proj-1") { ResourceResponses = { ["game-values.json"] = gv } },
             new FakeProjectService());
@@ -96,7 +96,7 @@ public abstract class NetworkStorageManagementReadCandidateTests<TFactory> : ICl
         const string sampleJson = """[{"slug":"test-ep","method":"GET","enabled":true}]""";
         var eps = ParseJson(sampleJson);
 
-        var handler = new ManagementReadCandidateHandler(
+        var handler = new ManagementReadHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
             new FakeBunnyManagement("proj-1") { ResourceResponses = { ["endpoints.json"] = eps } },
             new FakeProjectService());
@@ -117,7 +117,7 @@ public abstract class NetworkStorageManagementReadCandidateTests<TFactory> : ICl
         const string sampleJson = """[{"name":"weapons","collectionType":"keyvalue"}]""";
         var collections = ParseJson(sampleJson);
 
-        var handler = new ManagementReadCandidateHandler(
+        var handler = new ManagementReadHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
             new FakeBunnyManagement("proj-1") { ResourceResponses = { ["collections.json"] = collections } },
             new FakeProjectService());
@@ -136,7 +136,7 @@ public abstract class NetworkStorageManagementReadCandidateTests<TFactory> : ICl
         const string sampleJson = """[{"id":"wf-1","name":"Test Workflow"}]""";
         var wfs = ParseJson(sampleJson);
 
-        var handler = new ManagementReadCandidateHandler(
+        var handler = new ManagementReadHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
             new FakeBunnyManagement("proj-1") { ResourceResponses = { ["workflows.json"] = wfs } },
             new FakeProjectService());
@@ -160,7 +160,7 @@ public abstract class NetworkStorageManagementReadCandidateTests<TFactory> : ICl
             workspace.ResourceResponses["queries.json"] = ParseJson(resourceJson);
         }
 
-        var handler = new ManagementReadCandidateHandler(
+        var handler = new ManagementReadHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
             workspace,
             new FakeProjectService());
@@ -188,7 +188,7 @@ public abstract class NetworkStorageManagementReadCandidateTests<TFactory> : ICl
         const string sampleJson = """[{"id":"t-1","name":"Test Case 1"}]""";
         var tests = ParseJson(sampleJson);
 
-        var handler = new ManagementReadCandidateHandler(
+        var handler = new ManagementReadHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
             new FakeBunnyManagement("proj-1") { ResourceResponses = { ["tests.json"] = tests } },
             new FakeProjectService());
@@ -204,7 +204,7 @@ public abstract class NetworkStorageManagementReadCandidateTests<TFactory> : ICl
     [SkippableFact]
     public async Task RateLimitRulesReturnsOkWithExpectedShape()
     {
-        var handler = new ManagementReadCandidateHandler(
+        var handler = new ManagementReadHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
             new FakeBunnyManagement("proj-1"),
             new FakeProjectService(hasRateLimits: true));
@@ -224,7 +224,7 @@ public abstract class NetworkStorageManagementReadCandidateTests<TFactory> : ICl
     [SkippableFact]
     public async Task SettingsReturnsOkWithSettingsShape()
     {
-        var handler = new ManagementReadCandidateHandler(
+        var handler = new ManagementReadHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
             new FakeBunnyManagement("proj-1"),
             new FakeProjectService());
@@ -245,7 +245,7 @@ public abstract class NetworkStorageManagementReadCandidateTests<TFactory> : ICl
     [SkippableFact]
     public async Task ConfigAliasReturnsSameShapeAsSettings()
     {
-        var handler = new ManagementReadCandidateHandler(
+        var handler = new ManagementReadHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
             new FakeBunnyManagement("proj-1"),
             new FakeProjectService());
@@ -269,7 +269,7 @@ public abstract class NetworkStorageManagementReadCandidateTests<TFactory> : ICl
         const string sampleJson = """{"currentRevisionId":42,"lastSyncedAt":"2026-05-01T12:00:00Z"}""";
         var gp = ParseJson(sampleJson);
 
-        var handler = new ManagementReadCandidateHandler(
+        var handler = new ManagementReadHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
             new FakeBunnyManagement("proj-1") { ResourceResponses = { ["game-package.json"] = gp } },
             new FakeProjectService());
@@ -289,7 +289,7 @@ public abstract class NetworkStorageManagementReadCandidateTests<TFactory> : ICl
     [SkippableFact]
     public async Task GamePackageNullReturnsOkWithNullGamePackage()
     {
-        var handler = new ManagementReadCandidateHandler(
+        var handler = new ManagementReadHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
             new FakeBunnyManagement("proj-1"),
             new FakeProjectService());
@@ -306,7 +306,7 @@ public abstract class NetworkStorageManagementReadCandidateTests<TFactory> : ICl
     [SkippableFact]
     public async Task ValidateReturnsOkWithChecks()
     {
-        var handler = new ManagementReadCandidateHandler(
+        var handler = new ManagementReadHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
             new FakeBunnyManagement("proj-1"),
             new FakeProjectService());
@@ -331,7 +331,7 @@ public abstract class NetworkStorageManagementReadCandidateTests<TFactory> : ICl
     [SkippableFact]
     public async Task MissingApiKeyReturnsUnauthorized()
     {
-        var handler = new ManagementReadCandidateHandler(
+        var handler = new ManagementReadHandler(
             new FakeKeyResolver(null, "proj-1"),
             new FakeBunnyManagement("proj-1"),
             new FakeProjectService());
@@ -352,7 +352,7 @@ public abstract class NetworkStorageManagementReadCandidateTests<TFactory> : ICl
     [SkippableFact]
     public async Task InvalidApiKeyReturnsUnauthorized()
     {
-        var handler = new ManagementReadCandidateHandler(
+        var handler = new ManagementReadHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
             new FakeBunnyManagement("proj-1"),
             new FakeProjectService());
@@ -369,7 +369,7 @@ public abstract class NetworkStorageManagementReadCandidateTests<TFactory> : ICl
     {
         // Management routes require secret keys only; public keys must be rejected
         var resolver = new FakeKeyResolver("pk-valid", "proj-1", keyType: "public");
-        var handler = new ManagementReadCandidateHandler(
+        var handler = new ManagementReadHandler(
             resolver,
             new FakeBunnyManagement("proj-1"),
             new FakeProjectService());
@@ -385,7 +385,7 @@ public abstract class NetworkStorageManagementReadCandidateTests<TFactory> : ICl
     [SkippableFact]
     public async Task DisabledProjectReturnsProjectDisabled()
     {
-        var handler = new ManagementReadCandidateHandler(
+        var handler = new ManagementReadHandler(
             new FakeKeyResolver("sk-valid", "disabled-proj"),
             new FakeBunnyManagement("disabled-proj", enabled: false),
             new FakeProjectService());
@@ -408,7 +408,7 @@ public abstract class NetworkStorageManagementReadCandidateTests<TFactory> : ICl
     public async Task NonGetMethodNotHandled()
     {
         var route = NetworkStorageRouteClassifier.Classify("POST", "/v3/manage/proj-1/endpoints");
-        Assert.False(new ManagementReadCandidateHandler(
+        Assert.False(new ManagementReadHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
             new FakeBunnyManagement("proj-1"),
             new FakeProjectService()).CanHandle(route));
@@ -421,7 +421,7 @@ public abstract class NetworkStorageManagementReadCandidateTests<TFactory> : ICl
     [SkippableFact]
     public async Task SyncJobReturnsNotImplemented()
     {
-        var handler = new ManagementReadCandidateHandler(
+        var handler = new ManagementReadHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
             new FakeBunnyManagement("proj-1"),
             new FakeProjectService());
@@ -439,7 +439,7 @@ public abstract class NetworkStorageManagementReadCandidateTests<TFactory> : ICl
     [SkippableFact]
     public async Task AgentManifestReturnsNotImplemented()
     {
-        var handler = new ManagementReadCandidateHandler(
+        var handler = new ManagementReadHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
             new FakeBunnyManagement("proj-1"),
             new FakeProjectService());
@@ -467,7 +467,7 @@ public abstract class NetworkStorageManagementReadCandidateTests<TFactory> : ICl
     {
         var workspace = new FakeBunnyManagement("proj-1", throwsOnRead: true);
 
-        var handler = new ManagementReadCandidateHandler(
+        var handler = new ManagementReadHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
             workspace,
             new FakeProjectService());
@@ -488,7 +488,7 @@ public abstract class NetworkStorageManagementReadCandidateTests<TFactory> : ICl
     {
         var workspace = new FakeBunnyManagement("other-proj"); // no "missing-proj" in projects list
 
-        var handler = new ManagementReadCandidateHandler(
+        var handler = new ManagementReadHandler(
             new FakeKeyResolver("sk-valid", "missing-proj"),
             workspace,
             new FakeProjectService());
@@ -518,8 +518,8 @@ public abstract class NetworkStorageManagementReadCandidateTests<TFactory> : ICl
             {
                 services.RemoveAll<IStorageApiKeyResolver>();
                 services.AddScoped<IStorageApiKeyResolver>(_ => new FakeKeyResolver("sk-valid", "proj-1"));
-                services.RemoveAll<IBunnyWorkspaceClient>();
-                services.AddScoped<IBunnyWorkspaceClient>(_ => new FakeBunnyManagement("proj-1") { ResourceResponses = { [$"{resource}.json"] = data } });
+                services.RemoveAll<IWorkspaceStore>();
+                services.AddScoped<IWorkspaceStore>(_ => new FakeBunnyManagement("proj-1") { ResourceResponses = { [$"{resource}.json"] = data } });
                 services.RemoveAll<INetworkStorageProjectService>();
                 services.AddScoped<INetworkStorageProjectService>(_ => new FakeProjectService());
             });
@@ -570,7 +570,7 @@ public abstract class NetworkStorageManagementReadCandidateTests<TFactory> : ICl
         }
     }
 
-    private sealed class FakeBunnyManagement : IBunnyWorkspaceClient
+    private sealed class FakeBunnyManagement : IWorkspaceStore
     {
         private readonly string _projectId;
         private readonly bool _enabled;
@@ -600,10 +600,10 @@ public abstract class NetworkStorageManagementReadCandidateTests<TFactory> : ICl
             return Task.FromResult<T?>(default);
         }
 
-        public Task<IReadOnlyList<BunnyProject>> GetUserProjectsAsync(long userId, CancellationToken cancellationToken)
+        public Task<IReadOnlyList<WorkspaceProject>> GetUserProjectsAsync(long userId, CancellationToken cancellationToken)
         {
-            return Task.FromResult<IReadOnlyList<BunnyProject>>(
-                new List<BunnyProject>
+            return Task.FromResult<IReadOnlyList<WorkspaceProject>>(
+                new List<WorkspaceProject>
                 {
                     new(Id: _projectId, Name: "Test Project", Description: null, Enabled: _enabled,
                         CreatedAt: null, UpdatedAt: null, CompiledAt: null)
@@ -613,7 +613,7 @@ public abstract class NetworkStorageManagementReadCandidateTests<TFactory> : ICl
         public Task<WorkspaceProjectUsage?> GetProjectUsageAsync(long userId, string projectId, string monthKey, CancellationToken cancellationToken)
             => Task.FromResult<WorkspaceProjectUsage?>(null);
 
-        public Task SaveUserProjectsAsync(long userId, IReadOnlyList<BunnyProject> projects, CancellationToken cancellationToken)
+        public Task SaveUserProjectsAsync(long userId, IReadOnlyList<WorkspaceProject> projects, CancellationToken cancellationToken)
             => Task.CompletedTask;
 
         public Task<string?> GetProjectResourceTextAsync(long userId, string projectId, string resourcePath, CancellationToken cancellationToken)

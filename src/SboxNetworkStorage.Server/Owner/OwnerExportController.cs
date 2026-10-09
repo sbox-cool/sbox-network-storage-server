@@ -17,7 +17,7 @@ namespace SboxNetworkStorage.Server.Owner;
 /// </summary>
 [Authorize(AuthenticationSchemes = OwnerHostingExtensions.Scheme)]
 public sealed class OwnerExportController(INetworkStorageStore store, INetworkStorageStoreAdmin admin, EffectiveConfig config,
-    IBunnyWorkspaceClient workspace, IAuditLogger audit, ILogger<OwnerExportController> logger) : Controller
+    IWorkspaceStore workspace, IAuditLogger audit, ILogger<OwnerExportController> logger) : Controller
 {
     private const long Owner = NetworkStorageServices.LocalOwnerUserId;
 

@@ -16,7 +16,7 @@ public interface IStorageKeyCdnWriter
     Task WriteKeyIndexAsync(string projectId, CdnKeyIndex index, CancellationToken cancellationToken);
 }
 
-public sealed class StorageKeyCdnWriter(IBunnyWorkspaceClient bunnyWorkspaceClient, ILogger<StorageKeyCdnWriter> logger)
+public sealed class StorageKeyCdnWriter(IWorkspaceStore bunnyWorkspaceClient, ILogger<StorageKeyCdnWriter> logger)
     : IStorageKeyCdnWriter
 {
     private static readonly JsonSerializerOptions JsonOptions = new()

@@ -44,7 +44,6 @@ public abstract class NetworkStorageGatewayUpstreamErrorCaptureTests<TFactory> :
             new StringContent("{}", Encoding.UTF8, "application/json"));
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
-        Assert.Equal(".NET native", response.Headers.GetValues("X-Sboxcool-Route-Owner").Single());
     }
 
     [SkippableFact]

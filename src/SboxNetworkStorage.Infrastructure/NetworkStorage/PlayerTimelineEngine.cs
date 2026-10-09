@@ -15,8 +15,20 @@ namespace SboxNetworkStorage.Infrastructure.NetworkStorage;
 /// event/session lists so the grouping + classification logic can be tested
 /// for parity directly.
 /// </summary>
-internal static class PlayerTimelineEngine
+internal static partial class PlayerTimelineEngine
 {
+    [System.Text.RegularExpressions.GeneratedRegex("^network[_-]storage[_-]", System.Text.RegularExpressions.RegexOptions.None, 100)]
+    private static partial System.Text.RegularExpressions.Regex NetworkStoragePrefix();
+
+    [System.Text.RegularExpressions.GeneratedRegex("([a-z])([A-Z])", System.Text.RegularExpressions.RegexOptions.None, 100)]
+    private static partial System.Text.RegularExpressions.Regex CamelCaseBoundary();
+
+    [System.Text.RegularExpressions.GeneratedRegex("[_-]+", System.Text.RegularExpressions.RegexOptions.None, 100)]
+    private static partial System.Text.RegularExpressions.Regex WordSeparators();
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"\b\w", System.Text.RegularExpressions.RegexOptions.None, 100)]
+    private static partial System.Text.RegularExpressions.Regex WordStart();
+
     private static readonly HashSet<string> Groups = new(StringComparer.Ordinal)
     {
         "session", "hour", "day", "week", "raw",
@@ -194,7 +206,7 @@ internal static class PlayerTimelineEngine
     public static string FormatEndpointJourneyLabel(string? slug)
     {
         var normalized = (slug ?? string.Empty).Trim().ToLowerInvariant();
-        normalized = System.Text.RegularExpressions.Regex.Replace(normalized, "^network[_-]storage[_-]", string.Empty);
+        normalized = NetworkStoragePrefix().Replace(normalized, string.Empty);
         switch (normalized)
         {
             case "load-profile": return "Loaded profile";
@@ -232,9 +244,9 @@ internal static class PlayerTimelineEngine
     private static string ManagedSignalLabel(string section)
     {
         if (ManagedSignalLabels.TryGetValue(section, out var label)) return label;
-        var spaced = System.Text.RegularExpressions.Regex.Replace(section ?? string.Empty, "([a-z])([A-Z])", "$1 $2");
-        spaced = System.Text.RegularExpressions.Regex.Replace(spaced, "[_-]+", " ");
-        return System.Text.RegularExpressions.Regex.Replace(spaced, @"\b\w", m => m.Value.ToUpperInvariant());
+        var spaced = CamelCaseBoundary().Replace(section ?? string.Empty, "$1 $2");
+        spaced = WordSeparators().Replace(spaced, " ");
+        return WordStart().Replace(spaced, m => m.Value.ToUpperInvariant());
     }
 
     private static string FormatMomentLabel(PlayerAnalyticsEvent e)

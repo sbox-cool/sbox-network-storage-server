@@ -27,11 +27,12 @@ public sealed class CloudflaredInstaller(HttpClient http, CloudflaredAsset? asse
     public static CloudflaredAsset CurrentAsset => Asset(OperatingSystem.IsLinux() ? "linux" : OperatingSystem.IsMacOS() ? "osx" : "win",
         RuntimeInformation.ProcessArchitecture);
 
-    public static string ExecutablePath(string configDirectory)
-        => Path.Combine(configDirectory, "connectors", Version, OperatingSystem.IsWindows() ? "cloudflared.exe" : "cloudflared");
+    /// <param name="executablesDirectory"><see cref="Configuration.EffectiveConfig.ExecutablesDirectory"/>.</param>
+    public static string ExecutablePath(string executablesDirectory)
+        => Path.Combine(executablesDirectory, Version, OperatingSystem.IsWindows() ? "cloudflared.exe" : "cloudflared");
 
-    public Task<string> InstallAsync(string configDirectory, CancellationToken ct)
-        => InstallAsync(ExecutablePath(configDirectory), assetOverride ?? CurrentAsset, ct);
+    public Task<string> InstallAsync(string executablesDirectory, CancellationToken ct)
+        => InstallAsync(ExecutablePath(executablesDirectory), assetOverride ?? CurrentAsset, ct);
 
     public async Task<string> InstallAsync(string destination, CloudflaredAsset asset, CancellationToken ct)
     {

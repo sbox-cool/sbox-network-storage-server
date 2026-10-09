@@ -1,0 +1,38 @@
+name: Systemd hardening
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_call:
+permissions:
+  contents: read
+jobs:
+  security:
+    strategy:
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Publish native service binary
+        run: dotnet publish src/SboxNetworkStorage.Server -c Release -r linux-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o "$RUNNER_TEMP/server"
+      - name: Install and exercise rendered units
+        run: |
+          sudo systemd-sysusers install/sbox-ns.sysusers.conf
+          sudo install -m 0755 "$RUNNER_TEMP/server/sbox-ns" /usr/local/bin/sbox-ns
+          sudo sbox-ns setup --non-interactive --database sqlite --listen 127.0.0.1:8080
+          sudo sbox-ns service install
+          sudo systemd-analyze verify /etc/systemd/system/sbox-ns.service
+          sudo systemd-analyze security --offline=yes --threshold=2.0 /etc/systemd/system/sbox-ns.service
+          sudo systemctl start sbox-ns
+          for attempt in $(seq 1 60); do
+            curl -fsS http://127.0.0.1:8080/health && break
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:8080/health
+          sudo journalctl -u sbox-ns --no-pager
+          sudo systemctl stop sbox-ns

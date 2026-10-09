@@ -72,7 +72,7 @@ public sealed class PlayerAnalyticsScanReaderTests
         SeedProfile(store, "222", ms222);
         SeedStorageEvent(store, "111", ms111, "e1", "record.write", "col_a");
         SeedStorageEvent(store, "222", ms222, "e2", "record.delete", "col_a");
-        var reader = new ScyllaPlayerAnalyticsReader(store);
+        var reader = new StorePlayerAnalyticsReader(store);
 
         var all = AsDict(await reader.GetProjectLogsAsync(Owner, ProjectId, null, null, null, null, 1, default));
         var logs = (List<Dictionary<string, JsonElement>>)all["logs"]!;
@@ -103,7 +103,7 @@ public sealed class PlayerAnalyticsScanReaderTests
         SeedProfile(store, "111", ms);
         SeedStorageEvent(store, "111", ms, "r1", "record.read", "col_a");          // reads excluded from write history
         SeedEvent(store, "111", ms + 1, "s1", "session.heartbeat", "session", ""); // non-storage events excluded
-        var reader = new ScyllaPlayerAnalyticsReader(store);
+        var reader = new StorePlayerAnalyticsReader(store);
 
         var all = AsDict(await reader.GetProjectLogsAsync(Owner, ProjectId, null, null, null, null, 1, default));
         Assert.Equal(0, (int)all["total"]!);
@@ -120,7 +120,7 @@ public sealed class PlayerAnalyticsScanReaderTests
         var ms222 = now.AddMinutes(-10).ToUnixTimeMilliseconds();
         SeedStorageEvent(store, "111", ms111, "e1", "record.write", "col_a");
         SeedStorageEvent(store, "222", ms222, "e2", "record.write", "col_a");
-        var reader = new ScyllaPlayerAnalyticsReader(store);
+        var reader = new StorePlayerAnalyticsReader(store);
 
         var result = AsDict(await reader.GetPlayerTransactionsAsync(Owner, ProjectId, "111", null, 1, default));
         var transactions = (List<Dictionary<string, JsonElement>>)result["transactions"]!;
@@ -139,7 +139,7 @@ public sealed class PlayerAnalyticsScanReaderTests
         var now = DateTimeOffset.UtcNow;
         await SeedLedgerEntry(store, "col_a", "111", now.AddMinutes(-20), "coins", 50, "quest");
         await SeedLedgerEntry(store, "col_a", "111", now.AddMinutes(-10), "coins", -20, "shop");
-        var reader = new ScyllaPlayerAnalyticsReader(store);
+        var reader = new StorePlayerAnalyticsReader(store);
 
         var result = AsDict(await reader.GetPlayerLedgerAsync(Owner, ProjectId, "111", null, null, null, null, default));
         var entries = (List<Dictionary<string, JsonElement>>)result["entries"]!;
@@ -166,7 +166,7 @@ public sealed class PlayerAnalyticsScanReaderTests
         var now = DateTimeOffset.UtcNow;
         await SeedLedgerEntry(store, "col_a", "111", now.AddMinutes(-20), "coins", 50, "quest");
         await SeedLedgerEntry(store, "col_a", "111", now.AddMinutes(-10), "xp", 5, "kill");
-        var reader = new ScyllaPlayerAnalyticsReader(store);
+        var reader = new StorePlayerAnalyticsReader(store);
 
         var byField = AsDict(await reader.GetPlayerLedgerAsync(Owner, ProjectId, "111", "coins", null, null, null, default));
         Assert.Single((List<Dictionary<string, JsonElement>>)byField["entries"]!);
@@ -187,7 +187,7 @@ public sealed class PlayerAnalyticsScanReaderTests
         // Even stray ledger rows on these collections must not surface.
         await SeedLedgerEntry(store, "g", "111", DateTimeOffset.UtcNow, "coins", 99, "quest");
         await SeedLedgerEntry(store, "col_b", "111", DateTimeOffset.UtcNow, "coins", 99, "quest");
-        var reader = new ScyllaPlayerAnalyticsReader(store);
+        var reader = new StorePlayerAnalyticsReader(store);
 
         var result = AsDict(await reader.GetPlayerLedgerAsync(Owner, ProjectId, "111", null, null, null, null, default));
         Assert.Empty((List<Dictionary<string, JsonElement>>)result["entries"]!);
@@ -203,7 +203,7 @@ public sealed class PlayerAnalyticsScanReaderTests
         var ts2 = DateTimeOffset.UtcNow.AddMinutes(-10).ToUnixTimeMilliseconds();
         await store.SeedAuditLogAsync(ProjectId, ts1, "log1", "1", "collection.create");
         await store.SeedAuditLogAsync(ProjectId, ts2, "log2", "1", "collection.delete");
-        var reader = new ScyllaPlayerAnalyticsReader(store);
+        var reader = new StorePlayerAnalyticsReader(store);
 
         var all = AsDict(await reader.GetProjectAuditLogsAsync(Owner, ProjectId, 1, 50, null, null, null, null, default));
         var pagination = (Dictionary<string, object?>)all["pagination"]!;
@@ -218,7 +218,7 @@ public sealed class PlayerAnalyticsScanReaderTests
     [Fact]
     public async Task Scans_OnEmptyStore_ReturnEmptyShapesNotNull()
     {
-        var reader = new ScyllaPlayerAnalyticsReader(new InMemoryNetworkStorageStore());
+        var reader = new StorePlayerAnalyticsReader(new InMemoryNetworkStorageStore());
 
         var logs = AsDict(await reader.GetProjectLogsAsync(Owner, ProjectId, null, null, null, null, 1, default));
         Assert.Equal(0, (int)logs["total"]!);
@@ -247,7 +247,7 @@ public sealed class PlayerAnalyticsScanReaderTests
             endpointSlug = "", collectionId = "col_a", label = "Coins",
             payload = new { fieldPath = "coins", label = "Coins", kind = "currency", before = 100, after = 200, delta = 100 }
         });
-        var reader = new ScyllaPlayerAnalyticsReader(store);
+        var reader = new StorePlayerAnalyticsReader(store);
         var query = new SboxNetworkStorage.Application.NetworkStorage.PlayerLedgerInsightQuery(30, new SboxNetworkStorage.Application.NetworkStorage.LedgerInsightQuery());
 
         var result = AsDict(await reader.GetPlayerLedgerInsightsAsync(Owner, ProjectId, "111", query, default));
@@ -282,7 +282,7 @@ public sealed class PlayerAnalyticsScanReaderTests
             endpointSlug = "", collectionId = "",
             payload = new { severity = "error" }
         });
-        var reader = new ScyllaPlayerAnalyticsReader(store);
+        var reader = new StorePlayerAnalyticsReader(store);
         var query = new SboxNetworkStorage.Application.NetworkStorage.PlayerTimelineQuery(30, null, "session", false, new SboxNetworkStorage.Application.NetworkStorage.LedgerInsightQuery());
 
         var result = AsDict(await reader.GetPlayerAnalyticsAsync(Owner, ProjectId, "111", null, query, default));
@@ -312,7 +312,7 @@ public sealed class PlayerAnalyticsScanReaderTests
         { steamId = "111", type = "tracked_field.delta", ts = tsIso, category = "tracked_field", collectionId = "col_a", source = "quest", label = "", endpointSlug = "", payload = new { fieldPath = "coins", before = 0, after = 300, delta = 300 } });
         await store.SeedPlayerEventAsync(ProjectId, "222", ts, "b", "tracked_field.delta", "tracked_field", "", "", "col_a", new
         { steamId = "222", type = "tracked_field.delta", ts = tsIso, category = "tracked_field", collectionId = "col_a", source = "quest", label = "", endpointSlug = "", payload = new { fieldPath = "coins", before = 0, after = 50, delta = 50 } });
-        var reader = new ScyllaPlayerAnalyticsReader(store);
+        var reader = new StorePlayerAnalyticsReader(store);
         var query = new SboxNetworkStorage.Application.NetworkStorage.ProjectLedgerInsightQuery(7, 100, 25, new SboxNetworkStorage.Application.NetworkStorage.LedgerInsightQuery());
 
         var result = AsDict(await reader.GetProjectLedgerInsightsAsync(Owner, ProjectId, query, default));

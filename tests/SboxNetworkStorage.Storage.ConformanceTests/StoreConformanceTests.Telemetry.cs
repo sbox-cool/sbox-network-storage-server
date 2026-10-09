@@ -132,24 +132,24 @@ public abstract partial class StoreConformanceTests
     // ── storage errors / request log ────────────────────────────────
 
     [SkippableFact]
-    public async Task Storage_errors_newest_first_overwrite_same_millisecond_and_purge_strictly_before()
+    public async Task Storage_errors_newest_first_keep_same_millisecond_and_purge_strictly_before()
     {
         var s = await StoreAsync();
         await s.InsertStorageErrorAsync("p1", 100, "err-1", "first", null, null, null, "error", Ct);
         await s.InsertStorageErrorAsync("p1", 200, "err-2", "second", "trace", "worker", "/v3/x", "warning", Ct);
         await s.InsertStorageErrorAsync("p1", 300, "err-3", "third", null, null, null, "error", Ct);
-        await s.InsertStorageErrorAsync("p1", 300, "err-4", "fourth", null, null, null, "error", Ct); // same ms: overwrites
+        await s.InsertStorageErrorAsync("p1", 300, "err-4", "fourth", null, null, null, "error", Ct); // same ms: both kept, newest insert first
 
         var errors = await s.ListStorageErrorsAsync("p1", 10, Ct);
-        Assert.Equal(new[] { "err-4", "err-2", "err-1" }, errors.Select(r => Json.Str(r, "error_id")));
-        Json.Equal("""{"created_at_unix_ms":100,"error_id":"err-1","message":"first","stack_trace":"","source":"","request_path":"","severity":"error"}""", errors[2]);
-        Json.Equal("""{"created_at_unix_ms":200,"error_id":"err-2","message":"second","stack_trace":"trace","source":"worker","request_path":"/v3/x","severity":"warning"}""", errors[1]);
+        Assert.Equal(new[] { "err-4", "err-3", "err-2", "err-1" }, errors.Select(r => Json.Str(r, "error_id")));
+        Json.Equal("""{"created_at_unix_ms":100,"error_id":"err-1","message":"first","stack_trace":"","source":"","request_path":"","severity":"error"}""", errors[3]);
+        Json.Equal("""{"created_at_unix_ms":200,"error_id":"err-2","message":"second","stack_trace":"trace","source":"worker","request_path":"/v3/x","severity":"warning"}""", errors[2]);
         Assert.Single(await s.ListStorageErrorsAsync("p1", 1, Ct));
 
         await s.PurgeStorageErrorsAsync("p1", 200, Ct);
-        Assert.Equal(new long[] { 300, 200 }, (await s.ListStorageErrorsAsync("p1", 10, Ct)).Select(r => Json.Long(r, "created_at_unix_ms")));
+        Assert.Equal(new long[] { 300, 300, 200 }, (await s.ListStorageErrorsAsync("p1", 10, Ct)).Select(r => Json.Long(r, "created_at_unix_ms")));
         await s.PurgeStorageErrorsAsync("p2", long.MaxValue, Ct);
-        Assert.Equal(2, (await s.ListStorageErrorsAsync("p1", 10, Ct)).Count);
+        Assert.Equal(3, (await s.ListStorageErrorsAsync("p1", 10, Ct)).Count);
     }
 
     [SkippableFact]
@@ -170,6 +170,98 @@ public abstract partial class StoreConformanceTests
         await s.PurgeStorageRequestLogAsync("p1", 2001, Ct);
         Assert.Equal(new long[] { 3000 }, (await s.ListStorageRequestLogAsync("p1", 10, Ct)).Select(r => Json.Long(r, "created_at_unix_ms")));
         Assert.Single(await s.ListStorageRequestLogAsync("p2", 10, Ct));
+    }
+
+    [SkippableFact]
+    public async Task Request_log_keeps_events_that_share_a_millisecond()
+    {
+        var s = await StoreAsync();
+        await s.InsertStorageRequestLogAsync("p1", 5000, "GET", "/first", 200, 1, null, Ct);
+        await s.InsertStorageRequestLogAsync("p1", 5000, "GET", "/second", 404, 2, null, Ct);
+
+        var log = await s.ListStorageRequestLogAsync("p1", 10, Ct);
+        Assert.Equal(new[] { "/second", "/first" }, log.Select(r => Json.Str(r, "path")));
+    }
+
+    // ── analytics retention ─────────────────────────────────────────
+
+    [SkippableFact]
+    public async Task PurgeAnalyticsBefore_deletes_only_older_timeline_events_issues_and_legacy_rows()
+    {
+        var s = await StoreAsync();
+        var payload = Json.Parse("{}");
+        foreach (var (project, at, id) in new[] { ("p1", 100L, "old"), ("p1", 200L, "edge"), ("p2", 50L, "other-old"), ("p2", 900L, "new") })
+        {
+            await s.InsertPlayerAnalyticsEventV2Async(project, "7656", at, id, "session.join", "session", "l", "", "", payload, Ct);
+            await s.InsertProjectIssueAsync(project, "2026-10-07", at, id, "7656", "error", "x", "l", payload, Ct);
+            await s.InsertPlayerAnalyticsEventAsync(project, "players", "7656", at, id, "record.write", payload, Ct);
+        }
+        await s.UpsertPlayerProfileAsync("p1", "7656", "name", true, null, 100, null, null, null, 0, 0, null, null, "{}", 100, Ct);
+
+        Assert.Equal(6, await s.PurgeAnalyticsBeforeAsync(200, Ct)); // two rows older than 200 in each of the three tables
+
+        Assert.Equal(new[] { "edge" }, (await s.ListPlayerEventsAsync("p1", "7656", 0, long.MaxValue, 10, Ct)).Select(r => Json.Str(r, "event_id")));
+        Assert.Empty(await s.ListPlayerEventsAsync("p2", "7656", 0, 100, 10, Ct));
+        Assert.Equal(new[] { "new" }, (await s.ListProjectIssuesAsync("p2", "2026-10-07", 10, Ct)).Select(r => Json.Str(r, "event_id")));
+        Assert.Single(await s.ListPlayerAnalyticsEventsAsync("p1", "players", "7656", 10, Ct));
+        Assert.NotNull(await s.ReadPlayerProfileAsync("p1", "7656", Ct));
+    }
+
+    // ── transactions ────────────────────────────────────────────────
+
+    [SkippableFact]
+    public async Task Committed_transaction_writes_are_visible_afterwards()
+    {
+        var s = await StoreAsync();
+        var payload = Json.Parse("{\"v\":1}");
+        await using (var tx = await s.BeginTransactionAsync(Ct))
+        {
+            await tx.Store.UpsertRecordAsync("p1", "c", "a", payload, false, 1, Ct);
+            await tx.Store.UpsertRecordAsync("p1", "c", "b", payload, false, 1, Ct);
+            Assert.NotNull(await tx.Store.ReadRecordAsync("p1", "c", "a", Ct)); // reads inside see the writes
+            await tx.CommitAsync(Ct);
+        }
+
+        Assert.NotNull(await s.ReadRecordAsync("p1", "c", "a", Ct));
+        Assert.NotNull(await s.ReadRecordAsync("p1", "c", "b", Ct));
+    }
+
+    [SkippableFact]
+    public async Task Disposing_a_transaction_without_commit_discards_every_write()
+    {
+        var s = await StoreAsync();
+        var payload = Json.Parse("{\"v\":1}");
+        await s.UpsertRecordAsync("p1", "c", "kept", payload, false, 1, Ct);
+        await using (var tx = await s.BeginTransactionAsync(Ct))
+        {
+            await tx.Store.UpsertRecordAsync("p1", "c", "a", payload, false, 1, Ct);
+            await tx.Store.UpsertGlobalRecordAsync("p1", "g", "r", payload, 1, Ct);
+            await tx.Store.UpsertRecordAsync("p1", "c", "kept", Json.Parse("{\"v\":2}"), true, 2, Ct);
+            await tx.Store.IncrementProjectUsageAsync("p1", "2026-10", "2026-10-07", "slug", new UsageDelta(1, 0, 1, 0, 0, 0, 0, 0, 0, 0), Ct);
+        }
+
+        Assert.Null(await s.ReadRecordAsync("p1", "c", "a", Ct));
+        Assert.Null(await s.ReadGlobalRecordAsync("p1", "g", "r", Ct));
+        Assert.Null(await s.ReadProjectUsageMonthlyAsync("p1", "2026-10", Ct));
+        var kept = await s.ReadRecordAsync("p1", "c", "kept", Ct);
+        Assert.Equal(1, Json.Long(kept!.Value, "version"));
+        Assert.False(kept.Value.GetProperty("deleted").GetBoolean());
+    }
+
+    [SkippableFact]
+    public async Task A_failed_write_inside_a_transaction_leaves_nothing_after_rollback()
+    {
+        var s = await StoreAsync();
+        var payload = Json.Parse("{\"v\":1}");
+        await Assert.ThrowsAsync<ArgumentException>(async () =>
+        {
+            await using var tx = await s.BeginTransactionAsync(Ct);
+            await tx.Store.UpsertRecordAsync("p1", "c", "a", payload, false, 1, Ct);
+            await tx.Store.UpsertRecordAsync("p1", "c", "bad/key", payload, false, 1, Ct);
+            await tx.CommitAsync(Ct);
+        });
+
+        Assert.Null(await s.ReadRecordAsync("p1", "c", "a", Ct));
     }
 
     // ── validation shared by every driver ───────────────────────────

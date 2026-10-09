@@ -53,6 +53,10 @@ public static class UpdateCommands
         var binary = Environment.ProcessPath ?? throw new CliException("cannot determine the sbox-ns executable path");
         RequireStandaloneExecutable(binary);
         using var updateLock = AcquireUpdateLock(binary);
+        var state = UpdateState.ForHost();
+        state.Ensure();
+        var host = new SystemUpdateHost();
+        var instance = ServerInstances.ForConfig(config);
         var work = Directory.CreateTempSubdirectory("sbox-ns-update-");
         try
         {
@@ -65,25 +69,21 @@ public static class UpdateCommands
             }
 
             string? backup = null;
-            var previous = binary + ".previous";
+            var previous = state.PreviousBinaryPath;
             var replacementAttempted = false;
             try
             {
                 // Quiesce writes before the snapshot so recovery cannot discard
                 // writes accepted between the backup and stopping the service.
-                backup = await DatabaseBackup.BackupAsync(config, DatabaseBackup.DefaultBackupPath(config, $"pre-{release.Version}"), CancellationToken.None);
+                backup = DatabaseBackup.DefaultBackupPath(config, $"pre-{release.Version}");
+                RequireSuccess(await host.BackupAsync(binary, instance, backup, CancellationToken.None), "database backup");
                 Console.WriteLine($"Database backed up to {backup}");
                 File.Copy(binary, previous, overwrite: true);
                 replacementAttempted = true;
                 BinarySwap.Replace(newBinary, binary);
 
-                var migrate = await RunBinaryAsync(binary, ["db", "migrate", "--config-dir", config.ConfigDirectory, "--data-dir", config.DataDirectory]);
-                if (migrate != 0)
-                {
-                    throw new CliException($"migration exited with code {migrate}");
-                }
-
-                UpdateRecord.Write(config, new UpdateRecord(BuildInfo.Version, release.Version, binary, previous, backup, DateTimeOffset.UtcNow, Mode: "manual"));
+                RequireSuccess(await host.MigrateAsync(binary, instance, CancellationToken.None), "migration");
+                state.Write(instance.Name, new UpdateRecord(BuildInfo.Version, release.Version, binary, previous, backup, DateTimeOffset.UtcNow, Mode: "manual"));
             }
             catch
             {
@@ -91,7 +91,7 @@ public static class UpdateCommands
                 {
                     Console.Error.WriteLine("Update failed; restoring the previous version and database backup.");
                     BinarySwap.Replace(previous, binary);
-                    await DatabaseBackup.RestoreAsync(config, backup!, CancellationToken.None);
+                    RequireSuccess(await host.RestoreAsync(binary, instance, backup!, CancellationToken.None), "database restore");
                 }
 
                 if (serviceInstalled)
@@ -124,15 +124,24 @@ public static class UpdateCommands
         }
 
         var config = context.LoadValidConfig();
-        var record = UpdateRecord.Read(config) ?? throw new CliException("no update to roll back (nothing recorded by `sbox-ns update`)");
+        var state = UpdateState.ForHost();
+        var instance = ServerInstances.ForConfig(config);
+        var record = state.Read(instance.Name) ?? throw new CliException("no update to roll back (nothing recorded by `sbox-ns update`)");
         RequireRollbackable(record);
-        if (!File.Exists(record.PreviousBinaryPath) || record.BackupPath is null || !File.Exists(record.BackupPath))
+        state.Require();
+
+        // The record only says what happened. Rollback restores the fixed installed binary from the
+        // root-only state folder and never follows a path stored in the record.
+        var binary = Environment.ProcessPath ?? throw new CliException("cannot determine the sbox-ns executable path");
+        RequireStandaloneExecutable(binary);
+        if (!File.Exists(state.PreviousBinaryPath) || record.BackupPath is null || !File.Exists(record.BackupPath))
         {
-            throw new CliException($"rollback files are missing ({record.PreviousBinaryPath}, {record.BackupPath ?? "no backup"})");
+            throw new CliException($"rollback files are missing ({state.PreviousBinaryPath}, {record.BackupPath ?? "no backup"})");
         }
 
         Console.WriteLine($"Rolling back {record.ToVersion} -> {record.FromVersion} and restoring {record.BackupPath}");
         ConfirmDataLoss(context);
+        using var updateLock = AcquireUpdateLock(binary);
 
         var serviceInstalled = ServiceCommands.IsInstalled();
         if (serviceInstalled)
@@ -140,9 +149,20 @@ public static class UpdateCommands
             await RequireServiceControlAsync("stop");
         }
 
-        BinarySwap.Replace(record.PreviousBinaryPath, record.BinaryPath);
-        await DatabaseBackup.RestoreAsync(config, record.BackupPath, CancellationToken.None);
-        UpdateRecord.Delete(config);
+        // The binary being restored may predate the state folder and expect its secrets in the config folder.
+        var host = new SystemUpdateHost();
+        try
+        {
+            RequireSuccess(await host.RevertLayoutAsync(binary, [instance], CancellationToken.None), "layout revert");
+        }
+        catch (LayoutMigrationException ex)
+        {
+            throw new CliException($"cannot move the runtime files back into the config folder: {ex.Message}. The previous binary was not restored.");
+        }
+
+        BinarySwap.Replace(state.PreviousBinaryPath, binary);
+        RequireSuccess(await host.RestoreAsync(binary, instance, record.BackupPath, CancellationToken.None), "database restore");
+        state.Delete(instance.Name);
         if (serviceInstalled)
         {
             await RequireServiceControlAsync("start");
@@ -150,6 +170,14 @@ public static class UpdateCommands
 
         Console.WriteLine($"Rolled back to {record.FromVersion}.");
         return CliApp.Ok;
+    }
+
+    private static void RequireSuccess(int exitCode, string step)
+    {
+        if (exitCode != 0)
+        {
+            throw new CliException($"{step} exited with code {exitCode}");
+        }
     }
 
     internal static void RequireRollbackable(UpdateRecord record)
@@ -206,17 +234,23 @@ public static class UpdateCommands
         }
     }
 
-    /// <summary>Downloads, verifies (checksum, and signature when cosign is installed) and extracts a release; returns the new binary.</summary>
+    /// <summary>
+    /// Downloads a release, verifies the pinned-key signature of SHA256SUMS and then the archive checksum,
+    /// and extracts it; returns the new binary. Any missing or invalid signature aborts before anything is installed.
+    /// </summary>
     internal static async Task<string> StageReleaseAsync(HttpClient http, ReleaseFeed feed, string version, string binary, string work)
     {
         var archiveName = $"sbox-ns-{version}-{BuildInfo.RuntimeIdentifier}{(OperatingSystem.IsWindows() ? ".zip" : ".tar.gz")}";
         var archive = Path.Combine(work, archiveName);
-        Console.WriteLine($"Downloading {archiveName}...");
-        await DownloadAsync(http, feed.AssetUrl(version, archiveName), archive);
         var sums = Path.Combine(work, "SHA256SUMS");
         await DownloadAsync(http, feed.AssetUrl(version, "SHA256SUMS"), sums);
+        var signature = Path.Combine(work, ReleaseSignature.AssetName);
+        await DownloadRequiredAsync(http, feed.AssetUrl(version, ReleaseSignature.AssetName), signature);
+        VerifyReleaseSignature(sums, signature, feed.Trust);
+        Console.WriteLine($"Downloading {archiveName}...");
+        await DownloadAsync(http, feed.AssetUrl(version, archiveName), archive);
         VerifyChecksum(archive, archiveName, sums);
-        await VerifySignatureAsync(http, feed, version, sums, work);
+        await VerifyCosignAsync(http, feed, version, sums, work);
 
         var extracted = Path.Combine(work, "extracted");
         Extract(archive, extracted);
@@ -268,11 +302,39 @@ public static class UpdateCommands
         Console.WriteLine("Checksum verified.");
     }
 
-    private static async Task VerifySignatureAsync(HttpClient http, ReleaseFeed feed, string version, string sums, string work)
+    /// <summary>Checks the detached P-256 signature of SHA256SUMS against the keys pinned in the binary.</summary>
+    internal static void VerifyReleaseSignature(string sumsFile, string signatureFile, UpdateTrust trust)
+    {
+        if (trust.SigningKeys.Count == 0)
+        {
+            throw new CliException("this build has no pinned release signing key, so no release can be verified. Nothing was installed.");
+        }
+
+        if (!ReleaseSignature.Verify(File.ReadAllBytes(sumsFile), File.ReadAllBytes(signatureFile), trust.SigningKeys))
+        {
+            throw new CliException("signature verification of SHA256SUMS failed. Nothing was installed.");
+        }
+
+        Console.WriteLine("Release signature verified.");
+    }
+
+    private static async Task DownloadRequiredAsync(HttpClient http, string url, string target)
+    {
+        try
+        {
+            await DownloadAsync(http, url, target);
+        }
+        catch (CliException ex)
+        {
+            throw new CliException($"the release signature {Path.GetFileName(target)} is missing or unavailable ({ex.Message}). Nothing was installed.");
+        }
+    }
+
+    /// <summary>Extra transparency check when cosign is installed; the pinned-key signature is the required one.</summary>
+    private static async Task VerifyCosignAsync(HttpClient http, ReleaseFeed feed, string version, string sums, string work)
     {
         if (ServiceCommands.RunCapture("cosign", ["version"]).ExitCode != 0)
         {
-            Console.WriteLine("cosign not found; skipping signature verification (checksums were verified over HTTPS).");
             return;
         }
 
@@ -283,15 +345,15 @@ public static class UpdateCommands
         var result = ServiceCommands.RunCapture("cosign",
         [
             "verify-blob", "--signature", signature, "--certificate", certificate,
-            "--certificate-identity-regexp", $"^https://github.com/{feed.GitHubRepository}/",
-            "--certificate-oidc-issuer", "https://token.actions.githubusercontent.com", sums
+            "--certificate-identity-regexp", feed.Trust.CosignIdentityPattern,
+            "--certificate-oidc-issuer", UpdateTrust.CosignIssuer, sums
         ]);
         if (result.ExitCode != 0)
         {
-            throw new CliException("signature verification of SHA256SUMS failed. Nothing was installed.");
+            throw new CliException("cosign verification of SHA256SUMS failed (identity must be the release workflow on a version tag). Nothing was installed.");
         }
 
-        Console.WriteLine("Signature verified.");
+        Console.WriteLine("Cosign signature verified.");
     }
 
     private static void Extract(string archive, string destination)
@@ -306,18 +368,5 @@ public static class UpdateCommands
         using var file = File.OpenRead(archive);
         using var gzip = new GZipStream(file, CompressionMode.Decompress);
         TarFile.ExtractToDirectory(gzip, destination, overwriteFiles: true);
-    }
-
-    private static async Task<int> RunBinaryAsync(string binary, IReadOnlyList<string> arguments)
-    {
-        var start = new ProcessStartInfo(binary) { UseShellExecute = false };
-        foreach (var argument in arguments)
-        {
-            start.ArgumentList.Add(argument);
-        }
-
-        using var process = Process.Start(start)!;
-        await process.WaitForExitAsync();
-        return process.ExitCode;
     }
 }

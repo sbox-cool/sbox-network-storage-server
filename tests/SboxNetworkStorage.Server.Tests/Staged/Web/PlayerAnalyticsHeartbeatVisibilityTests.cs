@@ -43,7 +43,7 @@ public sealed class PlayerAnalyticsHeartbeatVisibilityTests
 
     private static async Task<Dictionary<string, object?>> ReadAsync(InMemoryNetworkStorageStore store, bool noise)
     {
-        var reader = new ScyllaPlayerAnalyticsReader(store);
+        var reader = new StorePlayerAnalyticsReader(store);
         var query = new PlayerTimelineQuery(30, null, "session", noise, new LedgerInsightQuery());
         return (Dictionary<string, object?>)(await reader.GetPlayerAnalyticsAsync(Owner, ProjectId, SteamId, null, query, default))!;
     }

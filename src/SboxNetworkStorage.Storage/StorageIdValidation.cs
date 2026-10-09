@@ -16,10 +16,10 @@ namespace SboxNetworkStorage.Storage;
 /// </summary>
 public static partial class StorageIdValidation
 {
-    [GeneratedRegex("^[a-zA-Z0-9_-]{1,128}$")]
+    [GeneratedRegex("^[a-zA-Z0-9_-]{1,128}$", RegexOptions.None, 100)]
     private static partial Regex CollectionIdPattern();
 
-    [GeneratedRegex("^[a-zA-Z0-9_:-]{1,256}$")]
+    [GeneratedRegex("^[a-zA-Z0-9_:-]{1,256}$", RegexOptions.None, 100)]
     private static partial Regex RecordKeyPattern();
 
     /// <summary>True when <paramref name="value"/> is a loadable collection ID.</summary>

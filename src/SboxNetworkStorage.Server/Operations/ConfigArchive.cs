@@ -8,6 +8,8 @@ namespace SboxNetworkStorage.Server.Operations;
 /// <summary>
 /// Copies the config folder into an export (server/database/updates/alerts.toml,
 /// conf.d/*.toml, and optionally secrets) and restores it on import with atomic writes.
+/// In the state layout the runtime files (generated secrets, tunnel identity and token, managed overlays)
+/// are read from and restored into the state folder; archive entry names are the same in both layouts.
 /// </summary>
 public static class ConfigArchive
 {
@@ -39,40 +41,48 @@ public static class ConfigArchive
     public static StagedConfig Stage(EffectiveConfig config, bool includeSecrets, string stagingRoot)
     {
         var configDirectory = Path.GetFullPath(config.ConfigDirectory);
-        var files = new SortedSet<string>(StringComparer.Ordinal);
+        var runtimeDirectory = Path.GetFullPath(config.RuntimeDirectory);
+        var files = new SortedDictionary<string, string>(StringComparer.Ordinal);
         foreach (var file in SettingDefinitions.Files.Where(f => File.Exists(Path.Combine(configDirectory, f))))
         {
-            files.Add(file);
+            files[file] = Path.Combine(configDirectory, file);
         }
 
-        var confD = Path.Combine(configDirectory, ConfigLoader.ConfDirectory);
-        if (Directory.Exists(confD))
+        foreach (var folder in new[] { Path.Combine(configDirectory, ConfigLoader.ConfDirectory), Path.Combine(runtimeDirectory, ConfigLoader.ConfDirectory) })
         {
-            foreach (var path in Directory.GetFiles(confD, "*.toml"))
+            if (Directory.Exists(folder))
             {
-                files.Add($"{ConfigLoader.ConfDirectory}/{Path.GetFileName(path)}");
+                foreach (var path in Directory.GetFiles(folder, "*.toml"))
+                {
+                    files[$"{ConfigLoader.ConfDirectory}/{Path.GetFileName(path)}"] = path;
+                }
             }
         }
 
         var outside = new List<string>();
         if (includeSecrets)
         {
-            var secrets = Path.Combine(configDirectory, SecretsDirectory);
-            if (Directory.Exists(secrets))
+            foreach (var root in new[] { configDirectory, runtimeDirectory }.Distinct(StringComparer.Ordinal))
             {
+                var secrets = Path.Combine(root, SecretsDirectory);
+                if (!Directory.Exists(secrets))
+                {
+                    continue;
+                }
+
                 foreach (var path in Directory.EnumerateFiles(secrets, "*", SearchOption.AllDirectories))
                 {
                     var fileName = Path.GetFileName(path);
                     if (!fileName.EndsWith(BackupSuffix, StringComparison.Ordinal) && !(fileName.StartsWith('.') && fileName.EndsWith(".tmp", StringComparison.Ordinal)))
                     {
-                        files.Add(RelativeEntry(configDirectory, path));
+                        files[RelativeEntry(root, path)] = path;
                     }
                 }
             }
 
             foreach (var setting in SecretFileSettings)
             {
-                var path = config.GetPath(setting, configDirectory);
+                var path = config.GetPath(setting, IsRuntimeSetting(setting) ? runtimeDirectory : configDirectory);
                 if (path.Length == 0 || !File.Exists(path))
                 {
                     continue;
@@ -80,7 +90,11 @@ public static class ConfigArchive
 
                 if (IsInside(configDirectory, path))
                 {
-                    files.Add(RelativeEntry(configDirectory, path));
+                    files[RelativeEntry(configDirectory, path)] = path;
+                }
+                else if (IsInside(runtimeDirectory, path))
+                {
+                    files[RelativeEntry(runtimeDirectory, path)] = path;
                 }
                 else
                 {
@@ -90,9 +104,8 @@ public static class ConfigArchive
         }
 
         var entries = new List<string>();
-        foreach (var relative in files)
+        foreach (var (relative, source) in files)
         {
-            var source = Path.Combine(configDirectory, relative.Replace('/', Path.DirectorySeparatorChar));
             var target = Path.Combine(stagingRoot, ExportFormat.ConfigPrefix.TrimEnd('/'), relative.Replace('/', Path.DirectorySeparatorChar));
             Directory.CreateDirectory(Path.GetDirectoryName(target)!);
             if (!includeSecrets && relative.EndsWith(".toml", StringComparison.Ordinal))
@@ -108,6 +121,32 @@ public static class ConfigArchive
         }
 
         return new StagedConfig(entries, outside);
+    }
+
+    /// <summary>The generated-secret settings resolve against the runtime folder; the other secret files are operator-provided.</summary>
+    private static bool IsRuntimeSetting(string setting) => setting.StartsWith("auth.", StringComparison.Ordinal);
+
+    /// <summary>True when an archive entry belongs in the state folder: a managed overlay, the tunnel identity or token, or a generated secret file.</summary>
+    private static bool IsRuntimeEntry(EffectiveConfig config, string relative)
+    {
+        if (config.Layout == ConfigLayout.Legacy)
+        {
+            return false;
+        }
+
+        var normalized = relative.Replace('\\', '/');
+        if (normalized.StartsWith(ConfigLoader.ConfDirectory + "/", StringComparison.Ordinal))
+        {
+            return StateLayout.ManagedOverlayFiles.Contains(normalized[(ConfigLoader.ConfDirectory.Length + 1)..], StringComparer.Ordinal);
+        }
+
+        if (normalized is $"{SecretsDirectory}/{StateLayout.TunnelIdentityFile}" or $"{SecretsDirectory}/{StateLayout.TunnelTokenFile}")
+        {
+            return true;
+        }
+
+        return SecretFileSettings.Where(IsRuntimeSetting).Select(config.GetString)
+            .Any(value => value.Length > 0 && !Path.IsPathRooted(value) && Path.GetRelativePath(".", value).Replace('\\', '/') == normalized);
     }
 
     /// <summary>Blanks every non-empty inline value of a setting marked secret.</summary>
@@ -162,25 +201,33 @@ public static class ConfigArchive
     /// </summary>
     public static IReadOnlyList<string> Restore(EffectiveConfig config, IReadOnlyDictionary<string, byte[]> files)
     {
-        var configDirectory = Path.GetFullPath(config.ConfigDirectory);
-        var targets = new List<(string Relative, byte[] Content, string Target)>();
+        var targets = new List<(string Relative, byte[] Content, string Target, bool Runtime)>();
         foreach (var (relative, content) in files.OrderBy(f => f.Key, StringComparer.Ordinal))
         {
+            var runtime = IsRuntimeEntry(config, relative);
+            var root = Path.GetFullPath(runtime ? config.RuntimeDirectory : config.ConfigDirectory);
             var targetRelative = relative == SettingDefinitions.DatabaseFile ? ImportedDatabaseFile : relative;
-            var target = Path.GetFullPath(Path.Combine(configDirectory, targetRelative.Replace('/', Path.DirectorySeparatorChar)));
-            if (!IsInside(configDirectory, target))
+            var target = Path.GetFullPath(Path.Combine(root, targetRelative.Replace('/', Path.DirectorySeparatorChar)));
+            if (!IsInside(root, target))
             {
                 throw new ExportArchiveException($"Archive config entry '{relative}' points outside the config folder.");
             }
 
-            RejectReparsePoints(configDirectory, target);
-            RejectReparsePoints(configDirectory, target + BackupSuffix);
-            targets.Add((relative, content, target));
+            RejectReparsePoints(root, target);
+            RejectReparsePoints(root, target + BackupSuffix);
+            targets.Add((relative, content, target, runtime));
         }
 
         var written = new List<string>();
-        foreach (var (relative, content, target) in targets)
+        foreach (var (relative, content, target, runtime) in targets)
         {
+            // State files are written as the service account so the server can read them afterwards.
+            using var identity = runtime ? RuntimeIdentity.Enter(config) : null;
+            if (runtime)
+            {
+                config.EnsureRuntimeDirectory();
+            }
+
 
             if (File.Exists(target))
             {
@@ -267,11 +314,7 @@ public static class ConfigArchive
         File.Move(temp, path, overwrite: true);
     }
 
-    private static bool IsInside(string directory, string path)
-    {
-        var root = directory.EndsWith(Path.DirectorySeparatorChar) ? directory : directory + Path.DirectorySeparatorChar;
-        return Path.GetFullPath(path).StartsWith(root, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
-    }
+    private static bool IsInside(string directory, string path) => StateLayout.IsInside(directory, path);
 
     private static string RelativeEntry(string directory, string path)
         => Path.GetRelativePath(directory, path).Replace(Path.DirectorySeparatorChar, '/');

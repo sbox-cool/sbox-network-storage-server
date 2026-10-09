@@ -10,10 +10,10 @@ internal static partial class StoreValidation
     /// <summary>Production default for the maximum accepted JSON payload (64 KiB of UTF-8).</summary>
     public const int DefaultMaxPayloadBytes = 64 * 1024;
 
-    [GeneratedRegex("^[a-zA-Z0-9_-]{1,128}$")]
+    [GeneratedRegex("^[a-zA-Z0-9_-]{1,128}$", RegexOptions.None, 100)]
     private static partial Regex IdPattern();
 
-    [GeneratedRegex("^[a-zA-Z0-9_:-]{1,256}$")]
+    [GeneratedRegex("^[a-zA-Z0-9_:-]{1,256}$", RegexOptions.None, 100)]
     private static partial Regex RecordKeyPattern();
 
     public static void Id(string value)

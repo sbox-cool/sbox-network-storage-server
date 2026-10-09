@@ -45,7 +45,7 @@ public abstract partial class RelationalNetworkStorageStore : IAuthoritativeProj
     public async Task ReplaceProjectRowsAsync(string projectId, IAsyncEnumerable<ProjectSnapshotRow> rows, CancellationToken ct)
     {
         StoreValidation.Id(projectId);
-        if (_projectImport.Value is not null) throw new InvalidOperationException("Snapshot imports cannot be nested.");
+        if (_transaction is not null) throw new InvalidOperationException("Snapshot imports cannot run inside a transaction.");
         await using var connection = await OpenConnectionAsync(ct);
         await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.Serializable, ct);
         foreach (var table in ProjectSnapshotSchema.Tables.Keys)

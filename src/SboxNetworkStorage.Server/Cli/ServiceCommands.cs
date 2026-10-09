@@ -8,7 +8,7 @@ namespace SboxNetworkStorage.Server.Cli;
 public static class ServiceCommands
 {
     public const string ServiceName = "sbox-ns";
-    private const string SystemdUnitPath = "/etc/systemd/system/sbox-ns.service";
+    internal const string SystemdUnitPath = "/etc/systemd/system/sbox-ns.service";
     private const string LaunchdLabel = "cool.sbox.sbox-ns";
 
     public static async Task<int> RunAsync(CliContext context)
@@ -71,7 +71,8 @@ public static class ServiceCommands
         {
             RequireRoot();
             var user = RunCapture("id", ["-u", ServiceName]).ExitCode == 0 ? ServiceName : Environment.UserName;
-            ConfigFiles.WriteAtomically(SystemdUnitPath, SystemdUnit(binary, config, user));
+            ConfigFiles.WriteAtomically(SystemdUnitPath, SystemdUnit(binary, config, user, writableConfig: config.Layout == ConfigLayout.Legacy));
+            SystemdUnits.SyncBindDropIn(ServiceName, config);
             await RunAsync("systemctl", ["daemon-reload"]);
             await RunAsync("systemctl", ["enable", ServiceName]);
             Console.WriteLine($"Installed {SystemdUnitPath} (runs as {user}). Start it with: sbox-ns service start");
@@ -145,6 +146,13 @@ public static class ServiceCommands
             return CliApp.Usage;
         }
 
+        if (OperatingSystem.IsLinux())
+        {
+            RequireRoot();
+            if (SystemdUnits.SyncBindDropIn(ServiceName, config))
+                await RunAsync("systemctl", ["daemon-reload"]);
+        }
+
         return await ControlAsync("restart");
     }
 
@@ -182,41 +190,9 @@ public static class ServiceCommands
         throw new CliException("service control is not supported on this platform");
     }
 
-    private static string SystemdUnit(string binary, EffectiveConfig config, string user) => $"""
-        # Installed by `sbox-ns service install`. Local overrides belong in `systemctl edit sbox-ns`.
-        [Unit]
-        Description=sbox Network Storage Server
-        Documentation=https://github.com/sbox-cool/sbox-network-storage-server
-        Wants=network-online.target
-        After=network-online.target postgresql.service
-
-        [Service]
-        Type=simple
-        User={user}
-        ExecStart={binary} start --config-dir {config.ConfigDirectory} --data-dir {config.DataDirectory}
-        WorkingDirectory={config.DataDirectory}
-        Restart=on-failure
-        RestartSec=5
-        TimeoutStopSec=30
-        Environment=DOTNET_BUNDLE_EXTRACT_BASE_DIR={config.DataDirectory}/.net
-        NoNewPrivileges=true
-        ProtectSystem=strict
-        ProtectHome=true
-        PrivateTmp=true
-        PrivateDevices=true
-        ProtectKernelTunables=true
-        ProtectKernelModules=true
-        ProtectControlGroups=true
-        RestrictSUIDSGID=true
-        LockPersonality=true
-        RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
-        ReadWritePaths={config.DataDirectory} {config.ConfigDirectory}
-        UMask=0027
-
-        [Install]
-        WantedBy=multi-user.target
-
-        """;
+    /// <param name="writableConfig">Only for the legacy layout: older binaries write secrets and tunnel state into the config folder.</param>
+    internal static string SystemdUnit(string binary, EffectiveConfig config, string user, bool writableConfig = false)
+        => SystemdUnits.ServiceUnit(binary, config, user, writableConfig);
 
     private static string LaunchdPlist(string binary, EffectiveConfig config)
     {
@@ -251,7 +227,7 @@ public static class ServiceCommands
             ? $"/Library/LaunchDaemons/{LaunchdLabel}.plist"
             : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Library", "LaunchAgents", $"{LaunchdLabel}.plist");
 
-    private static bool IsRoot() => !OperatingSystem.IsWindows() && Environment.UserName == "root";
+    internal static bool IsRoot() => !OperatingSystem.IsWindows() && Environment.UserName == "root";
 
     internal static void RequireRoot()
     {

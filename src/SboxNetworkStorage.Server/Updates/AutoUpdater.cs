@@ -19,8 +19,10 @@ public sealed record InstallResult(InstallOutcome Outcome, string? Reason);
 /// the instances that were running and wait for each <c>/health</c> to report the new
 /// version. Any failure restores the binary and every backup taken in this run, starts
 /// the instances again and records <c>failed</c> in each instance's last-update.json.
+/// A recorded update is undone the same way, after moving the runtime files back into the config
+/// folders (<c>layout migrate --revert</c>) because the binary it restores may predate the state layout.
 /// </summary>
-public sealed class AutoUpdater(IUpdateHost host, HttpClient health, Action<string> log)
+public sealed class AutoUpdater(IUpdateHost host, UpdateState state, HttpClient health, Action<string> log)
 {
     public TimeSpan HealthTimeout { get; init; } = TimeSpan.FromSeconds(120);
 
@@ -29,6 +31,7 @@ public sealed class AutoUpdater(IUpdateHost host, HttpClient health, Action<stri
     public async Task<InstallResult> InstallAsync(string fromVersion, string toVersion, string stagedBinary, string binary,
         IReadOnlyList<ServerInstance> instances, string mode, CancellationToken ct)
     {
+        state.Ensure();
         var active = new List<ServerInstance>();
         foreach (var instance in instances)
         {
@@ -38,7 +41,7 @@ public sealed class AutoUpdater(IUpdateHost host, HttpClient health, Action<stri
             }
         }
 
-        var previous = binary + ".previous";
+        var previous = state.PreviousBinaryPath;
         var backups = new List<(ServerInstance Instance, string? Path)>();
         var replaced = false;
         try
@@ -52,7 +55,7 @@ public sealed class AutoUpdater(IUpdateHost host, HttpClient health, Action<stri
             // Back up after stopping, so no accepted write can be lost by a restore.
             foreach (var instance in instances)
             {
-                var backup = await BackupAsync(instance, toVersion, ct);
+                var backup = await BackupAsync(instance, toVersion, binary, ct);
                 backups.Add((instance, backup));
                 log(backup is null ? $"{instance.Name}: no database yet, nothing to back up" : $"{instance.Name}: database backed up to {backup}");
             }
@@ -77,7 +80,7 @@ public sealed class AutoUpdater(IUpdateHost host, HttpClient health, Action<stri
 
             foreach (var (instance, backup) in backups)
             {
-                UpdateRecord.Write(instance.Config, new UpdateRecord(fromVersion, toVersion, binary, previous, backup,
+                state.Write(instance.Name, new UpdateRecord(fromVersion, toVersion, binary, previous, backup,
                     DateTimeOffset.UtcNow, UpdateRecord.Succeeded, null, mode));
             }
         }
@@ -85,12 +88,12 @@ public sealed class AutoUpdater(IUpdateHost host, HttpClient health, Action<stri
         {
             var reason = ex is UpdateStepException ? ex.Message : $"{ex.GetType().Name}: {ex.Message}";
             log($"Update to {toVersion} failed: {reason}. Rolling back {instances.Count} instance(s).");
-            var problems = await RollbackAsync(fromVersion, binary, previous, replaced, active, backups);
+            var problems = await RollbackAsync(fromVersion, binary, previous, replaced, active, backups, revertLayout: false);
             var fullReason = problems.Count == 0 ? reason : $"{reason}; rollback incomplete: {string.Join("; ", problems)}";
             foreach (var instance in instances)
             {
                 var backup = backups.FirstOrDefault(b => ReferenceEquals(b.Instance, instance)).Path;
-                UpdateRecord.Write(instance.Config, new UpdateRecord(fromVersion, toVersion, binary, previous, backup,
+                state.Write(instance.Name, new UpdateRecord(fromVersion, toVersion, binary, previous, backup,
                     DateTimeOffset.UtcNow, UpdateRecord.Failed, fullReason, mode));
             }
 
@@ -104,10 +107,13 @@ public sealed class AutoUpdater(IUpdateHost host, HttpClient health, Action<stri
     /// <summary>
     /// Undoes a recorded successful update for every instance: restores the previous
     /// binary once and every instance's backup, then starts the instances that were running.
+    /// Only the fixed <paramref name="binary"/> is replaced and only <see cref="UpdateState.PreviousBinaryPath"/>
+    /// is used as the source; the paths stored in the records are never followed.
     /// </summary>
     public async Task<IReadOnlyList<string>> RollbackRecordedAsync(IReadOnlyList<(ServerInstance Instance, UpdateRecord Record)> recorded,
-        CancellationToken ct)
+        string binary, CancellationToken ct)
     {
+        state.Require();
         var first = recorded[0].Record;
         var active = new List<ServerInstance>();
         foreach (var (instance, _) in recorded)
@@ -118,13 +124,13 @@ public sealed class AutoUpdater(IUpdateHost host, HttpClient health, Action<stri
             }
         }
 
-        var problems = await RollbackAsync(first.FromVersion, first.BinaryPath, first.PreviousBinaryPath, binaryReplaced: true, active,
-            recorded.Select(r => (r.Instance, r.Record.BackupPath)).ToList());
+        var problems = await RollbackAsync(first.FromVersion, binary, state.PreviousBinaryPath, binaryReplaced: true, active,
+            recorded.Select(r => (r.Instance, r.Record.BackupPath)).ToList(), revertLayout: true);
         if (problems.Count == 0)
         {
             foreach (var (instance, _) in recorded)
             {
-                UpdateRecord.Delete(instance.Config);
+                state.Delete(instance.Name);
             }
         }
 
@@ -132,7 +138,7 @@ public sealed class AutoUpdater(IUpdateHost host, HttpClient health, Action<stri
     }
 
     private async Task<List<string>> RollbackAsync(string fromVersion, string binary, string previous, bool binaryReplaced,
-        IReadOnlyList<ServerInstance> active, IReadOnlyList<(ServerInstance Instance, string? Path)> backups)
+        IReadOnlyList<ServerInstance> active, IReadOnlyList<(ServerInstance Instance, string? Path)> backups, bool revertLayout)
     {
         var problems = new List<string>();
         async Task TryAsync(string step, Func<Task> action)
@@ -160,6 +166,18 @@ public sealed class AutoUpdater(IUpdateHost host, HttpClient health, Action<stri
             return problems;
         }
 
+        // A binary older than the state layout expects its secrets in the config folder. Without them it would
+        // generate new ones, so a failed revert stops here with the old binary still in place.
+        if (revertLayout && binaryReplaced)
+        {
+            await TryAsync("revert layout", async () =>
+                Require(await host.RevertLayoutAsync(binary, backups.Select(b => b.Instance).ToList(), CancellationToken.None), "revert layout"));
+            if (problems.Count > 0)
+            {
+                return problems;
+            }
+        }
+
         if (binaryReplaced)
         {
             await TryAsync("restore binary", () =>
@@ -176,7 +194,7 @@ public sealed class AutoUpdater(IUpdateHost host, HttpClient health, Action<stri
             {
                 if (backup is not null)
                 {
-                    await DatabaseBackup.RestoreAsync(instance.Config, backup, CancellationToken.None);
+                    Require(await host.RestoreAsync(binary, instance, backup, CancellationToken.None), $"restore {instance.Name} database");
                     log($"{instance.Name}: database restored from {backup}");
                 }
                 else if (instance.Config.GetString("database.provider") == "sqlite")
@@ -205,7 +223,7 @@ public sealed class AutoUpdater(IUpdateHost host, HttpClient health, Action<stri
         return problems;
     }
 
-    private static async Task<string?> BackupAsync(ServerInstance instance, string toVersion, CancellationToken ct)
+    private async Task<string?> BackupAsync(ServerInstance instance, string toVersion, string binary, CancellationToken ct)
     {
         var config = instance.Config;
         if (config.GetString("database.provider") == "sqlite" && !File.Exists(Hosting.StoreRegistration.SqlitePath(config)))
@@ -213,7 +231,9 @@ public sealed class AutoUpdater(IUpdateHost host, HttpClient health, Action<stri
             return null;
         }
 
-        return await DatabaseBackup.BackupAsync(config, DatabaseBackup.DefaultBackupPath(config, $"pre-{toVersion}"), ct);
+        var target = DatabaseBackup.DefaultBackupPath(config, $"pre-{toVersion}");
+        Require(await host.BackupAsync(binary, instance, target, ct), $"back up {instance.Name} database");
+        return target;
     }
 
     /// <summary>Polls <c>/health</c> until it answers 200 with <paramref name="version"/>, or fails after <see cref="HealthTimeout"/>.</summary>

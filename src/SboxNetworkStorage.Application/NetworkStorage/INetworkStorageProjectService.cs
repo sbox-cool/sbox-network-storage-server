@@ -7,22 +7,12 @@ namespace SboxNetworkStorage.Application.NetworkStorage;
 public sealed record NetworkStorageProjectCreateResult(string ProjectId);
 
 public sealed record NetworkStorageProjectAccessResult(
-    BunnyProject Project,
+    WorkspaceProject Project,
     WorkspaceInfo? Organization,
     long StorageOwnerUserId,
-    int CollectionCount,
-    int ApiKeyCount,
-    int TeamMemberCount,
-    int QueryCount,
-    int WorkflowCount,
-    int EndpointCount,
     bool RequireSboxAuth,
     string? PlayerKeyMode,
-    bool HasRateLimits,
-    bool CanManage,
-    string? HeartbeatStatus,
-    string? HeartbeatColor,
-    string? HeartbeatText
+    bool CanManage
 );
 
 public sealed record NetworkStorageProjectResources(

@@ -177,20 +177,14 @@ public abstract class ResourceScopeSecurityRegressionTests<TFactory> : IClassFix
         var persisted = await store.ReadCollectionAsync(project.ProjectId, "public_values", CancellationToken.None);
         Assert.NotNull(persisted);
         Assert.Equal(JsonValueKind.Object, persisted.Value.GetProperty("definition_json").ValueKind);
-        // The real metadata workspace reads these same definitions when Primary=false.
-        var workspace = scope.ServiceProvider.GetRequiredService<IBunnyWorkspaceClient>();
+        var workspace = scope.ServiceProvider.GetRequiredService<IWorkspaceStore>();
         var resolver = scope.ServiceProvider.GetRequiredService<IStorageApiKeyResolver>();
-        foreach (var primary in new[] { true, false })
+        var handler = new GameValuesHandler(resolver, workspace, store, Microsoft.Extensions.Logging.Abstractions.NullLogger<GameValuesHandler>.Instance);
+        foreach (var key in new[] { project.PublicKey, unscoped, scoped })
         {
-            var handler = new GameValuesCandidateHandler(resolver, workspace, store,
-                Options.Create(new ScyllaDbOptions { Primary = primary }),
-                Microsoft.Extensions.Logging.Abstractions.NullLogger<GameValuesCandidateHandler>.Instance);
-            foreach (var key in new[] { project.PublicKey, unscoped, scoped })
-            {
-                var result = await handler.ExecuteAsync(ValuesRequest(project.ProjectId, key));
-                Assert.Equal(200, result.StatusCode);
-                AssertValues(JsonSerializer.SerializeToElement(result.Body), includePrivate: key == scoped);
-            }
+            var result = await handler.ExecuteAsync(ValuesRequest(project.ProjectId, key));
+            Assert.Equal(200, result.StatusCode);
+            AssertValues(JsonSerializer.SerializeToElement(result.Body), includePrivate: key == scoped);
         }
         foreach (var key in new[] { project.PublicKey, unscoped, scoped })
         {
@@ -224,11 +218,7 @@ public abstract class ResourceScopeSecurityRegressionTests<TFactory> : IClassFix
         var persisted = await store.ReadCollectionAsync(project.ProjectId, "public_values", CancellationToken.None);
         Assert.NotNull(persisted);
         Assert.Equal(JsonValueKind.String, persisted.Value.GetProperty("definition_json").ValueKind);
-        var handler = new GameValuesCandidateHandler(
-            scope.ServiceProvider.GetRequiredService<IStorageApiKeyResolver>(),
-            scope.ServiceProvider.GetRequiredService<IBunnyWorkspaceClient>(), store,
-            Options.Create(new ScyllaDbOptions { Primary = true }),
-            Microsoft.Extensions.Logging.Abstractions.NullLogger<GameValuesCandidateHandler>.Instance);
+        var handler = new GameValuesHandler(scope.ServiceProvider.GetRequiredService<IStorageApiKeyResolver>(), scope.ServiceProvider.GetRequiredService<IWorkspaceStore>(), store, Microsoft.Extensions.Logging.Abstractions.NullLogger<GameValuesHandler>.Instance);
         foreach (var key in new[] { project.PublicKey, project.SecretKey })
         {
             var result = await handler.ExecuteAsync(ValuesRequest(project.ProjectId, key));
@@ -281,7 +271,7 @@ public abstract class ResourceScopeSecurityRegressionTests<TFactory> : IClassFix
         Assert.Equal("FORBIDDEN", document.RootElement.GetProperty("error").GetProperty("code").GetString());
     }
 
-    private static NetworkStorageCandidateRequest ValuesRequest(string projectId, string key) => new(
+    private static NetworkStorageRequest ValuesRequest(string projectId, string key) => new(
         NetworkStorageRouteClassifier.Classify("GET", $"/v3/values/{projectId}"),
         new Dictionary<string, string>(), ContentType: null, AuthSignals: new Dictionary<string, bool>(),
         Credentials: new NetworkStorageCredentials(key, null, null, null, null), Body: null,

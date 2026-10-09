@@ -190,7 +190,7 @@ public sealed class EndpointDashboardMutationsTests
     // Faithfully round-trips through JSON like the real ScyllaMetadataWorkspaceClient /
     // BunnyWorkspaceClient (serialize on write, deserialize to the requested T on read),
     // so the JsonElement-valued dictionaries the mutation re-serializes behave as in prod.
-    private sealed class StatefulWorkspaceClient : IBunnyWorkspaceClient
+    private sealed class StatefulWorkspaceClient : IWorkspaceStore
     {
         private static readonly JsonSerializerOptions Options = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
         private readonly Dictionary<string, string> _store = new();
@@ -209,8 +209,8 @@ public sealed class EndpointDashboardMutationsTests
             return Task.CompletedTask;
         }
 
-        public Task<IReadOnlyList<BunnyProject>> GetUserProjectsAsync(long userId, CancellationToken cancellationToken)
-            => Task.FromResult<IReadOnlyList<BunnyProject>>(new List<BunnyProject>
+        public Task<IReadOnlyList<WorkspaceProject>> GetUserProjectsAsync(long userId, CancellationToken cancellationToken)
+            => Task.FromResult<IReadOnlyList<WorkspaceProject>>(new List<WorkspaceProject>
             {
                 new(Id: ProjectId, Name: "Test", Description: null, Enabled: true, CreatedAt: null, UpdatedAt: null, CompiledAt: null),
             });
@@ -218,7 +218,7 @@ public sealed class EndpointDashboardMutationsTests
         public Task<WorkspaceProjectUsage?> GetProjectUsageAsync(long userId, string projectId, string monthKey, CancellationToken cancellationToken)
             => Task.FromResult<WorkspaceProjectUsage?>(null);
 
-        public Task SaveUserProjectsAsync(long userId, IReadOnlyList<BunnyProject> projects, CancellationToken cancellationToken)
+        public Task SaveUserProjectsAsync(long userId, IReadOnlyList<WorkspaceProject> projects, CancellationToken cancellationToken)
             => Task.CompletedTask;
 
         public Task<string?> GetProjectResourceTextAsync(long userId, string projectId, string resourcePath, CancellationToken cancellationToken)

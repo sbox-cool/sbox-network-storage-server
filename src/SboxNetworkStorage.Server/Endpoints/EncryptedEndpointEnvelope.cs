@@ -233,6 +233,6 @@ internal static partial class EncryptedEndpointEnvelope
 
     private static Result Invalid(string message) => new(false, 401, "REQUEST_SIGNATURE_INVALID", message, default);
 
-    [GeneratedRegex("^([0-9]{9,11})_([A-Za-z0-9_-]{6,})$")]
+    [GeneratedRegex("^([0-9]{9,11})_([A-Za-z0-9_-]{6,})$", RegexOptions.None, 100)]
     private static partial Regex RequestIdPattern();
 }

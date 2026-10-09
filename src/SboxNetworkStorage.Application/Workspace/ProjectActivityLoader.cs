@@ -8,9 +8,9 @@ namespace SboxNetworkStorage.Application.Workspace;
 public static class ProjectActivityLoader
 {
     public static async Task<ProjectActivitySupport.Snapshot> LoadAsync(
-        IBunnyWorkspaceClient client,
+        IWorkspaceStore client,
         long storageOwnerUserId,
-        BunnyProject project,
+        WorkspaceProject project,
         string monthKey,
         CancellationToken cancellationToken)
     {

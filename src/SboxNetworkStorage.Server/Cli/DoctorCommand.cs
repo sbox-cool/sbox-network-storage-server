@@ -35,10 +35,17 @@ public static class DoctorCommand
             return CliApp.Failure;
         }
 
+        foreach (var ignored in config.IgnoredSettings)
+        {
+            Report(Outcome.Warn, "config", $"{ignored}; releases come from {UpdateTrust.Compiled.Repository} via {UpdateTrust.Compiled.FeedUrl}");
+        }
+
         if (config.LoadedFiles.Count == 0)
         {
             Report(Outcome.Warn, "config", "no config files found; defaults are in use (run `sbox-ns setup`)");
         }
+
+        CheckLayout(config, Report);
 
         await using (var services = CliServices.Build(config))
         {
@@ -131,6 +138,19 @@ public static class DoctorCommand
         return failures == 0 ? CliApp.Ok : CliApp.Failure;
     }
 
+    /// <summary>Reports the config/state split of every instance: current, still legacy (with the migration notice), or partial.</summary>
+    private static void CheckLayout(EffectiveConfig config, Action<Outcome, string, string> report)
+    {
+        IReadOnlyList<ServerInstance> others = OperatingSystem.IsLinux()
+            ? ServerInstances.Enumerate().Where(i => i.Config.ConfigDirectory != config.ConfigDirectory).ToList()
+            : [];
+        foreach (var (name, instance) in new[] { ("layout", config) }.Concat(others.Select(i => ($"layout {i.Name}", i.Config))))
+        {
+            var (health, message) = StateLayout.Describe(instance);
+            report(health switch { LayoutHealth.Partial => Outcome.Fail, LayoutHealth.Legacy => Outcome.Warn, _ => Outcome.Pass }, name, message);
+        }
+    }
+
     /// <summary>Reports the unattended-update settings, the last recorded update and the instances sharing this binary.</summary>
     private static void CheckUnattendedUpdates(EffectiveConfig config, Action<Outcome, string, string> report)
     {
@@ -145,9 +165,10 @@ public static class DoctorCommand
             instances = [new ServerInstance(ServerInstance.DefaultName, ServerInstances.DefaultUnit, config), .. instances];
         }
 
+        var updateState = UpdateState.ForHost();
         foreach (var instance in instances)
         {
-            var record = instance.Config.IsValid ? UpdateRecord.Read(instance.Config) : null;
+            var record = instance.Config.IsValid ? updateState.Read(instance.Name) : null;
             var label = instances.Count > 1 ? $"update {instance.Name}" : "last update";
             if (!instance.Config.IsValid)
             {

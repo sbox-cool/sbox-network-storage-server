@@ -220,4 +220,24 @@ public sealed class OwnerManagementPagesTests
         using var allowed = await ManageAsync(factory, project, HttpMethod.Get, "endpoints", "");
         Assert.Equal(HttpStatusCode.OK, allowed.StatusCode);
     }
+
+    [Fact]
+    public async Task LegacyPlayerProjectionsDefaultOffForNewProjectsAndToggleFromProjectSettings()
+    {
+        var (factory, owner, project, url) = await SetupAsync();
+        using var host = factory;
+        using var client = owner;
+        var store = factory.Services.GetRequiredService<INetworkStorageStore>();
+        async Task<JsonElement> ProjectAsync() => (await store.ReadProjectAsync(project.ProjectId, CancellationToken.None))!.Value;
+        Assert.False((await ProjectAsync()).TryGetProperty("legacyPlayerProjections", out var absent) && absent.ValueKind == JsonValueKind.True);
+
+        using (var on = await PostFormAsync(owner, url, url + "/settings", ("tab", "legacy-projections"), ("legacyPlayerProjections", "true")))
+            Assert.Equal(HttpStatusCode.Redirect, on.StatusCode);
+        Assert.True((await ProjectAsync()).GetProperty("legacyPlayerProjections").GetBoolean());
+        Assert.Contains("checked", await owner.GetStringAsync(url), StringComparison.Ordinal);
+
+        using (var off = await PostFormAsync(owner, url, url + "/settings", ("tab", "legacy-projections")))
+            Assert.Equal(HttpStatusCode.Redirect, off.StatusCode);
+        Assert.False((await ProjectAsync()).GetProperty("legacyPlayerProjections").GetBoolean());
+    }
 }

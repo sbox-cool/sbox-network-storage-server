@@ -1,3 +1,4 @@
+using SboxNetworkStorage.Server.Hosting;
 using System.Collections.ObjectModel;
 using System.Text.Json;
 using Microsoft.AspNetCore.Http;
@@ -6,8 +7,7 @@ using Microsoft.Extensions.DependencyInjection;
 using SboxNetworkStorage.Application.NetworkStorage;
 using SboxNetworkStorage.Application.NetworkStorage.Endpoints;
 using SboxNetworkStorage.Application.NetworkStorage.AuthSessions;
-using SboxNetworkStorage.Contracts.Diagnostics;
-using SboxNetworkStorage.Server.Routing;
+
 
 namespace SboxNetworkStorage.Server.Endpoints;
 
@@ -30,19 +30,15 @@ public static class EndpointExecutionEndpoints
     public static IEndpointRouteBuilder MapEndpointExecution(this IEndpointRouteBuilder endpoints)
     {
         endpoints.MapPost("/v3/endpoints/{projectId}/{endpointSlug}", ExecuteEndpointAsync)
-            .WithDisplayName("Network Storage endpoint execution (native)")
-            .WithRouteOwner(RouteOwner.DotNetNative, "ASP.NET Core native endpoint execution (no Bun fallback)");
+            .WithDisplayName("Network Storage endpoint execution (native)");
         endpoints.MapPost("/v1/endpoints/{projectId}/{endpointSlug}", ExecuteEndpointAsync)
-            .WithDisplayName("Network Storage endpoint execution v1 alias (native)")
-            .WithRouteOwner(RouteOwner.DotNetNative, "ASP.NET Core native v1 endpoint execution (no Bun fallback)");
+            .WithDisplayName("Network Storage endpoint execution v1 alias (native)");
 
         // POST /v3/endpoints/:projectId with the slug inside the request body.
         endpoints.MapPost("/v3/endpoints/{projectId}", ExecuteEndpointAsync)
-            .WithDisplayName("Network Storage endpoint execution body slug (native)")
-            .WithRouteOwner(RouteOwner.DotNetNative, "ASP.NET Core native endpoint execution with slug from body (no Bun fallback)");
+            .WithDisplayName("Network Storage endpoint execution body slug (native)");
         endpoints.MapPost("/v1/endpoints/{projectId}", ExecuteEndpointAsync)
-            .WithDisplayName("Network Storage endpoint execution v1 body slug (native)")
-            .WithRouteOwner(RouteOwner.DotNetNative, "ASP.NET Core native v1 endpoint execution with slug from body (no Bun fallback)");
+            .WithDisplayName("Network Storage endpoint execution v1 body slug (native)");
 
         return endpoints;
     }
@@ -58,7 +54,7 @@ public static class EndpointExecutionEndpoints
 
         var resolver = context.RequestServices.GetRequiredService<IStorageApiKeyResolver>();
         var projectService = context.RequestServices.GetRequiredService<INetworkStorageProjectService>();
-        var executor = context.RequestServices.GetRequiredService<NativeEndpointShadowExecutor>();
+        var executor = context.RequestServices.GetRequiredService<EndpointExecutor>();
 
         // A dedicated server authenticates with the Network Storage SECRET key alone —
         // it has no public key to send. Accept the secret key as a first-class
@@ -294,7 +290,7 @@ public static class EndpointExecutionEndpoints
             // contract), present-but-unsupported stay reported 501. A store
             // outage mid-request can misread as missing; acceptable, since auth
             // and project reads already succeeded on the same store.
-            var dataSource = context.RequestServices.GetService<IEndpointShadowDataSource>();
+            var dataSource = context.RequestServices.GetService<IEndpointDataSource>();
             Dictionary<string, object?>? definition = null;
             if (dataSource is not null)
             {
@@ -336,7 +332,7 @@ public static class EndpointExecutionEndpoints
         // client/auth/limit responses and are NOT reported here.
         if (result.Status >= 500 || result.Status == 409)
         {
-            var reporter = context.RequestServices.GetService<SboxNetworkStorage.Server.Infrastructure.EndpointShadowReporter>();
+            var reporter = context.RequestServices.GetService<SboxNetworkStorage.Server.Infrastructure.EndpointErrorReporter>();
             if (reporter is not null)
             {
                 var (code, message) = ExtractNativeError(result.Body);
@@ -374,7 +370,7 @@ public static class EndpointExecutionEndpoints
                 };
                 var callerName = ExtractPlayerName(input, result.Body);
                 if (callerName is not null) payload["playerName"] = callerName;
-                _ = analytics.RecordEndpointEventAsync(
+                await analytics.RecordEndpointEventAsync(
                     projectId, steamId, endpointSlug,
                     eventType: "endpoint.call",
                     payload: payload,
@@ -390,7 +386,7 @@ public static class EndpointExecutionEndpoints
     private static async Task ReportNativeEndpointFailureAsync(
         HttpContext context, string projectId, string slug, string steamId, Exception ex)
     {
-        var reporter = context.RequestServices.GetService<SboxNetworkStorage.Server.Infrastructure.EndpointShadowReporter>();
+        var reporter = context.RequestServices.GetService<SboxNetworkStorage.Server.Infrastructure.EndpointErrorReporter>();
         if (reporter is null) return;
         try { await reporter.CaptureExceptionAsync(projectId, slug, context.Request.Method, steamId, ex, CancellationToken.None); }
         catch { /* reporting is best-effort; never mask the original failure */ }
@@ -399,7 +395,7 @@ public static class EndpointExecutionEndpoints
     private static async Task ReportNativeEndpointUnsupportedAsync(
         HttpContext context, string projectId, string slug, string steamId)
     {
-        var reporter = context.RequestServices.GetService<SboxNetworkStorage.Server.Infrastructure.EndpointShadowReporter>();
+        var reporter = context.RequestServices.GetService<SboxNetworkStorage.Server.Infrastructure.EndpointErrorReporter>();
         if (reporter is null) return;
         try
         {
@@ -464,7 +460,7 @@ public static class EndpointExecutionEndpoints
         {
             var verifier = context.RequestServices.GetRequiredService<ISboxAuthVerifier>();
             var check = new SboxAuthCheck(token ?? "", claimedSteamId, clientSteamId, clientToken,
-                proxySignature, apiKey, projectId, endpointSlug);
+                proxySignature, apiKey, projectId, endpointSlug, ClientAddress.Resolve(context));
             var result = await verifier.CheckAsync(check, context.RequestAborted);
             if (!result.Ok || string.IsNullOrEmpty(result.SteamId))
                 return await RejectAsync("SBOX_AUTH_FAILED", result.Error ?? "Player identity could not be verified.");
@@ -475,7 +471,7 @@ public static class EndpointExecutionEndpoints
                 // not the client token. A public key is not a delegation authority:
                 // verify the client as well before accepting its player identity.
                 result = await verifier.CheckAsync(
-                    new SboxAuthCheck(clientToken ?? "", clientSteamId, null, null, null, apiKey, projectId, endpointSlug),
+                    new SboxAuthCheck(clientToken ?? "", clientSteamId, null, null, null, apiKey, projectId, endpointSlug, ClientAddress.Resolve(context)),
                     context.RequestAborted);
                 if (!result.Ok || string.IsNullOrEmpty(result.SteamId))
                     return await RejectAsync("SBOX_AUTH_FAILED", result.Error ?? "Delegated player identity could not be verified.");

@@ -20,7 +20,7 @@ public abstract class NetworkStorageStorageGlobalReadCandidateTests<TFactory> : 
         client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
     }
 
-    private static NetworkStorageCandidateRequest BuildRequest(
+    private static NetworkStorageRequest BuildRequest(
         string projectId,
         string? apiKey = "sbox_sk_testkey",
         string? recordId = null,
@@ -39,7 +39,7 @@ public abstract class NetworkStorageStorageGlobalReadCandidateTests<TFactory> : 
                 query[k] = v;
         }
 
-        return new NetworkStorageCandidateRequest(
+        return new NetworkStorageRequest(
             route,
             query,
             ContentType: null,
@@ -68,7 +68,7 @@ public abstract class NetworkStorageStorageGlobalReadCandidateTests<TFactory> : 
     public async Task SingleRecordFoundReturnsRecordBody()
     {
         var fixture = LoadFixture("storage-global-record-sample.json");
-        var handler = new StorageGlobalReadCandidateHandler(
+        var handler = new StorageGlobalReadHandler(
             new FakeGlobalKeyResolver(validKey: "valid-key", keyType: "secret"),
             new FakeGlobalBunny(records: new Dictionary<string, JsonElement>
             {
@@ -97,7 +97,7 @@ public abstract class NetworkStorageStorageGlobalReadCandidateTests<TFactory> : 
     [SkippableFact]
     public async Task SingleRecordMissingReturnsNotFound()
     {
-        var handler = new StorageGlobalReadCandidateHandler(
+        var handler = new StorageGlobalReadHandler(
             new FakeGlobalKeyResolver(validKey: "valid-key", keyType: "secret"),
             new FakeGlobalBunny(),
             new FakeGlobalStorageEnumerator());
@@ -122,7 +122,7 @@ public abstract class NetworkStorageStorageGlobalReadCandidateTests<TFactory> : 
         var record2 = JsonSerializer.Deserialize<JsonElement>(
             """{"id":"r2","data":{"v":2},"_timestamp":"2026-05-30T11:00:00.000Z","_writerId":"u2"}""");
 
-        var handler = new StorageGlobalReadCandidateHandler(
+        var handler = new StorageGlobalReadHandler(
             new FakeGlobalKeyResolver(validKey: "valid-key", keyType: "public"),
             new FakeGlobalBunny(records: new Dictionary<string, JsonElement>
             {
@@ -131,8 +131,8 @@ public abstract class NetworkStorageStorageGlobalReadCandidateTests<TFactory> : 
             }),
             new FakeGlobalStorageEnumerator(entries: new[]
             {
-                new BunnyStorageEntry("r1.json", IsDirectory: false),
-                new BunnyStorageEntry("r2.json", IsDirectory: false),
+                new WorkspaceStorageEntry("r1.json", IsDirectory: false),
+                new WorkspaceStorageEntry("r2.json", IsDirectory: false),
             }));
 
         var result = await handler.ExecuteAsync(BuildRequest("proj-a", apiKey: "valid-key", recordId: null));
@@ -162,17 +162,17 @@ public abstract class NetworkStorageStorageGlobalReadCandidateTests<TFactory> : 
     public async Task ListRespectsLimitAndReturnsCursorWhenPageFull()
     {
         var records = new Dictionary<string, JsonElement>();
-        var entries = new List<BunnyStorageEntry>();
+        var entries = new List<WorkspaceStorageEntry>();
         for (var i = 0; i < 3; i++)
         {
             var id = $"r{i}";
             var ts = $"2026-05-30T1{i}:00:00.000Z";
             records[$"my-collection/global/{id}.json"] = JsonSerializer.Deserialize<JsonElement>(
                 $$"""{"id":"{{id}}","_timestamp":"{{ts}}","_writerId":"u{{i}}"}""");
-            entries.Add(new BunnyStorageEntry($"{id}.json", IsDirectory: false));
+            entries.Add(new WorkspaceStorageEntry($"{id}.json", IsDirectory: false));
         }
 
-        var handler = new StorageGlobalReadCandidateHandler(
+        var handler = new StorageGlobalReadHandler(
             new FakeGlobalKeyResolver(validKey: "valid-key", keyType: "secret"),
             new FakeGlobalBunny(records: records),
             new FakeGlobalStorageEnumerator(entries: entries.ToArray()));
@@ -208,7 +208,7 @@ public abstract class NetworkStorageStorageGlobalReadCandidateTests<TFactory> : 
         var recordC = JsonSerializer.Deserialize<JsonElement>(
             """{"id":"c","_timestamp":"2026-05-30T10:00:00.000Z","_writerId":"u3"}""");
 
-        var handler = new StorageGlobalReadCandidateHandler(
+        var handler = new StorageGlobalReadHandler(
             new FakeGlobalKeyResolver(validKey: "valid-key", keyType: "secret"),
             new FakeGlobalBunny(records: new Dictionary<string, JsonElement>
             {
@@ -218,9 +218,9 @@ public abstract class NetworkStorageStorageGlobalReadCandidateTests<TFactory> : 
             }),
             new FakeGlobalStorageEnumerator(entries: new[]
             {
-                new BunnyStorageEntry("a.json", IsDirectory: false),
-                new BunnyStorageEntry("b.json", IsDirectory: false),
-                new BunnyStorageEntry("c.json", IsDirectory: false),
+                new WorkspaceStorageEntry("a.json", IsDirectory: false),
+                new WorkspaceStorageEntry("b.json", IsDirectory: false),
+                new WorkspaceStorageEntry("c.json", IsDirectory: false),
             }));
 
         var query = new Dictionary<string, string> { ["after"] = "2026-05-30T11:45:00.000Z" };
@@ -241,7 +241,7 @@ public abstract class NetworkStorageStorageGlobalReadCandidateTests<TFactory> : 
     [SkippableFact]
     public async Task MissingApiKeyReturnsUnauthorized()
     {
-        var handler = new StorageGlobalReadCandidateHandler(
+        var handler = new StorageGlobalReadHandler(
             new FakeGlobalKeyResolver(validKey: null, keyType: null),
             new FakeGlobalBunny(),
             new FakeGlobalStorageEnumerator());
@@ -260,7 +260,7 @@ public abstract class NetworkStorageStorageGlobalReadCandidateTests<TFactory> : 
     [SkippableFact]
     public async Task InvalidApiKeyReturnsUnauthorized()
     {
-        var handler = new StorageGlobalReadCandidateHandler(
+        var handler = new StorageGlobalReadHandler(
             new FakeGlobalKeyResolver(validKey: "real-key", keyType: "secret"),
             new FakeGlobalBunny(),
             new FakeGlobalStorageEnumerator());
@@ -304,7 +304,7 @@ public abstract class NetworkStorageStorageGlobalReadCandidateTests<TFactory> : 
         }
     }
 
-    private sealed class FakeGlobalBunny : IBunnyWorkspaceClient
+    private sealed class FakeGlobalBunny : IWorkspaceStore
     {
         private readonly IReadOnlyDictionary<string, JsonElement>? _records;
 
@@ -326,13 +326,13 @@ public abstract class NetworkStorageStorageGlobalReadCandidateTests<TFactory> : 
             return Task.FromResult((T?)(object)default(JsonElement));
         }
 
-        public Task<IReadOnlyList<BunnyProject>> GetUserProjectsAsync(long userId, CancellationToken cancellationToken)
-            => Task.FromResult<IReadOnlyList<BunnyProject>>(Array.Empty<BunnyProject>());
+        public Task<IReadOnlyList<WorkspaceProject>> GetUserProjectsAsync(long userId, CancellationToken cancellationToken)
+            => Task.FromResult<IReadOnlyList<WorkspaceProject>>(Array.Empty<WorkspaceProject>());
 
         public Task<WorkspaceProjectUsage?> GetProjectUsageAsync(long userId, string projectId, string monthKey, CancellationToken cancellationToken)
             => Task.FromResult<WorkspaceProjectUsage?>(null);
 
-        public Task SaveUserProjectsAsync(long userId, IReadOnlyList<BunnyProject> projects, CancellationToken cancellationToken)
+        public Task SaveUserProjectsAsync(long userId, IReadOnlyList<WorkspaceProject> projects, CancellationToken cancellationToken)
             => Task.CompletedTask;
 
         public Task<string?> GetProjectResourceTextAsync(long userId, string projectId, string resourcePath, CancellationToken cancellationToken)
@@ -353,16 +353,16 @@ public abstract class NetworkStorageStorageGlobalReadCandidateTests<TFactory> : 
 
     private sealed class FakeGlobalStorageEnumerator : IWorkspaceStorageEnumerator
     {
-        private readonly IReadOnlyList<BunnyStorageEntry>? _entries;
+        private readonly IReadOnlyList<WorkspaceStorageEntry>? _entries;
 
-        public FakeGlobalStorageEnumerator(IReadOnlyList<BunnyStorageEntry>? entries = null)
+        public FakeGlobalStorageEnumerator(IReadOnlyList<WorkspaceStorageEntry>? entries = null)
         {
             _entries = entries;
         }
 
-        public Task<IReadOnlyList<BunnyStorageEntry>> ListProjectResourceAsync(long userId, string projectId, string resourcePath, CancellationToken cancellationToken)
+        public Task<IReadOnlyList<WorkspaceStorageEntry>> ListProjectResourceAsync(long userId, string projectId, string resourcePath, CancellationToken cancellationToken)
         {
-            return Task.FromResult(_entries ?? (IReadOnlyList<BunnyStorageEntry>)Array.Empty<BunnyStorageEntry>());
+            return Task.FromResult(_entries ?? (IReadOnlyList<WorkspaceStorageEntry>)Array.Empty<WorkspaceStorageEntry>());
         }
     }
 }

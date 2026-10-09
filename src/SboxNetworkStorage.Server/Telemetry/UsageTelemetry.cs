@@ -34,9 +34,6 @@ public static class UsageTelemetry
     public const string IdFileName = "telemetry-id";
     public static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(15);
 
-    /// <summary>Random UUIDv4 used only for usage statistics; separate from the notices <c>install-id</c>.</summary>
-    public static string IdPath(EffectiveConfig config) => Path.Combine(config.DataDirectory, IdFileName);
-
     /// <summary>Returns the endpoint when it is HTTPS (HTTP only on loopback) without credentials, query or fragment; otherwise null.</summary>
     public static Uri? ValidateEndpoint(string value)
         => Uri.TryCreate(value, UriKind.Absolute, out var endpoint)

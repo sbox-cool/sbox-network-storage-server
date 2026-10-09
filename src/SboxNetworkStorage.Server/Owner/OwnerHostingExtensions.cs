@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
+using SboxNetworkStorage.Server.Hosting;
 using SboxNetworkStorage.Server.Configuration;
 
 namespace SboxNetworkStorage.Server.Owner;
@@ -73,7 +74,7 @@ public static class OwnerHostingExtensions
         {
             options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
             options.AddPolicy("owner-login", context => RateLimitPartition.GetFixedWindowLimiter(
-                context.Connection.RemoteIpAddress?.ToString() ?? "unknown", _ => new FixedWindowRateLimiterOptions
+                ClientAddress.Resolve(context), _ => new FixedWindowRateLimiterOptions
                 { PermitLimit = 10, Window = TimeSpan.FromMinutes(1), QueueLimit = 0, AutoReplenishment = true }));
         });
         services.AddHostedService<OwnerSetupNotice>();

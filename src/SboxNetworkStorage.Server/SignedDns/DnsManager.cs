@@ -1,6 +1,5 @@
 using System.Net;
 using System.Net.Sockets;
-using System.Text;
 using SboxNetworkStorage.Server.Configuration;
 using SboxNetworkStorage.Server.Tunnels;
 
@@ -28,10 +27,10 @@ public sealed class DnsManager(DnsRegistryClient registry)
 {
     public const string ManagedFile = "zzzzz-dns.toml";
     private static readonly string[] ManagedKeys = ["server.public_url", "tls.mode", "tls.acme_domain", "tls.acme_email", "tls.acme_accept_terms"];
-    private static string OverlayPath(EffectiveConfig config) => Path.Combine(config.ConfigDirectory, ConfigLoader.ConfDirectory, ManagedFile);
 
     public async Task EnableAsync(EffectiveConfig config, DnsEnableOptions options, CancellationToken ct)
     {
+        using var identityScope = RuntimeIdentity.Enter(config);
         using var lease = Acquire(config);
         foreach (var value in config.Values.Values)
             if (value.Definition.Key is "server.listen" or "server.public_url" or "tls.mode" && value.Source == SettingSource.Flag)
@@ -68,6 +67,7 @@ public sealed class DnsManager(DnsRegistryClient registry)
 
     public async Task DisableAsync(EffectiveConfig config, CancellationToken ct)
     {
+        using var identityScope = RuntimeIdentity.Enter(config);
         using var lease = Acquire(config);
         config = Reload(config);
         if (!config.GetBoolean("dns.enabled")) return;
@@ -91,6 +91,7 @@ public sealed class DnsManager(DnsRegistryClient registry)
     /// <summary>Re-publishes the name when the detected public address changed. Returns true when an update was sent.</summary>
     public async Task<bool> RefreshAddressAsync(EffectiveConfig config, CancellationToken ct)
     {
+        using var identityScope = RuntimeIdentity.Enter(config);
         using var lease = Acquire(config);
         config = Reload(config);
         if (!config.GetBoolean("dns.enabled") || !config.GetBoolean("dns.auto_address")) return false;
@@ -170,20 +171,11 @@ public sealed class DnsManager(DnsRegistryClient registry)
 
     private static FileStream Acquire(EffectiveConfig config)
     {
-        Directory.CreateDirectory(config.ConfigDirectory);
-        try { return new FileStream(Path.Combine(config.ConfigDirectory, ".dns.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None); }
+        config.EnsureRuntimeDirectory();
+        try { return new FileStream(Path.Combine(config.RuntimeDirectory, StateLayout.DnsLockFile), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None); }
         catch (IOException) { throw new InvalidOperationException("Another DNS operation is in progress."); }
     }
 
     private static void WriteOverlay(EffectiveConfig config, IReadOnlyDictionary<string, object> values)
-    {
-        var text = new StringBuilder("# Managed atomically by sbox-ns dns. Use dns enable/disable to change lifecycle.\n");
-        foreach (var group in values.GroupBy(pair => pair.Key[..pair.Key.LastIndexOf('.')]))
-        {
-            text.AppendLine($"[{group.Key}]");
-            foreach (var pair in group)
-                text.AppendLine($"{pair.Key[(pair.Key.LastIndexOf('.') + 1)..]} = {ConfigFiles.FormatValue(pair.Value)}");
-        }
-        ConfigFiles.WriteAtomically(OverlayPath(config), text.ToString());
-    }
+        => ManagedOverlay.Write(config, ManagedFile, "Managed atomically by sbox-ns dns. Use dns enable/disable to change lifecycle.", values);
 }

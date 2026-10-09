@@ -25,14 +25,15 @@ public abstract partial class RelationalNetworkStorageStore
     public async Task<JsonElement?> ReadProjectAsync(string projectId, CancellationToken ct)
     {
         V.Id(projectId);
-        var (found, payload) = await QueryTextAsync(_sql.ReadProject, ct, Text("project_id", projectId));
+        var (found, payload) = await QueryUtf8Async(_sql.ReadProject, ct, Text("project_id", projectId));
         return found ? RowJson.ParseJsonColumn(payload) : null;
     }
 
     public async Task DeleteProjectAsync(string projectId, CancellationToken ct)
     {
         V.Id(projectId);
-        await using var connection = await OpenConnectionAsync(ct);
+        await using var lease = await LeaseAsync(ct);
+        var connection = lease.Connection;
         var id = Text("project_id", projectId);
         await ExecuteAsync(connection, _sql.DeleteProject, ct, id);
 
@@ -225,7 +226,8 @@ public abstract partial class RelationalNetworkStorageStore
     {
         V.Id(projectId); V.Id(queryId);
         var now = UnixMs();
-        await using var connection = await OpenConnectionAsync(ct);
+        await using var lease = await LeaseAsync(ct);
+        var connection = lease.Connection;
         await ExecuteAsync(connection, _sql.UpsertQueryLastRun, ct,
             Text("project_id", projectId), Text("query_id", queryId), Text("run_at", runAtIso), Int64("duration_ms", durationMs),
             Int32("keys_scanned", keysScanned), Int32("records_returned", recordsReturned), Bool("from_cache", fromCache),

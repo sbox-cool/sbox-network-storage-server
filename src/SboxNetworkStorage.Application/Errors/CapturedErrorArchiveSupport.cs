@@ -248,15 +248,15 @@ public static partial class CapturedErrorArchiveSupport
         return string.Concat(value.AsSpan(0, maxLength - 3), "...");
     }
 
-    [GeneratedRegex(@"(?i)(password|secret|token|api[_-]?key|authorization)\s*[:=]\s*\S+")]
+    [GeneratedRegex(@"(?i)(password|secret|token|api[_-]?key|authorization)\s*[:=]\s*\S+", RegexOptions.None, 100)]
     private static partial Regex SensitiveAssignmentPattern();
 
-    [GeneratedRegex(@"(?i)Authorization:\s*Bearer\s+\S+")]
+    [GeneratedRegex(@"(?i)Authorization:\s*Bearer\s+\S+", RegexOptions.None, 100)]
     private static partial Regex AuthorizationHeaderPattern();
 
-    [GeneratedRegex(@"(?i)\bBearer\s+\S+")]
+    [GeneratedRegex(@"(?i)\bBearer\s+\S+", RegexOptions.None, 100)]
     private static partial Regex BearerTokenPattern();
 
-    [GeneratedRegex(@"(?i)postgres(?:ql)?://\S+")]
+    [GeneratedRegex(@"(?i)postgres(?:ql)?://\S+", RegexOptions.None, 100)]
     private static partial Regex PostgresConnectionPattern();
 }

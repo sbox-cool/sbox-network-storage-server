@@ -25,10 +25,10 @@ jobs:
   record:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
         with:
-          dotnet-version: 8.0.x
+          dotnet-version: 10.0.x
       - run: dotnet build SboxNetworkStorage.sln -c Release
 
       - name: Record managed service on a fresh fixture project
@@ -60,7 +60,7 @@ jobs:
           echo "::add-mask::$secret"
           echo "Fixture project: $project"
           # Live failing corpus expectations is data, not a job failure; the diff decides.
-          dotnet tools/SboxNetworkStorage.Parity/bin/Release/net8.0/sbox-ns-parity.dll run \
+          dotnet tools/SboxNetworkStorage.Parity/bin/Release/net10.0/sbox-ns-parity.dll run \
             --target "$LIVE_TARGET" --project-id "$project" --public-key "$public" --secret-key "$secret" \
             --out TestResults/stable.json || true
           test -s TestResults/stable.json
@@ -71,11 +71,11 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          dotnet tools/SboxNetworkStorage.Parity/bin/Release/net8.0/sbox-ns-parity.dll diff \
+          dotnet tools/SboxNetworkStorage.Parity/bin/Release/net10.0/sbox-ns-parity.dll diff \
             --stable TestResults/stable.json --candidate TestResults/candidate.json \
             --allow tests/parity/intentional-differences.json | tee TestResults/diff.txt
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
           name: live-parity-recording

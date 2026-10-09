@@ -277,6 +277,7 @@ Every key with its default: [docs/configuration.md](docs/configuration.md).
 | `sbox-ns logs [-f]` | Show or follow server logs |
 | `sbox-ns update [--check] [--version vX.Y.Z]` | Check for or install a release |
 | `sbox-ns rollback` | Return to the previous release |
+| `sbox-ns layout migrate [--revert]` | Linux, root: move runtime files (secrets, tunnel/DNS state) out of the config folder into `<data dir>/state`, or back |
 | `sbox-ns version` | Print version information |
 | `sbox-ns doctor` | Diagnose configuration, database, ports and update status |
 
@@ -359,7 +360,7 @@ dotnet test
 dotnet run --project src/SboxNetworkStorage.Server -- start
 ```
 
-Requires the .NET 8 SDK. See [CONTRIBUTING.md](CONTRIBUTING.md).
+Requires the .NET 10 SDK selected by `global.json`. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Security
 

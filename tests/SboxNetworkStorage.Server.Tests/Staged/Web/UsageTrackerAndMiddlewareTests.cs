@@ -17,7 +17,8 @@ namespace SboxNetworkStorage.Server.Tests.NetworkStorage;
 /// </summary>
 public sealed class UsageTrackerAndMiddlewareTests
 {
-    private static (NetworkStorageUsageTracker Tracker, InMemoryNetworkStorageStore Store) BuildTracker(InMemoryNetworkStorageStore? store = null)
+    private static (NetworkStorageUsageTracker Tracker, InMemoryNetworkStorageStore Store) BuildTracker(
+        InMemoryNetworkStorageStore? store = null, int maxPendingKeys = NetworkStorageUsageTracker.DefaultMaxPendingKeys)
     {
         store ??= new InMemoryNetworkStorageStore();
         var services = new ServiceCollection();
@@ -26,7 +27,8 @@ public sealed class UsageTrackerAndMiddlewareTests
         var tracker = new NetworkStorageUsageTracker(
             provider.GetRequiredService<IServiceScopeFactory>(),
             TimeProvider.System,
-            NullLogger<NetworkStorageUsageTracker>.Instance);
+            NullLogger<NetworkStorageUsageTracker>.Instance,
+            maxPendingKeys);
         return (tracker, store);
     }
 
@@ -104,6 +106,46 @@ public sealed class UsageTrackerAndMiddlewareTests
 
 
     [Fact]
+    public async Task Invalid_Bucket_Is_Dropped_Not_Requeued()
+    {
+        var (tracker, store) = BuildTracker(new RejectingStore("bad project"));
+        tracker.Track("bad project", UsageKind.Write, "POST", 10, 20, 5);
+        tracker.Track("proj1", UsageKind.Write, "POST", 10, 20, 5);
+
+        await tracker.FlushAsync(force: true, CancellationToken.None);
+
+        Assert.Equal(0, tracker.PendingBucketCount);
+        Assert.Equal(1, Long((await store.ReadProjectUsageMonthlyAsync("proj1", Month, CancellationToken.None))!.Value, "requests"));
+        Assert.Equal(0, tracker.GetSnapshot().ConsecutiveFlushFailures);
+
+        // A later flush has nothing left to retry.
+        await tracker.FlushAsync(force: true, CancellationToken.None);
+        Assert.Equal(0, tracker.PendingBucketCount);
+    }
+
+    [Fact]
+    public async Task Buffered_Keys_Are_Capped_And_Excess_Is_Counted()
+    {
+        var (tracker, store) = BuildTracker(maxPendingKeys: 5);
+        for (var i = 0; i < 12; i++)
+        {
+            tracker.Track($"proj{i}", UsageKind.Read, "GET", 0, 1, 1);
+        }
+
+        Assert.Equal(5, tracker.PendingBucketCount);
+        Assert.Equal(7, tracker.GetSnapshot().DroppedKeys);
+
+        // A key that is already buffered keeps accumulating.
+        tracker.Track("proj0", UsageKind.Read, "GET", 0, 1, 1);
+        Assert.Equal(5, tracker.PendingBucketCount);
+        Assert.Equal(7, tracker.GetSnapshot().DroppedKeys);
+
+        await tracker.FlushAsync(force: true, CancellationToken.None);
+        Assert.Equal(2, Long((await store.ReadProjectUsageMonthlyAsync("proj0", Month, CancellationToken.None))!.Value, "requests"));
+        Assert.Null(await store.ReadProjectUsageMonthlyAsync("proj11", Month, CancellationToken.None));
+    }
+
+    [Fact]
     public async Task Track_During_And_After_Flush_Is_Never_Lost()
     {
         var (tracker, store) = BuildTracker();
@@ -173,6 +215,7 @@ public sealed class UsageTrackerAndMiddlewareTests
 
         var store = await RunMiddlewareAsync(context, async ctx =>
         {
+            NetworkStorageUsageContext.SetAuthenticated(ctx, "proj1");
             var buffer = new byte[64];
             Assert.Equal(payload.Length, await ctx.Request.Body.ReadAsync(buffer));
             ctx.Response.StatusCode = 200;
@@ -209,18 +252,34 @@ public sealed class UsageTrackerAndMiddlewareTests
     }
 
     [Fact]
-    public async Task Unannotated_Request_Falls_Back_To_Route_ProjectId_And_Method_Kind()
+    public async Task Unannotated_Request_Is_Not_Metered_Whatever_The_Route_ProjectId()
     {
         var context = BuildContext("/api/storage/proj1/players/765", "GET", routeProjectId: "proj1");
         var store = await RunMiddlewareAsync(context, ctx =>
         {
+            ctx.Response.StatusCode = 404;
+            return Task.CompletedTask;
+        });
+        Assert.Null(await store.ReadProjectUsageMonthlyAsync("proj1", Month, CancellationToken.None));
+    }
+
+    [Theory]
+    [InlineData("GET", 1, 0)]
+    [InlineData("POST", 0, 1)]
+    public async Task Authenticated_Request_Kind_Follows_The_Method(string method, long reads, long writes)
+    {
+        var context = BuildContext("/api/storage/proj1/players/765", method, routeProjectId: "other");
+        var store = await RunMiddlewareAsync(context, ctx =>
+        {
+            NetworkStorageUsageContext.SetAuthenticated(ctx, "proj1");
             ctx.Response.StatusCode = 200;
             return Task.CompletedTask;
         });
         var monthly = await store.ReadProjectUsageMonthlyAsync("proj1", Month, CancellationToken.None);
         Assert.Equal(1, Long(monthly!.Value, "requests"));
-        Assert.Equal(1, Long(monthly.Value, "reads"));
-        Assert.Equal(0, Long(monthly.Value, "writes"));
+        Assert.Equal(reads, Long(monthly.Value, "reads"));
+        Assert.Equal(writes, Long(monthly.Value, "writes"));
+        Assert.Null(await store.ReadProjectUsageMonthlyAsync("other", Month, CancellationToken.None));
     }
 
     [Theory]
@@ -232,6 +291,7 @@ public sealed class UsageTrackerAndMiddlewareTests
         var payload = Encoding.UTF8.GetBytes("{\"players\":12}");
         var store = await RunMiddlewareAsync(context, async ctx =>
         {
+            NetworkStorageUsageContext.SetAuthenticated(ctx, "proj1");
             ctx.Response.StatusCode = 200;
             await ctx.Response.Body.WriteAsync(payload);
         });
@@ -247,6 +307,7 @@ public sealed class UsageTrackerAndMiddlewareTests
         var context = BuildContext("/v3/storage/proj1/players/765", "POST", routeProjectId: "proj1");
         var store = await RunMiddlewareAsync(context, ctx =>
         {
+            NetworkStorageUsageContext.SetAuthenticated(ctx, "proj1");
             ctx.Response.StatusCode = 500;
             return Task.CompletedTask;
         });
@@ -264,6 +325,15 @@ public sealed class UsageTrackerAndMiddlewareTests
             return Task.CompletedTask;
         });
         Assert.Null(await store.ReadProjectUsageMonthlyAsync("proj1", Month, CancellationToken.None));
+    }
+
+    /// <summary>Rejects one project id the way a store rejects a key it can never persist.</summary>
+    private sealed class RejectingStore(string rejectedProjectId) : InMemoryNetworkStorageStore
+    {
+        public override Task IncrementProjectUsageAsync(string projectId, string month, string day, string? endpointSlug, UsageDelta delta, CancellationToken ct)
+            => projectId == rejectedProjectId
+                ? throw new ArgumentException("Invalid project id.", nameof(projectId))
+                : base.IncrementProjectUsageAsync(projectId, month, day, endpointSlug, delta, ct);
     }
 
     /// <summary>Fails the first increment, succeeds afterwards.</summary>

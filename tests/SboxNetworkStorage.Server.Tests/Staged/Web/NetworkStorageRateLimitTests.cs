@@ -103,8 +103,8 @@ public sealed class NetworkStorageRateLimitTests
     {
         var now = DateTimeOffset.UtcNow;
         var bunny = new FakeBunny();
-        bunny.Projects.Add(new BunnyProject("proj_one", "One", null, true, now, now, null));
-        bunny.Projects.Add(new BunnyProject("proj_two", "Two", null, true, now, now, null));
+        bunny.Projects.Add(new WorkspaceProject("proj_one", "One", null, true, now, now, null));
+        bunny.Projects.Add(new WorkspaceProject("proj_two", "Two", null, true, now, now, null));
         var service = CreateService(bunny);
 
         var limits = new Dictionary<string, object>
@@ -128,7 +128,7 @@ public sealed class NetworkStorageRateLimitTests
     {
         var now = DateTimeOffset.UtcNow;
         var bunny = new FakeBunny();
-        bunny.Projects.Add(new BunnyProject("proj_one", "One", null, true, now, now, null));
+        bunny.Projects.Add(new WorkspaceProject("proj_one", "One", null, true, now, now, null));
         var service = CreateService(bunny);
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
@@ -139,17 +139,17 @@ public sealed class NetworkStorageRateLimitTests
         Assert.Single(bunny.Projects);
     }
 
-    private sealed class FakeBunny : IBunnyWorkspaceClient
+    private sealed class FakeBunny : IWorkspaceStore
     {
         public Dictionary<string, string> Resources { get; } = new();
-        public List<BunnyProject> Projects { get; } = new();
+        public List<WorkspaceProject> Projects { get; } = new();
         public List<(string Path, string Json)> Puts { get; } = new();
-        public List<IReadOnlyList<BunnyProject>> ProjectSaves { get; } = new();
+        public List<IReadOnlyList<WorkspaceProject>> ProjectSaves { get; } = new();
 
-        public Task<IReadOnlyList<BunnyProject>> GetUserProjectsAsync(long userId, CancellationToken cancellationToken)
-            => Task.FromResult<IReadOnlyList<BunnyProject>>(Projects.ToList());
+        public Task<IReadOnlyList<WorkspaceProject>> GetUserProjectsAsync(long userId, CancellationToken cancellationToken)
+            => Task.FromResult<IReadOnlyList<WorkspaceProject>>(Projects.ToList());
 
-        public Task SaveUserProjectsAsync(long userId, IReadOnlyList<BunnyProject> projects, CancellationToken cancellationToken)
+        public Task SaveUserProjectsAsync(long userId, IReadOnlyList<WorkspaceProject> projects, CancellationToken cancellationToken)
         {
             ProjectSaves.Add(projects);
             Projects.Clear();

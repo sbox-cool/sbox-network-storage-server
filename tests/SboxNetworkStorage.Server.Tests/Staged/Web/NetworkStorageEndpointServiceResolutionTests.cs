@@ -42,12 +42,12 @@ public abstract class NetworkStorageEndpointServiceResolutionTests<TFactory> : I
     public static TheoryData<Type> ConcreteTypesEndpointsResolve() => new()
     {
         // NetworkStorageGatewayEndpoints
-        typeof(ManagementMutationCandidateHandler), // ServeNativeManagementMutationAsync (the incident)
-        typeof(EndpointSlugReadCandidateHandler),   // ServeNativeEndpointSlugReadAsync
+        typeof(ManagementMutationHandler), // ServeNativeManagementMutationAsync (the incident)
+        typeof(EndpointSlugReadHandler),   // ServeNativeEndpointSlugReadAsync
         typeof(PackageSyncHandler),                 // ServeNativePackageSyncAsync
         typeof(NativeStatsHeartbeatHandler),        // ServeNativeStatsHeartbeatAsync
         // EndpointExecutionEndpoints
-        typeof(NativeEndpointShadowExecutor),
+        typeof(EndpointExecutor),
         // QueryEndpoints
         typeof(NativeQueryExecutor),
     };

@@ -22,14 +22,13 @@ public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> :
         _client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
     }
 
-    private static NetworkStorageCandidateRequest BuildRequest(
+    private static NetworkStorageRequest BuildRequest(
         string method,
         string projectId,
         string? apiKey = "sbox_sk_testsecretkey",
         string routeSuffix = "endpoints",
         string? additionalParam = null,
-        string? body = null,
-        bool suppressSideEffects = true)
+        string? body = null)
     {
         var path = additionalParam is not null
             ? $"/v3/manage/{projectId}/{routeSuffix}/{additionalParam}"
@@ -42,23 +41,19 @@ public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> :
             query["apiKey"] = apiKey;
         }
 
-        return new NetworkStorageCandidateRequest(
-            route,
-            query,
-            ContentType: "application/json",
-            AuthSignals: new Dictionary<string, bool>(),
-            Credentials: new NetworkStorageCredentials(
-                ApiKey: apiKey,
-                SteamId: null,
-                AuthSessionToken: null,
-                SessionToken: null,
-                EncryptedRequestId: null),
-            Body: body,
-            ResolvedOwnerUserId: null,
-            CancellationToken: CancellationToken.None)
-        {
-            SuppressSideEffects = suppressSideEffects,
-        };
+        return new NetworkStorageRequest(route,
+        query,
+        ContentType: "application/json",
+        AuthSignals: new Dictionary<string, bool>(),
+        Credentials: new NetworkStorageCredentials(
+            ApiKey: apiKey,
+            SteamId: null,
+            AuthSessionToken: null,
+            SessionToken: null,
+            EncryptedRequestId: null),
+        Body: body,
+        ResolvedOwnerUserId: null,
+        CancellationToken: CancellationToken.None);
     }
 
     private static JsonElement ParseJson(string json)
@@ -82,7 +77,7 @@ public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> :
     [SkippableFact]
     public async Task MissingApiKeyReturnsUnauthorized()
     {
-        var handler = new ManagementMutationCandidateHandler(
+        var handler = new ManagementMutationHandler(
             new FakeKeyResolver(null, "proj-1"),
             new FakeBunnyWorkspace("proj-1"),
             new InMemoryNetworkStorageStore(),
@@ -104,7 +99,7 @@ public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> :
     [SkippableFact]
     public async Task InvalidApiKeyReturnsUnauthorized()
     {
-        var handler = new ManagementMutationCandidateHandler(
+        var handler = new ManagementMutationHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
             new FakeBunnyWorkspace("proj-1"),
             new InMemoryNetworkStorageStore(),
@@ -121,7 +116,7 @@ public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> :
     public async Task PublicApiKeyRejectedForManagementMutation()
     {
         var resolver = new FakeKeyResolver("pk-valid", "proj-1", keyType: "public");
-        var handler = new ManagementMutationCandidateHandler(
+        var handler = new ManagementMutationHandler(
             resolver,
             new FakeBunnyWorkspace("proj-1"),
             new InMemoryNetworkStorageStore(),
@@ -138,7 +133,7 @@ public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> :
     [SkippableFact]
     public async Task DisabledProjectReturnsProjectDisabled()
     {
-        var handler = new ManagementMutationCandidateHandler(
+        var handler = new ManagementMutationHandler(
             new FakeKeyResolver("sk-valid", "disabled-proj"),
             new FakeBunnyWorkspace("disabled-proj", enabled: false),
             new InMemoryNetworkStorageStore(),
@@ -162,335 +157,11 @@ public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> :
     public async Task GetMethodNotHandled()
     {
         var route = NetworkStorageRouteClassifier.Classify("GET", "/v3/manage/proj-1/endpoints");
-        Assert.False(new ManagementMutationCandidateHandler(
+        Assert.False(new ManagementMutationHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
             new FakeBunnyWorkspace("proj-1"),
             new InMemoryNetworkStorageStore(),
             TimeProvider.System).CanHandle(route));
-    }
-
-    // ══════════════════════════════════════════════════════════════════
-    // PUT routes compute intended write paths
-    // ══════════════════════════════════════════════════════════════════
-
-    [SkippableFact]
-    public async Task PutGameValuesComputesWritePaths()
-    {
-        var handler = new ManagementMutationCandidateHandler(
-            new FakeKeyResolver("sk-valid", "proj-1"),
-            new FakeBunnyWorkspace("proj-1"),
-            new InMemoryNetworkStorageStore(),
-            TimeProvider.System);
-
-        var result = await handler.ExecuteAsync(
-            BuildRequest("PUT", "proj-1", apiKey: "sk-valid", routeSuffix: "game-values",
-                body: """{"items": [{"name": "speed", "values": {"walk": 10}}], "_version": 1}"""));
-
-        Assert.Equal(200, result.StatusCode);
-        Assert.Null(result.PublicErrorCode);
-        Assert.Equal("secret", result.AuthDecision);
-        Assert.NotEmpty(result.IntendedWritePaths);
-        Assert.Contains(result.IntendedWritePaths, p => p.Contains("game-values.json"));
-
-        var json = JsonSerializer.SerializeToElement(result.Body);
-        Assert.True(json.GetProperty("ok").GetBoolean());
-        Assert.Equal("candidate", json.GetProperty("source").GetString());
-        Assert.Equal("write_suppressed_dry_run", json.GetProperty("reason").GetString());
-        Assert.Equal("PUT /v3/manage/proj-1/game-values", json.GetProperty("route").GetString());
-    }
-
-    [SkippableFact]
-    public async Task PutEndpointsComputesWritePaths()
-    {
-        var handler = new ManagementMutationCandidateHandler(
-            new FakeKeyResolver("sk-valid", "proj-1"),
-            new FakeBunnyWorkspace("proj-1"),
-            new InMemoryNetworkStorageStore(),
-            TimeProvider.System);
-
-        var result = await handler.ExecuteAsync(
-            BuildRequest("PUT", "proj-1", apiKey: "sk-valid", routeSuffix: "endpoints",
-                body: """[{"slug": "test-ep", "method": "GET", "enabled": true}]"""));
-
-        Assert.Equal(200, result.StatusCode);
-        Assert.NotEmpty(result.IntendedWritePaths);
-        Assert.Contains(result.IntendedWritePaths, p => p.Contains("endpoints.json"));
-
-        var json = JsonSerializer.SerializeToElement(result.Body);
-        Assert.True(json.GetProperty("ok").GetBoolean());
-        Assert.Equal("candidate", json.GetProperty("source").GetString());
-        Assert.Equal("write_suppressed_dry_run", json.GetProperty("reason").GetString());
-    }
-
-    [SkippableFact]
-    public async Task PutCollectionsComputesWritePaths()
-    {
-        var handler = new ManagementMutationCandidateHandler(
-            new FakeKeyResolver("sk-valid", "proj-1"),
-            new FakeBunnyWorkspace("proj-1"),
-            new InMemoryNetworkStorageStore(),
-            TimeProvider.System);
-
-        var result = await handler.ExecuteAsync(
-            BuildRequest("PUT", "proj-1", apiKey: "sk-valid", routeSuffix: "collections",
-                body: """[{"name": "weapons", "collectionType": "keyvalue"}]"""));
-
-        Assert.Equal(200, result.StatusCode);
-        Assert.NotEmpty(result.IntendedWritePaths);
-        Assert.Contains(result.IntendedWritePaths, p => p.Contains("collections.json"));
-    }
-
-    [SkippableFact]
-    public async Task PutWorkflowsComputesWritePaths()
-    {
-        var handler = new ManagementMutationCandidateHandler(
-            new FakeKeyResolver("sk-valid", "proj-1"),
-            new FakeBunnyWorkspace("proj-1"),
-            new InMemoryNetworkStorageStore(),
-            TimeProvider.System);
-
-        var result = await handler.ExecuteAsync(
-            BuildRequest("PUT", "proj-1", apiKey: "sk-valid", routeSuffix: "workflows",
-                body: """[{"id": "wf-1", "name": "Test Workflow"}]"""));
-
-        Assert.Equal(200, result.StatusCode);
-        Assert.NotEmpty(result.IntendedWritePaths);
-        Assert.Contains(result.IntendedWritePaths, p => p.Contains("workflows.json"));
-    }
-
-    [SkippableFact]
-    public async Task PutRateLimitRulesComputesWritePaths()
-    {
-        var handler = new ManagementMutationCandidateHandler(
-            new FakeKeyResolver("sk-valid", "proj-1"),
-            new FakeBunnyWorkspace("proj-1"),
-            new InMemoryNetworkStorageStore(),
-            TimeProvider.System);
-
-        var result = await handler.ExecuteAsync(
-            BuildRequest("PUT", "proj-1", apiKey: "sk-valid", routeSuffix: "rate-limit-rules",
-                body: """[{"id": "rule-1", "collection": "test", "field": "score", "action": "clamp", "maxPerMinute": 100, "enabled": true}]"""));
-
-        Assert.Equal(200, result.StatusCode);
-        Assert.NotEmpty(result.IntendedWritePaths);
-        Assert.Contains(result.IntendedWritePaths, p => p.Contains("rate-limit-rules.json"));
-    }
-
-    [SkippableFact]
-    public async Task PutSettingsComputesWritePaths()
-    {
-        var handler = new ManagementMutationCandidateHandler(
-            new FakeKeyResolver("sk-valid", "proj-1"),
-            new FakeBunnyWorkspace("proj-1"),
-            new InMemoryNetworkStorageStore(),
-            TimeProvider.System);
-
-        var result = await handler.ExecuteAsync(
-            BuildRequest("PUT", "proj-1", apiKey: "sk-valid", routeSuffix: "settings",
-                body: """{"requireSboxAuth": true}"""));
-
-        Assert.Equal(200, result.StatusCode);
-        Assert.NotEmpty(result.IntendedWritePaths);
-        Assert.Contains(result.IntendedWritePaths, p => p.Contains("projects.json"));
-    }
-
-    [SkippableFact]
-    public async Task PutTestsComputesWritePaths()
-    {
-        var handler = new ManagementMutationCandidateHandler(
-            new FakeKeyResolver("sk-valid", "proj-1"),
-            new FakeBunnyWorkspace("proj-1"),
-            new InMemoryNetworkStorageStore(),
-            TimeProvider.System);
-
-        var result = await handler.ExecuteAsync(
-            BuildRequest("PUT", "proj-1", apiKey: "sk-valid", routeSuffix: "tests",
-                body: """[{"id": "t-1", "name": "Test Case", "endpoint": "test-ep"}]"""));
-
-        Assert.Equal(200, result.StatusCode);
-        Assert.NotEmpty(result.IntendedWritePaths);
-        Assert.Contains(result.IntendedWritePaths, p => p.Contains("tests.json"));
-    }
-
-    // ══════════════════════════════════════════════════════════════════
-    // PUT sync — batch route with multiple write paths
-    // ══════════════════════════════════════════════════════════════════
-
-    [SkippableFact]
-    public async Task PutSyncComputesMultipleWritePaths()
-    {
-        var handler = new ManagementMutationCandidateHandler(
-            new FakeKeyResolver("sk-valid", "proj-1"),
-            new FakeBunnyWorkspace("proj-1"),
-            new InMemoryNetworkStorageStore(),
-            TimeProvider.System);
-
-        var result = await handler.ExecuteAsync(
-            BuildRequest("PUT", "proj-1", apiKey: "sk-valid", routeSuffix: "sync",
-                body: """{"endpoints": [], "collections": [], "workflows": []}"""));
-
-        Assert.Equal(200, result.StatusCode);
-        Assert.NotEmpty(result.IntendedWritePaths);
-        Assert.Contains(result.IntendedWritePaths, p => p.Contains("endpoints.json"));
-        Assert.Contains(result.IntendedWritePaths, p => p.Contains("collections.json"));
-        Assert.Contains(result.IntendedWritePaths, p => p.Contains("workflows.json"));
-        Assert.Equal(3, result.IntendedWritePaths.Count);
-    }
-
-    // ══════════════════════════════════════════════════════════════════
-    // PATCH routes compute intended write paths
-    // ══════════════════════════════════════════════════════════════════
-
-    [SkippableFact]
-    public async Task PatchEndpointComputesWritePaths()
-    {
-        var handler = new ManagementMutationCandidateHandler(
-            new FakeKeyResolver("sk-valid", "proj-1"),
-            new FakeBunnyWorkspace("proj-1"),
-            new InMemoryNetworkStorageStore(),
-            TimeProvider.System);
-
-        var result = await handler.ExecuteAsync(
-            BuildRequest("PATCH", "proj-1", apiKey: "sk-valid", routeSuffix: "endpoints",
-                body: """{"endpoint": {"slug": "test-ep", "enabled": false}}"""));
-
-        Assert.Equal(200, result.StatusCode);
-        Assert.NotEmpty(result.IntendedWritePaths);
-        Assert.Contains(result.IntendedWritePaths, p => p.Contains("endpoints.json"));
-
-        var json = JsonSerializer.SerializeToElement(result.Body);
-        Assert.True(json.GetProperty("ok").GetBoolean());
-        Assert.Equal("upsert_resource", json.GetProperty("action").GetString());
-    }
-
-    [SkippableFact]
-    public async Task PatchCollectionComputesWritePaths()
-    {
-        var handler = new ManagementMutationCandidateHandler(
-            new FakeKeyResolver("sk-valid", "proj-1"),
-            new FakeBunnyWorkspace("proj-1"),
-            new InMemoryNetworkStorageStore(),
-            TimeProvider.System);
-
-        var result = await handler.ExecuteAsync(
-            BuildRequest("PATCH", "proj-1", apiKey: "sk-valid", routeSuffix: "collections",
-                body: """{"collection": {"name": "weapons", "description": "Updated"}}"""));
-
-        Assert.Equal(200, result.StatusCode);
-        Assert.NotEmpty(result.IntendedWritePaths);
-        Assert.Contains(result.IntendedWritePaths, p => p.Contains("collections.json"));
-    }
-
-    [SkippableFact]
-    public async Task PatchWorkflowComputesWritePaths()
-    {
-        var handler = new ManagementMutationCandidateHandler(
-            new FakeKeyResolver("sk-valid", "proj-1"),
-            new FakeBunnyWorkspace("proj-1"),
-            new InMemoryNetworkStorageStore(),
-            TimeProvider.System);
-
-        var result = await handler.ExecuteAsync(
-            BuildRequest("PATCH", "proj-1", apiKey: "sk-valid", routeSuffix: "workflows",
-                body: """{"workflow": {"id": "wf-1", "name": "Updated Workflow"}}"""));
-
-        Assert.Equal(200, result.StatusCode);
-        Assert.NotEmpty(result.IntendedWritePaths);
-        Assert.Contains(result.IntendedWritePaths, p => p.Contains("workflows.json"));
-    }
-
-    // ══════════════════════════════════════════════════════════════════
-    // POST routes
-    // ══════════════════════════════════════════════════════════════════
-
-    [SkippableFact]
-    public async Task PostSourceUpgradeComputesWritePaths()
-    {
-        var handler = new ManagementMutationCandidateHandler(
-            new FakeKeyResolver("sk-valid", "proj-1"),
-            new FakeBunnyWorkspace("proj-1"),
-            new InMemoryNetworkStorageStore(),
-            TimeProvider.System);
-
-        var result = await handler.ExecuteAsync(
-            BuildRequest("POST", "proj-1", apiKey: "sk-valid", routeSuffix: "source-upgrade",
-                body: """{"resource": {"kind": "endpoint", "sourceText": "some source"}}"""));
-
-        Assert.Equal(200, result.StatusCode);
-        Assert.True(result.IntendedWritePaths is { Count: 0 },
-            "Source-upgrade write paths are contextual; empty paths indicate a write operation without a single predictable CDN path.");
-
-        var json = JsonSerializer.SerializeToElement(result.Body);
-        Assert.Equal("source_upgrade", json.GetProperty("action").GetString());
-    }
-
-    [SkippableFact]
-    public async Task PostPackageSyncComputesWritePaths()
-    {
-        var handler = new ManagementMutationCandidateHandler(
-            new FakeKeyResolver("sk-valid", "proj-1"),
-            new FakeBunnyWorkspace("proj-1"),
-            new InMemoryNetworkStorageStore(),
-            TimeProvider.System);
-
-        var result = await handler.ExecuteAsync(
-            BuildRequest("POST", "proj-1", apiKey: "sk-valid", routeSuffix: "package-sync",
-                body: """{"revisionId": 42}"""));
-
-        Assert.Equal(200, result.StatusCode);
-        Assert.NotEmpty(result.IntendedWritePaths);
-        Assert.Contains(result.IntendedWritePaths, p => p.Contains("game-package.json"));
-    }
-
-    // ══════════════════════════════════════════════════════════════════
-    // POST routes that are inherently read-only (dry-run execution,
-    // preflight validation, suggestion generation)
-    // ══════════════════════════════════════════════════════════════════
-
-    [SkippableTheory]
-    [InlineData("test-endpoint")]
-    [InlineData("suggest-tests")]
-    [InlineData("run-tests")]
-    [InlineData("auto-test")]
-    [InlineData("sync/preflight")]
-    public async Task PostReadOnlyRouteHasNoIntendedWritePaths(string routeSuffix)
-    {
-        var handler = new ManagementMutationCandidateHandler(
-            new FakeKeyResolver("sk-valid", "proj-1"),
-            new FakeBunnyWorkspace("proj-1"),
-            new InMemoryNetworkStorageStore(),
-            TimeProvider.System,
-            new NativeEndpointShadowExecutor(new AutoTestDataSource(new Dictionary<string, object?>())));
-
-        var result = await handler.ExecuteAsync(
-            BuildRequest("POST", "proj-1", apiKey: "sk-valid", routeSuffix: routeSuffix,
-                body: "{}"));
-
-        Assert.Equal(200, result.StatusCode);
-        Assert.Empty(result.IntendedWritePaths);
-    }
-
-    // ══════════════════════════════════════════════════════════════════
-    // DELETE keys
-    // ══════════════════════════════════════════════════════════════════
-
-    [SkippableFact]
-    public async Task DeleteKeysComputesWritePaths()
-    {
-        var handler = new ManagementMutationCandidateHandler(
-            new FakeKeyResolver("sk-valid", "proj-1"),
-            new FakeBunnyWorkspace("proj-1"),
-            new InMemoryNetworkStorageStore(),
-            TimeProvider.System);
-
-        var result = await handler.ExecuteAsync(
-            BuildRequest("DELETE", "proj-1", apiKey: "sk-valid", routeSuffix: "keys",
-                body: """{"publicKey": "sbox_ns_testpublickey123"}"""));
-
-        Assert.Equal(200, result.StatusCode);
-        Assert.NotEmpty(result.IntendedWritePaths);
-        Assert.Contains(result.IntendedWritePaths, p => p.Contains("key-index.json"));
-        Assert.Contains(result.IntendedWritePaths, p => p.Contains("sbox_ns_testpublickey123"));
     }
 
     // ══════════════════════════════════════════════════════════════════
@@ -502,7 +173,7 @@ public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> :
     {
         // Verify that executing a route that isn't in the catalog's management mutation
         // entries still handles gracefully (null entry → NotImplementedResult).
-        var handler = new ManagementMutationCandidateHandler(
+        var handler = new ManagementMutationHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
             new FakeBunnyWorkspace("proj-1"),
             new InMemoryNetworkStorageStore(),
@@ -514,81 +185,11 @@ public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> :
 
         // Handler shouldn't crash; returns NotImplemented if ExtractResourcePath fails
         Assert.Equal(501, result.StatusCode);
-        Assert.True(result.IntendedWritePaths is { Count: 0 });
 
         var json = JsonSerializer.SerializeToElement(result.Body);
         var errorProp = json.GetProperty("error");
         Assert.Contains("NOT_IMPLEMENTED", errorProp.GetString() ?? "");
     }
-
-    // ══════════════════════════════════════════════════════════════════
-    // No production writes: fake write methods throw if touched
-    // ══════════════════════════════════════════════════════════════════
-
-    [SkippableFact]
-    public async Task NoProductionWritesFromHandler()
-    {
-        // The handler only returns NetworkStorageCandidateResult with IntendedWritePaths.
-        // It never calls PutProjectResourceAsync, SaveUserProjectsAsync, or any other
-        // mutation on IBunnyWorkspaceClient or INetworkStorageProjectService.
-        //
-        // The fake workspace's write methods throw when called.
-        // This test verifies the handler doesn't accidentally call any of them.
-
-        var workspace = new FakeBunnyWorkspace("proj-1");
-        var handler = new ManagementMutationCandidateHandler(
-            new FakeKeyResolver("sk-valid", "proj-1"),
-            workspace,
-            new InMemoryNetworkStorageStore(),
-            TimeProvider.System,
-            new NativeEndpointShadowExecutor(new AutoTestDataSource(new Dictionary<string, object?>())));
-
-        // Test all write-producing routes — none should touch workspace write methods
-        var putRoutes = new[] { "game-values", "endpoints", "collections", "workflows",
-            "rate-limit-rules", "settings", "tests", "sync" };
-        foreach (var route in putRoutes)
-        {
-            workspace.ThrowOnWrite = true;
-            var result = await handler.ExecuteAsync(
-                BuildRequest("PUT", "proj-1", apiKey: "sk-valid", routeSuffix: route,
-                    body: "{}"));
-            Assert.Equal(200, result.StatusCode);
-            workspace.ThrowOnWrite = false;
-        }
-
-        var patchRoutes = new[] { "endpoints", "collections", "workflows" };
-        foreach (var route in patchRoutes)
-        {
-            workspace.ThrowOnWrite = true;
-            var result = await handler.ExecuteAsync(
-                BuildRequest("PATCH", "proj-1", apiKey: "sk-valid", routeSuffix: route,
-                    body: "{}"));
-            Assert.Equal(200, result.StatusCode);
-            workspace.ThrowOnWrite = false;
-        }
-
-        var postRoutes = new[] { "source-upgrade", "package-sync", "sync/preflight",
-            "test-endpoint", "suggest-tests", "run-tests", "auto-test" };
-        foreach (var route in postRoutes)
-        {
-            workspace.ThrowOnWrite = true;
-            var result = await handler.ExecuteAsync(
-                BuildRequest("POST", "proj-1", apiKey: "sk-valid", routeSuffix: route,
-                    body: "{}"));
-            Assert.Equal(200, result.StatusCode);
-            workspace.ThrowOnWrite = false;
-        }
-
-        workspace.ThrowOnWrite = true;
-        var deleteResult = await handler.ExecuteAsync(
-            BuildRequest("DELETE", "proj-1", apiKey: "sk-valid", routeSuffix: "keys",
-                body: "{}"));
-        Assert.Equal(200, deleteResult.StatusCode);
-    }
-
-    // ══════════════════════════════════════════════════════════════════
-    // Shadow endpoint integration test
-    // ══════════════════════════════════════════════════════════════════
 
     // ══════════════════════════════════════════════════════════════════
     // Fakes
@@ -631,7 +232,7 @@ public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> :
         }
     }
 
-    private sealed class FakeBunnyWorkspace : IBunnyWorkspaceClient
+    private sealed class FakeBunnyWorkspace : IWorkspaceStore
     {
         private readonly string _projectId;
         private readonly bool _enabled;
@@ -649,10 +250,10 @@ public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> :
             return Task.FromResult<T?>(default);
         }
 
-        public Task<IReadOnlyList<BunnyProject>> GetUserProjectsAsync(long userId, CancellationToken ct)
+        public Task<IReadOnlyList<WorkspaceProject>> GetUserProjectsAsync(long userId, CancellationToken ct)
         {
-            return Task.FromResult<IReadOnlyList<BunnyProject>>(
-                new List<BunnyProject>
+            return Task.FromResult<IReadOnlyList<WorkspaceProject>>(
+                new List<WorkspaceProject>
                 {
                     new(Id: _projectId, Name: "Test Project", Description: null, Enabled: _enabled,
                         CreatedAt: null, UpdatedAt: null, CompiledAt: null)
@@ -662,7 +263,7 @@ public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> :
         public Task<WorkspaceProjectUsage?> GetProjectUsageAsync(long userId, string projectId, string monthKey, CancellationToken ct)
             => Task.FromResult<WorkspaceProjectUsage?>(null);
 
-        public Task SaveUserProjectsAsync(long userId, IReadOnlyList<BunnyProject> projects, CancellationToken ct)
+        public Task SaveUserProjectsAsync(long userId, IReadOnlyList<WorkspaceProject> projects, CancellationToken ct)
         {
             if (ThrowOnWrite) AssertWriteNotCalled();
             return Task.CompletedTask;
@@ -701,7 +302,7 @@ public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> :
     public async Task PutEndpoints_PerformsRealWriteToScylla()
     {
         var store = new InMemoryNetworkStorageStore();
-        var handler = new ManagementMutationCandidateHandler(
+        var handler = new ManagementMutationHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
             new FakeBunnyWorkspace("proj-1"),
             store,
@@ -709,7 +310,7 @@ public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> :
 
         var body = """[{"slug":"get-leaderboard","method":"GET","enabled":true,"definition":{"type":"leaderboard"}}]""";
         var result = await handler.ExecuteAsync(
-            BuildRequest("PUT", "proj-1", apiKey: "sk-valid", routeSuffix: "endpoints", body: body, suppressSideEffects: false));
+            BuildRequest("PUT", "proj-1", apiKey: "sk-valid", routeSuffix: "endpoints", body: body));
 
         Assert.Equal(200, result.StatusCode);
         Assert.Single(store.Endpoints);
@@ -719,7 +320,7 @@ public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> :
     public async Task PutCollections_PerformsRealWriteToScylla()
     {
         var store = new InMemoryNetworkStorageStore();
-        var handler = new ManagementMutationCandidateHandler(
+        var handler = new ManagementMutationHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
             new FakeBunnyWorkspace("proj-1"),
             store,
@@ -727,7 +328,7 @@ public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> :
 
         var body = """[{"name":"scores","visibility":"public","definition":{"schema":[{"name":"player_id","type":"string"}]}}]""";
         var result = await handler.ExecuteAsync(
-            BuildRequest("PUT", "proj-1", apiKey: "sk-valid", routeSuffix: "collections", body: body, suppressSideEffects: false));
+            BuildRequest("PUT", "proj-1", apiKey: "sk-valid", routeSuffix: "collections", body: body));
         Assert.Single(store.Collections);
     }
 
@@ -735,7 +336,7 @@ public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> :
     public async Task PutWorkflows_PerformsRealWriteToScylla()
     {
         var store = new InMemoryNetworkStorageStore();
-        var handler = new ManagementMutationCandidateHandler(
+        var handler = new ManagementMutationHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
             new FakeBunnyWorkspace("proj-1"),
             store,
@@ -743,7 +344,7 @@ public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> :
 
         var body = """[{"name":"on-submit","definition":{"nodes":[]}}]""";
         var result = await handler.ExecuteAsync(
-            BuildRequest("PUT", "proj-1", apiKey: "sk-valid", routeSuffix: "workflows", body: body, suppressSideEffects: false));
+            BuildRequest("PUT", "proj-1", apiKey: "sk-valid", routeSuffix: "workflows", body: body));
 
         Assert.Equal(200, result.StatusCode);
         Assert.Single(store.Workflows);
@@ -753,7 +354,7 @@ public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> :
     public async Task PutGameValues_PerformsRealWriteToScylla()
     {
         var store = new InMemoryNetworkStorageStore();
-        var handler = new ManagementMutationCandidateHandler(
+        var handler = new ManagementMutationHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
             new FakeBunnyWorkspace("proj-1"),
             store,
@@ -761,7 +362,7 @@ public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> :
 
         var body = """{"values":{"maxScore":1000}}""";
         var result = await handler.ExecuteAsync(
-            BuildRequest("PUT", "proj-1", apiKey: "sk-valid", routeSuffix: "game-values", body: body, suppressSideEffects: false));
+            BuildRequest("PUT", "proj-1", apiKey: "sk-valid", routeSuffix: "game-values", body: body));
 
         Assert.Equal(200, result.StatusCode);
         Assert.Single(store.GameValues);
@@ -771,7 +372,7 @@ public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> :
     public async Task PutRateLimitRules_PerformsRealWriteToScylla()
     {
         var store = new InMemoryNetworkStorageStore();
-        var handler = new ManagementMutationCandidateHandler(
+        var handler = new ManagementMutationHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
             new FakeBunnyWorkspace("proj-1"),
             store,
@@ -779,7 +380,7 @@ public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> :
 
         var body = """{"rules":[{"name":"global","requestsPerSecond":10}]}""";
         var result = await handler.ExecuteAsync(
-            BuildRequest("PUT", "proj-1", apiKey: "sk-valid", routeSuffix: "rate-limit-rules", body: body, suppressSideEffects: false));
+            BuildRequest("PUT", "proj-1", apiKey: "sk-valid", routeSuffix: "rate-limit-rules", body: body));
 
         Assert.Equal(200, result.StatusCode);
         Assert.Single(store.RateLimitRules);
@@ -789,7 +390,7 @@ public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> :
     public async Task ProductionWrite_SetsVersionTimestamp()
     {
         var store = new InMemoryNetworkStorageStore();
-        var handler = new ManagementMutationCandidateHandler(
+        var handler = new ManagementMutationHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
             new FakeBunnyWorkspace("proj-1"),
             store,
@@ -797,7 +398,7 @@ public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> :
 
         var body = """[{"slug":"get-leaderboard","method":"GET","enabled":true,"definition":{}}]""";
         await handler.ExecuteAsync(
-            BuildRequest("PUT", "proj-1", apiKey: "sk-valid", routeSuffix: "endpoints", body: body, suppressSideEffects: false));
+            BuildRequest("PUT", "proj-1", apiKey: "sk-valid", routeSuffix: "endpoints", body: body));
 
         var stored = store.Endpoints.Single().Value;
         Assert.True(stored.GetProperty("version").GetInt64() > 0);
@@ -807,7 +408,7 @@ public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> :
     public async Task PostEndpoints_PerformsRealWriteToScylla()
     {
         var store = new InMemoryNetworkStorageStore();
-        var handler = new ManagementMutationCandidateHandler(
+        var handler = new ManagementMutationHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
             new FakeBunnyWorkspace("proj-1"),
             store,
@@ -815,7 +416,7 @@ public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> :
 
         var body = """[{"slug":"post-leaderboard","method":"POST","enabled":true,"definition":{"type":"leaderboard"}}]""";
         var result = await handler.ExecuteAsync(
-            BuildRequest("POST", "proj-1", apiKey: "sk-valid", routeSuffix: "endpoints", body: body, suppressSideEffects: false));
+            BuildRequest("POST", "proj-1", apiKey: "sk-valid", routeSuffix: "endpoints", body: body));
 
         Assert.Equal(200, result.StatusCode);
         Assert.Single(store.Endpoints);
@@ -825,7 +426,7 @@ public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> :
     public async Task PostQueries_PerformsRealWriteToScylla()
     {
         var store = new InMemoryNetworkStorageStore();
-        var handler = new ManagementMutationCandidateHandler(
+        var handler = new ManagementMutationHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
             new FakeBunnyWorkspace("proj-1"),
             store,
@@ -833,7 +434,7 @@ public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> :
 
         var body = """[{"id":"q-1","name":"top-scores","requiresSecretKey":false,"definition":{"sql":"SELECT * FROM scores"}}]""";
         var result = await handler.ExecuteAsync(
-            BuildRequest("POST", "proj-1", apiKey: "sk-valid", routeSuffix: "queries", body: body, suppressSideEffects: false));
+            BuildRequest("POST", "proj-1", apiKey: "sk-valid", routeSuffix: "queries", body: body));
 
         Assert.Equal(200, result.StatusCode);
         Assert.Single(store.Queries);
@@ -843,7 +444,7 @@ public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> :
     public async Task DeleteEndpoint_RemovesFromScylla()
     {
         var store = new InMemoryNetworkStorageStore();
-        var handler = new ManagementMutationCandidateHandler(
+        var handler = new ManagementMutationHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
             new FakeBunnyWorkspace("proj-1"),
             store,
@@ -853,7 +454,7 @@ public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> :
         Assert.Single(store.Endpoints);
 
         var result = await handler.ExecuteAsync(
-            BuildRequest("DELETE", "proj-1", apiKey: "sk-valid", routeSuffix: "endpoints", additionalParam: "ep-1", suppressSideEffects: false));
+            BuildRequest("DELETE", "proj-1", apiKey: "sk-valid", routeSuffix: "endpoints", additionalParam: "ep-1"));
 
         Assert.Equal(200, result.StatusCode);
         Assert.Empty(store.Endpoints);
@@ -863,7 +464,7 @@ public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> :
     public async Task DeleteCollection_RemovesFromScylla()
     {
         var store = new InMemoryNetworkStorageStore();
-        var handler = new ManagementMutationCandidateHandler(
+        var handler = new ManagementMutationHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
             new FakeBunnyWorkspace("proj-1"),
             store,
@@ -873,7 +474,7 @@ public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> :
         Assert.Single(store.Collections);
 
         var result = await handler.ExecuteAsync(
-            BuildRequest("DELETE", "proj-1", apiKey: "sk-valid", routeSuffix: "collections", additionalParam: "col-1", suppressSideEffects: false));
+            BuildRequest("DELETE", "proj-1", apiKey: "sk-valid", routeSuffix: "collections", additionalParam: "col-1"));
 
         Assert.Equal(200, result.StatusCode);
         Assert.Empty(store.Collections);
@@ -883,7 +484,7 @@ public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> :
     public async Task DeleteQuery_RemovesFromScylla()
     {
         var store = new InMemoryNetworkStorageStore();
-        var handler = new ManagementMutationCandidateHandler(
+        var handler = new ManagementMutationHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
             new FakeBunnyWorkspace("proj-1"),
             store,
@@ -893,7 +494,7 @@ public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> :
         Assert.Single(store.Queries);
 
         var result = await handler.ExecuteAsync(
-            BuildRequest("DELETE", "proj-1", apiKey: "sk-valid", routeSuffix: "queries", additionalParam: "q-1", suppressSideEffects: false));
+            BuildRequest("DELETE", "proj-1", apiKey: "sk-valid", routeSuffix: "queries", additionalParam: "q-1"));
 
         Assert.Equal(200, result.StatusCode);
         Assert.Empty(store.Queries);
@@ -905,7 +506,7 @@ public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> :
     [SkippableFact]
     public async Task PreflightSync_ValidPayload_Passes()
     {
-        var handler = new ManagementMutationCandidateHandler(
+        var handler = new ManagementMutationHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
             new FakeBunnyWorkspace("proj-1"),
             new InMemoryNetworkStorageStore(),
@@ -933,7 +534,7 @@ public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> :
     [SkippableFact]
     public async Task PreflightSync_MissingEndpointSlug_Fails()
     {
-        var handler = new ManagementMutationCandidateHandler(
+        var handler = new ManagementMutationHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
             new FakeBunnyWorkspace("proj-1"),
             new InMemoryNetworkStorageStore(),
@@ -961,7 +562,7 @@ public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> :
         await store.UpsertEndpointAsync("proj-1", "get-leaderboard", "get-leaderboard", "GET", true,
             JsonDocument.Parse("{}").RootElement, null, 1, CancellationToken.None);
 
-        var handler = new ManagementMutationCandidateHandler(
+        var handler = new ManagementMutationHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
             new FakeBunnyWorkspace("proj-1"),
             store,
@@ -980,7 +581,7 @@ public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> :
     [SkippableFact]
     public async Task PreflightSync_SectionNotArray_Fails()
     {
-        var handler = new ManagementMutationCandidateHandler(
+        var handler = new ManagementMutationHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
             new FakeBunnyWorkspace("proj-1"),
             new InMemoryNetworkStorageStore(),
@@ -998,7 +599,7 @@ public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> :
     [SkippableFact]
     public async Task PreflightSync_InvalidCollectionName_Warns()
     {
-        var handler = new ManagementMutationCandidateHandler(
+        var handler = new ManagementMutationHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
             new FakeBunnyWorkspace("proj-1"),
             new InMemoryNetworkStorageStore(),
@@ -1023,7 +624,7 @@ public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> :
     public async Task PutSync_BatchWritesAllSectionsToScylla()
     {
         var store = new InMemoryNetworkStorageStore();
-        var handler = new ManagementMutationCandidateHandler(
+        var handler = new ManagementMutationHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
             new FakeBunnyWorkspace("proj-1"),
             store,
@@ -1035,7 +636,7 @@ public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> :
          "workflows":[{"name":"on-submit","definition":{"nodes":[]}}]}
         """;
         var result = await handler.ExecuteAsync(
-            BuildRequest("PUT", "proj-1", apiKey: "sk-valid", routeSuffix: "sync", body: body, suppressSideEffects: false));
+            BuildRequest("PUT", "proj-1", apiKey: "sk-valid", routeSuffix: "sync", body: body));
 
         Assert.Equal(200, result.StatusCode);
         Assert.Single(store.Endpoints);
@@ -1050,7 +651,7 @@ public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> :
     public async Task PutSync_InvalidItem_ReturnsSectionFailure()
     {
         var store = new InMemoryNetworkStorageStore();
-        var handler = new ManagementMutationCandidateHandler(
+        var handler = new ManagementMutationHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
             new FakeBunnyWorkspace("proj-1"),
             store,
@@ -1058,7 +659,7 @@ public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> :
 
         var body = """{"endpoints":[{"method":"GET"}]}""";
         var result = await handler.ExecuteAsync(
-            BuildRequest("PUT", "proj-1", apiKey: "sk-valid", routeSuffix: "sync", body: body, suppressSideEffects: false));
+            BuildRequest("PUT", "proj-1", apiKey: "sk-valid", routeSuffix: "sync", body: body));
 
         Assert.Equal(400, result.StatusCode);
         Assert.Empty(store.Endpoints);
@@ -1070,7 +671,7 @@ public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> :
     [SkippableFact]
     public async Task PreflightSync_LegacyJsonSourceWrapper_Passes()
     {
-        var handler = new ManagementMutationCandidateHandler(
+        var handler = new ManagementMutationHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
             new FakeBunnyWorkspace("proj-1"),
             new InMemoryNetworkStorageStore(),
@@ -1104,7 +705,7 @@ public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> :
     public async Task PutSync_SourceWrappersCompileBeforePersistence()
     {
         var store = new InMemoryNetworkStorageStore();
-        var handler = new ManagementMutationCandidateHandler(
+        var handler = new ManagementMutationHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
             new FakeBunnyWorkspace("proj-1"),
             store,
@@ -1146,7 +747,7 @@ public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> :
         });
 
         var result = await handler.ExecuteAsync(
-            BuildRequest("PUT", "proj-1", apiKey: "sk-valid", routeSuffix: "sync", body: body, suppressSideEffects: false));
+            BuildRequest("PUT", "proj-1", apiKey: "sk-valid", routeSuffix: "sync", body: body));
 
         Assert.Equal(200, result.StatusCode);
         var endpointRow = await store.ReadEndpointAsync("proj-1", "legacy-save", CancellationToken.None);
@@ -1179,8 +780,8 @@ public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> :
         var store = new InMemoryNetworkStorageStore();
         await store.UpsertEndpointAsync(
             "proj-1", "ping", "ping", "POST", true, definitionJson, null, 1, CancellationToken.None);
-        var executor = new NativeEndpointShadowExecutor(new AutoTestDataSource(definition));
-        var handler = new ManagementMutationCandidateHandler(
+        var executor = new EndpointExecutor(new AutoTestDataSource(definition));
+        var handler = new ManagementMutationHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
             new FakeBunnyWorkspace("proj-1"),
             store,
@@ -1198,7 +799,7 @@ public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> :
         Assert.Equal("POST", json.GetProperty("method").GetString());
     }
 
-    private sealed class AutoTestDataSource(Dictionary<string, object?> definition) : IEndpointShadowDataSource
+    private sealed class AutoTestDataSource(Dictionary<string, object?> definition) : IEndpointDataSource
     {
         public Task<Dictionary<string, object?>?> ReadEndpointDefinitionAsync(
             string projectId, string endpointSlug, CancellationToken ct) =>
@@ -1220,18 +821,14 @@ public abstract class NetworkStorageManagementMutationCandidateTests<TFactory> :
             string projectId, string workflowId, CancellationToken ct) =>
             Task.FromResult<Dictionary<string, object?>?>(null);
 
-        public Task WriteRecordAsync(
-            string projectId, string collectionId, string key,
-            IReadOnlyDictionary<string, object?> payload, CancellationToken ct) =>
+        public Task<IEndpointWriteTransaction> BeginWriteTransactionAsync(CancellationToken ct) =>
             throw new InvalidOperationException("Auto-test must not persist record writes.");
-
-        public Task DeleteRecordAsync(
-            string projectId, string collectionId, string key, CancellationToken ct) =>
-            throw new InvalidOperationException("Auto-test must not persist record deletes.");
 
         public Task<object?> ReadGlobalRecordAsync(
             string projectId, string collectionId, string recordId, CancellationToken ct) =>
             Task.FromResult<object?>(null);
+
+        public Task<bool> IsLegacyPlayerProjectionsEnabledAsync(string projectId, CancellationToken ct) => Task.FromResult(false);
 
         public Task WriteGlobalRecordAsync(
             string projectId, string collectionId, string recordId,

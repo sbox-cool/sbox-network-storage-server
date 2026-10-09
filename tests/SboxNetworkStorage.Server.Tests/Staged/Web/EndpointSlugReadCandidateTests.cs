@@ -23,16 +23,16 @@ public abstract class EndpointSlugReadCandidateTests<TFactory> : IClassFixture<T
         _factory = factory;
         _client = factory.WithWebHostBuilder(builder =>
         {
-            builder.ConfigureServices(services => services.Configure<ScyllaDbOptions>(o => o.Primary = false));
+            
         }).CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
     }
 
-    private static NetworkStorageCandidateRequest BuildRequest(string projectId, string slug, string? apiKey = "test-key")
+    private static NetworkStorageRequest BuildRequest(string projectId, string slug, string? apiKey = "test-key")
     {
         var route = NetworkStorageRouteClassifier.Classify("GET", $"/v3/endpoints/{projectId}/{slug}");
         var query = new Dictionary<string, string>();
         if (apiKey is not null) query["apiKey"] = apiKey;
-        return new NetworkStorageCandidateRequest(
+        return new NetworkStorageRequest(
             route, query, null, new Dictionary<string, bool>(),
             new NetworkStorageCredentials(apiKey, null, null, null, null),
             null, null, CancellationToken.None);
@@ -44,19 +44,31 @@ public abstract class EndpointSlugReadCandidateTests<TFactory> : IClassFixture<T
         return JsonDocument.Parse($"[{arr}]").RootElement;
     }
 
+    private static async Task<InMemoryNetworkStorageStore> StoreWithEndpointsAsync(JsonElement endpoints)
+    {
+        var store = new InMemoryNetworkStorageStore();
+        foreach (var endpoint in endpoints.EnumerateArray())
+        {
+            var slug = endpoint.GetProperty("slug").GetString()!;
+            await store.UpsertEndpointAsync("proj-1", slug, slug,
+                endpoint.GetProperty("method").GetString(), true, endpoint, null, 1, CancellationToken.None);
+        }
+        return store;
+    }
+
     [SkippableFact]
     public async Task Handler_ReturnsEndpointBySlug()
     {
         var resolver = new FakeKeyResolver("test-key", "proj-1");
         var bunny = new FakeBunny { ResourceResponses = { ["endpoints.json"] = Endpoints(("load-player", "GET"), ("save-data", "POST")) } };
-        var handler = new EndpointSlugReadCandidateHandler(resolver, bunny, new InMemoryNetworkStorageStore(), Microsoft.Extensions.Options.Options.Create(new SboxNetworkStorage.Infrastructure.NetworkStorage.Storage.ScyllaDbOptions()), Microsoft.Extensions.Logging.Abstractions.NullLogger<EndpointSlugReadCandidateHandler>.Instance);
+        var store = await StoreWithEndpointsAsync(bunny.ResourceResponses["endpoints.json"]);
+        var handler = new EndpointSlugReadHandler(resolver, bunny, store, Microsoft.Extensions.Logging.Abstractions.NullLogger<EndpointSlugReadHandler>.Instance);
 
         var result = await handler.ExecuteAsync(BuildRequest("proj-1", "load-player"));
 
         Assert.Equal(200, result.StatusCode);
         var json = JsonSerializer.SerializeToElement(result.Body);
         Assert.True(json.GetProperty("ok").GetBoolean());
-        Assert.Equal("cdn", json.GetProperty("source").GetString());
         Assert.Equal("load-player", json.GetProperty("endpoint").GetProperty("slug").GetString());
     }
 
@@ -65,7 +77,8 @@ public abstract class EndpointSlugReadCandidateTests<TFactory> : IClassFixture<T
     {
         var resolver = new FakeKeyResolver("test-key", "proj-1");
         var bunny = new FakeBunny { ResourceResponses = { ["endpoints.json"] = Endpoints(("save-data", "POST")) } };
-        var handler = new EndpointSlugReadCandidateHandler(resolver, bunny, new InMemoryNetworkStorageStore(), Microsoft.Extensions.Options.Options.Create(new SboxNetworkStorage.Infrastructure.NetworkStorage.Storage.ScyllaDbOptions()), Microsoft.Extensions.Logging.Abstractions.NullLogger<EndpointSlugReadCandidateHandler>.Instance);
+        var store = await StoreWithEndpointsAsync(bunny.ResourceResponses["endpoints.json"]);
+        var handler = new EndpointSlugReadHandler(resolver, bunny, store, Microsoft.Extensions.Logging.Abstractions.NullLogger<EndpointSlugReadHandler>.Instance);
 
         var result = await handler.ExecuteAsync(BuildRequest("proj-1", "missing-slug"));
 
@@ -78,7 +91,7 @@ public abstract class EndpointSlugReadCandidateTests<TFactory> : IClassFixture<T
     {
         var resolver = new FakeKeyResolver(null, "proj-1");
         var bunny = new FakeBunny();
-        var handler = new EndpointSlugReadCandidateHandler(resolver, bunny, new InMemoryNetworkStorageStore(), Microsoft.Extensions.Options.Options.Create(new SboxNetworkStorage.Infrastructure.NetworkStorage.Storage.ScyllaDbOptions()), Microsoft.Extensions.Logging.Abstractions.NullLogger<EndpointSlugReadCandidateHandler>.Instance);
+        var handler = new EndpointSlugReadHandler(resolver, bunny, new InMemoryNetworkStorageStore(), Microsoft.Extensions.Logging.Abstractions.NullLogger<EndpointSlugReadHandler>.Instance);
 
         var result = await handler.ExecuteAsync(BuildRequest("proj-1", "load-player", apiKey: null));
 
@@ -91,7 +104,8 @@ public abstract class EndpointSlugReadCandidateTests<TFactory> : IClassFixture<T
     {
         var resolver = new FakeKeyResolver("test-key", "proj-1");
         var bunny = new FakeBunny { ResourceResponses = { ["endpoints.json"] = Endpoints(("Load-Player", "GET")) } };
-        var handler = new EndpointSlugReadCandidateHandler(resolver, bunny, new InMemoryNetworkStorageStore(), Microsoft.Extensions.Options.Options.Create(new SboxNetworkStorage.Infrastructure.NetworkStorage.Storage.ScyllaDbOptions()), Microsoft.Extensions.Logging.Abstractions.NullLogger<EndpointSlugReadCandidateHandler>.Instance);
+        var store = await StoreWithEndpointsAsync(bunny.ResourceResponses["endpoints.json"]);
+        var handler = new EndpointSlugReadHandler(resolver, bunny, store, Microsoft.Extensions.Logging.Abstractions.NullLogger<EndpointSlugReadHandler>.Instance);
 
         var result = await handler.ExecuteAsync(BuildRequest("proj-1", "load-player"));
 
@@ -107,13 +121,13 @@ public abstract class EndpointSlugReadCandidateTests<TFactory> : IClassFixture<T
         {
             // A dead Bun storage-api port: a 502 here would prove the request proxied
             // to Bun. It must not — native auth rejects the bad key first.
-            builder.ConfigureServices(services => services.Configure<ScyllaDbOptions>(o => o.Primary = false));
+            
             builder.ConfigureServices(services =>
             {
                 services.RemoveAll<IStorageApiKeyResolver>();
                 services.AddScoped<IStorageApiKeyResolver>(_ => new FakeKeyResolver("test-key", "proj-1"));
-                services.RemoveAll<IBunnyWorkspaceClient>();
-                services.AddScoped<IBunnyWorkspaceClient>(_ => new FakeBunny
+                services.RemoveAll<IWorkspaceStore>();
+                services.AddScoped<IWorkspaceStore>(_ => new FakeBunny
                 {
                     ResourceResponses = { ["endpoints.json"] = Endpoints(("get-join", "GET")) }
                 });
@@ -134,11 +148,11 @@ public abstract class EndpointSlugReadCandidateTests<TFactory> : IClassFixture<T
     {
         using var liveClient = _factory.WithWebHostBuilder(builder =>
         {
-            builder.ConfigureServices(services => services.Configure<ScyllaDbOptions>(o => o.Primary = false));
+            
             builder.ConfigureServices(services =>
             {
-                services.RemoveAll<IBunnyWorkspaceClient>();
-                services.AddScoped<IBunnyWorkspaceClient>(_ => new SlowBunny());
+                services.RemoveAll<IWorkspaceStore>();
+                services.AddScoped<IWorkspaceStore>(_ => new SlowBunny());
             });
         }).CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
 
@@ -159,7 +173,7 @@ public abstract class EndpointSlugReadCandidateTests<TFactory> : IClassFixture<T
                 : null);
     }
 
-    private sealed class FakeBunny : IBunnyWorkspaceClient
+    private sealed class FakeBunny : IWorkspaceStore
     {
         public Dictionary<string, JsonElement> ResourceResponses { get; } = new();
         public Task<T?> GetProjectResourceAsync<T>(long userId, string projectId, string resourcePath, CancellationToken ct)
@@ -170,16 +184,16 @@ public abstract class EndpointSlugReadCandidateTests<TFactory> : IClassFixture<T
             return Task.FromResult<T?>(default);
         }
         public Task<T?> GetRawAsync<T>(string absolutePath, CancellationToken cancellationToken) => Task.FromResult<T?>(default);
-        public Task<IReadOnlyList<BunnyProject>> GetUserProjectsAsync(long userId, CancellationToken cancellationToken) => Task.FromResult<IReadOnlyList<BunnyProject>>([]);
+        public Task<IReadOnlyList<WorkspaceProject>> GetUserProjectsAsync(long userId, CancellationToken cancellationToken) => Task.FromResult<IReadOnlyList<WorkspaceProject>>([]);
         public Task<WorkspaceProjectUsage?> GetProjectUsageAsync(long userId, string projectId, string monthKey, CancellationToken cancellationToken) => Task.FromResult<WorkspaceProjectUsage?>(null);
-        public Task SaveUserProjectsAsync(long userId, IReadOnlyList<BunnyProject> projects, CancellationToken cancellationToken) => Task.CompletedTask;
+        public Task SaveUserProjectsAsync(long userId, IReadOnlyList<WorkspaceProject> projects, CancellationToken cancellationToken) => Task.CompletedTask;
         public Task<string?> GetProjectResourceTextAsync(long userId, string projectId, string resourcePath, CancellationToken cancellationToken) => Task.FromResult<string?>(null);
         public Task PutProjectResourceAsync<T>(long userId, string projectId, string resourcePath, T data, CancellationToken cancellationToken) => Task.CompletedTask;
         public Task PutRawAsync<T>(string absolutePath, T data, CancellationToken cancellationToken) => Task.CompletedTask;
         public Task DeleteRawAsync(string absolutePath, CancellationToken cancellationToken) => Task.CompletedTask;
     }
 
-    private sealed class SlowBunny : IBunnyWorkspaceClient
+    private sealed class SlowBunny : IWorkspaceStore
     {
         public async Task<T?> GetProjectResourceAsync<T>(long userId, string projectId, string resourcePath, CancellationToken ct)
         {
@@ -187,9 +201,9 @@ public abstract class EndpointSlugReadCandidateTests<TFactory> : IClassFixture<T
             return default;
         }
         public Task<T?> GetRawAsync<T>(string absolutePath, CancellationToken cancellationToken) => Task.FromResult<T?>(default);
-        public Task<IReadOnlyList<BunnyProject>> GetUserProjectsAsync(long userId, CancellationToken cancellationToken) => Task.FromResult<IReadOnlyList<BunnyProject>>([]);
+        public Task<IReadOnlyList<WorkspaceProject>> GetUserProjectsAsync(long userId, CancellationToken cancellationToken) => Task.FromResult<IReadOnlyList<WorkspaceProject>>([]);
         public Task<WorkspaceProjectUsage?> GetProjectUsageAsync(long userId, string projectId, string monthKey, CancellationToken cancellationToken) => Task.FromResult<WorkspaceProjectUsage?>(null);
-        public Task SaveUserProjectsAsync(long userId, IReadOnlyList<BunnyProject> projects, CancellationToken cancellationToken) => Task.CompletedTask;
+        public Task SaveUserProjectsAsync(long userId, IReadOnlyList<WorkspaceProject> projects, CancellationToken cancellationToken) => Task.CompletedTask;
         public Task<string?> GetProjectResourceTextAsync(long userId, string projectId, string resourcePath, CancellationToken cancellationToken) => Task.FromResult<string?>(null);
         public Task PutProjectResourceAsync<T>(long userId, string projectId, string resourcePath, T data, CancellationToken cancellationToken) => Task.CompletedTask;
         public Task PutRawAsync<T>(string absolutePath, T data, CancellationToken cancellationToken) => Task.CompletedTask;

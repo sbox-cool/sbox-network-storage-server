@@ -21,7 +21,7 @@ public sealed record OwnerVersionsModel(string ProjectId, string ProjectName, IR
 /// </summary>
 [Authorize(AuthenticationSchemes = OwnerHostingExtensions.Scheme)]
 public sealed class OwnerVersionsController(INetworkStorageProjectService projects, INetworkStorageStore store,
-    ManagementMutationCandidateHandler mutations, IAuditLogger audit) : Controller
+    ManagementMutationHandler mutations, IAuditLogger audit) : Controller
 {
     private const string Route = "/dashboard/projects/{projectId}/versions";
     private const int MaxDiffLines = 2000;

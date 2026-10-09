@@ -26,7 +26,7 @@ public abstract class NetworkStoragePagesCandidateTests<TFactory> : IClassFixtur
         }).CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
     }
 
-    private static NetworkStorageCandidateRequest BuildRequest(
+    private static NetworkStorageRequest BuildRequest(
         string projectId,
         string pageSlug,
         string? format = null,
@@ -36,7 +36,7 @@ public abstract class NetworkStoragePagesCandidateTests<TFactory> : IClassFixtur
             ? $"/api/pages/{projectId}/{pageSlug}?format={format}"
             : $"/api/pages/{projectId}/{pageSlug}";
         var route = NetworkStorageRouteClassifier.Classify("GET", uri);
-        return new NetworkStorageCandidateRequest(
+        return new NetworkStorageRequest(
             route,
             format is not null
                 ? new Dictionary<string, string> { ["format"] = format }
@@ -56,7 +56,7 @@ public abstract class NetworkStoragePagesCandidateTests<TFactory> : IClassFixtur
             Path.Combine(AppContext.BaseDirectory, "Fixtures", "network-storage-shadow", "page-sample.json"));
         var pageIndex = /*lang=json*/ """{"userId": 42, "projectId": "demo-project"}""";
 
-        var handler = new PagesCandidateHandler(new FakeBunny(pageIndex, pageFixture));
+        var handler = new PagesHandler(new FakeBunny(pageIndex, pageFixture));
 
         var result = await handler.ExecuteAsync(BuildRequest("demo-project", "welcome", format: "json"));
 
@@ -83,7 +83,7 @@ public abstract class NetworkStoragePagesCandidateTests<TFactory> : IClassFixtur
             Path.Combine(AppContext.BaseDirectory, "Fixtures", "network-storage-shadow", "page-sample.json"));
         var pageIndex = /*lang=json*/ """{"userId": 42, "projectId": "demo-project"}""";
 
-        var handler = new PagesCandidateHandler(new FakeBunny(pageIndex, pageFixture));
+        var handler = new PagesHandler(new FakeBunny(pageIndex, pageFixture));
 
         var result = await handler.ExecuteAsync(BuildRequest("demo-project", "welcome", format: "jsonmd"));
 
@@ -109,7 +109,7 @@ public abstract class NetworkStoragePagesCandidateTests<TFactory> : IClassFixtur
         // Regression: GetInt64() previously threw InvalidOperationException on these documents.
         var pageIndex = /*lang=json*/ """{"userId": "42", "projectId": "demo-project"}""";
 
-        var handler = new PagesCandidateHandler(new FakeBunny(pageIndex, pageFixture));
+        var handler = new PagesHandler(new FakeBunny(pageIndex, pageFixture));
 
         var result = await handler.ExecuteAsync(BuildRequest("demo-project", "welcome", format: "json"));
 
@@ -126,7 +126,7 @@ public abstract class NetworkStoragePagesCandidateTests<TFactory> : IClassFixtur
     public async Task MissingUserIdInPageIndexReturnsNotFound()
     {
         var pageIndex = /*lang=json*/ """{"projectId": "demo-project"}""";
-        var handler = new PagesCandidateHandler(new FakeBunny(pageIndex, "{}"));
+        var handler = new PagesHandler(new FakeBunny(pageIndex, "{}"));
 
         var result = await handler.ExecuteAsync(BuildRequest("demo-project", "welcome"));
 
@@ -140,7 +140,7 @@ public abstract class NetworkStoragePagesCandidateTests<TFactory> : IClassFixtur
     [SkippableFact]
     public async Task MissingPageIndexReturnsNotFoundCode()
     {
-        var handler = new PagesCandidateHandler(new FakeBunny(null, null));
+        var handler = new PagesHandler(new FakeBunny(null, null));
 
         var result = await handler.ExecuteAsync(BuildRequest("nonexistent", "page"));
 
@@ -158,7 +158,7 @@ public abstract class NetworkStoragePagesCandidateTests<TFactory> : IClassFixtur
         // page-index exists, but page content does not
         var pageIndex = /*lang=json*/ """{"userId": 42, "projectId": "demo-project"}""";
 
-        var handler = new PagesCandidateHandler(new FakeBunny(pageIndex, null));
+        var handler = new PagesHandler(new FakeBunny(pageIndex, null));
 
         var result = await handler.ExecuteAsync(BuildRequest("demo-project", "nonexistent-page"));
 
@@ -173,7 +173,7 @@ public abstract class NetworkStoragePagesCandidateTests<TFactory> : IClassFixtur
     [SkippableFact]
     public async Task PageIndexStoreErrorReturnsReadFailedCode()
     {
-        var handler = new PagesCandidateHandler(new FakeBunny(null, null, throwsOnPageIndex: true));
+        var handler = new PagesHandler(new FakeBunny(null, null, throwsOnPageIndex: true));
 
         var result = await handler.ExecuteAsync(BuildRequest("demo-project", "welcome"));
 
@@ -188,7 +188,7 @@ public abstract class NetworkStoragePagesCandidateTests<TFactory> : IClassFixtur
     public async Task PageContentStoreErrorReturnsReadFailedCode()
     {
         var pageIndex = /*lang=json*/ """{"userId": 42, "projectId": "demo-project"}""";
-        var handler = new PagesCandidateHandler(new FakeBunny(pageIndex, null, throwsOnPageContent: true));
+        var handler = new PagesHandler(new FakeBunny(pageIndex, null, throwsOnPageContent: true));
 
         var result = await handler.ExecuteAsync(BuildRequest("demo-project", "welcome"));
 
@@ -199,7 +199,7 @@ public abstract class NetworkStoragePagesCandidateTests<TFactory> : IClassFixtur
     [SkippableFact]
     public async Task PageIndexPathIsUrlEncoded()
     {
-        var handler = new PagesCandidateHandler(new FakeBunny(null, null));
+        var handler = new PagesHandler(new FakeBunny(null, null));
 
         var result = await handler.ExecuteAsync(BuildRequest("space project", "slug"));
 
@@ -217,8 +217,8 @@ public abstract class NetworkStoragePagesCandidateTests<TFactory> : IClassFixtur
         {
             builder.ConfigureServices(services =>
             {
-                services.RemoveAll<IBunnyWorkspaceClient>();
-                services.AddScoped<IBunnyWorkspaceClient>(_ => new FakeBunny(pageIndex, pageFixture));
+                services.RemoveAll<IWorkspaceStore>();
+                services.AddScoped<IWorkspaceStore>(_ => new FakeBunny(pageIndex, pageFixture));
             });
         }).CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
 
@@ -232,7 +232,7 @@ public abstract class NetworkStoragePagesCandidateTests<TFactory> : IClassFixtur
         Assert.Equal("markdown", root.GetProperty("type").GetString());
     }
 
-    private sealed class FakeBunny : IBunnyWorkspaceClient
+    private sealed class FakeBunny : IWorkspaceStore
     {
         private readonly string? _pageIndexJson;
         private readonly string? _pageContentJson;
@@ -291,13 +291,13 @@ public abstract class NetworkStoragePagesCandidateTests<TFactory> : IClassFixtur
         public Task<string?> GetProjectResourceTextAsync(long userId, string projectId, string resourcePath, CancellationToken cancellationToken)
             => Task.FromResult<string?>(null);
 
-        public Task<IReadOnlyList<BunnyProject>> GetUserProjectsAsync(long userId, CancellationToken cancellationToken)
-            => Task.FromResult<IReadOnlyList<BunnyProject>>([]);
+        public Task<IReadOnlyList<WorkspaceProject>> GetUserProjectsAsync(long userId, CancellationToken cancellationToken)
+            => Task.FromResult<IReadOnlyList<WorkspaceProject>>([]);
 
         public Task<WorkspaceProjectUsage?> GetProjectUsageAsync(long userId, string projectId, string monthKey, CancellationToken cancellationToken)
             => Task.FromResult<WorkspaceProjectUsage?>(null);
 
-        public Task SaveUserProjectsAsync(long userId, IReadOnlyList<BunnyProject> projects, CancellationToken cancellationToken)
+        public Task SaveUserProjectsAsync(long userId, IReadOnlyList<WorkspaceProject> projects, CancellationToken cancellationToken)
             => Task.CompletedTask;
 
         public Task PutProjectResourceAsync<T>(long userId, string projectId, string resourcePath, T data, CancellationToken cancellationToken)

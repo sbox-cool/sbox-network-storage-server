@@ -1,12 +1,11 @@
 using System.Security.Cryptography.X509Certificates;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
-using SboxNetworkStorage.Application.Diagnostics;
 using SboxNetworkStorage.Server.Configuration;
 using SboxNetworkStorage.Server.Endpoints;
 using SboxNetworkStorage.Server.Middleware;
 using SboxNetworkStorage.Server.Owner;
-using SboxNetworkStorage.Server.Routing;
+
 using SboxNetworkStorage.Server.Updates;
 using SboxNetworkStorage.Server.Telemetry;
 using SboxNetworkStorage.Server.Tunnels;
@@ -23,6 +22,10 @@ public static class ServerHost
     {
         Directory.CreateDirectory(config.DataDirectory);
         var secrets = ServerSecrets.EnsureAndLoad(config, path => Console.WriteLine($"Generated secret file {path}"));
+        if (config.Layout == ConfigLayout.Legacy)
+        {
+            Console.WriteLine($"Notice: {StateLayout.MigrationNotice}");
+        }
 
         // The security-config signer reads its key and key id from the process environment.
         SecurityConfigEnvironment.Apply(config, secrets);
@@ -64,6 +67,7 @@ public static class ServerHost
             o.ForwardLimit = 1;
         });
         builder.Services.AddNetworkStorageServer(config);
+        builder.Services.AddRequestLimits(config);
         builder.Services.AddOwnerManagement(config);
         builder.Services.AddSingleton<UpdateNoticeState>();
         builder.Services.AddHostedService<UpdateCheckService>();
@@ -82,17 +86,15 @@ public static class ServerHost
 
         configureBuilder?.Invoke(builder);
         var app = builder.Build();
-        RouteOwnershipBootstrap.Seed(app.Services.GetRequiredService<IRouteOwnershipRegistry>());
-
+        app.UseMiddleware<ClientAddressMiddleware>();
         app.UseForwardedHeaders();
         app.UseMiddleware<HstsMiddleware>();
-        app.UseMiddleware<RequestBodyBufferingMiddleware>(256 * 1024, 1126L * 1024 * 1024);
         app.UseMiddleware<CorrelationIdMiddleware>();
         app.UseMiddleware<ExceptionHandlingMiddleware>();
         app.UseMiddleware<RequestTimingMiddleware>();
         app.UseRouting();
+        app.UseMiddleware<RequestBodyLimitMiddleware>();
         app.UseOwnerManagement();
-        app.UseMiddleware<RouteOwnershipMiddleware>();
         app.UseMiddleware<NetworkStorageUsageMiddleware>();
         app.UseResponseCompression();
 
@@ -155,7 +157,7 @@ public static class ServerHost
         builder.WebHost.ConfigureKestrel((context, kestrel) =>
         {
             kestrel.AddServerHeader = false;
-            kestrel.Limits.MaxRequestBodySize = 1126L * 1024 * 1024;
+            kestrel.Limits.MaxRequestBodySize = Math.Max(1, config.GetInteger("server.limits.default")) * 1024;
             Listen(kestrel, http, _ => { });
 
             if (tlsMode == "off")

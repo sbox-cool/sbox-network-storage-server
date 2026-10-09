@@ -99,25 +99,62 @@ variables. Run `sbox-ns config path` to print the folders the server will use.
 ## Files and precedence
 
 ```text
-<config dir>/
+<config dir>/                     operator configuration (root-owned on Linux service installs)
   server.toml      listener, TLS, logging, auth
   database.toml    SQLite or PostgreSQL
   updates.toml     update notices
   conf.d/*.toml    optional overrides, loaded in alphabetical order
-  secrets/         generated secrets (auth session secret, storage encryption key, security signing key)
+
+<data dir>/state/                 runtime state the server and CLI write (owned by the service user)
+  .layout-version  marker: the config/state split is in effect
+  secrets/         generated secrets (auth session secret, storage encryption key, security signing key),
+                   tunnel identity and tunnel token
+  conf.d/*.toml    managed overlays (tunnel, DNS, telemetry), restricted to the keys listed below
+  bin/             downloaded cloudflared connector
+  telemetry-id     private ID for opt-in usage statistics
 ```
+
+The config folder holds only files an operator edits. On Linux service installs it
+is `root:<service group>` with mode `0750` (files `0640`) and the service unit
+cannot write it; everything the server or CLI creates at runtime lives in the
+state folder under the data folder (`/var/lib/sbox-ns/state`, or
+`/var/lib/sbox-ns/<name>/state` for a named instance). Single-user, Docker and
+Windows installs use the same two folders: the state folder is always
+`<data dir>/state`. Installs created before the split keep their runtime files in
+the config folder until `sudo sbox-ns layout migrate` moves them; see
+[Config and state folders](self-hosting.md#config-and-state-folders).
 
 Each key belongs to one main file (`server.*`, `tls.*`, `logging.*` and `auth.*`
 in `server.toml`; `database.*` in `database.toml`; `updates.*` in
 `updates.toml`); validation reports a key placed in the wrong main file.
-Files in `conf.d/` may set any key. Values are layered, later sources override
-earlier ones:
+Files in the config folder's `conf.d/` may set any key. Values are layered, later
+sources override earlier ones:
 
 1. Built-in defaults
 2. `server.toml`, `database.toml`, `updates.toml`
-3. `conf.d/*.toml` (alphabetical, so `conf.d/90-local.toml` beats `conf.d/10-base.toml`)
-4. Environment variables prefixed with `NS_`
-5. Command line flags
+3. `<config dir>/conf.d/*.toml` (alphabetical, so `conf.d/90-local.toml` beats `conf.d/10-base.toml`)
+4. The state overlay `<data dir>/state/conf.d/*.toml` (alphabetical), restricted to the keys below
+5. Environment variables prefixed with `NS_`
+6. Command line flags
+
+### State overlay
+
+The overlay holds what `tunnel`, `dns` and `telemetry` commands manage. A key set in
+an overlay file replaces the operator's value for that key; every other key keeps the
+operator's value, and operator files are never rewritten by these commands. An
+overlay file may only set these keys:
+
+| Key | Written by |
+| --- | --- |
+| `tunnel.*` | `tunnel enable` / `tunnel disable` |
+| `dns.*` | `dns enable` / `dns disable` |
+| `server.listen`, `server.public_url` | `tunnel`, `dns` (loopback listener, hosted public URL) |
+| `tls.mode`, `tls.acme_domain`, `tls.acme_email`, `tls.acme_accept_terms` | `dns enable` (Let's Encrypt settings), `tunnel enable` (`tls.mode`) |
+| `telemetry.enabled` | `telemetry enable` / `telemetry disable` |
+
+Any other key in an overlay file is a configuration error naming the file and the
+key, and the server does not start. Installs that have not run `layout migrate` keep
+`conf.d/` in the config folder with no restriction, as before.
 
 ### Environment variables
 
@@ -205,8 +242,14 @@ hsts = true
 # Trace, Debug, Information, Warning, Error
 level = "Information"
 
+[analytics]
+# Days to keep player analytics (timeline events and project issues). Older rows
+# are purged once a day. 0 keeps them forever.
+retention_days = 90
+
 [auth]
-# Secret files, relative to the config folder. Missing files are generated with
+# Secret files, relative to the state folder (<data dir>/state; the config folder on
+# installs that have not run `sbox-ns layout migrate`). Missing files are generated with
 # permissions 600 on first start (or by `sbox-ns setup`) and are never rotated
 # automatically. Keep them private and include them in backups.
 #
@@ -223,12 +266,48 @@ security_signing_key_file = "secrets/security_signing_key.pem"
 security_signing_key_id = ""
 ```
 
+### Request limits
+
+Body size limits and per-client rate limits belong to `server.toml`. Size keys
+are in KiB; rate keys count requests. The limits apply per client address, taken
+from the connection. `X-Forwarded-For` is honoured only from a proxy on the same
+machine, and `CF-Connecting-IP` only from the local tunnel connector while
+`tunnel.enabled` is true; any other client-supplied forwarding header is ignored.
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `server.limits.default` | `1024` | Largest body on routes without a limit of their own |
+| `server.limits.data_plane` | `256` | Largest body on game routes (`/v1`, `/v3`, `/api/storage`) and auth-session routes |
+| `server.limits.management` | `8192` | Largest body on secret-key management and sync routes (`/v3/manage`) |
+| `server.limits.game_burst` | `600` | Requests a client address may send to game routes at once |
+| `server.limits.game_per_second` | `200` | Sustained requests per second on game routes |
+| `server.limits.management_burst` | `120` | Requests a client address may send to management routes at once |
+| `server.limits.management_per_second` | `20` | Sustained requests per second on management routes |
+| `server.limits.auth_session_burst` | `120` | Requests a client address may send to auth-session routes at once |
+| `server.limits.auth_session_per_second` | `30` | Sustained requests per second on auth-session routes |
+
+A body over its limit is answered with `413` and `{ "error": "PAYLOAD_TOO_LARGE" }`.
+A client over its rate limit is answered with `429`, a `Retry-After` header and
+`{ "error": "RATE_LIMITED" }`. The dashboard import keeps its own limit, and owner
+login keeps its fixed limit of 10 attempts per minute per address.
+
+### Analytics retention
+
+Player analytics are written by one background writer in batches of up to 500
+rows, flushed at least once a second. Up to 10,000 events wait in memory; if the
+database falls behind, the oldest waiting events are dropped (and logged) instead
+of slowing requests down. Reading a record produces no analytics event.
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `analytics.retention_days` | `90` | Timeline events and project issues older than this many days are deleted once a day. `0` keeps them forever. Player profiles and sessions are never purged. |
 ### Hosted tunnel and notice settings
 
 These keys also belong to `server.toml`. Use `tunnel enable|disable` and
 `dns enable|disable` rather than manually changing tunnel or DNS state: the CLI
-atomically manages `conf.d/zzzz-tunnel.toml` (loopback listener and public URL)
-and `conf.d/zzzzz-dns.toml` (public URL and Let's Encrypt settings). Disabling
+atomically manages `zzzz-tunnel.toml` (loopback listener and public URL) and
+`zzzzz-dns.toml` (public URL and Let's Encrypt settings) in the state overlay
+`<data dir>/state/conf.d/`. Disabling
 DNS removes its overrides from `zzzzz-dns.toml`, so the values in effect before
 enable apply again. Tunnel and DNS modes cannot be enabled at the same time.
 
@@ -257,9 +336,10 @@ enable apply again. Tunnel and DNS modes cannot be enabled at the same time.
 | `telemetry.endpoint` | `https://sboxcool.com/api/network-storage/telemetry` | Usage statistics API; HTTPS required except loopback testing; no request unless enabled |
 
 Identity and connector credentials are separate private files under
-`secrets/`, not TOML values. Notice removal uses the private
+`<data dir>/state/secrets/`, not TOML values. Notice removal uses the private
 `<data dir>/install-id` file; usage statistics use the separate private
-`<data dir>/telemetry-id` file. See the
+`<data dir>/state/telemetry-id` file. `telemetry enable|disable` write
+`state/conf.d/telemetry.toml`, not `server.toml`. See the
 [hosted HTTPS and notices guide](self-hosting.md#hosted-https-without-a-domain)
 and [anonymous usage statistics](self-hosting.md#anonymous-usage-statistics-opt-in).
 
@@ -330,11 +410,9 @@ CREATE DATABASE sbox_ns OWNER sbox_ns;
 # in `sbox-ns doctor`. Set to false to disable all outbound update checks.
 check = true
 
-# Release feed, requested as <feed_url>?channel=<channel>. If unreachable, the
-# newest stable GitHub release of github_repo is used for notices and manual
-# updates (never for unattended updates).
-feed_url = "https://sboxcool.com/api/network-storage/releases/latest"
-github_repo = "sbox-cool/sbox-network-storage-server"
+# The release feed and GitHub repository are compiled into the binary and cannot be
+# configured. Older updates.toml files may still contain feed_url / github_repo: they
+# are ignored (and reported by `sbox-ns doctor`) and can be deleted.
 
 # Hours between background checks.
 interval_hours = 24
@@ -346,7 +424,7 @@ include_prereleases = false
 # "canary": every release as soon as it is published.
 channel = "stable"
 
-# Install releases unattended (`sbox-ns update --auto`, run every 15 minutes by
+# Install releases unattended (`sbox-ns update --auto`, run hourly by
 # sbox-ns-update.timer). With several instances on one host, all must opt in.
 auto_install = false
 
@@ -359,10 +437,40 @@ window = "03:00-05:00"
 min_release_age_hours = -1
 ```
 
+## Analytics retention and buffering
+
+Set this in `server.toml` (or `NS_ANALYTICS__RETENTION_DAYS`), then restart:
+
+```toml
+[analytics]
+retention_days = 90  # 0 disables retention
+```
+
+The daily purge removes older player timeline events, project issues and legacy
+analytics rows across all projects. Player profiles and sessions are retained
+as state. Record reads do not create analytics events.
+
+Analytics are best-effort: requests enqueue without database I/O into a
+10,000-event buffer. When full it drops the oldest events and counts the drops;
+the writer reports them in a warning. One background writer commits batches of
+up to 500 events, or the buffered partial batch every second, in one transaction.
+A failed batch rolls back and is reported; it does not fail the game request.
+Shutdown drains the remaining buffered events.
+
+Collection, endpoint and game-value metadata share a per-project memory-cache
+snapshot. Management writes, sync and imports invalidate its generation token
+so the next request reloads it; endpoint definitions are parsed once per
+generation. Request timing logs are at Debug rather than Information.
+Fixed expression/request regexes have a 100 ms match timeout. Dynamic
+`matches` condition patterns (and `matches(input, pattern)` templates) use a
+50 ms timeout and a 256-pattern compiled LRU; invalid or timed-out patterns
+produce endpoint expression errors rather than tying up a request thread.
+
 ## conf.d
 
-Drop extra `.toml` files into `conf.d/` to override settings without editing
-the main files, for example from configuration management:
+Drop extra `.toml` files into the config folder's `conf.d/` to override settings
+without editing the main files, for example from configuration management (the
+managed `state/conf.d/` overlay is a separate, restricted folder):
 
 ```toml
 # conf.d/50-production.toml
@@ -373,3 +481,4 @@ public_url = "https://ns.example.com"
 [logging]
 level = "Warning"
 ```
+

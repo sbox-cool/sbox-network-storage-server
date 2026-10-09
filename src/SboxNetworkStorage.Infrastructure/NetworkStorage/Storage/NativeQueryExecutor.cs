@@ -40,7 +40,7 @@ public sealed class NullQueryRunRecorder : IQueryRunRecorder
 /// the same pattern. A bounded internal timeout (10 s) ensures an aborted
 /// request never drops the telemetry write.
 /// </summary>
-public sealed class ScyllaQueryRunRecorder(IServiceScopeFactory scopeFactory, ILogger<ScyllaQueryRunRecorder>? logger) : IQueryRunRecorder
+public sealed class StoreQueryRunRecorder(IServiceScopeFactory scopeFactory, ILogger<StoreQueryRunRecorder>? logger) : IQueryRunRecorder
 {
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, long> _lastRecordUnixMs = new();
     private const int MinLogIntervalMs = 60_000; // 1 minute throttle
@@ -83,7 +83,7 @@ public sealed class ScyllaQueryRunRecorder(IServiceScopeFactory scopeFactory, IL
 /// in-memory result cache with TTL, and performance tracking. Reads query
 /// definitions and source records from ScyllaDB. No Bun fallback.
 /// </summary>
-public sealed class NativeQueryExecutor
+public sealed partial class NativeQueryExecutor
 {
     private readonly INetworkStorageStore _store;
     private readonly IQueryRunRecorder _recorder;
@@ -1298,7 +1298,7 @@ public sealed class NativeQueryExecutor
                     Name = s.CollectionName,
                     Alias = s.Alias,
                     KeysScanned = s.Entries.Count,
-                    Source = "scylladb",
+                    Source = "store",
                 }).ToList()
                 : []
         };
@@ -1353,8 +1353,11 @@ public sealed class NativeQueryExecutor
     private static bool BoolField(JsonElement el, string name)
         => el.ValueKind == JsonValueKind.Object && el.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.True;
 
+    [System.Text.RegularExpressions.GeneratedRegex(@"^[A-Za-z_][A-Za-z0-9_]*$", System.Text.RegularExpressions.RegexOptions.None, 100)]
+    private static partial System.Text.RegularExpressions.Regex SimpleIdentifierPattern();
+
     private static bool IsSimpleIdentifier(string value)
-        => !string.IsNullOrEmpty(value) && System.Text.RegularExpressions.Regex.IsMatch(value, @"^[A-Za-z_][A-Za-z0-9_]*$");
+        => !string.IsNullOrEmpty(value) && SimpleIdentifierPattern().IsMatch(value);
 
     private static double? AsFinite(object? v) => v switch
     {
