@@ -1,0 +1,7 @@
+# False positive: the RFC 6238 public test vector (base32 of
+# "12345678901234567890") used in OwnerSecurityTests. Not a credential.
+[allowlist]
+description = "Public RFC 6238 TOTP test vector, not a credential"
+regexes = [
+    '''GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ''',
+]
