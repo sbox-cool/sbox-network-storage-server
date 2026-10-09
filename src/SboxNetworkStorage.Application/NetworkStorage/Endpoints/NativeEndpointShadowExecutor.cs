@@ -22,6 +22,12 @@ public sealed class NativeEndpointShadowExecutor
     private readonly IEndpointWebhookSender? _webhookSender;
     private readonly IPlayerAnalyticsService? _analyticsService;
     private readonly EndpointStepExecutor _executor = new();
+    /// <summary>
+    /// Maximum rows scanned per collection per endpoint request. Scans feed
+    /// lookup/filter/lookup_many/random_select steps; exceeding the cap fails
+    /// closed instead of reading an unbounded collection on every game call.
+    /// </summary>
+    public const int MaxScanRows = 1000;
 
     public NativeEndpointShadowExecutor(
         IEndpointShadowDataSource dataSource,
@@ -222,7 +228,11 @@ public sealed class NativeEndpointShadowExecutor
             try
             {
                 var records = await _dataSource.ScanCollectionAsync(projectId, collectionId, ct);
-                scannedCollections[collectionId] = records as List<object?> ?? new List<object?>(records);
+                var list = records as List<object?> ?? new List<object?>(records);
+                if (list.Count > MaxScanRows)
+                    return Denied(400, "SCAN_TOO_LARGE",
+                        $"Collection '{collection}' holds {list.Count} records, above the per-request scan cap of {MaxScanRows}. Narrow the collection or split the endpoint.");
+                scannedCollections[collectionId] = list;
             }
             catch
             {

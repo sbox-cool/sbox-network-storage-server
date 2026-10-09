@@ -39,6 +39,68 @@ public sealed class NativeEndpointShadowExecutorTests
         var body = (Dictionary<string, object?>)result.Body!;
         Assert.True(body.ContainsKey("ok"));
     }
+    [Fact]
+    public async Task TryExecute_OversizedScanCollection_FailsClosed()
+    {
+        var store = new Dictionary<string, object?>
+        {
+            ["proj:ep:big"] = MakeEndpointDef(
+                steps: new List<object?>
+                {
+                    new Dictionary<string, object?>
+                    {
+                        ["id"] = "f", ["type"] = "filter", ["collection"] = "big",
+                        ["where"] = new Dictionary<string, object?> { ["field"] = "score", ["op"] = ">=", ["value"] = 0d },
+                    },
+                },
+                body: new Dictionary<string, object?> { ["ok"] = true }),
+        };
+        var records = new Dictionary<string, object?>();
+        for (var i = 0; i <= NativeEndpointShadowExecutor.MaxScanRows; i++)
+            records[$"proj:big:player-{i}"] = new Dictionary<string, object?> { ["score"] = (double)i };
+        var ds = new FakeDataSource(store, records);
+        var executor = new NativeEndpointShadowExecutor(ds);
+        var result = await executor.TryExecuteAsync(
+            "proj", "big",
+            input: new Dictionary<string, object?>(), steamId: "steam1", userId: "u1",
+            gameValues: new Dictionary<string, object?>(),
+            hasSecretKey: false, isDedicatedServer: false, CancellationToken.None);
+        Assert.NotNull(result);
+        Assert.False(result!.Ok);
+        Assert.Equal(400, result.Status);
+        var error = (Dictionary<string, object?>)((Dictionary<string, object?>)result.Body!)["error"];
+        Assert.Equal("SCAN_TOO_LARGE", error["code"]);
+    }
+
+    [Fact]
+    public async Task TryExecute_ScanAtCap_FiltersNormally()
+    {
+        var store = new Dictionary<string, object?>
+        {
+            ["proj:ep:big"] = MakeEndpointDef(
+                steps: new List<object?>
+                {
+                    new Dictionary<string, object?>
+                    {
+                        ["id"] = "f", ["type"] = "filter", ["collection"] = "big",
+                        ["where"] = new Dictionary<string, object?> { ["field"] = "score", ["op"] = ">=", ["value"] = 0d },
+                    },
+                },
+                body: new Dictionary<string, object?> { ["ok"] = true, ["matched"] = "{{f}}" }),
+        };
+        var records = new Dictionary<string, object?>();
+        for (var i = 0; i < NativeEndpointShadowExecutor.MaxScanRows; i++)
+            records[$"proj:big:player-{i}"] = new Dictionary<string, object?> { ["score"] = (double)i };
+        var ds = new FakeDataSource(store, records);
+        var executor = new NativeEndpointShadowExecutor(ds);
+        var result = await executor.TryExecuteAsync(
+            "proj", "big",
+            input: new Dictionary<string, object?>(), steamId: "steam1", userId: "u1",
+            gameValues: new Dictionary<string, object?>(),
+            hasSecretKey: false, isDedicatedServer: false, CancellationToken.None);
+        Assert.NotNull(result);
+        Assert.True(result!.Ok);
+    }
 
     [Fact]
     public async Task TryExecute_UnsupportedStepType_ReturnsNullFallback()
