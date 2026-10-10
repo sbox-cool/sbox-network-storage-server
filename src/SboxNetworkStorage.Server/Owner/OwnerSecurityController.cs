@@ -6,8 +6,9 @@ using Microsoft.AspNetCore.RateLimiting;
 
 namespace SboxNetworkStorage.Server.Owner;
 
+/// <param name="EnrollmentUri">The <c>otpauth://</c> link for <paramref name="Secret"/> that authenticator apps open.</param>
 public sealed record OwnerSecurityModel(bool Enabled, string? Secret = null, string? Enrollment = null,
-    string? Error = null, string[]? RecoveryCodes = null);
+    string? Error = null, string[]? RecoveryCodes = null, string? EnrollmentUri = null);
 
 [Authorize(AuthenticationSchemes = OwnerHostingExtensions.Scheme)]
 [EnableRateLimiting(OwnerLoginLimits.Policy)]
@@ -20,7 +21,8 @@ public sealed class OwnerSecurityController(OwnerAccountService accounts) : Cont
         if (owner is null) return Unauthorized();
         if (owner.TotpSecret is not null) return View("~/Views/Owner/Security.cshtml", new OwnerSecurityModel(true));
         var secret = OwnerTotp.NewSecret();
-        return View("~/Views/Owner/Security.cshtml", new OwnerSecurityModel(false, secret, accounts.ProtectEnrollment(secret)));
+        return View("~/Views/Owner/Security.cshtml", new OwnerSecurityModel(false, secret, accounts.ProtectEnrollment(secret),
+            EnrollmentUri: OwnerTotp.EnrollmentUri(secret, owner.Username)));
     }
 
     [HttpPost("/dashboard/security/enroll")]

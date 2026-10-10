@@ -7,6 +7,20 @@ namespace SboxNetworkStorage.Server.Owner;
 public static class OwnerTotp
 {
     private const string Alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+    private const string Issuer = "sbox-ns";
+    /// <summary>Code parameters: HMAC-SHA1, six digits, a new code every 30 seconds.</summary>
+    private const int Digits = 6, PeriodSeconds = 30;
+
+    /// <summary>
+    /// The <c>otpauth://totp/</c> link authenticator apps open to add the account, with the same parameters
+    /// <see cref="Code"/> and <see cref="Match"/> use.
+    /// </summary>
+    public static string EnrollmentUri(string secret, string accountName)
+    {
+        var label = Uri.EscapeDataString(Issuer) + ":" + Uri.EscapeDataString(accountName);
+        return $"otpauth://totp/{label}?secret={secret}&issuer={Uri.EscapeDataString(Issuer)}&algorithm=SHA1&digits={Digits}&period={PeriodSeconds}";
+    }
+
     public static string NewSecret()
     {
         var bytes = RandomNumberGenerator.GetBytes(20);
@@ -44,8 +58,8 @@ public static class OwnerTotp
 
     public static long? Match(string secret, string? code, long lastStep, DateTimeOffset now)
     {
-        if (code is not { Length: 6 } || !code.All(char.IsAsciiDigit)) return null;
-        var step = now.ToUnixTimeSeconds() / 30;
+        if (code is not { Length: Digits } || !code.All(char.IsAsciiDigit)) return null;
+        var step = now.ToUnixTimeSeconds() / PeriodSeconds;
         for (var candidate = step - 1; candidate <= step + 1; candidate++)
             if (candidate > lastStep && CryptographicOperations.FixedTimeEquals(Encoding.ASCII.GetBytes(Code(secret, candidate)), Encoding.ASCII.GetBytes(code))) return candidate;
         return null;

@@ -181,10 +181,91 @@ public sealed class OwnerManagementPagesTests
         Assert.Contains("Faster saves", markdown.GetProperty("markdown").GetString());
         var keyValue = JsonDocument.Parse(await anonymous.GetStringAsync($"/pages/{project.ProjectId}/motd")).RootElement;
         Assert.Equal("Welcome", keyValue.GetProperty("data").GetProperty("motd").GetString());
+        // The page shows the absolute public URL and how the game fetches it.
+        var markdownPage = WebUtility.HtmlDecode(await owner.GetStringAsync(url + "/pages?slug=patch-notes"));
+        var publicUrl = System.Text.RegularExpressions.Regex.Match(markdownPage, $"<pre>(https?://[^<]+/pages/{project.ProjectId}/patch-notes)</pre>").Groups[1].Value;
+        Assert.NotEmpty(publicUrl);
+        Assert.Contains($"Http.RequestJsonAsync<JsonElement>( \"{publicUrl}\" );", markdownPage);
+        Assert.Contains("page.GetProperty( \"markdown\" )", markdownPage);
+        Assert.Contains("page.GetProperty( \"data\" )", WebUtility.HtmlDecode(await owner.GetStringAsync(url + "/pages?slug=motd")));
         using (var deleted = await PostFormAsync(owner, url + "/pages?slug=motd", url + "/pages/delete", ("slug", "motd")))
             Assert.Equal(HttpStatusCode.Redirect, deleted.StatusCode);
         using var gone = await anonymous.GetAsync($"/pages/{project.ProjectId}/motd");
         Assert.Equal(HttpStatusCode.NotFound, gone.StatusCode);
+    }
+
+    [Fact]
+    public async Task ResourceEditorShowsHowTheGameCallsTheOpenResource()
+    {
+        var (factory, owner, project, url) = await SetupAsync();
+        using var _ = factory;
+        using var __ = owner;
+        const string miners = "id: miners\nname: miners\ncollectionType: per-steamid\naccessMode: endpoint\nschema:\n  type: object\n  properties:\n    ore: { type: number, default: 0 }\n";
+        const string wallet = "id: wallet\nname: wallet\ncollectionType: per-steamid\naccessMode: public\nschema:\n  type: object\n  properties:\n    coins: { type: number, default: 5 }\n    title: { type: string }\n";
+        const string mine = "id: mine\nslug: mine\nmethod: POST\ninput:\n  properties:\n    amount: { type: number, default: 1 }\nsteps:\n  - id: add\n    type: write\n    collection: miners\n    key: \"{{steamId}}\"\n    ops:\n      - { op: inc, path: ore, value: \"{{input.amount}}\" }\nresponse:\n  status: 200\n  body: { ok: true }\n";
+        foreach (var (kind, source) in new[] { ("collection", miners), ("collection", wallet), ("endpoint", mine) })
+            using (var saved = await PostFormAsync(owner, $"{url}/resources/{kind}", $"{url}/resources/{kind}", ("definition", source)))
+                Assert.Equal(HttpStatusCode.Redirect, saved.StatusCode);
+
+        var endpoint = WebUtility.HtmlDecode(await owner.GetStringAsync($"{url}/resources/endpoint?id=mine"));
+        Assert.Contains("var result = await NetworkStorage.CallEndpoint( \"mine\", new { amount = 1 } );", endpoint);
+        Assert.Contains("NetworkStorage.TryGetLastEndpointError( \"mine\", out var code, out var message );", endpoint);
+        Assert.Contains($"href=\"{url}/tests?endpoint=mine#try-it\"", endpoint);
+        Assert.Contains($"href=\"{url}/versions?kind=endpoint&id=mine\"", endpoint);
+
+        var endpointOnly = WebUtility.HtmlDecode(await owner.GetStringAsync($"{url}/resources/collection?id=miners"));
+        Assert.Contains("403 ENDPOINT_ONLY", endpointOnly);
+        Assert.DoesNotContain("NetworkStorage.GetDocument", endpointOnly);
+        Assert.Contains($"href=\"{url}/data/miners\"", endpointOnly);
+
+        var direct = WebUtility.HtmlDecode(await owner.GetStringAsync($"{url}/resources/collection?id=wallet"));
+        Assert.Contains("var doc = Game.SteamId.ToString();", direct);
+        Assert.Contains("var data = await NetworkStorage.GetDocument( \"wallet\", doc );", direct);
+        Assert.Contains("await NetworkStorage.SaveDocument( \"wallet\", doc, new { coins = 5, title = \"\" } );", direct);
+
+        // A new definition has nothing to call yet.
+        Assert.DoesNotContain("Use from the game", await owner.GetStringAsync($"{url}/resources/endpoint"));
+
+        // Links from the data browser open Try it as that player; anything that is not a Steam ID is ignored.
+        Assert.Contains("name=\"steamId\" value=\"76561198000000777\"", await owner.GetStringAsync($"{url}/tests?steamId=76561198000000777"));
+        Assert.DoesNotContain("value=\"not-an-id\"", await owner.GetStringAsync($"{url}/tests?steamId=not-an-id"));
+    }
+
+    [Fact]
+    public async Task AllProjectsLeadsWithCreateAndShowsCodingAgentSetup()
+    {
+        using var factory = new SqliteHostFactory();
+        await CreateOwnerAsync(factory);
+        using var owner = await LoggedInClientAsync(factory);
+        var empty = WebUtility.HtmlDecode(await owner.GetStringAsync("/dashboard"));
+        var create = empty.IndexOf("id=\"create-project\"", StringComparison.Ordinal);
+        Assert.True(create >= 0);
+        Assert.True(create < empty.IndexOf("Connect a game", StringComparison.Ordinal));
+        Assert.True(create < empty.IndexOf("<summary>Import or export</summary>", StringComparison.Ordinal));
+        Assert.Single(System.Text.RegularExpressions.Regex.Matches(empty, ">Projects</h[12]>"));
+        Assert.DoesNotContain("Management coverage", empty);
+        Assert.DoesNotContain("parity", empty);
+        Assert.Contains("claude mcp add sbox-ns -- ssh my-vps sudo sbox-ns mcp", empty);
+        Assert.Contains("\"sbox-ns\": { \"command\": \"sbox-ns\", \"args\": [\"mcp\"] }", empty);
+        Assert.Contains("/plugin marketplace add sbox-cool/sbox-network-storage-server", empty);
+        Assert.Contains("/plugin install sbox-ns@sbox-ns", empty);
+        foreach (var setting in new[] { "mcp.allow_writes", "mcp.allow_data_writes", "mcp.allow_destructive" })
+            Assert.Contains($"<code>sbox-ns config set {setting} true</code><button type=\"button\" class=\"secondary\" data-copy-previous>", empty);
+
+        var project = await factory.CreateProjectAsync("Agent game");
+        var listed = WebUtility.HtmlDecode(await owner.GetStringAsync("/dashboard"));
+        Assert.DoesNotContain("<summary>Import or export</summary>", listed);
+        Assert.Contains("Import a portable project", listed);
+
+        var overview = WebUtility.HtmlDecode(await owner.GetStringAsync($"/dashboard/projects/{project.ProjectId}"));
+        Assert.Contains($"My sbox-ns project ID is {project.ProjectId}. Use the sbox-ns MCP tools", overview);
+        Assert.DoesNotContain("parity", overview);
+        // Advanced settings start folded, each with a sentence and a doc link; the revision policy says it never blocks.
+        foreach (var summary in new[] { "Player keys", "Player projections", "Revision policy \\(applied by the client library\\)", "Auth sessions and encrypted requests" })
+            Assert.Matches($"<details class=\"(card )?settings-advanced\">\\s*<summary>{summary}</summary>", overview);
+        Assert.Contains("This server does not block any request.", overview);
+        foreach (var anchor in new[] { "auth-sessions", "encrypted-requests", "player-key-mode", "legacy-player-projections", "revision-policy" })
+            Assert.Contains($"docs/admin-panel.md#{anchor}\"", overview);
     }
 
     [Fact]

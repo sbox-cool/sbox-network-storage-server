@@ -6,12 +6,20 @@ using Microsoft.AspNetCore.Mvc;
 using SboxNetworkStorage.Application.Common;
 using SboxNetworkStorage.Application.NetworkStorage;
 using SboxNetworkStorage.Application.Workspace;
+using SboxNetworkStorage.Server.Configuration;
+using SboxNetworkStorage.Server.Hosting;
 
 namespace SboxNetworkStorage.Server.Owner;
 
 public sealed record OwnerPage(string Slug, string Title, string Type, string Content, string? CreatedAt, string? UpdatedAt);
+
+/// <param name="BaseUrl">server.public_url, or the origin the dashboard was opened with (<see cref="ServerBaseUrl.ForRequest"/>).</param>
 public sealed record OwnerPagesModel(string ProjectId, string ProjectName, IReadOnlyList<OwnerPage> Pages, OwnerPage? Editing,
-    string? Error = null, bool Saved = false);
+    string BaseUrl, string? Error = null, bool Saved = false)
+{
+    /// <summary>Absolute public URL of a page.</summary>
+    public string PublicUrl(string slug) => $"{BaseUrl}/pages/{Uri.EscapeDataString(ProjectId)}/{Uri.EscapeDataString(slug)}";
+}
 
 /// <summary>
 /// Published pages served publicly at <c>/pages/{project}/{slug}</c> (and <c>/api/pages/...</c>) by
@@ -19,7 +27,7 @@ public sealed record OwnerPagesModel(string ProjectId, string ProjectName, IRead
 /// </summary>
 [Authorize(AuthenticationSchemes = OwnerHostingExtensions.Scheme)]
 public sealed partial class OwnerPagesController(INetworkStorageProjectService projects, INetworkStorageStore store,
-    IWorkspaceStore workspace, IAuditLogger audit) : Controller
+    IWorkspaceStore workspace, IAuditLogger audit, EffectiveConfig config) : Controller
 {
     private const string Route = "/dashboard/projects/{projectId}/pages";
     private const int MaxContentLength = 100_000;
@@ -118,6 +126,6 @@ public sealed partial class OwnerPagesController(INetworkStorageProjectService p
             pages.Add(new OwnerPage(slug, OwnerProjectScope.Text(content, "title") ?? OwnerProjectScope.Text(row, "title") ?? slug, type, text,
                 OwnerProjectScope.Text(content, "createdAt"), OwnerProjectScope.Text(content, "updatedAt")));
         }
-        return new OwnerPagesModel(projectId, project.Name, pages, null);
+        return new OwnerPagesModel(projectId, project.Name, pages, null, ServerBaseUrl.ForRequest(config, Request));
     }
 }

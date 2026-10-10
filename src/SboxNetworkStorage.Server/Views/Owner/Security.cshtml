@@ -17,7 +17,8 @@
     }
     else if (Model.Secret is not null)
     {
-        <p>Add an account manually to your authenticator app. Use this secret with time-based codes, SHA-1, six digits, and a 30-second period.</p>
+        <p>On a phone, open this link to add the account to your authenticator app: <a href="@Model.EnrollmentUri">Add to authenticator app</a></p>
+        <p>Or add the account manually with this secret, using time-based codes, SHA-1, six digits and a 30-second period.</p>
         <pre>@Model.Secret</pre>
         <p>The secret is not activated until you confirm a valid code. Enrollment expires after ten minutes.</p>
         <form method="post" action="/dashboard/security/enroll">

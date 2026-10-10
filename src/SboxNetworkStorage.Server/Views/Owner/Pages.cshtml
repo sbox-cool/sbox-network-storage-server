@@ -18,11 +18,23 @@
         <div class="section-heading"><h2>@(isExisting ? "Edit " + editing!.Title : "New page")</h2>
             @if (isExisting)
             {
-                <div class="actions"><a class="button secondary" href="/pages/@Uri.EscapeDataString(Model.ProjectId)/@Uri.EscapeDataString(editing!.Slug)" rel="noreferrer">Open public JSON</a>
+                <div class="actions"><a class="button secondary" href="@Model.PublicUrl(editing!.Slug)" rel="noreferrer">Open public JSON</a>
                 <form method="post" action="@url/pages/delete">@Html.AntiForgeryToken()<input type="hidden" name="slug" value="@editing.Slug" /><button class="danger" type="submit" data-confirm="Delete the page &quot;@editing.Slug&quot;? Its public URL stops working.">Delete page</button></form></div>
             }
         </div>
-        @if (isExisting) { <p class="muted">Public URL: <code>/pages/@Model.ProjectId/@(editing!.Slug)</code>@(editing.UpdatedAt is null ? "" : " · updated " + editing.UpdatedAt)</p> }
+        @if (isExisting)
+        {
+            var publicUrl = Model.PublicUrl(editing!.Slug);
+            var field = editing.Type == "keyvalue" ? "data" : "markdown";
+            <p class="muted">Public URL, no key needed@(editing.UpdatedAt is null ? "" : " · updated " + editing.UpdatedAt)</p>
+            <div class="copy-row"><pre>@publicUrl</pre><button type="button" class="secondary" data-copy-previous>Copy</button></div>
+            <details class="resource-tools"><summary>Fetch it from the game</summary>
+                <p class="muted">The response is JSON with <code>title</code>, <code>updatedAt</code> and <code>@field</code>@(editing.Type == "keyvalue" ? " (your object)" : " (the page text)").</p>
+                <div class="copy-row"><pre>var page = await Http.RequestJsonAsync&lt;JsonElement&gt;( "@publicUrl" );
+var @(field) = page.GetProperty( "@field" );</pre><button type="button" class="secondary" data-copy-previous>Copy</button></div>
+                <p class="muted">From a terminal: <code>curl @publicUrl</code></p>
+            </details>
+        }
         <form method="post" action="@url/pages">
             @Html.AntiForgeryToken()
             <input type="hidden" name="originalSlug" value="@(isExisting ? editing!.Slug : "")" />
