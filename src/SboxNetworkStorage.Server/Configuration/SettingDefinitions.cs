@@ -135,6 +135,12 @@ public static class SettingDefinitions
             "Send anonymous usage statistics once a day. Off by default; manage with telemetry enable/disable and inspect with telemetry preview."),
         new(ServerFile, "telemetry.endpoint", SettingType.String, "https://sboxcool.com/api/network-storage/telemetry",
             "Anonymous usage statistics endpoint. HTTPS required except loopback testing. No request is sent unless telemetry.enabled is true."),
+        new(ServerFile, "mcp.allow_writes", SettingType.Boolean, false,
+            "Let coding agents (sbox-ns mcp) save definitions: collections, endpoints, workflows, queries and game values. Off by default. Saves go to the staged revision unless the agent asks for live."),
+        new(ServerFile, "mcp.allow_data_writes", SettingType.Boolean, false,
+            "Let coding agents create and change player and global records. Off by default. A wrong write changes real player data."),
+        new(ServerFile, "mcp.allow_destructive", SettingType.Boolean, false,
+            "Let coding agents delete definitions and records, revoke API keys and delete projects. Off by default. These cannot be undone except from a backup."),
 
         new(DatabaseFile, "database.provider", SettingType.String, "sqlite",
             "Database backend.", ["sqlite", "postgres"]),

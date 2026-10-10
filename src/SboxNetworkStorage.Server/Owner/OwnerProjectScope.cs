@@ -46,4 +46,30 @@ internal static class OwnerProjectScope
             return null;
         }
     }
+
+    /// <summary>
+    /// A sample object for a schema's <c>properties</c> (endpoint input, collection schema): each declared
+    /// default, else a value of the declared type.
+    /// </summary>
+    public static Dictionary<string, object?> SchemaSkeleton(JsonElement schema)
+    {
+        var sample = new Dictionary<string, object?>(StringComparer.Ordinal);
+        if (schema.ValueKind != JsonValueKind.Object || !schema.TryGetProperty("properties", out var properties)
+            || properties.ValueKind != JsonValueKind.Object)
+            return sample;
+        foreach (var property in properties.EnumerateObject())
+        {
+            sample[property.Name] = property.Value.ValueKind == JsonValueKind.Object && property.Value.TryGetProperty("default", out var fallback)
+                ? fallback.Clone()
+                : Text(property.Value, "type") switch
+                {
+                    "number" or "integer" => 0,
+                    "boolean" => false,
+                    "array" => Array.Empty<object>(),
+                    "object" => new Dictionary<string, object?>(),
+                    _ => "",
+                };
+        }
+        return sample;
+    }
 }

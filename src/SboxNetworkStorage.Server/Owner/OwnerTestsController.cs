@@ -189,26 +189,7 @@ public sealed class OwnerTestsController(INetworkStorageProjectService projects,
 
     /// <summary>Input skeleton from the endpoint's <c>input.properties</c>: declared defaults, else a value of the declared type.</summary>
     private static string InputTemplate(JsonElement? definition)
-    {
-        var input = new Dictionary<string, object?>(StringComparer.Ordinal);
-        if (definition is { ValueKind: JsonValueKind.Object } def && def.TryGetProperty("input", out var schema)
-            && schema.ValueKind == JsonValueKind.Object && schema.TryGetProperty("properties", out var properties)
-            && properties.ValueKind == JsonValueKind.Object)
-        {
-            foreach (var property in properties.EnumerateObject())
-            {
-                input[property.Name] = property.Value.ValueKind == JsonValueKind.Object && property.Value.TryGetProperty("default", out var fallback)
-                    ? fallback.Clone()
-                    : OwnerProjectScope.Text(property.Value, "type") switch
-                    {
-                        "number" or "integer" => 0,
-                        "boolean" => false,
-                        "array" => Array.Empty<object>(),
-                        "object" => new Dictionary<string, object?>(),
-                        _ => "",
-                    };
-            }
-        }
-        return JsonSerializer.Serialize(input, Indented);
-    }
+        => JsonSerializer.Serialize(definition is { ValueKind: JsonValueKind.Object } def && def.TryGetProperty("input", out var schema)
+            ? OwnerProjectScope.SchemaSkeleton(schema)
+            : new Dictionary<string, object?>(), Indented);
 }

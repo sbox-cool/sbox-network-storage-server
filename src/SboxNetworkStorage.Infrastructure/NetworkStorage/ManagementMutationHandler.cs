@@ -68,10 +68,12 @@ public sealed partial class ManagementMutationHandler : INetworkStorageHandler
     /// <summary>
     /// Owner-panel adapter sharing the editor compiler and native management writes; never creates a credential.
     /// <paramref name="versionSource"/> labels the endpoint/workflow version snapshot this save records.
+    /// <paramref name="targetsNext"/> stages endpoints and collections like a Sync Tool Push Staged (see
+    /// <see cref="NetworkStorageRequest.TargetsNext"/>); other kinds always write live.
     /// </summary>
     public async Task<NetworkStorageResult> SaveOwnerResourceAsync(
         long ownerUserId, string projectId, string kind, JsonElement resource, CancellationToken ct,
-        string versionSource = "owner-dashboard")
+        string versionSource = "owner-dashboard", bool targetsNext = false)
     {
         var projects = await _workspaceClient.GetUserProjectsAsync(ownerUserId, ct);
         if (!projects.Any(project => project.Id == projectId))
@@ -95,7 +97,10 @@ public sealed partial class ManagementMutationHandler : INetworkStorageHandler
         var section = kind switch { "game-values" => kind, "query" => "queries", _ => kind + "s" };
         var route = NetworkStorageRouteClassifier.Classify("POST", $"/v3/manage/{projectId}/{section}");
         var request = new NetworkStorageRequest(route, new Dictionary<string, string>(), "application/json",
-            new Dictionary<string, bool>(), NetworkStorageCredentials.None, compiled.GetRawText(), ownerUserId, ct);
+            new Dictionary<string, bool>(), NetworkStorageCredentials.None, compiled.GetRawText(), ownerUserId, ct)
+        {
+            TargetsNext = targetsNext,
+        };
         if (kind == "game-values") return await PutGameValuesAsync(request, projectId);
         if (kind == "query")
         {
@@ -273,7 +278,7 @@ public sealed partial class ManagementMutationHandler : INetworkStorageHandler
         long ownerUserId,
         string authDecision)
     {
-        var testContext = await TestContextAsync(request, ownerUserId, projectId);
+        var testContext = await TestContextAsync(request.TargetsNext, ownerUserId, projectId, request.CancellationToken);
         return await NetworkStorageManagementAutoTestRunner.RunAsync(
             request, projectId, ownerUserId, authDecision, _store, testContext.Executor, testContext.Overlay);
     }
