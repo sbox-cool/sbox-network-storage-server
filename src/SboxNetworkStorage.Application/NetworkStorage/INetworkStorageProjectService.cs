@@ -31,7 +31,10 @@ public sealed record CollectionResource(
     string? RevisionTarget,
     bool HasStaged,
     int MaxRecords = 1,
-    bool AllowRecordDelete = false
+    bool AllowRecordDelete = false,
+    // "public" lets game clients (public keys) use the direct document API;
+    // anything else (missing, "endpoint", "private") is endpoint-only.
+    string? AccessMode = null
 );
 
 public sealed record EndpointResource(

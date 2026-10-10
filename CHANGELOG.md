@@ -18,6 +18,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - HTTP requests have route-specific body limits and per-client rate limits.
   Management and heartbeat authentication runs before reading request bodies;
   unauthenticated requests do not generate usage rows.
+- The direct document API (`/v3/storage/{projectId}/{collection}/{key}`) enforces
+  the collection access model for public game keys: `accessMode: endpoint` (also
+  the default when unset) answers `403 ENDPOINT_ONLY`, deletes need
+  `allowRecordDelete` (`403 RECORD_DELETE_DISABLED`), and projects that require
+  s&box auth verify the player and only let them change their own documents.
+  Public keys could previously read, overwrite and delete any document. Secret
+  keys are unchanged. Collections that game clients write directly must declare
+  `accessMode: public`.
 
 ### Changed
 - 0.5.1 runtime: .NET 10, a non-root chiseled container, signed release manifests,
