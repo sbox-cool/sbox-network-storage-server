@@ -34,7 +34,21 @@ public sealed class OwnerAuthController(OwnerAccountService accounts, OwnerSetup
         if (!await turnstile.VerifyAsync(verification, "owner_login", HttpContext.Connection.RemoteIpAddress, ct)) return StatusCode(403);
         var owner = password is { Length: >= 1 and <= 1024 } && username is { Length: >= 1 and <= 64 }
             ? await accounts.AuthenticateAsync(username, password, ct) : null;
-        if (owner is null || owner.TotpSecret is not null && !await accounts.VerifySecondFactorAsync(owner.SecurityStamp, secondFactor, ct))
+        bool secondFactorOk;
+        try
+        {
+            secondFactorOk = owner is not null && (owner.TotpSecret is null || await accounts.VerifySecondFactorAsync(owner.SecurityStamp, secondFactor, ct));
+        }
+        catch (OwnerAuthenticatorUnavailableException ex)
+        {
+            logger.LogWarning(ex, "Owner authenticator secret cannot be decrypted with this server's key ring (restored from another machine?). Run sbox-ns admin reset-2fa on the server.");
+            Response.StatusCode = StatusCodes.Status401Unauthorized;
+            return View("~/Views/Owner/Auth.cshtml", new OwnerAuthModel(false,
+                Error: "This server cannot read your authenticator, for example after a restore on another machine. Sign in with a recovery code, or run sbox-ns admin reset-2fa on the server and sign in with your password.",
+                Username: username));
+        }
+
+        if (owner is null || !secondFactorOk)
         {
             Response.StatusCode = StatusCodes.Status401Unauthorized;
             return View("~/Views/Owner/Auth.cshtml", new OwnerAuthModel(false, Error: "Invalid credentials or authenticator/recovery code.", Username: username));

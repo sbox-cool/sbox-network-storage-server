@@ -305,6 +305,10 @@ not activate 2FA until confirmation succeeds.
 Save the ten recovery codes offline. Each works once. Enrollment and local
 reset invalidate existing owner sessions. Password reset does not remove 2FA.
 With local server access, recover using `sbox-ns admin reset-2fa`.
+The authenticator is encrypted with a key kept in the data folder, which an
+export does not include. After a restore on another machine, sign-in says the
+server cannot read your authenticator: use a recovery code, or run
+`sbox-ns admin reset-2fa` and sign in with your password.
 Shell-issued login links remain a local-operator recovery capability, so
 protect SSH access and the configuration/data directories too.
 

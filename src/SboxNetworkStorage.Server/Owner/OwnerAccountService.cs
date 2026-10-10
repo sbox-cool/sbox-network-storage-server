@@ -78,19 +78,32 @@ public sealed class OwnerAccountService(INetworkStorageStore store, EffectiveCon
         return codes;
     }
 
+    /// <summary>
+    /// Checks an authenticator or recovery code. The authenticator secret is encrypted with a key ring kept in the data
+    /// folder, which an export does not carry, so after a restore onto another machine it cannot be read here. Recovery
+    /// codes (stored as hashes) still work then; anything else throws <see cref="OwnerAuthenticatorUnavailableException"/>.
+    /// </summary>
     public async Task<bool> VerifySecondFactorAsync(string stamp, string? code, CancellationToken ct)
     {
         var accepted = false;
         await UpdateSecurityAsync(account =>
         {
             if (account.SecurityStamp != stamp || account.TotpSecret is null) return account;
-            var step = OwnerTotp.Match(Protector().Unprotect(account.TotpSecret), code, account.TotpLastStep, DateTimeOffset.UtcNow);
-            if (step is not null) { accepted = true; return account with { TotpLastStep = step.Value }; }
-            if (code is not { Length: 32 }) return account;
-            var hash = OwnerTotp.RecoveryHash(code);
-            if (!(account.RecoveryHashes ?? []).Contains(hash, StringComparer.Ordinal)) return account;
-            accepted = true;
-            return account with { RecoveryHashes = account.RecoveryHashes!.Where(value => value != hash).ToArray() };
+            CryptographicException? unreadable = null;
+            try
+            {
+                var step = OwnerTotp.Match(Protector().Unprotect(account.TotpSecret), code, account.TotpLastStep, DateTimeOffset.UtcNow);
+                if (step is not null) { accepted = true; return account with { TotpLastStep = step.Value }; }
+            }
+            catch (CryptographicException ex) { unreadable = ex; }
+            var hash = code is { Length: 32 } ? OwnerTotp.RecoveryHash(code) : null;
+            if (hash is not null && (account.RecoveryHashes ?? []).Contains(hash, StringComparer.Ordinal))
+            {
+                accepted = true;
+                return account with { RecoveryHashes = account.RecoveryHashes!.Where(value => value != hash).ToArray() };
+            }
+
+            return unreadable is null ? account : throw new OwnerAuthenticatorUnavailableException(unreadable);
         }, ct);
         return accepted;
     }
@@ -176,3 +189,7 @@ public sealed class OwnerSetupToken
         _ => -1
     };
 }
+
+/// <summary>The stored authenticator secret cannot be decrypted with this server's key ring (for example after a restore).</summary>
+public sealed class OwnerAuthenticatorUnavailableException(Exception inner)
+    : Exception("The owner authenticator cannot be read on this server.", inner);
