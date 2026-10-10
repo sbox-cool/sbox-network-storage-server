@@ -8,12 +8,15 @@ namespace SboxNetworkStorage.Server.Cli;
 
 /// <summary>
 /// Model Context Protocol server over stdio (<c>sbox-ns mcp</c>). Coding
-/// agents connect with a command such as <c>ssh my-vps sbox-ns mcp</c>, so
+/// agents connect with a command such as <c>ssh my-vps sudo sbox-ns mcp</c>, so
 /// nothing is exposed on the network and the agent acts with exactly the
 /// permissions of that shell login. Every tool runs the same <c>sbox-ns</c>
 /// binary as a child process with a fixed argument shape: tools are an
-/// allowlist, not arbitrary command execution, and destructive operations
-/// (restore, import, project delete, key revoke) are deliberately absent.
+/// allowlist, not arbitrary command execution. Development tools run
+/// <c>sbox-ns dev &lt;tool&gt;</c> with their arguments as JSON on stdin, never on
+/// the command line. Tools that change definitions or data, or delete anything,
+/// refuse to run until the operator turns on the matching <c>mcp.allow_*</c>
+/// setting; database restore and import are never available.
 /// </summary>
 public sealed class McpServer
 {
@@ -21,10 +24,10 @@ public sealed class McpServer
 
     private static readonly string[] SupportedProtocolVersions = ["2025-06-18", "2025-03-26", "2024-11-05"];
 
-    private readonly Func<IReadOnlyList<string>, CancellationToken, Task<CommandResult>> _runCommand;
+    private readonly Func<IReadOnlyList<string>, string?, CancellationToken, Task<CommandResult>> _runCommand;
     private readonly IReadOnlyList<string> _globalArgs;
 
-    public McpServer(Func<IReadOnlyList<string>, CancellationToken, Task<CommandResult>> runCommand, IReadOnlyList<string> globalArgs)
+    public McpServer(Func<IReadOnlyList<string>, string?, CancellationToken, Task<CommandResult>> runCommand, IReadOnlyList<string> globalArgs)
     {
         _runCommand = runCommand;
         _globalArgs = globalArgs;
@@ -32,7 +35,12 @@ public sealed class McpServer
 
     public sealed record CommandResult(int ExitCode, string Output, string Error);
 
-    private sealed record Tool(string Name, string Description, JsonObject InputSchema, Func<JsonObject, IReadOnlyList<string>> BuildArgs);
+    /// <summary>A tool: its argument list, and optionally a stdin payload (development tools pass their arguments there).</summary>
+    private sealed record Tool(string Name, string Description, JsonObject InputSchema, Func<JsonObject, IReadOnlyList<string>> BuildArgs,
+        Func<JsonObject, string?>? BuildStdin = null);
+
+    /// <summary>Tool names, for tests and the agent plugin's consistency check.</summary>
+    public static IEnumerable<string> ToolNames => Tools.Select(tool => tool.Name);
 
     private static JsonObject Schema(params (string Name, string Type, string Description, bool Required)[] properties)
     {
@@ -63,7 +71,8 @@ public sealed class McpServer
             Schema(), _ => ["telemetry", "status"]),
         new("quickstart", "Configure the server if needed, create or reuse a project by name, ensure public and secret keys, and return the C# NetworkStorage.Configure line for the game. Safe to re-run; the secret key is only returned when newly created.",
             Schema(("name", "string", "Project name, e.g. \"My Game\".", true),
-                   ("publicUrl", "string", "Address players use, e.g. https://ns.example.com (only applied on first configuration).", false)),
+                   ("publicUrl", "string", "Address players use, e.g. https://ns.example.com (only applied on first configuration).", false),
+                   ("requireSboxAuth", "boolean", "Only for a new project. Default true: every player request must carry a valid s&box token, which headless tests and plain HTTP clients do not have. Set false only for a development project.", false)),
             a =>
             {
                 var args = new List<string> { "quickstart", RequireString(a, "name"), "--json" };
@@ -73,16 +82,22 @@ public sealed class McpServer
                     args.Add(url);
                 }
 
+                if (OptionalBoolean(a, "requireSboxAuth") == false)
+                {
+                    args.Add("--require-sbox-auth");
+                    args.Add("false");
+                }
+
                 return args;
             }),
-        new("project_list", "List projects on this server.", Schema(), _ => ["project", "list"]),
+        new("project_list", "List projects on this server (JSON).", Schema(), _ => ["project", "list", "--json"]),
         new("project_create", "Create a project. Prefer quickstart unless separate keys are managed manually.",
             Schema(("name", "string", "Project name.", true)),
             a => ["project", "create", RequireString(a, "name")]),
-        new("key_list", "List API keys for a project (secret keys are masked).",
+        new("key_list", "List API keys for a project (JSON; secret keys are masked).",
             Schema(("projectId", "string", "Project id (proj_...).", true)),
-            a => ["key", "list", RequireString(a, "projectId")]),
-        new("key_create", "Create a public (game client) or secret (editor sync / dedicated server) key. Secret keys are shown once.",
+            a => ["key", "list", RequireString(a, "projectId"), "--json"]),
+        new("key_create", "Create a public (game client) or secret (editor sync / dedicated server) key. Secret keys are shown once, and the value lands in this conversation and your model provider's logs.",
             Schema(("projectId", "string", "Project id (proj_...).", true),
                    ("type", "string", "public or secret.", true),
                    ("label", "string", "Optional label.", false)),
@@ -128,8 +143,115 @@ public sealed class McpServer
         new("db_backup", "Write a consistent database backup and return its path.", Schema(), _ => ["db", "backup"]),
         new("update_check", "Check for a newer release (never installs anything).", Schema(), _ => ["update", "--check"]),
         new("service_status", "Show the installed system service status.", Schema(), _ => ["service", "status"]),
-        new("service_restart", "Validate config, then restart the installed service.", Schema(), _ => ["service", "restart"]),
+        new("service_restart", "Validate config, then restart the installed service. Needs root.", Schema(), _ => ["service", "restart"]),
+        new("dashboard_link", "Create a single-use owner dashboard sign-in link for the developer to open. The link is a credential valid for the given minutes (1 to 15); it appears in this conversation.",
+            Schema(("minutes", "integer", "Minutes the link stays valid, 1 to 15. Default 10.", false)),
+            a =>
+            {
+                var minutes = OptionalInteger(a, "minutes") ?? 10;
+                if (minutes is < 1 or > 15) throw new McpToolException("minutes must be from 1 to 15");
+                return ["admin", "login-link", "--minutes", minutes.ToString(System.Globalization.CultureInfo.InvariantCulture)];
+            }),
+
+        // Development loop: definitions, dry runs, logs, data. Arguments travel as JSON on stdin.
+        Dev("definitions_list", "List a project's collections, endpoints, workflows, queries and game values, plus staged (next revision) endpoints and collections.",
+            P("projectId", "string", "Project id (proj_...).", true), P("kind", "string", "Optional: collection, endpoint, workflow, query or game-values.")),
+        Dev("definition_get", "Read one definition as YAML source (the file the Sync Tool keeps under Editor/Network Storage/<kind>/<id>.yml), plus its staged copy if one exists.",
+            P("projectId", "string", "Project id.", true), P("kind", "string", "collection, endpoint, workflow, query or game-values.", true),
+            P("id", "string", "Definition id or slug (not needed for game-values).")),
+        Dev("definition_check", "Validate YAML source exactly as saving would, without saving. Returns diagnostics with code, path and message.",
+            P("projectId", "string", "Project id.", true), P("kind", "string", "collection, endpoint, workflow, query or game-values.", true),
+            P("source", "string", "The YAML source text.", true), P("id", "string", "Existing id when editing (the id cannot change).")),
+        Dev("definition_save", $"Save YAML source. Off unless the operator set {DevCommands.WritesSetting} = true. Endpoints and collections go to the staged (next) revision by default, which leaves live games untouched until the next game package sync; target live changes running games within about a minute. Requires confirm = \"<projectId>/<kind>/<id>\". Audited as mcp.",
+            P("projectId", "string", "Project id.", true), P("kind", "string", "collection, endpoint, workflow, query or game-values.", true),
+            P("source", "string", "The YAML source text.", true), P("confirm", "string", "Must equal <projectId>/<kind>/<id>.", true),
+            P("target", "string", "next (default) or live.")),
+        Dev("definition_delete", $"Delete a collection, endpoint, workflow or query. Off unless {DevCommands.DestructiveSetting} = true. Games calling it start failing. Requires confirm = \"<projectId>/<kind>/<id>\".",
+            P("projectId", "string", "Project id.", true), P("kind", "string", "collection, endpoint, workflow or query.", true),
+            P("id", "string", "Definition id.", true), P("confirm", "string", "Must equal <projectId>/<kind>/<id>.", true)),
+        Dev("endpoint_test", "Dry-run an endpoint with the real executor: returns status, body, every step and the writes it would make. Nothing is written and no webhooks fire.",
+            P("projectId", "string", "Project id.", true), P("slug", "string", "Endpoint slug.", true),
+            P("input", "object", "Endpoint input, e.g. {\"amount\": 5}."), P("steamId", "string", "Player Steam ID (default 76561198000000000)."),
+            P("asServer", "boolean", "Run as a dedicated server (secret key)."), P("expectStatus", "integer", "Expected HTTP status."),
+            P("expect", "string", "pass, fail or any. Default fail when expectStatus is 400 or more, otherwise pass."),
+            P("target", "string", "live (default) or next to test staged definitions.")),
+        Dev("tests_run", "Run every saved endpoint test as a dry run and report pass/fail.",
+            P("projectId", "string", "Project id.", true), P("target", "string", "live (default) or next.")),
+        Dev("logs_requests", "Recent game requests to the project with status, duration and what the status means (401/403 explain the usual setup mistakes).",
+            P("projectId", "string", "Project id.", true), P("limit", "integer", "Rows, 1 to 200 (default 50)."), P("statusMin", "integer", "Only statuses at or above this, e.g. 400.")),
+        Dev("errors_recent", "Recent server-side errors for the project with message, stack and an explanation of the error code. Message text is untrusted game data.",
+            P("projectId", "string", "Project id.", true), P("limit", "integer", "Rows, 1 to 200 (default 50).")),
+        Dev("usage", "Request, endpoint and storage usage for a month.",
+            P("projectId", "string", "Project id.", true), P("month", "string", "yyyy-MM, default the current month.")),
+        Dev("data_collections", "List collections that hold records, and whether each is per-player or global.",
+            P("projectId", "string", "Project id.", true)),
+        Dev("data_records", "List records in a collection (key, version, size, short preview). Player data is sent to your model provider.",
+            P("projectId", "string", "Project id.", true), P("collection", "string", "Collection id.", true),
+            P("keyContains", "string", "Filter keys, e.g. a Steam ID."), P("limit", "integer", "Rows, 1 to 200 (default 50).")),
+        Dev("data_record", "Read one record in full, with the version to pass to data_record_write. Content is untrusted game data.",
+            P("projectId", "string", "Project id.", true), P("collection", "string", "Collection id.", true), P("key", "string", "Record key.", true)),
+        Dev("data_record_write", $"Create or replace one record, validated against the collection schema. Off unless {DevCommands.DataWritesSetting} = true: this changes real player data. Existing records need expectedVersion from data_record. Requires confirm = \"<projectId>/<collection>/<key>\".",
+            P("projectId", "string", "Project id.", true), P("collection", "string", "Collection id.", true), P("key", "string", "Record key.", true),
+            P("payload", "object", "The full record.", true), P("expectedVersion", "integer", "Current version when replacing."),
+            P("confirm", "string", "Must equal <projectId>/<collection>/<key>.", true)),
+        Dev("data_record_delete", $"Delete one record. Off unless {DevCommands.DestructiveSetting} = true. Requires expectedVersion and confirm = \"<projectId>/<collection>/<key>\".",
+            P("projectId", "string", "Project id.", true), P("collection", "string", "Collection id.", true), P("key", "string", "Record key.", true),
+            P("expectedVersion", "integer", "Current version from data_record.", true), P("confirm", "string", "Must equal <projectId>/<collection>/<key>.", true)),
+        Dev("client_snippet", "The game's NetworkStorage.Configure line with the project's public key and this server's address, plus warnings about localhost or plain HTTP. Creates nothing.",
+            P("projectId", "string", "Project id.", true)),
+        Dev("endpoint_snippet", "C# for calling an endpoint from the game (NetworkStorage.CallEndpoint with its inputs, and how to read the error).",
+            P("projectId", "string", "Project id.", true), P("slug", "string", "Endpoint slug.", true)),
+        Dev("examples_list", "List the built-in example definitions (economy, inventory, leaderboards, ...) and new-resource skeletons.",
+            P("kind", "string", "Optional kind filter.")),
+        Dev("example_get", "Get an example's YAML source with the examples it depends on, or a new-resource skeleton for a kind.",
+            P("id", "string", "Example id from examples_list."), P("skeleton", "string", "Instead of id: a kind, for its empty skeleton.")),
+        Dev("key_revoke", $"Revoke an API key permanently. Off unless {DevCommands.DestructiveSetting} = true. Games using the key stop working. Requires confirm = \"<projectId>/<key>\".",
+            P("projectId", "string", "Project id.", true), P("key", "string", "The key as shown by key_list.", true), P("confirm", "string", "Must equal <projectId>/<key>.", true)),
+        Dev("project_delete", $"Delete a project and all of its player data. Off unless {DevCommands.DestructiveSetting} = true. Take a backup first (db_backup). Requires confirm = \"<projectId>\".",
+            P("projectId", "string", "Project id.", true), P("confirm", "string", "Must equal the project id.", true)),
     ];
+
+    private sealed record Parameter(string Name, string Type, string Description, bool Required);
+
+    private static Parameter P(string name, string type, string description, bool required = false) => new(name, type, description, required);
+
+    /// <summary>A development tool: <c>sbox-ns dev &lt;name&gt;</c> with the type-checked arguments as JSON on stdin.</summary>
+    private static Tool Dev(string name, string description, params Parameter[] parameters)
+    {
+        if (!DevCommands.Tools.ContainsKey(name)) throw new InvalidOperationException($"no dev command for {name}");
+        var schema = Schema(parameters.Select(p => (p.Name, p.Type, p.Description, p.Required)).ToArray());
+        return new Tool(name, description, schema, _ => ["dev", name], a => CheckArguments(a, parameters).ToJsonString());
+    }
+
+    private static JsonObject CheckArguments(JsonObject arguments, Parameter[] parameters)
+    {
+        foreach (var (key, _) in arguments)
+        {
+            if (parameters.All(p => p.Name != key)) throw new McpToolException($"unknown argument '{key}'");
+        }
+
+        foreach (var parameter in parameters)
+        {
+            var node = arguments[parameter.Name];
+            if (node is null)
+            {
+                if (parameter.Required) throw new McpToolException($"missing required argument '{parameter.Name}'");
+                continue;
+            }
+
+            var valid = parameter.Type switch
+            {
+                "object" => node is JsonObject,
+                "string" => node is JsonValue s && s.TryGetValue<string>(out _),
+                "integer" => node is JsonValue i && i.TryGetValue<long>(out _),
+                "boolean" => node is JsonValue b && b.TryGetValue<bool>(out _),
+                _ => false,
+            };
+            if (!valid) throw new McpToolException($"argument '{parameter.Name}' must be {(parameter.Type == "integer" ? "an" : "a")} {parameter.Type}");
+        }
+
+        return arguments;
+    }
 
     public static async Task<int> RunStdioAsync(CliContext context)
     {
@@ -201,6 +323,12 @@ public sealed class McpServer
                 "ping" => Result(id, new JsonObject()),
                 "tools/list" => Result(id, ListTools()),
                 "tools/call" => Result(id, await CallToolAsync(parameters, cancellationToken)),
+                "resources/list" => Result(id, McpContent.ListResources()),
+                "resources/read" => Result(id, McpContent.ReadResource(ParameterString(parameters, "uri") ?? throw new McpToolException("resources/read requires a uri"))),
+                "prompts/list" => Result(id, McpContent.ListPrompts()),
+                "prompts/get" => Result(id, McpContent.GetPrompt(
+                    ParameterString(parameters, "name") ?? throw new McpToolException("prompts/get requires a name"),
+                    parameters["arguments"] as JsonObject ?? new JsonObject())),
                 _ => Error(id, -32601, $"Method not found: {method}"),
             };
         }
@@ -217,9 +345,14 @@ public sealed class McpServer
         return new JsonObject
         {
             ["protocolVersion"] = version,
-            ["capabilities"] = new JsonObject { ["tools"] = new JsonObject { ["listChanged"] = false } },
+            ["capabilities"] = new JsonObject
+            {
+                ["tools"] = new JsonObject { ["listChanged"] = false },
+                ["resources"] = new JsonObject { ["listChanged"] = false },
+                ["prompts"] = new JsonObject { ["listChanged"] = false },
+            },
             ["serverInfo"] = new JsonObject { ["name"] = "sbox-ns", ["version"] = Hosting.BuildInfo.Version },
-            ["instructions"] = "Manage a self-hosted sbox Network Storage server. Start with server_status; use quickstart to create a project and get the game's NetworkStorage.Configure line.",
+            ["instructions"] = McpContent.Instructions,
         };
     }
 
@@ -245,13 +378,27 @@ public sealed class McpServer
         var tool = Tools.FirstOrDefault(t => t.Name == name) ?? throw new McpToolException($"Unknown tool: {name}");
         var arguments = parameters["arguments"] as JsonObject ?? new JsonObject();
         var commandArgs = tool.BuildArgs(arguments).Concat(_globalArgs).ToList();
-        var result = await _runCommand(commandArgs, cancellationToken);
+        var stdin = tool.BuildStdin?.Invoke(arguments);
+        var result = await _runCommand(commandArgs, stdin, cancellationToken);
         var text = string.IsNullOrWhiteSpace(result.Error) ? result.Output : $"{result.Output}\n{result.Error}".Trim();
-        return new JsonObject
+        var response = new JsonObject
         {
             ["content"] = new JsonArray(new JsonObject { ["type"] = "text", ["text"] = text }),
             ["isError"] = result.ExitCode != 0,
         };
+        if (result.Output.StartsWith('{'))
+        {
+            try
+            {
+                if (JsonNode.Parse(result.Output) is JsonObject structured) response["structuredContent"] = structured;
+            }
+            catch (JsonException)
+            {
+                // Plain text that happens to start with a brace.
+            }
+        }
+
+        return response;
     }
 
     private static string? ParameterString(JsonObject parameters, string name)
@@ -295,13 +442,37 @@ public sealed class McpServer
         return string.IsNullOrWhiteSpace(text) ? null : text;
     }
 
+    private static bool? OptionalBoolean(JsonObject arguments, string name)
+    {
+        var node = arguments[name];
+        if (node is null) return null;
+        if (node is not JsonValue value || !value.TryGetValue<bool>(out var flag))
+        {
+            throw new McpToolException($"argument '{name}' must be a boolean");
+        }
+
+        return flag;
+    }
+
+    private static long? OptionalInteger(JsonObject arguments, string name)
+    {
+        var node = arguments[name];
+        if (node is null) return null;
+        if (node is not JsonValue value || !value.TryGetValue<long>(out var number))
+        {
+            throw new McpToolException($"argument '{name}' must be an integer");
+        }
+
+        return number;
+    }
+
     private static JsonObject Result(JsonNode id, JsonObject result)
         => new() { ["jsonrpc"] = "2.0", ["id"] = id, ["result"] = result };
 
     private static JsonObject Error(JsonNode? id, int code, string message)
         => new() { ["jsonrpc"] = "2.0", ["id"] = id, ["error"] = new JsonObject { ["code"] = code, ["message"] = message } };
 
-    private static async Task<CommandResult> RunSelfAsync(IReadOnlyList<string> args, CancellationToken cancellationToken)
+    private static async Task<CommandResult> RunSelfAsync(IReadOnlyList<string> args, string? stdin, CancellationToken cancellationToken)
     {
         var processPath = Environment.ProcessPath ?? throw new McpToolException("cannot determine the sbox-ns executable path");
         var start = new ProcessStartInfo
@@ -329,7 +500,9 @@ public sealed class McpServer
         }
 
         using var process = Process.Start(start) ?? throw new McpToolException("failed to start sbox-ns");
-        process.StandardInput.Close(); // tools are non-interactive
+        // Payloads go through stdin so they never appear in the process list; other tools get an empty stdin.
+        if (stdin is not null) await process.StandardInput.WriteAsync(stdin.AsMemory(), cancellationToken);
+        process.StandardInput.Close();
         var stdout = process.StandardOutput.ReadToEndAsync(cancellationToken);
         var stderr = process.StandardError.ReadToEndAsync(cancellationToken);
         await process.WaitForExitAsync(cancellationToken);

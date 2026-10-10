@@ -227,9 +227,8 @@ public sealed partial class ManagementMutationHandler
         if (spec is null)
             return ValidationFailedResult("test-endpoint", "Provide an endpoint slug, or the testId of a saved test that names an endpoint.");
 
-        var testContext = await TestContextAsync(request, ownerUserId, projectId);
-        var outcome = await new ManagementEndpointTestRunner(_store, testContext.Executor!, testContext.Values, testContext.Overlay)
-            .RunAsync(projectId, ownerUserId, playerKeyMode, spec, request.CancellationToken);
+        var runner = await CreateTestRunnerAsync(ownerUserId, projectId, request.TargetsNext, request.CancellationToken);
+        var outcome = await runner!.RunAsync(projectId, ownerUserId, playerKeyMode, spec, request.CancellationToken);
         return outcome.Found
             ? NetworkStorageResult.Ok(outcome.Body, authDecision: authDecision)
             : NetworkStorageResult.Error(404, "ENDPOINT_NOT_FOUND",
@@ -241,9 +240,8 @@ public sealed partial class ManagementMutationHandler
         string authDecision, CancellationToken ct)
     {
         if (_endpointExecutor is null) return TestRunnerUnavailable(authDecision);
-        var testContext = await TestContextAsync(request, ownerUserId, projectId);
-        var report = await new ManagementEndpointTestRunner(_store, testContext.Executor!, testContext.Values, testContext.Overlay)
-            .RunSavedAsync(projectId, ownerUserId, playerKeyMode, ct);
+        var runner = await CreateTestRunnerAsync(ownerUserId, projectId, request.TargetsNext, ct);
+        var report = await runner!.RunSavedAsync(projectId, ownerUserId, playerKeyMode, ct);
         return NetworkStorageResult.Ok(report, authDecision: authDecision);
     }
 

@@ -42,8 +42,8 @@ public sealed class OwnerResourcesController(INetworkStorageProjectService proje
         var (model, resources) = loaded.Value;
         try
         {
-            var resource = ParseForSave(kind, definition, id, out var resourceId);
-            var (diagnostics, result) = await SaveAsync(projectId, kind, resource, resourceId, resources, ct);
+            var resource = OwnerResourceSource.Parse(kind, definition, id, store.MaxPayloadBytes, out var resourceId);
+            var (diagnostics, result) = await OwnerResourceSource.SaveAsync(mutations, audit, "owner-dashboard", projectId, kind, resource, resourceId, resources, false, ct);
             if (diagnostics.Any(item => item.IsError))
             {
                 Response.StatusCode = StatusCodes.Status400BadRequest;
@@ -69,18 +69,7 @@ public sealed class OwnerResourcesController(INetworkStorageProjectService proje
     {
         var loaded = await LoadAsync(projectId, kind, id, ct);
         if (loaded is null) return NotFound();
-        JsonElement? source = null;
-        IReadOnlyList<DefinitionDiagnostic> diagnostics;
-        try
-        {
-            if (!string.IsNullOrWhiteSpace(definition)) source = OwnerYamlDefinitions.ParseDefinition(definition, out _);
-            var resource = ParseForSave(kind, definition, id, out var resourceId);
-            diagnostics = NetworkStorageDefinitionValidator.ValidateResource(resource, kind, loaded.Value.Resources.ValidationContext(resourceId), out _);
-        }
-        catch (Exception error) when (error is JsonException or ArgumentException)
-        {
-            diagnostics = [new DefinitionDiagnostic("error", "INVALID_DEFINITION", error.Message, "/")];
-        }
+        var diagnostics = OwnerResourceSource.Check(kind, definition, id, loaded.Value.Resources, store.MaxPayloadBytes, out var source, out _);
         return Json(new { ok = !diagnostics.Any(item => item.IsError), diagnostics, source }, Web);
     }
 
@@ -126,8 +115,9 @@ public sealed class OwnerResourcesController(INetworkStorageProjectService proje
             }
             var resource = companion.Kind == "game-values"
                 ? MergeGameValues(resources.GameValues, OwnerYamlDefinitions.ParseDefinition(companion.Source, out _))
-                : WrapDashboardSource(companion.ResourceId, companion.Source, companion.Kind);
-            var (diagnostics, result) = await SaveAsync(projectId, companion.Kind, resource, companion.ResourceId, resources, ct);
+                : OwnerResourceSource.Wrap(companion.ResourceId, companion.Source, companion.Kind);
+            var (diagnostics, result) = await OwnerResourceSource.SaveAsync(mutations, audit, "owner-dashboard", projectId, companion.Kind,
+                resource, companion.ResourceId, resources, false, ct);
             var errors = diagnostics.Where(item => item.IsError).Select(item => item.Message).ToList();
             if (errors.Count > 0 || result is null || result.StatusCode >= 400)
                 failed.Add(new { id = companion.Id, message = errors.Count > 0 ? string.Join(" ", errors) : JsonSerializer.Serialize(result?.Body) });
@@ -136,36 +126,9 @@ public sealed class OwnerResourcesController(INetworkStorageProjectService proje
         return Json(new { created, skipped, failed }, Web);
     }
 
-    private async Task<(IReadOnlyList<DefinitionDiagnostic> Diagnostics, NetworkStorageResult? Result)> SaveAsync(
-        string projectId, string kind, JsonElement resource, string? resourceId, OwnerProjectResources resources, CancellationToken ct)
-    {
-        var diagnostics = NetworkStorageDefinitionValidator.ValidateResource(resource, kind, resources.ValidationContext(resourceId), out _);
-        if (diagnostics.Any(item => item.IsError)) return (diagnostics, null);
-        var result = await mutations.SaveOwnerResourceAsync(Owner, projectId, kind, resource, ct);
-        if (result.StatusCode < 400)
-            await audit.LogActionAsync(new AuditLogRequest(projectId, Owner.ToString(CultureInfo.InvariantCulture), "resource.save",
-                new { type = "owner-dashboard" }, new { kind, id = resourceId }, new { kind, id = resourceId }, null, null), ct);
-        return (diagnostics, result);
-    }
-
-    private JsonElement ParseForSave(string kind, string? definition, string? id, out string? resourceId)
-    {
-        if (string.IsNullOrWhiteSpace(definition)) throw new ArgumentException("Enter a resource definition before saving.");
-        if (Encoding.UTF8.GetByteCount(definition) > store.MaxPayloadBytes) throw new ArgumentException($"Definition exceeds the store limit of {store.MaxPayloadBytes:N0} bytes.");
-        var parsed = OwnerYamlDefinitions.ParseDefinition(definition, out var wasJson);
-        resourceId = null;
-        // Game values are one document per project; the parsed object is stored as-is.
-        if (kind == "game-values") return parsed;
-        resourceId = Text(parsed, "id") ?? Text(parsed, kind == "endpoint" ? "slug" : "name");
-        if (resourceId is null || !StorageIdValidation.IsValidCollectionId(resourceId))
-            throw new ArgumentException("Provide an id containing only letters, numbers, underscores or hyphens (maximum 128 characters). Keep the same id when editing.");
-        if (id is not null && id != resourceId) throw new ArgumentException("An existing resource's id cannot be changed. Create a new resource instead.");
-        return wasJson ? parsed : WrapDashboardSource(resourceId, definition, kind);
-    }
-
     private async Task<(OwnerResourcesModel Model, OwnerProjectResources Resources)?> LoadAsync(string projectId, string kind, string? id, CancellationToken ct)
     {
-        if (kind is not ("collection" or "endpoint" or "workflow" or "query" or "game-values")) return null;
+        if (!OwnerResourceSource.IsKind(kind)) return null;
         var access = await projects.ResolveProjectAccessAsync(Owner, projectId, ct);
         if (access is null || access.StorageOwnerUserId != Owner || !access.CanManage) return null;
         var resources = await OwnerProjectResources.LoadAsync(store, projectId, ct);
@@ -174,15 +137,7 @@ public sealed class OwnerResourcesController(INetworkStorageProjectService proje
         if (id is not null && kind != "game-values" && !items.Any(item => item.Id == id)) return null;
         var value = kind == "game-values" ? resources.GameValues
             : rows.Where(row => Text(row, kind + "_id") == id).Select(row => OwnerProjectResources.Column(row, "definition_json")).FirstOrDefault();
-        string display;
-        if (value is { ValueKind: JsonValueKind.Object } payload)
-        {
-            display = payload.TryGetProperty("sourceText", out var source) && source.ValueKind == JsonValueKind.String
-                && !string.IsNullOrWhiteSpace(source.GetString())
-                ? source.GetString()!
-                : OwnerYamlDefinitions.ToYaml(payload);
-        }
-        else display = OwnerResourceExamples.Skeletons[kind];
+        var display = value is { ValueKind: JsonValueKind.Object } payload ? OwnerResourceSource.DisplayText(payload) : OwnerResourceExamples.Skeletons[kind];
         var model = new OwnerResourcesModel(projectId, access.Project.Name, kind, items, id, display, resources.BuilderJson());
         return (model, resources);
     }
@@ -232,15 +187,4 @@ public sealed class OwnerResourcesController(INetworkStorageProjectService proje
     }
 
     private static string? Text(JsonElement row, string name) => OwnerProjectResources.Text(row, name);
-
-    private static JsonElement WrapDashboardSource(string id, string sourceText, string kind) =>
-        JsonSerializer.SerializeToElement(new Dictionary<string, object?>
-        {
-            ["id"] = id,
-            ["sourceText"] = sourceText,
-            ["sourceFormat"] = "yaml",
-            ["sourcePath"] = $"{kind}/{id}.yml",
-            ["authoringMode"] = "dashboard",
-            ["sourceVersion"] = 1,
-        });
 }

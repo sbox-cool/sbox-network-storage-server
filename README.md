@@ -134,12 +134,20 @@ Quickstart is idempotent: it creates or reuses the project and ensures keys.
 **Treat JSON output as secret material.** It does not configure HTTPS on its own.
 Separate `project create` and `key create` commands remain available.
 
-`sbox-ns mcp` exposes allowlisted management tools over **stdio**, locally or
-through SSH, not an extra public network service. It supports server status,
-quickstart, projects, keys, configuration, backups and selected service/tunnel
-operations. Destructive restore/import/delete/revoke operations are not MCP
-tools. Follow the [MCP guide](docs/mcp.md) for connection configuration,
-permissions and the exact tool list.
+`sbox-ns mcp` exposes allowlisted tools over **stdio**, locally or through SSH,
+not an extra public network service. Besides setup and operations (status,
+quickstart, keys, configuration, backups, tunnel), agents can read and validate
+collection and endpoint YAML, dry-run endpoints, read request logs, errors and
+player records, and get the C# to call an endpoint. Saving definitions,
+changing records and deleting anything stay off until the operator turns on
+`mcp.allow_writes`, `mcp.allow_data_writes` or `mcp.allow_destructive`.
+Database restore and import are never tools. Follow the
+[MCP guide](docs/mcp.md) for connection, permissions and the tool list.
+
+For Claude Code, this repository is a plugin marketplace with the MCP server
+and skills for setup, design, debugging and operations:
+`/plugin marketplace add sbox-cool/sbox-network-storage-server`, then
+`/plugin install sbox-ns@sbox-ns`.
 
 - [llms.txt](llms.txt): focused documentation index for AI assistants.
 - [AGENTS.md](AGENTS.md): repository contributor context and constraints.
@@ -266,7 +274,7 @@ Every key with its default: [docs/configuration.md](docs/configuration.md).
 | `sbox-ns db backup [--output FILE]` / `db restore <FILE>` | Back up and restore (SQLite file copy; PostgreSQL via `pg_dump`/`pg_restore`) |
 | `sbox-ns export [--out FILE] [--no-secrets]` / `import <FILE> [--config]` | Portable, driver-neutral server backup and restore ([guide](docs/export.md)) |
 | `sbox-ns admin login-link [--public-url URL]` | Create a short-lived, single-use owner sign-in or setup link |
-| `sbox-ns mcp` | Serve allowlisted management tools over stdio ([guide](docs/mcp.md)) |
+| `sbox-ns mcp` | Serve tools for coding agents over stdio ([guide](docs/mcp.md)) |
 | `sbox-ns tunnel enable\|status\|disable` | Manage the optional hosted HTTPS connector |
 | `sbox-ns register --email ADDRESS` / `register --remove` | Opt in to confirmed security/update email notices or remove the subscription |
 | `sbox-ns telemetry status\|enable\|disable\|preview` | Inspect, opt in to, opt out of, or preview the anonymous usage statistics (off by default) |

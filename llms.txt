@@ -11,7 +11,7 @@
 
 ## Operators and coding agents
 
-- [MCP](docs/mcp.md): Allowlisted stdio management tools, SSH configuration, permissions and excluded destructive operations.
+- [MCP](docs/mcp.md): stdio tools for coding agents (setup, YAML definitions, dry runs, logs, errors, records), SSH setup, opt-in write permissions, and the Claude Code plugin in `agent-plugin/`.
 - [Configuration](docs/configuration.md): TOML settings, defaults, environment overrides and secrets.
 - [Databases](docs/database.md): SQLite/PostgreSQL storage, schema isolation and database administration.
 - [Owner dashboard](docs/admin-panel.md): Local-owner setup/sign-in, projects, keys, settings, schema-validated record mutations, resource authoring, runtime diagnostics and single-project migration.

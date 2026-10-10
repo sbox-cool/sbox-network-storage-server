@@ -44,7 +44,6 @@ public sealed class OwnerDataController(INetworkStorageProjectService projects, 
     public const int DefaultPageSize = 50;
     public const int MaxPageSize = 200;
     public const int MaxQueryLength = 256;
-    private const int PreviewLength = 160;
     private const long Owner = NetworkStorageServices.LocalOwnerUserId;
     private const string Base = "/dashboard/projects/{projectId}/data";
     private static readonly JsonSerializerOptions Pretty = new() { WriteIndented = true, Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
@@ -57,8 +56,8 @@ public sealed class OwnerDataController(INetworkStorageProjectService projects, 
         var collections = new List<OwnerDataCollection>();
         foreach (var row in await store.ListCollectionsAsync(projectId, ct))
         {
-            if (Describe(row) is not { } collection) continue;
-            collections.Add(collection with { RecordCount = (await LoadRecordsAsync(projectId, collection, ct)).Count });
+            if (OwnerDataRecords.Describe(row) is not { } collection) continue;
+            collections.Add(collection with { RecordCount = (await OwnerDataRecords.LoadAsync(store, projectId, collection, ct)).Count });
         }
         collections.Sort((left, right) => string.CompareOrdinal(left.Id, right.Id));
         return View("~/Views/Owner/Data.cshtml", new OwnerDataModel(projectId, name, collections));
@@ -69,11 +68,11 @@ public sealed class OwnerDataController(INetworkStorageProjectService projects, 
         [FromQuery] int page = 1, [FromQuery] int size = DefaultPageSize, CancellationToken ct = default)
     {
         if (await ProjectNameAsync(projectId, ct) is not { } name) return NotFound();
-        if (await CollectionAsync(projectId, collectionId, ct) is not { } collection) return NotFound();
+        if (await OwnerDataRecords.CollectionAsync(store, projectId, collectionId, ct) is not { } collection) return NotFound();
         q = string.IsNullOrWhiteSpace(q) ? null : q.Trim();
         if (q?.Length > MaxQueryLength) return BadRequest($"Search text may contain at most {MaxQueryLength} characters.");
         size = Math.Clamp(size, 1, MaxPageSize);
-        var all = await LoadRecordsAsync(projectId, collection, ct);
+        var all = await OwnerDataRecords.LoadAsync(store, projectId, collection, ct);
         var matches = all.Where(record => q is null || record.Key.Contains(q, StringComparison.OrdinalIgnoreCase)).ToList();
         var model = new OwnerDataRecordsModel(projectId, name, collection with { RecordCount = all.Count }, [], q, 1, size, matches.Count);
         page = Math.Clamp(page, 1, model.PageCount);
@@ -95,7 +94,7 @@ public sealed class OwnerDataController(INetworkStorageProjectService projects, 
     public async Task<IActionResult> NewRecord(string projectId, string collectionId, CancellationToken ct)
     {
         if (await ProjectNameAsync(projectId, ct) is not { } name) return NotFound();
-        if (await CollectionAsync(projectId, collectionId, ct) is not { } collection) return NotFound();
+        if (await OwnerDataRecords.CollectionAsync(store, projectId, collectionId, ct) is not { } collection) return NotFound();
         return View("~/Views/Owner/DataRecord.cshtml", Draft(projectId, name, collection, "", "{}", null, true));
     }
 
@@ -115,9 +114,9 @@ public sealed class OwnerDataController(INetworkStorageProjectService projects, 
         string payload, long? expectedVersion, bool creating, string? snapshotToken, CancellationToken ct)
     {
         if (await ProjectNameAsync(projectId, ct) is not { } name) return NotFound();
-        if (await CollectionAsync(projectId, collectionId, ct) is not { } collection) return NotFound();
+        if (await OwnerDataRecords.CollectionAsync(store, projectId, collectionId, ct) is not { } collection) return NotFound();
         var draft = Draft(projectId, name, collection, recordKey, payload, expectedVersion, creating) with { SnapshotToken = snapshotToken };
-        if (!ValidKey(collection, recordKey))
+        if (!OwnerDataRecords.ValidKey(collection, recordKey))
             return FormError(draft, "Use letters, numbers, underscores and hyphens" +
                 (collection.Global ? " (1-128 characters) for the global record ID." : ", or colons (1-256 characters) for the player record key."));
         if (!ModelState.IsValid || (!creating && expectedVersion is null or < 1 or long.MaxValue))
@@ -155,7 +154,7 @@ public sealed class OwnerDataController(INetworkStorageProjectService projects, 
         [FromForm] string? snapshotToken, CancellationToken ct)
     {
         if (await ProjectNameAsync(projectId, ct) is not { } name) return NotFound();
-        if (await CollectionAsync(projectId, collectionId, ct) is not { } collection || !ValidKey(collection, recordKey)) return NotFound();
+        if (await OwnerDataRecords.CollectionAsync(store, projectId, collectionId, ct) is not { } collection || !OwnerDataRecords.ValidKey(collection, recordKey)) return NotFound();
         var current = await LoadRecordModelAsync(projectId, collectionId, recordKey, ct);
         var draft = Draft(projectId, name, collection, recordKey, payload ?? current?.PrettyJson ?? "", expectedVersion, false)
             with { Confirmation = confirmation, SnapshotToken = snapshotToken };
@@ -190,9 +189,6 @@ public sealed class OwnerDataController(INetworkStorageProjectService projects, 
             Summary: new { collectionId = collection.Id, recordKey = key, collectionType = collection.Global ? "global" : "player", expectedVersion = version },
             Before: null, After: null), ct);
 
-    private static bool ValidKey(OwnerDataCollection collection, string key)
-        => collection.Global ? StorageIdValidation.IsValidCollectionId(key) : StorageIdValidation.IsValidRecordKey(key);
-
     private sealed record FormSnapshot(string OwnerStamp, string ProjectId, string CollectionId,
         string Key, bool Global, long? Version, RecordMutationSnapshot State);
 
@@ -226,8 +222,8 @@ public sealed class OwnerDataController(INetworkStorageProjectService projects, 
     public async Task<IActionResult> ExportCollection(string projectId, string collectionId, CancellationToken ct)
     {
         if (await ProjectNameAsync(projectId, ct) is null) return NotFound();
-        if (await CollectionAsync(projectId, collectionId, ct) is not { } collection) return NotFound();
-        var records = await LoadRecordsAsync(projectId, collection, ct);
+        if (await OwnerDataRecords.CollectionAsync(store, projectId, collectionId, ct) is not { } collection) return NotFound();
+        var records = await OwnerDataRecords.LoadAsync(store, projectId, collection, ct);
         var document = new
         {
             format = "sbox-ns.collection-export",
@@ -252,13 +248,8 @@ public sealed class OwnerDataController(INetworkStorageProjectService projects, 
     private async Task<OwnerDataRecordModel?> LoadRecordModelAsync(string projectId, string collectionId, string recordKey, CancellationToken ct)
     {
         if (await ProjectNameAsync(projectId, ct) is not { } name) return null;
-        if (await CollectionAsync(projectId, collectionId, ct) is not { } collection) return null;
-        var validKey = collection.Global ? StorageIdValidation.IsValidCollectionId(recordKey) : StorageIdValidation.IsValidRecordKey(recordKey);
-        if (!validKey) return null;
-        var row = collection.Global
-            ? await store.ReadGlobalRecordAsync(projectId, collectionId, recordKey, ct)
-            : await store.ReadRecordAsync(projectId, collectionId, recordKey, ct);
-        if (row is not { } value || ToRecord(value, collection.Global) is not { } record) return null;
+        if (await OwnerDataRecords.CollectionAsync(store, projectId, collectionId, ct) is not { } collection) return null;
+        if (await OwnerDataRecords.ReadAsync(store, projectId, collection, recordKey, ct) is not { } record) return null;
         return new OwnerDataRecordModel(projectId, name, collection, record, JsonSerializer.Serialize(record.Payload, Pretty),
             MaxPayloadBytes: store.MaxPayloadBytes, SnapshotToken: ProtectSnapshot(projectId, collection, record));
     }
@@ -270,66 +261,4 @@ public sealed class OwnerDataController(INetworkStorageProjectService projects, 
         return access is not null && access.StorageOwnerUserId == Owner && access.CanManage
             && string.Equals(access.Project.Id, projectId, StringComparison.Ordinal) ? access.Project.Name : null;
     }
-
-    private async Task<OwnerDataCollection?> CollectionAsync(string projectId, string collectionId, CancellationToken ct)
-        => StorageIdValidation.IsValidCollectionId(collectionId) && await store.ReadCollectionAsync(projectId, collectionId, ct) is { } row
-            ? Describe(row) : null;
-
-    private async Task<List<OwnerDataRecord>> LoadRecordsAsync(string projectId, OwnerDataCollection collection, CancellationToken ct)
-    {
-        var rows = collection.Global
-            ? await store.ListGlobalRecordsAsync(projectId, collection.Id, ct)
-            : await store.ListRecordsAsync(projectId, collection.Id, ct);
-        var records = new List<OwnerDataRecord>(rows.Count);
-        foreach (var row in rows)
-        {
-            if (ToRecord(row, collection.Global) is { } record) records.Add(record);
-        }
-        records.Sort((left, right) => string.CompareOrdinal(left.Key, right.Key));
-        return records;
-    }
-
-    /// <summary>Maps a stored row; tombstoned or payload-less rows are skipped exactly like the data plane reads them.</summary>
-    private static OwnerDataRecord? ToRecord(JsonElement row, bool global)
-    {
-        if (RecordRow.ExtractPayload(row) is not { } payload) return null;
-        if (Text(row, global ? "record_id" : "record_key") is not { } key) return null;
-        var raw = payload.GetRawText();
-        var preview = raw.Length <= PreviewLength ? raw : raw[..PreviewLength] + "…";
-        return new OwnerDataRecord(key, Number(row, "version"), Number(row, global ? "created_at_unix_ms" : "updated_at_unix_ms"),
-            Encoding.UTF8.GetByteCount(raw), preview, payload);
-    }
-
-    private static OwnerDataCollection? Describe(JsonElement row)
-    {
-        if (Text(row, "collection_id") is not { } id) return null;
-        return new OwnerDataCollection(id, Text(row, "name") is { Length: > 0 } name ? name : id, IsGlobal(row));
-    }
-
-    // Same routing rule as the data plane: definition_json.collectionType == "global" (string or parsed column).
-    private static bool IsGlobal(JsonElement row)
-    {
-        if (!row.TryGetProperty("definition_json", out var definition)) return false;
-        if (definition.ValueKind == JsonValueKind.String)
-        {
-            try
-            {
-                using var document = JsonDocument.Parse(definition.GetString() ?? string.Empty);
-                return IsGlobalDefinition(document.RootElement);
-            }
-            catch (JsonException) { return false; }
-        }
-        return IsGlobalDefinition(definition);
-    }
-
-    private static bool IsGlobalDefinition(JsonElement definition)
-        => definition.ValueKind == JsonValueKind.Object
-            && definition.TryGetProperty("collectionType", out var type) && type.ValueKind == JsonValueKind.String
-            && string.Equals(type.GetString(), "global", StringComparison.OrdinalIgnoreCase);
-
-    private static string? Text(JsonElement row, string name)
-        => row.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
-
-    private static long? Number(JsonElement row, string name)
-        => row.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Number && value.TryGetInt64(out var number) ? number : null;
 }

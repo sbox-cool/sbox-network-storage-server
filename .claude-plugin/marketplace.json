@@ -1,0 +1,15 @@
+{
+  "name": "sbox-ns",
+  "description": "Coding-agent plugin for sbox-ns, the self-hosted s&box Network Storage server.",
+  "owner": {
+    "name": "sbox.cool",
+    "url": "https://github.com/sbox-cool"
+  },
+  "plugins": [
+    {
+      "name": "sbox-ns",
+      "source": "./agent-plugin",
+      "description": "Self-hosted s&box Network Storage: set up the server, connect your game, build collections and endpoints, and debug player data from your coding agent."
+    }
+  ]
+}

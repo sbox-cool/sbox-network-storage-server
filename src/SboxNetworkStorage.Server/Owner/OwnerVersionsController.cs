@@ -52,13 +52,6 @@ public sealed class OwnerVersionsController(INetworkStorageProjectService projec
         return Redirect($"{OwnerProjectScope.ProjectUrl(projectId)}/versions?kind={model.Kind}&id={Uri.EscapeDataString(model.Id)}&restored=true");
     }
 
-    /// <summary>Source text when the definition was authored as YAML/JSON source, otherwise the definition rendered as YAML.</summary>
-    public static string DisplayText(JsonElement definition)
-        => definition.ValueKind == JsonValueKind.Object && definition.TryGetProperty("sourceText", out var source)
-           && source.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(source.GetString())
-            ? source.GetString()!
-            : OwnerYamlDefinitions.ToYaml(definition);
-
     private async Task<OwnerVersionsModel?> LoadAsync(string projectId, string? kind, string? id, string? versionName, CancellationToken ct)
     {
         var project = await OwnerProjectScope.ResolveAsync(projects, projectId, ct);
@@ -83,10 +76,10 @@ public sealed class OwnerVersionsController(INetworkStorageProjectService projec
         var history = await ManagementProjectObjects.ListVersionsAsync(store, OwnerProjectScope.Owner, projectId, kind, id, ct);
         var currentRow = (kind == "endpoint" ? endpointRows : workflowRows).First(row => OwnerProjectScope.Text(row, kind + "_id") == id);
         var current = OwnerProjectScope.JsonColumn(currentRow, "definition_json");
-        var currentText = current is { } live ? DisplayText(live) : null;
+        var currentText = current is { } live ? OwnerResourceSource.DisplayText(live) : null;
         var selected = versionName is null ? history.FirstOrDefault() : history.FirstOrDefault(entry => entry.Name == versionName);
         if (versionName is not null && selected is null) return null;
-        var selectedText = selected is null ? null : DisplayText(selected.Definition);
+        var selectedText = selected is null ? null : OwnerResourceSource.DisplayText(selected.Definition);
         return empty with
         {
             Kind = kind, Id = id, Versions = history, Selected = selected, SelectedText = selectedText, CurrentText = currentText,

@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "sbox-ns": {
+      "command": "sbox-ns",
+      "args": ["mcp"]
+    }
+  }
+}

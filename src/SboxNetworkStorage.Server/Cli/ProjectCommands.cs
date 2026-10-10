@@ -1,3 +1,4 @@
+using System.Text.Json;
 using SboxNetworkStorage.Application.Common;
 using SboxNetworkStorage.Application.NetworkStorage;
 using SboxNetworkStorage.Application.Workspace;
@@ -54,6 +55,18 @@ public static class ProjectCommands
             case "list":
             {
                 var list = await workspace.GetUserProjectsAsync(Owner, ct);
+                if (context.Args.Flag("json"))
+                {
+                    Console.WriteLine(JsonSerializer.Serialize(new
+                    {
+                        projects = list.OrderBy(p => p.CreatedAt).Select(p => new
+                        {
+                            projectId = p.Id, name = p.Name, enabled = p.Enabled, requireSboxAuth = p.RequireSboxAuth ?? true,
+                        }),
+                    }, JsonOutput));
+                    return CliApp.Ok;
+                }
+
                 if (list.Count == 0)
                 {
                     Console.WriteLine("No projects yet. Create one: sbox-ns project create \"My Game\"");
@@ -124,6 +137,17 @@ public static class ProjectCommands
             case "list":
             {
                 var keys = await projects.GetProjectKeysAsync(Owner, projectId, ct);
+                if (context.Args.Flag("json"))
+                {
+                    // Secret keys are stored and listed masked; only public keys appear in full.
+                    Console.WriteLine(JsonSerializer.Serialize(new
+                    {
+                        projectId,
+                        keys = keys.Select(k => new { type = k.KeyType, enabled = k.Enabled, label = k.Label, key = k.Key }),
+                    }, JsonOutput));
+                    return CliApp.Ok;
+                }
+
                 if (keys.Count == 0)
                 {
                     Console.WriteLine($"No keys. Create one: sbox-ns key create {projectId} --type public");
@@ -149,6 +173,8 @@ public static class ProjectCommands
                 throw new CliException($"unknown key command '{sub}'", CliApp.Usage);
         }
     }
+
+    private static readonly JsonSerializerOptions JsonOutput = new() { WriteIndented = true };
 
     private static async Task<ServiceProvider> OpenAsync(CliContext context)
     {

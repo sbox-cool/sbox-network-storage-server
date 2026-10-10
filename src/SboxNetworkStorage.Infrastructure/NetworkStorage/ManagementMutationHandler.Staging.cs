@@ -16,10 +16,10 @@ public sealed partial class ManagementMutationHandler
 
     private async Task<(SboxNetworkStorage.Application.NetworkStorage.Endpoints.EndpointExecutor? Executor,
         IQueryValuesContextProvider? Values,
-        RevisionOverlay? Overlay)> TestContextAsync(NetworkStorageRequest request, long ownerUserId, string projectId)
+        RevisionOverlay? Overlay)> TestContextAsync(bool targetsNext, long ownerUserId, string projectId, CancellationToken ct)
     {
-        var overlay = request.TargetsNext
-            ? await RevisionOverlay.LoadAsync(_workspaceClient, ownerUserId, projectId, request.CancellationToken)
+        var overlay = targetsNext
+            ? await RevisionOverlay.LoadAsync(_workspaceClient, ownerUserId, projectId, ct)
             : null;
         if (overlay is null) return (_endpointExecutor, _valuesProvider, null);
         var source = new Storage.StoreEndpointDataSource(_store,
@@ -28,6 +28,17 @@ public sealed partial class ManagementMutationHandler
         var values = _valuesProvider is StoreQueryValuesContextProvider provider
             ? provider.WithRevisionOverlay(overlay) : _valuesProvider;
         return (_endpointExecutor?.WithDataSource(source), values, overlay);
+    }
+
+    /// <summary>
+    /// Dry-run test runner over the staged revision when <paramref name="targetsNext"/> and the project has
+    /// staged definitions, otherwise over live. Null when no endpoint executor is wired.
+    /// </summary>
+    public async Task<ManagementEndpointTestRunner?> CreateTestRunnerAsync(long ownerUserId, string projectId, bool targetsNext, CancellationToken ct)
+    {
+        if (_endpointExecutor is null) return null;
+        var context = await TestContextAsync(targetsNext, ownerUserId, projectId, ct);
+        return new ManagementEndpointTestRunner(_store, context.Executor!, context.Values, context.Overlay);
     }
 
     private enum PublishDecision
