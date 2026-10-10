@@ -95,8 +95,9 @@ field-list body; delivery uses a 10-second timeout and STARTTLS when
 ## Secrets handling
 
 - `alerts.discord.webhook_url` and `alerts.smtp.password` are flagged
-  secret: `sbox-ns config show` prints `"********"` unless `--show-secrets`
-  is passed, and the values never appear in logs or alert payloads.
+  secret: `sbox-ns config show` and `sbox-ns config get` print `********`
+  unless `--show-secrets` is passed, the MCP `config_set` tool refuses them,
+  and the values never appear in logs or alert payloads.
 - Prefer `*_file` so secrets live outside the TOML files (same pattern as
   `database.postgres.password_file`). The first line of the file is used.
 

@@ -191,6 +191,10 @@ sbox-ns config validate                 # parse and check every file
 sbox-ns config edit                     # open the config in $EDITOR
 ```
 
+`config show` and `config get` print secret settings (the Turnstile secret,
+the PostgreSQL connection string and password, the Discord webhook URL and the
+SMTP password) as `********`. Add `--show-secrets` to print the real value.
+
 ## server.toml
 
 ```toml

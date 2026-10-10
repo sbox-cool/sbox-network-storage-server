@@ -54,7 +54,7 @@ public static class CliApp
         Configuration
           config path                   Print the config folder
           config show [--show-secrets]  Print every effective setting and where it came from
-          config get <key>              Print one setting
+          config get <key> [--show-secrets]  Print one setting (secrets redacted)
           config set <key> <value>      Change one setting in its file (comments are kept)
           config validate               Validate the config folder
           config edit [file]            Open a config file in $EDITOR and validate it

@@ -44,7 +44,7 @@ with arguments `["mcp"]` instead of SSH.
 | `quickstart` | Configure if needed, create or reuse a project, ensure keys, return the `NetworkStorage.Configure(...)` line |
 | `project_list`, `project_create` | Projects |
 | `key_list`, `key_create` | API keys (secret keys are returned once, when created) |
-| `config_show`, `config_get`, `config_set`, `config_validate` | Settings (secrets redacted in `config_show`) |
+| `config_show`, `config_get`, `config_set`, `config_validate` | Settings. `config_show` and `config_get` print secret settings as `********`. `config_set` refuses secret settings; put the value in a file and set the matching `*_file` setting, or set it yourself over SSH |
 | `db_status`, `db_backup` | Database status and consistent backups |
 | `update_check` | Check for a newer release (never installs) |
 | `service_status`, `service_restart` | The installed system service |
