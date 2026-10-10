@@ -70,7 +70,7 @@ public sealed class OperatorAlertingTests
                 && f.GetProperty("value").GetString()!.Contains("/v3/records/proj123/coll"));
         Assert.Contains(fields.EnumerateArray(),
             f => f.GetProperty("name").GetString() == "Project"
-                && f.GetProperty("value").GetString() == "proj123");
+                && f.GetProperty("value").GetString() == "`proj123`");
 
         var mail = Assert.Single(smtp.Sent);
         Assert.Contains(CorrelationId, mail.Subject);
@@ -144,6 +144,72 @@ public sealed class OperatorAlertingTests
         var mail = Assert.Single(smtp.Sent);
         Assert.Contains("SAVE_NOT_CONFIRMED", mail.Subject);
         Assert.Contains("slot0", mail.Body);
+    }
+
+    [Fact]
+    public async Task Throttle_RepeatsAreHeldBackAndCountedInTheNextAlertOfThatKind()
+    {
+        var discord = new FakeDiscordClient();
+        var smtp = new FakeSmtpTransport();
+        var time = new ManualTime();
+        var sink = BuildSink(EnabledOptions(DisabledOptions()), discord, smtp, time);
+        INetworkStorageErrorAlertSink storage = sink;
+
+        // Same project, operation, code and collection; only the player differs.
+        for (var i = 0; i < 50; i++)
+            await storage.NotifyAsync(new NetworkStorageError("proj1", "saves", $"player{i}", "save.unconfirmed", "SAVE_NOT_CONFIRMED", "not confirmed"), CancellationToken.None);
+        Assert.Single(discord.Sent);
+        Assert.Single(smtp.Sent);
+
+        time.Now += OperatorAlertSink.RepeatWindow;
+        await storage.NotifyAsync(new NetworkStorageError("proj1", "saves", "late", "save.unconfirmed", "SAVE_NOT_CONFIRMED", "not confirmed"), CancellationToken.None);
+
+        Assert.Equal(2, discord.Sent.Count);
+        Assert.Contains("49 more like this were not sent", smtp.Sent[1].Body);
+    }
+
+    [Fact]
+    public async Task Throttle_AtMostTheLimitPerMinuteAndTheNextAlertSaysHowManyWereDropped()
+    {
+        var discord = new FakeDiscordClient();
+        var smtp = new FakeSmtpTransport();
+        var time = new ManualTime();
+        var sink = BuildSink(EnabledOptions(DisabledOptions()), discord, smtp, time);
+
+        // Distinct kinds, as a caller varying the collection would produce.
+        for (var i = 0; i < OperatorAlertSink.MaxPerMinute + 5; i++)
+            await sink.NotifyAsync(SampleError() with { Path = $"/v3/records/proj123/c{i}" }, CancellationToken.None);
+        Assert.Equal(OperatorAlertSink.MaxPerMinute, discord.Sent.Count);
+
+        time.Now += TimeSpan.FromMinutes(1);
+        await sink.NotifyAsync(SampleError() with { Path = "/v3/records/proj123/after" }, CancellationToken.None);
+
+        Assert.Equal(OperatorAlertSink.MaxPerMinute + 1, smtp.Sent.Count);
+        Assert.Contains("5 other alerts were not sent", smtp.Sent[^1].Body);
+    }
+
+    [Fact]
+    public void DiscordPayload_ShowsCallerTextAsCodeAndPingsNobody()
+    {
+        var error = SampleError() with
+        {
+            Message = "reason=[log in again](https://evil.example) ``` @everyone",
+            Path = "/v3/records/[x](https://evil.example)",
+        };
+
+        using var payload = DiscordAlertSender.BuildPayload(error, "sbox-ns");
+
+        var root = payload.RootElement;
+        Assert.Empty(root.GetProperty("allowed_mentions").GetProperty("parse").EnumerateArray());
+        var embed = root.GetProperty("embeds")[0];
+        var description = embed.GetProperty("description").GetString()!;
+        Assert.StartsWith("```\n", description);
+        Assert.EndsWith("\n```", description);
+        // The caller's own backticks cannot close the block early.
+        Assert.Equal(2, description.Split("```").Length - 1);
+        var route = embed.GetProperty("fields").EnumerateArray().Single(f => f.GetProperty("name").GetString() == "Route").GetProperty("value").GetString()!;
+        Assert.StartsWith("`", route);
+        Assert.EndsWith("`", route);
     }
 
     [Fact]
@@ -264,12 +330,19 @@ public sealed class OperatorAlertingTests
         }
     }
 
-    private static OperatorAlertSink BuildSink(AlertOptions options, FakeDiscordClient discord, FakeSmtpTransport smtp)
+    private static OperatorAlertSink BuildSink(AlertOptions options, FakeDiscordClient discord, FakeSmtpTransport smtp, TimeProvider? time = null)
         => new(
             new LoggingExceptionAlertSink(NullLogger<LoggingExceptionAlertSink>.Instance),
             new LoggingNetworkStorageErrorAlertSink(NullLogger<LoggingNetworkStorageErrorAlertSink>.Instance),
             new DiscordAlertSender(options, discord, NullLogger<DiscordAlertSender>.Instance),
-            new SmtpAlertSender(options, smtp, NullLogger<SmtpAlertSender>.Instance));
+            new SmtpAlertSender(options, smtp, NullLogger<SmtpAlertSender>.Instance),
+            time ?? TimeProvider.System);
+
+    private sealed class ManualTime : TimeProvider
+    {
+        public DateTimeOffset Now { get; set; } = new(2026, 10, 10, 0, 0, 0, TimeSpan.Zero);
+        public override DateTimeOffset GetUtcNow() => Now;
+    }
 
     private static string NewTempDir()
     {

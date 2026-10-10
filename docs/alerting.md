@@ -20,10 +20,29 @@ any configured channel:
 - Compatibility-proxy captures (`ProxyErrorReporter`) and handler-caught
   exceptions reported via `HandlerErrorReporter`.
 - Data-plane storage errors (`INetworkStorageErrorAlertSink`), e.g.
-  unconfirmed saves.
+  unconfirmed saves reported by the game through
+  `POST /api/network-storage/{projectId}/save-failure`. That route needs an
+  enabled project and real collection and record ids, and cuts the client's
+  `reason` to 200 characters.
 
 Each alert carries the correlation ID, route, classification, project, and
 timestamp so it can be matched against `/admin/errors` entries and logs.
+
+### Limits
+
+Anyone with a game's public key can cause some alerts, so Discord and email
+are limited for every alert source together. The log still records every
+error.
+
+- An alert of a kind already sent in the last 10 minutes is not sent again.
+  The kind is the project, operation and code plus the collection (storage
+  errors) or the route (request errors); the player does not count. The next
+  alert of that kind says how many were held back.
+- At most 10 alerts are sent per minute. The next alert sent says how many
+  were dropped.
+
+In Discord the message, route and project are shown as code, so text sent by
+a game client cannot add links or formatting, and alerts never ping anyone.
 
 ## Discord setup
 

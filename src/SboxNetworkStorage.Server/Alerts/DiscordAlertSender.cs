@@ -59,26 +59,32 @@ public sealed class DiscordAlertSender(
     public Task SendAsync(NetworkStorageError error, CancellationToken cancellationToken)
         => SendAsync(ToCaptured(error), cancellationToken);
 
-    /// <summary>Builds the minimal Discord webhook embed. The webhook URL itself is never part of the payload.</summary>
+    /// <summary>
+    /// Builds the minimal Discord webhook embed. The webhook URL itself is never part of the payload.
+    /// Route, project and message can carry caller-chosen text (paths, ids, a client's failure reason),
+    /// so they are shown as code, where Discord renders no links or formatting, and no mention pings.
+    /// </summary>
     public static JsonDocument BuildPayload(CapturedErrorDto error, string username)
     {
         var route = $"{error.Method} {error.Path}";
-        var description = error.Message.Length <= 1500 ? error.Message : error.Message[..1500] + "…";
+        var message = error.Message.Length <= 1500 ? error.Message : error.Message[..1500] + "…";
+        var description = "```\n" + Literal(message) + "\n```";
         var fields = new List<object>
         {
-            new { name = "Route", value = Truncate(route, 256), inline = true },
+            new { name = "Route", value = InlineCode(Truncate(route, 256)), inline = true },
             new { name = "Status", value = error.StatusCode.ToString(), inline = true },
             new { name = "Classification", value = Truncate(error.Classification, 256), inline = true },
             new { name = "Correlation ID", value = Truncate(error.CorrelationId, 256), inline = false },
         };
         if (!string.IsNullOrWhiteSpace(error.ProjectId))
         {
-            fields.Add(new { name = "Project", value = Truncate(error.ProjectId, 256), inline = true });
+            fields.Add(new { name = "Project", value = InlineCode(Truncate(error.ProjectId, 256)), inline = true });
         }
 
         var payload = new
         {
             username = string.IsNullOrWhiteSpace(username) ? "sbox-ns" : username,
+            allowed_mentions = new { parse = Array.Empty<string>() },
             embeds = new[]
             {
                 new
@@ -109,4 +115,9 @@ public sealed class DiscordAlertSender(
 
     private static string Truncate(string value, int maxLength)
         => value.Length <= maxLength ? value : value[..maxLength] + "…";
+
+    // A backtick would close the code span or block early; the look-alike U+02CB keeps the text readable.
+    private static string Literal(string value) => value.Replace('`', 'ˋ');
+
+    private static string InlineCode(string value) => "`" + Literal(value) + "`";
 }

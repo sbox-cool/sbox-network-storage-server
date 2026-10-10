@@ -56,8 +56,10 @@ public static class NetworkStorageServices
         services.AddSingleton<ISmtpTransport, SmtpTransport>();
         services.AddSingleton<DiscordAlertSender>();
         services.AddSingleton<SmtpAlertSender>();
-        services.AddSingleton<IExceptionAlertSink, OperatorAlertSink>();
-        services.AddSingleton<INetworkStorageErrorAlertSink, OperatorAlertSink>();
+        // One instance behind both interfaces, so its alert limits cover every call site.
+        services.AddSingleton<OperatorAlertSink>();
+        services.AddSingleton<IExceptionAlertSink>(sp => sp.GetRequiredService<OperatorAlertSink>());
+        services.AddSingleton<INetworkStorageErrorAlertSink>(sp => sp.GetRequiredService<OperatorAlertSink>());
         services.AddSingleton<EndpointConflictReportThrottle>();
         services.AddScoped<EndpointErrorReporter>();
         // Every error report that names a project is also kept for that project's Errors tab.

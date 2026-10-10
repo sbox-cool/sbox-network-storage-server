@@ -10,6 +10,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using SboxNetworkStorage.Domain.Workspace;
 using SboxNetworkStorage.Application.NetworkStorage;
+using SboxNetworkStorage.Server.Hosting;
 using Xunit;
 
 namespace SboxNetworkStorage.Server.Tests;
@@ -25,9 +26,6 @@ namespace SboxNetworkStorage.Server.Tests;
 public abstract class NetworkStorageSaveFailureReportTests<TFactory> : IClassFixture<TFactory>
     where TFactory : SelfHostFactory
 {
-    private const string ApiKey = "sk-test-savefail";
-    private const string ProjectId = "demo-project";
-
     private readonly SelfHostFactory _factory;
 
     protected NetworkStorageSaveFailureReportTests(TFactory factory)
@@ -36,33 +34,42 @@ public abstract class NetworkStorageSaveFailureReportTests<TFactory> : IClassFix
         _factory = factory;
     }
 
-    private (HttpClient client, RecordingAlertSink sink, RecordingAnalytics analytics) Create()
+    private async Task<(HttpClient client, RecordingAlertSink sink, RecordingAnalytics analytics, SelfHostProject project)> CreateAsync(bool projectEnabled = true)
     {
         var sink = new RecordingAlertSink();
         var analytics = new RecordingAnalytics();
-        var client = _factory.WithWebHostBuilder(builder =>
+        var factory = _factory.WithWebHostBuilder(builder =>
         {
             builder.ConfigureServices(services =>
             {
-                services.RemoveAll<IStorageApiKeyResolver>();
-                services.AddScoped<IStorageApiKeyResolver>(_ => new FakeKeyResolver(ApiKey, ProjectId));
                 services.RemoveAll<INetworkStorageErrorAlertSink>();
                 services.AddSingleton<INetworkStorageErrorAlertSink>(sink);
                 services.RemoveAll<IPlayerAnalyticsService>();
                 services.AddSingleton<IPlayerAnalyticsService>(analytics);
             });
-        }).CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
-        return (client, sink, analytics);
+        });
+        var project = await factory.CreateProjectAsync("Save failure");
+        if (!projectEnabled)
+        {
+            await using var scope = factory.Services.CreateAsyncScope();
+            await scope.ServiceProvider.GetRequiredService<INetworkStorageProjectService>().UpdateProjectSettingsAsync(
+                NetworkStorageServices.LocalOwnerUserId, project.ProjectId, "project", new() { ["enabled"] = "false" }, CancellationToken.None);
+        }
+
+        var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        return (client, sink, analytics, project);
     }
+
+    private static string Url(SelfHostProject project, bool withKey = true)
+        => $"/api/network-storage/{project.ProjectId}/save-failure" + (withKey ? $"?apiKey={project.PublicKey}" : "");
 
     [SkippableFact]
     public async Task SaveFailure_WithValidKey_FiresDiscordAlertAndRecordsDiagnosticEvent()
     {
-        var (client, sink, analytics) = Create();
+        var (client, sink, analytics, project) = await CreateAsync();
         using var _ = client;
 
-        using var response = await client.PostAsJsonAsync(
-            $"/api/network-storage/{ProjectId}/save-failure?apiKey={ApiKey}",
+        using var response = await client.PostAsJsonAsync(Url(project),
             new { collectionId = "players", recordKey = "76561198000000000", reason = "data mismatch", expectedSeq = 7, observedSeq = 5, attempts = 3 });
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -70,7 +77,7 @@ public abstract class NetworkStorageSaveFailureReportTests<TFactory> : IClassFix
         var alert = Assert.Single(sink.Errors);
         Assert.Equal("SAVE_NOT_CONFIRMED", alert.Code);
         Assert.Equal("save.unconfirmed", alert.Operation);
-        Assert.Equal(ProjectId, alert.ProjectId);
+        Assert.Equal(project.ProjectId, alert.ProjectId);
         Assert.Equal("players", alert.CollectionId);
         Assert.Equal("76561198000000000", alert.RecordKey);
         Assert.Contains("expectedSeq=7", alert.Message);
@@ -78,7 +85,7 @@ public abstract class NetworkStorageSaveFailureReportTests<TFactory> : IClassFix
 
         var evt = Assert.Single(analytics.Events);
         Assert.Equal("record.save_unconfirmed", evt.EventType);
-        Assert.Equal(ProjectId, evt.ProjectId);
+        Assert.Equal(project.ProjectId, evt.ProjectId);
         Assert.Equal("players", evt.CollectionId);
         Assert.Equal("76561198000000000", evt.RecordKey);
     }
@@ -86,12 +93,10 @@ public abstract class NetworkStorageSaveFailureReportTests<TFactory> : IClassFix
     [SkippableFact]
     public async Task SaveFailure_MissingKey_Returns401_AndDoesNotAlert()
     {
-        var (client, sink, analytics) = Create();
+        var (client, sink, analytics, project) = await CreateAsync();
         using var _ = client;
 
-        using var response = await client.PostAsJsonAsync(
-            $"/api/network-storage/{ProjectId}/save-failure",
-            new { collectionId = "players" });
+        using var response = await client.PostAsJsonAsync(Url(project, withKey: false), new { collectionId = "players" });
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
         Assert.Empty(sink.Errors);
@@ -101,14 +106,55 @@ public abstract class NetworkStorageSaveFailureReportTests<TFactory> : IClassFix
     [SkippableFact]
     public async Task SaveFailure_NonObjectBody_Returns400_AndDoesNotAlert()
     {
-        var (client, sink, _) = Create();
+        var (client, sink, _, project) = await CreateAsync();
         using var __ = client;
 
-        using var response = await client.PostAsJsonAsync(
-            $"/api/network-storage/{ProjectId}/save-failure?apiKey={ApiKey}", 42);
+        using var response = await client.PostAsJsonAsync(Url(project), 42);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Empty(sink.Errors);
+    }
+
+    [SkippableFact]
+    public async Task SaveFailure_DisabledProject_Returns403_AndDoesNotAlert()
+    {
+        var (client, sink, analytics, project) = await CreateAsync(projectEnabled: false);
+        using var _ = client;
+
+        using var response = await client.PostAsJsonAsync(Url(project), new { collectionId = "players", recordKey = "76561198000000000" });
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Empty(sink.Errors);
+        Assert.Empty(analytics.Events);
+    }
+
+    [SkippableTheory]
+    [InlineData("[click me](https://evil.example)", "76561198000000000")]
+    [InlineData("players", "a\r\nBcc: victim@example.com")]
+    public async Task SaveFailure_MalformedIds_Return400_AndDoNotAlert(string collectionId, string recordKey)
+    {
+        var (client, sink, _, project) = await CreateAsync();
+        using var __ = client;
+
+        using var response = await client.PostAsJsonAsync(Url(project), new { collectionId, recordKey });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Empty(sink.Errors);
+    }
+
+    [SkippableFact]
+    public async Task SaveFailure_LongReasonIsCutInTheAlert()
+    {
+        var (client, sink, _, project) = await CreateAsync();
+        using var __ = client;
+
+        using var response = await client.PostAsJsonAsync(Url(project),
+            new { collectionId = "players", recordKey = "76561198000000000", reason = new string('x', 5_000) });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var alert = Assert.Single(sink.Errors);
+        Assert.Contains(new string('x', 200) + "…", alert.Message);
+        Assert.DoesNotContain(new string('x', 201), alert.Message);
     }
 
     private sealed class RecordingAlertSink : INetworkStorageErrorAlertSink
@@ -133,15 +179,6 @@ public abstract class NetworkStorageSaveFailureReportTests<TFactory> : IClassFix
         }
 
         public Task RecordEndpointEventAsync(string projectId, string steamId, string endpointSlug, string eventType, IReadOnlyDictionary<string, object>? payload, IReadOnlyList<TrackedFieldDelta>? trackedFieldDeltas, CancellationToken cancellationToken) => Task.CompletedTask;
-    }
-
-    private sealed class FakeKeyResolver(string validKey, string projectId) : IStorageApiKeyResolver
-    {
-        public Task<StorageApiKeyAuthResult?> ResolveApiKeyAsync(string apiKey, string project, CancellationToken cancellationToken)
-            => Task.FromResult(
-                string.Equals(apiKey, validKey, StringComparison.Ordinal) && string.Equals(project, projectId, StringComparison.Ordinal)
-                    ? new StorageApiKeyAuthResult(42, project, true, "secret")
-                    : null);
     }
 }
 
