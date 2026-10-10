@@ -34,6 +34,8 @@
 .copy-row pre { flex: 1 1 auto; margin: 0; }
 .connect-fields { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: .5rem 1rem; align-items: center; }
 .connect-fields dt { font-weight: 600; }
-.connect-fields dd { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; overflow-wrap: anywhere; }
+.connect-fields dd { margin: 0; display: flex; align-items: center; gap: .5rem; min-width: 0; }
+.connect-fields dd code { min-width: 0; overflow-wrap: anywhere; }
+.connect-fields dd button { flex: none; }
 .checklist td { vertical-align: top; }
 .checklist ul { margin: .25rem 0 0; padding-left: 1.1rem; }
