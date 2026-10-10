@@ -24,9 +24,11 @@ public abstract class QueryEndpointsTests<TFactory> : IClassFixture<TFactory>
 {
     private const string ProjectId = "proj-1";
     private const string ApiKey = "test-key";
+    private const string SecretKey = "sbox_sk_test-secret";
     private const string CollectionId = "scores";
 
     private readonly SelfHostFactory _factory;
+    private INetworkStorageStore? _store;
 
     protected QueryEndpointsTests(TFactory factory)
     {
@@ -59,6 +61,7 @@ public abstract class QueryEndpointsTests<TFactory> : IClassFixture<TFactory>
 
         var store = await _factory.NewStoreAsync();
         await SeedAsync(store, defaultQuery, requiresSecretKey, defaultRecords, playerProfiles ?? []);
+        _store = store;
 
         return _factory.WithWebHostBuilder(builder =>
         {
@@ -201,6 +204,40 @@ public abstract class QueryEndpointsTests<TFactory> : IClassFixture<TFactory>
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.True(response.Headers.TryGetValues("Cache-Control", out var cache));
         Assert.Contains("no-store", Assert.Single(cache));
+    }
+
+    [SkippableFact]
+    public async Task Execute_PublicKeyIsServedTheSharedResult_OnlyASecretKeyForcesAFreshRun()
+    {
+        using var client = await CreateClientAsync(queryDefinitionJson: $$"""
+            { "type": "count", "sources": [{"collectionId": "{{CollectionId}}"}], "config": {}, "cache": {"ttlSeconds": 300} }
+            """);
+        using (var first = await client.GetAsync(QueryUrl($"/v3/queries/{ProjectId}/test-query")))
+            Assert.Equal(2, (await BodyAsync(first)).GetProperty("count").GetInt32());
+
+        // Written straight to the store, past the server's write tracking, so only a fresh run can see it.
+        await _store!.UpsertRecordAsync(ProjectId, CollectionId, "p3", JsonDocument.Parse("{\"score\":1}").RootElement.Clone(), deleted: false, version: 1, CancellationToken.None);
+
+        using (var publicLive = await client.GetAsync($"/v3/queries/{ProjectId}/test-query?apiKey={ApiKey}&live=1"))
+        {
+            var body = await BodyAsync(publicLive);
+            Assert.Equal(2, body.GetProperty("count").GetInt32());
+            Assert.False(body.TryGetProperty("fromCache", out _));
+            Assert.Contains("no-store", Assert.Single(publicLive.Headers.GetValues("Cache-Control")));
+        }
+
+        using (var publicCached = await client.GetAsync($"/v3/queries/{ProjectId}/test-query?apiKey={ApiKey}&cache=1"))
+        {
+            var body = await BodyAsync(publicCached);
+            Assert.Equal(2, body.GetProperty("count").GetInt32());
+            Assert.True(body.GetProperty("fromCache").GetBoolean());
+            Assert.True(body.TryGetProperty("expiresAt", out _));
+        }
+
+        using var secretLive = new HttpRequestMessage(HttpMethod.Get, $"/v3/queries/{ProjectId}/test-query?apiKey={ApiKey}&live=1");
+        secretLive.Headers.Add("x-secret-key", SecretKey);
+        using var secretResponse = await client.SendAsync(secretLive);
+        Assert.Equal(3, (await BodyAsync(secretResponse)).GetProperty("count").GetInt32());
     }
 
     [SkippableFact]
@@ -364,8 +401,9 @@ public abstract class QueryEndpointsTests<TFactory> : IClassFixture<TFactory>
     private sealed class FakeKeyResolver(string validKey, string projectId) : IStorageApiKeyResolver
     {
         public Task<StorageApiKeyAuthResult?> ResolveApiKeyAsync(string apiKey, string project, CancellationToken cancellationToken)
-            => Task.FromResult(string.Equals(apiKey, validKey, StringComparison.Ordinal) && string.Equals(project, projectId, StringComparison.Ordinal)
-                ? new StorageApiKeyAuthResult(42, project, true, "public")
+            => Task.FromResult(!string.Equals(project, projectId, StringComparison.Ordinal) ? null
+                : string.Equals(apiKey, validKey, StringComparison.Ordinal) ? new StorageApiKeyAuthResult(42, project, true, "public")
+                : string.Equals(apiKey, SecretKey, StringComparison.Ordinal) ? new StorageApiKeyAuthResult(42, project, true, "secret")
                 : null);
     }
 

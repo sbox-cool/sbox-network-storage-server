@@ -28,7 +28,7 @@ public sealed class PlayerNameResolutionTests
         var store = new InMemoryNetworkStorageStore();
         await store.SeedPlayerProfileAsync("proj1", "76561197960287930", "Ada", lastSeenUnixMs: 0, sessionCount: 0);
 
-        var executor = new NativeQueryExecutor(store, NullQueryRunRecorder.Instance,
+        var executor = new NativeQueryExecutor(store, NullQueryRunRecorder.Instance, new QueryResultCache(),
             Microsoft.Extensions.Logging.Abstractions.NullLogger<NativeQueryExecutor>.Instance);
 
         // We can't easily call the private method, but we can verify the profile

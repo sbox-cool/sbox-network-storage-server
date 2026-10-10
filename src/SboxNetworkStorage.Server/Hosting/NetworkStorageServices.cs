@@ -130,16 +130,19 @@ public static class NetworkStorageServices
 
     /// <summary>
     /// Wraps the registered <see cref="INetworkStorageStore"/> so collection, endpoint and game-value reads come from a
-    /// per-project snapshot that every write, project delete and import invalidates.
+    /// per-project snapshot that every write, project delete and import invalidates, and so writes reach the
+    /// <see cref="QueryResultCache"/>.
     /// </summary>
     private static IServiceCollection AddProjectMetadataCache(this IServiceCollection services)
     {
         var registration = services.Last(d => d.ServiceType == typeof(INetworkStorageStore));
         services.Remove(registration);
         services.AddSingleton<ProjectMetadataCache>();
+        services.AddSingleton(sp => new QueryResultCache(sp.GetRequiredService<TimeProvider>()));
         services.AddSingleton<INetworkStorageStore>(sp => new MetadataCachingNetworkStore(
             (INetworkStorageStore)registration.ImplementationFactory!(sp),
-            sp.GetRequiredService<ProjectMetadataCache>()));
+            sp.GetRequiredService<ProjectMetadataCache>(),
+            sp.GetRequiredService<QueryResultCache>()));
         return services;
     }
     /// <summary>Entries held by each throttle/cache. Every entry costs one unit, so this caps tracked callers.</summary>

@@ -99,11 +99,9 @@ public sealed partial class ManagementMutationHandler : INetworkStorageHandler
         if (kind == "game-values") return await PutGameValuesAsync(request, projectId);
         if (kind == "query")
         {
+            // The query write itself drops cached results (MetadataCachingNetworkStore → QueryResultCache).
             request = request with { Body = JsonSerializer.Serialize(new[] { compiled }) };
-            var result = await PutQueriesAsync(request, projectId);
-            if (result.StatusCode < 400)
-                NativeQueryExecutor.ClearQueryCache(GetOptionalString(compiled, "id") ?? GetOptionalString(compiled, "name") ?? "", projectId);
-            return result;
+            return await PutQueriesAsync(request, projectId);
         }
         request = request with { Body = JsonSerializer.Serialize(new Dictionary<string, object> { [kind + "s"] = new[] { compiled } }) };
         var preflight = await PreflightSyncAsync(request, projectId, "owner");
