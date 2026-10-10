@@ -1,0 +1,49 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+	<!--
+		Compiles the s&box Network Storage client library (Code/) the same way its own UnitTests
+		project does (plain csc + Sandbox.Generator) against a locally built engine, and boots the
+		headless engine through TestAppSystem. Properties: SboxGame (engine game folder) and
+		NsLibrary (client library checkout). run.sh passes both.
+	-->
+
+	<PropertyGroup>
+		<TargetFramework>net10.0</TargetFramework>
+		<LangVersion>14</LangVersion>
+		<Nullable>disable</Nullable>
+		<RootNamespace>Sandbox</RootNamespace>
+		<DefineConstants>SANDBOX</DefineConstants>
+		<NoWarn>1701;1702;1591;MSB3246;MSB3245;CS0612;CS0618</NoWarn>
+		<IsTestProject>true</IsTestProject>
+		<EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+		<SboxManaged>$(SboxGame)/bin/managed</SboxManaged>
+	</PropertyGroup>
+
+	<Target Name="RequireInputs" BeforeTargets="ResolveReferences">
+		<Error Condition="'$(SboxGame)' == '' Or !Exists('$(SboxManaged)/Sandbox.Engine.dll')" Text="Set SboxGame to a built s&amp;box engine game folder (missing $(SboxManaged)/Sandbox.Engine.dll)." />
+		<Error Condition="'$(NsLibrary)' == '' Or !Exists('$(NsLibrary)/Code')" Text="Set NsLibrary to a checkout of github.com/sbox-cool/sbox-network-storage." />
+	</Target>
+
+	<ItemGroup>
+		<PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+		<PackageReference Include="MSTest.TestAdapter" Version="3.6.4" />
+		<PackageReference Include="MSTest.TestFramework" Version="3.6.4" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<Using Include="Sandbox.Internal.GlobalGameNamespace" Static="true" />
+		<Using Include="Microsoft.AspNetCore.Components" />
+		<Using Include="Microsoft.AspNetCore.Components.Rendering" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<Compile Include="$(NsLibrary)/Code/**/*.cs" Exclude="$(NsLibrary)/Code/obj/**;$(NsLibrary)/Code/bin/**" LinkBase="Library" />
+		<Compile Include="*.cs" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<Analyzer Include="$(SboxManaged)/Sandbox.Generator.dll" />
+		<Reference Include="$(SboxManaged)/*.dll" Exclude="$(SboxManaged)/Sandbox.Generator.dll;$(SboxManaged)/Sandbox.CodeUpgrader.dll" Private="true" />
+	</ItemGroup>
+
+</Project>

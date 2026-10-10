@@ -240,9 +240,9 @@ public sealed class RequestBodyLimitMiddleware(RequestDelegate next, IOptions<Re
     {
         context.Response.Clear();
         context.Response.StatusCode = StatusCodes.Status413PayloadTooLarge;
-        return context.Response.WriteAsJsonAsync(
-            new { error = "PAYLOAD_TOO_LARGE", detail = $"Request body exceeds the {max}-byte limit for this route." },
-            context.RequestAborted);
+        // `message` repeats `detail`: the editor sync tool shows `message`, not `detail`.
+        var text = $"Request body exceeds the {max}-byte limit for this route.";
+        return context.Response.WriteAsJsonAsync(new { error = "PAYLOAD_TOO_LARGE", detail = text, message = text }, context.RequestAborted);
     }
 
     /// <summary>Passes reads through and fails once more than <c>limit</c> bytes would be read.</summary>
@@ -330,9 +330,9 @@ public static class RequestLimitServices
                     : 60;
                 response.StatusCode = StatusCodes.Status429TooManyRequests;
                 response.Headers.RetryAfter = seconds.ToString(System.Globalization.CultureInfo.InvariantCulture);
-                await response.WriteAsJsonAsync(
-                    new { error = "RATE_LIMITED", detail = $"Too many requests. Retry after {seconds} seconds." },
-                    cancellationToken);
+                // `message` repeats `detail`: the editor sync tool shows `message`, not `detail`.
+                var text = $"Too many requests. Retry after {seconds} seconds.";
+                await response.WriteAsJsonAsync(new { error = "RATE_LIMITED", detail = text, message = text }, cancellationToken);
             };
         });
         return services;

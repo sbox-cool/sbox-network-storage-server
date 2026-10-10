@@ -118,8 +118,16 @@ public sealed class RevisionInitHandler(
             latestRevisionId = latestRevision,
             revisionOutdated = outdated,
             message,
-        }, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
+        }, ResponseJson);
     }
+
+    // Unknown revisions are left out, not sent as null: the client library reads currentRevisionId
+    // with JsonElement.TryGetInt64, which throws on a null value and fails the whole handshake.
+    private static readonly JsonSerializerOptions ResponseJson = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
+    };
 
     private async Task<Dictionary<string, JsonElement>?> ReadGamePackageAsync(long userId, string projectId, CancellationToken ct)
     {

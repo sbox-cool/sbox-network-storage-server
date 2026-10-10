@@ -35,6 +35,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A body over its limit on a known route is read and discarded when its declared
   length is at most 4 MiB, so the client receives the `413` response instead of a
   connection reset. Larger declared bodies are rejected without being read.
+- `revision-init` leaves out unknown revisions instead of sending `null`. The
+  s&box client library failed its startup handshake on projects without a
+  synced game package.
+- `413` and `429` error bodies carry `message` next to `detail`, so the editor
+  sync tool shows the reason instead of only the error code.
+- `tools/sbox-client-e2e/run.sh` runs the real s&box client library against a
+  local server inside a headless s&box engine, plus a dedicated-server project.
 
 ### Added
 - Optional owner authenticator enrollment with encrypted confirmed secrets,

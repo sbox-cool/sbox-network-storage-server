@@ -62,6 +62,7 @@
     { "scenario": "queries-run", "step": "secret-query-dedicated", "path": "body:$.performance.sources*", "reason": "Informational source label 'scylladb' replaced by 'store'." },
     { "scenario": "queries-run", "step": "api-storage-alias", "path": "body:$.performance.sources*", "reason": "Informational source label 'scylladb' replaced by 'store'." },
 
-    { "scenario": "errors-oversized-payloads", "step": "append-oversized", "path": "body:$.detail", "reason": "413 envelope adds a detail naming the byte limit of the route; status and error code match." }
+    { "scenario": "errors-oversized-payloads", "step": "append-oversized", "path": "body:$.detail", "reason": "413 envelope adds a detail naming the byte limit of the route; status and error code match." },
+    { "scenario": "errors-oversized-payloads", "step": "append-oversized", "path": "body:$.message", "reason": "413 envelope repeats the detail as message, which the editor sync tool displays; status and error code match." }
   ]
 }
