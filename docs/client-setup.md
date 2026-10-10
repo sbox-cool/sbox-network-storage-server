@@ -32,7 +32,12 @@ server is behind NAT.
 
 ## 2. Create a project and API keys
 
-Use the local-owner [dashboard](admin-panel.md), or run the CLI on the server:
+Use the local-owner [dashboard](admin-panel.md#connect-a-game), or run the CLI
+on the server. A project created in the dashboard gets a public key, and its
+overview shows the filled-in `NetworkStorage.Configure` line and Setup window
+values to copy.
+
+On the CLI:
 
 ```sh
 sbox-ns project create "My Game"                          # prints the project ID
@@ -116,6 +121,39 @@ untrusted:
 Secret keys (dedicated servers, tools) count as trusted backend calls: they need
 `collections` execute permission and may read, write and delete in any
 collection without s&box tokens.
+
+## Error codes
+
+The project's **Logs** and **Errors** tabs in the [dashboard](admin-panel.md#request-log-and-errors)
+list rejected requests and explain them. The common ones:
+
+| Status and code | Cause | Fix |
+| --- | --- | --- |
+| `401 UNAUTHORIZED` | The API key is missing, wrong or disabled. | Check the public key passed to `NetworkStorage.Configure`. |
+| `401 SBOX_AUTH_FAILED` | The project requires s&box authentication and the player's token was missing or did not verify. | Run the game through s&box, or turn off **Require s&box authentication** for development. |
+| `403 ENDPOINT_ONLY` | The collection is not `accessMode: public`. | Call it through an endpoint, or set `accessMode: public`. |
+| `403 RECORD_DELETE_DISABLED` | The collection does not allow deletes from game clients. | Set `allowRecordDelete: true`, or delete through an endpoint. |
+| `403 FORBIDDEN` | A player wrote another player's record, or a secret key lacks the permission. | Use the player's own key, or grant the permission on the secret key. |
+| `404` | The project, collection, endpoint or record does not exist. | Save or sync the definition and check the ID in the game code. |
+| `409 STALE_SAVE` | A save was based on older data than the stored record. | Reload the record and retry. |
+| `SAVE_NOT_CONFIRMED` | The client could not confirm a save reached the server. | Check the player's connection and the request log around that time. |
+
+In the game, read the last error of an endpoint call by its slug:
+
+```csharp
+var result = await NetworkStorage.CallEndpoint( "grant-coins", new { } );
+if ( !result.HasValue )
+{
+    NetworkStorage.TryGetLastEndpointError( "grant-coins", out var code, out var message );
+    Log.Warning( $"{code}: {message}" );
+}
+```
+
+s&box hides the body of 4xx responses from game code, so the code there can be
+`HTTP_ERROR` with the status in the message. The dashboard's **Logs** tab shows
+the status for the same request.
+
+On the server, `sbox-ns logs -f` follows the server log.
 
 ## Client reachability
 

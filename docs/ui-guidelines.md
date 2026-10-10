@@ -92,7 +92,8 @@ brackets match the Gesso catalog so findings can be cross-referenced.
 
 ## Checklist before merging dashboard changes
 
-1. `rg -n '—|–' src/SboxNetworkStorage.Server/Views` is empty.
+1. `rg -n '—|–' src/SboxNetworkStorage.Server/Views src/SboxNetworkStorage.Server/Owner/*.cs`
+   is empty. Controller messages are visible text too.
 2. No `text-transform: uppercase`, `border-left`/`border-right` rails,
    `linear-gradient`, `backdrop-filter`, `box-shadow` larger than 1px, or raw
    hex outside theme token blocks in `wwwroot/css`.

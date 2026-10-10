@@ -72,7 +72,9 @@ public sealed class ExceptionHandlingMiddleware(
             exception.GetType().Name,
             correlationId,
             exception.Message,
-            exception.ToString());
+            exception.ToString(),
+            // Lists the error under the project in the URL (data plane and dashboard routes).
+            ProjectId: context.GetRouteValue("projectId") as string);
 
         try
         {

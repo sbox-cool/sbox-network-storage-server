@@ -1,6 +1,7 @@
 using System.Globalization;
 using SboxNetworkStorage.Server.Configuration;
 using SboxNetworkStorage.Storage.Relational;
+using SboxNetworkStorage.Server.Hosting;
 
 namespace SboxNetworkStorage.Server.Cli;
 
@@ -117,9 +118,7 @@ public static class SetupCommand
         Console.WriteLine("  Open /login for owner management (or the logged /setup URL when no owner exists)");
         Console.WriteLine("  sbox-ns project create \"My Game\"       create a project");
         Console.WriteLine("  sbox-ns key create <projectId> --type public");
-        var url = string.IsNullOrWhiteSpace(written.GetString("server.public_url"))
-            ? $"http://<this-host>:{(ListenAddress.TryParse(written.GetString("server.listen"), out var l) ? l.Port : 8080)}"
-            : written.GetString("server.public_url");
+        var url = ServerBaseUrl.FromConfig(written, () => ServerBaseUrl.HostPlaceholder);
         Console.WriteLine($"  In your game: NetworkStorage.Configure(projectId, publicKey, \"{url}\")");
         return CliApp.Ok;
     }

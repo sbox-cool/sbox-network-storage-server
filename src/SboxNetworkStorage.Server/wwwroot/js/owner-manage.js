@@ -18,16 +18,35 @@
     });
   }
 
-  // Copy buttons sit right after the snippet they copy.
+  // Copy buttons sit right after the snippet they copy. Without the clipboard API (plain HTTP on a
+  // remote address), or when it is refused, the snippet is selected so the owner can press Ctrl+C.
+  function flash(button, text) {
+    var label = button.getAttribute("data-label") || button.textContent;
+    button.setAttribute("data-label", label);
+    button.textContent = text;
+    setTimeout(function () { button.textContent = label; }, 2500);
+  }
+  function select(source) {
+    var range = document.createRange();
+    range.selectNodeContents(source);
+    var selection = window.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+  }
   document.querySelectorAll("[data-copy-previous]").forEach(function (button) {
     button.addEventListener("click", function () {
       var source = button.previousElementSibling;
-      if (!source || !navigator.clipboard) return;
-      navigator.clipboard.writeText(source.textContent).then(function () {
-        var label = button.textContent;
-        button.textContent = "Copied";
-        setTimeout(function () { button.textContent = label; }, 1500);
-      });
+      if (!source) return;
+      var fallback = function () { select(source); flash(button, "Press Ctrl+C"); };
+      if (!navigator.clipboard || !window.isSecureContext) { fallback(); return; }
+      navigator.clipboard.writeText(source.textContent).then(function () { flash(button, "Copied"); }, fallback);
+    });
+  });
+
+  // Destructive buttons ask first. The question is in the button's data-confirm attribute.
+  document.querySelectorAll("button[data-confirm]").forEach(function (button) {
+    button.addEventListener("click", function (event) {
+      if (!window.confirm(button.getAttribute("data-confirm"))) event.preventDefault();
     });
   });
 

@@ -23,7 +23,7 @@ public sealed class OwnerLoginLinkService(INetworkStorageStore store)
     public async Task<(string Token, DateTimeOffset ExpiresAt)> CreateAsync(int minutes, CancellationToken ct)
     {
         if (minutes is < 1 or > MaxMinutes)
-            throw new ArgumentException($"Login link lifetime must be 1–{MaxMinutes} minutes.");
+            throw new ArgumentException($"Login link lifetime must be 1-{MaxMinutes} minutes.");
         var now = DateTimeOffset.UtcNow;
         await PurgeExpiredAsync(now, ct);
         var token = Convert.ToHexString(RandomNumberGenerator.GetBytes(TokenBytes)).ToLowerInvariant();

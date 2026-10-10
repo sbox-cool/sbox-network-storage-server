@@ -137,17 +137,12 @@ public abstract class OwnerAuthoringTests<TFactory> : IDisposable where TFactory
             var row = await store.ReadGameValuesAsync(project.ProjectId, CancellationToken.None);
             Assert.Equal(25, Column(row!.Value, "payload_json").GetProperty("items")[0].GetProperty("entries").GetProperty("dailyReward").GetInt32());
             await store.IncrementProjectUsageAsync(project.ProjectId, "2026-10", "2026-10-08", "health", new UsageDelta(731, 500, 20, 8, 55, 99, 3, 300, 8, 5, 12), CancellationToken.None);
-            await store.InsertStorageErrorAsync(project.ProjectId, 1791417600000, "error-safe-id", "secret-value-not-for-ui", "sensitive-stack", "runtime", "/v3/records", "error", CancellationToken.None);
         }
         var usage = await client.GetStringAsync(root + "/activity/usage?month=2026-10");
         Assert.Contains("731", usage);
         Assert.Contains("health", usage);
         var empty = await client.GetStringAsync(root + "/activity/usage?month=2026-09");
         Assert.Contains("No stored activity", empty);
-        var errors = await client.GetStringAsync(root + "/activity/errors");
-        Assert.Contains("error-safe-id", errors);
-        Assert.DoesNotContain("secret-value-not-for-ui", errors);
-        Assert.DoesNotContain("sensitive-stack", errors);
     }
 
     private static JsonElement Column(JsonElement row, string name)

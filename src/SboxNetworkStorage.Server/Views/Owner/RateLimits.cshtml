@@ -34,7 +34,7 @@
                     <td><span class="badge @(rule.Enabled ? "positive" : "")">@(rule.Enabled ? "Enabled" : "Disabled")</span></td>
                     <td class="actions">
                         <a class="button secondary" href="@url/rate-limits?edit=@Uri.EscapeDataString(rule.Id)#rule-form">Edit</a>
-                        <form method="post" action="@url/rate-limits/delete">@Html.AntiForgeryToken()<input type="hidden" name="id" value="@rule.Id" /><button class="danger" type="submit">Delete</button></form>
+                        <form method="post" action="@url/rate-limits/delete">@Html.AntiForgeryToken()<input type="hidden" name="id" value="@rule.Id" /><button class="danger" type="submit" data-confirm="Delete the rate limit rule &quot;@rule.Id&quot;?">Delete</button></form>
                     </td>
                 </tr>
             }
@@ -81,3 +81,4 @@
     <datalist id="rl-collections"><option value="*"></option>@foreach (var collection in Model.Collections) { <option value="@collection"></option> }</datalist>
     <datalist id="rl-fields"><option value="*"></option>@foreach (var field in Model.Fields) { <option value="@field"></option> }</datalist>
 </section>
+<script src="/owner-assets/m/manage.js" defer></script>

@@ -32,7 +32,7 @@
                 <div class="actions">
                     <span class="badge @(profile.Enabled ? "positive" : "")">@(profile.Enabled ? "Enabled" : "Disabled")</span>
                     <a class="button secondary" href="@url/webhooks?edit=@Uri.EscapeDataString(profile.Id)#profile-form">Edit</a>
-                    <form method="post" action="@url/webhooks/profiles/delete">@Html.AntiForgeryToken()<input type="hidden" name="id" value="@profile.Id" /><button class="danger" type="submit">Delete</button></form>
+                    <form method="post" action="@url/webhooks/profiles/delete">@Html.AntiForgeryToken()<input type="hidden" name="id" value="@profile.Id" /><button class="danger" type="submit" data-confirm="Delete the webhook profile &quot;@profile.Name&quot;?">Delete</button></form>
                 </div>
             </div>
             <p class="muted"><code>@profile.Url</code></p>

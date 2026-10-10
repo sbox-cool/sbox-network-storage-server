@@ -14,6 +14,7 @@ using SboxNetworkStorage.Infrastructure.NetworkStorage.Metadata;
 using SboxNetworkStorage.Infrastructure.NetworkStorage.Storage;
 using SboxNetworkStorage.Infrastructure.NetworkStorage.Usage;
 using SboxNetworkStorage.Infrastructure.Workspace;
+using SboxNetworkStorage.Server.Activity;
 using SboxNetworkStorage.Server.Alerts;
 using SboxNetworkStorage.Server.Configuration;
 using SboxNetworkStorage.Server.Infrastructure;
@@ -59,6 +60,8 @@ public static class NetworkStorageServices
         services.AddSingleton<INetworkStorageErrorAlertSink, OperatorAlertSink>();
         services.AddSingleton<EndpointConflictReportThrottle>();
         services.AddScoped<EndpointErrorReporter>();
+        // Every error report that names a project is also kept for that project's Errors tab.
+        services.AddRuntimeActivityLog();
 
         // Workspace objects (project lists, package manifests, key indexes) live in the configured database.
         services.AddScoped<StoreWorkspaceObjectClient>();

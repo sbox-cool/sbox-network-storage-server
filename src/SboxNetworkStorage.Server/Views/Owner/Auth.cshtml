@@ -1,11 +1,24 @@
 @model SboxNetworkStorage.Server.Owner.OwnerAuthModel
 @inject SboxNetworkStorage.Server.Configuration.EffectiveConfig Config
 @{ Layout = "~/Views/Owner/_Layout.cshtml"; }
-@if (Config.GetBoolean("adminpanel.turnstile.enabled"))
+@if (Config.GetBoolean("adminpanel.turnstile.enabled") && !Model.NoOwner)
 {
     <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
 }
+<link rel="stylesheet" href="/owner-assets/m/manage.css" />
 <section class="card auth">
+    @if (Model.NoOwner)
+    {
+        <h1>Create the owner account</h1>
+        <p>This server has no owner account yet, so there is nothing to log in to.</p>
+        <ol>
+            <li>On the server, run: <span class="copy-row"><code>sbox-ns admin login-link</code><button type="button" class="secondary" data-copy-previous>Copy</button></span></li>
+            <li>Open the printed link in this browser and choose a username and password.</li>
+        </ol>
+        <p>Without a browser, run <code>sbox-ns admin create</code> on the server instead, then reload this page.</p>
+    }
+    else
+    {
     <h1>@(Model.Setup ? "Create the local owner" : "Owner login")</h1>
     @if (Model.Error is not null) { <p class="error" role="alert">@Model.Error</p> }
     @if (Model.Setup)
@@ -33,4 +46,6 @@
     </form>
     <p>Use HTTPS for remote login. Plain HTTP is intended only for a trusted local connection or SSH tunnel.</p>
     <p>No password at hand? On the server run <code>sbox-ns admin login-link</code> for a single-use sign-in link, or <code>sbox-ns admin reset-password</code>.</p>
+    }
 </section>
+@if (Model.NoOwner) { <script src="/owner-assets/m/manage.js" defer></script> }
