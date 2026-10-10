@@ -44,6 +44,12 @@ expect_project() {
     || fail "project 'Install Matrix' is missing"
 }
 
+step "Make the runner's binary folder look like a normal host"
+# Hosted runner images ship /usr/local/bin writable by group or others. The updater refuses to replace a
+# binary in such a folder (anyone in that group could swap it), which is correct, so give it the usual 0755.
+chown root:root /usr/local/bin
+chmod 0755 /usr/local/bin
+
 step "Trust the fixture and route release hosts to it"
 if command -v update-ca-certificates > /dev/null; then
   cp "$fixture/tls/ca.crt" /usr/local/share/ca-certificates/sbox-ns-install-matrix.crt

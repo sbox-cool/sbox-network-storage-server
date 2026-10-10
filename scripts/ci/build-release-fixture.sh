@@ -10,6 +10,7 @@
 # 4. Writes DIR/latest (the newest VERSION) and a throwaway CA plus a TLS certificate for
 #    github.com, api.github.com and sboxcool.com in DIR/tls/.
 set -euo pipefail
+trap 'echo "build-release-fixture.sh: line $LINENO failed: $BASH_COMMAND" >&2' ERR
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 rid=''; out=''; previous=''; versions=()
 while (($#)); do
