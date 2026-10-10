@@ -43,7 +43,8 @@ for version in "${versions[@]}"; do
     -p:EnableCompressionInSingleFile=true -p:Version="$version" -o "$publish" -nologo -v q
   cp "$root/LICENSE" "$root/README.md" "$root/CHANGELOG.md" "$publish/"
   if [[ "$rid" == win-* ]]; then
-    pwsh -NoProfile -Command "Compress-Archive -Path '$publish/*' -DestinationPath '$dir/sbox-ns-$version-$rid.zip'"
+    # Git Bash paths (/d/a/...) mean something else to PowerShell; hand it Windows paths.
+    pwsh -NoProfile -Command "Compress-Archive -Path '$(cygpath -w "$publish")\\*' -DestinationPath '$(cygpath -w "$dir")\\sbox-ns-$version-$rid.zip'"
   else
     tar -C "$publish" -czf "$dir/sbox-ns-$version-$rid.tar.gz" .
   fi

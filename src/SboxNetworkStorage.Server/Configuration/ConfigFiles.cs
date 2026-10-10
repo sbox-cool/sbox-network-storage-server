@@ -70,10 +70,12 @@ public static partial class ConfigFiles
     public static void WriteAll(string configDirectory, IReadOnlyDictionary<string, object> values)
     {
         Directory.CreateDirectory(configDirectory);
-        Directory.CreateDirectory(Path.Combine(configDirectory, ConfigLoader.ConfDirectory));
+        var confDirectory = Path.Combine(configDirectory, ConfigLoader.ConfDirectory);
+        Directory.CreateDirectory(confDirectory);
+        UnixFiles.ShareFolderGroup(confDirectory, configDirectory);
         foreach (var file in SettingDefinitions.Files)
         {
-            WriteAtomically(Path.Combine(configDirectory, file), Render(file, values));
+            WriteOperatorFile(Path.Combine(configDirectory, file), Render(file, values), configDirectory);
         }
     }
 
@@ -98,7 +100,7 @@ public static partial class ConfigFiles
             if (item?.Value is { } existingValue)
             {
                 var span = existingValue.Span;
-                WriteAtomically(path, text[..span.Offset] + FormatValue(value) + text[(span.Offset + span.Length)..]);
+                WriteOperatorFile(path, text[..span.Offset] + FormatValue(value) + text[(span.Offset + span.Length)..], configDirectory);
                 return path;
             }
         }
@@ -145,7 +147,7 @@ public static partial class ConfigFiles
             }
         }
 
-        WriteAtomically(path, string.Join(Environment.NewLine, lines).TrimEnd() + Environment.NewLine);
+        WriteOperatorFile(path, string.Join(Environment.NewLine, lines).TrimEnd() + Environment.NewLine, configDirectory);
         return path;
     }
 
@@ -176,6 +178,17 @@ public static partial class ConfigFiles
         }
 
         return builder.Append('"').ToString();
+    }
+
+    /// <summary>
+    /// Writes an operator config file and gives it the config folder's group with group read. Root writes these
+    /// files (under the installer's umask 0027 they would be root:root 0640), and the service account, plus
+    /// commands root runs as that account, must still read them.
+    /// </summary>
+    private static void WriteOperatorFile(string path, string content, string configDirectory)
+    {
+        WriteAtomically(path, content);
+        UnixFiles.ShareGroup(path, configDirectory);
     }
 
     /// <summary>Writes via a temp file + rename so a crash never leaves a half-written file.</summary>
