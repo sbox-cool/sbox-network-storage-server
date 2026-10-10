@@ -41,7 +41,7 @@ jobs:
         run: bash scripts/smoke.sh --no-build --port 18431 --postgres 'Host=localhost;Port=5432;Database=sbox_ns_smoke;Username=sbox_ns;Password=sbox_ns' --out TestResults/postgres.json
       - name: Compare complete normalized runs
         run: dotnet tools/SboxNetworkStorage.Parity/bin/Release/net10.0/sbox-ns-parity.dll diff --stable TestResults/sqlite.json --candidate TestResults/postgres.json
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: cross-driver-http-parity
@@ -66,7 +66,7 @@ jobs:
       - if: runner.os == 'Windows'
         shell: pwsh
         run: ./scripts/smoke.ps1 -NoBuild -Out TestResults/sqlite.json
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: sqlite-http-parity-${{ matrix.os }}
