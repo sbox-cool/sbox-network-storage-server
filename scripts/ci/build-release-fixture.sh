@@ -65,9 +65,11 @@ if [[ -n "$previous" ]]; then
 fi
 
 tls="$out/tls"
-openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj '/CN=sbox-ns install matrix CA' \
-  -keyout "$tls/ca.key" -out "$tls/ca.crt" 2>/dev/null
-openssl req -newkey rsa:2048 -nodes -subj '/CN=github.com' -keyout "$tls/server.key" -out "$tls/server.csr" 2>/dev/null
+# Git Bash on Windows rewrites an argument starting with / into a Windows path; // keeps a literal /.
+subject=/; [[ "$(uname -s)" == MINGW* ]] && subject=//
+openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj "${subject}CN=sbox-ns install matrix CA" \
+  -keyout "$tls/ca.key" -out "$tls/ca.crt"
+openssl req -newkey rsa:2048 -nodes -subj "${subject}CN=github.com" -keyout "$tls/server.key" -out "$tls/server.csr"
 printf 'subjectAltName=DNS:github.com,DNS:api.github.com,DNS:sboxcool.com\nextendedKeyUsage=serverAuth\n' > "$tls/ext.cnf"
 openssl x509 -req -in "$tls/server.csr" -CA "$tls/ca.crt" -CAkey "$tls/ca.key" -CAcreateserial -days 2 \
   -extfile "$tls/ext.cnf" -out "$tls/server.crt" 2>/dev/null
