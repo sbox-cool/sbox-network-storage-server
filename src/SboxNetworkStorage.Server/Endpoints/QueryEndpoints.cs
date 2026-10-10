@@ -132,7 +132,11 @@ public static class QueryEndpoints
         }
 
         // ── Determine live vs cached ──
-        var liveResult = WantsLiveResult(context.Request.Query) || !WantsCachedResult(context.Request.Query);
+        // Without ?cache=1 the response keeps the live shape (no-store, no cache fields). Only a secret key
+        // may actually force a fresh run: the public key ships in every game build, so a public caller is
+        // always served from the shared cache, which runs the query at most once per short interval.
+        var wantsLive = WantsLiveResult(context.Request.Query) || !WantsCachedResult(context.Request.Query);
+        var runLive = wantsLive && endpointSecret.HasSecretKey;
 
         // ── Build the values context (game-values + collections) ──
         var valuesProvider = context.RequestServices.GetRequiredService<IQueryValuesContextProvider>();
@@ -148,7 +152,7 @@ public static class QueryEndpoints
         QueryResult? result;
         try
         {
-            result = await executor.ExecuteAsync(projectId, queryId, values, bypassCache: liveResult, context.RequestAborted);
+            result = await executor.ExecuteAsync(projectId, queryId, values, bypassCache: runLive, context.RequestAborted);
         }
         catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested)
         {
@@ -193,10 +197,10 @@ public static class QueryEndpoints
             ["updatedAt"] = updatedAt,
         };
 
-        AddResultFields(body, result);
+        AddResultFields(body, result, includeCacheFields: !wantsLive);
 
-        // Cache-control header for live results.
-        if (liveResult)
+        // Cache-control header for live-shaped results.
+        if (wantsLive)
         {
             context.Response.Headers["Cache-Control"] = "no-store, max-age=0";
         }
@@ -208,7 +212,7 @@ public static class QueryEndpoints
 
     // ── Output builder (mirror addQueryResultFields) ──
 
-    private static void AddResultFields(Dictionary<string, object?> output, QueryResult result)
+    private static void AddResultFields(Dictionary<string, object?> output, QueryResult result, bool includeCacheFields)
     {
         if (result.Type is not null) output["type"] = result.Type;
         if (result.Field is not null) output["field"] = result.Field;
@@ -222,6 +226,7 @@ public static class QueryEndpoints
         if (result.Value is not null) output["value"] = result.Value;
         if (result.Counted.HasValue) output["counted"] = result.Counted;
         if (result.Performance is not null) output["performance"] = result.Performance;
+        if (!includeCacheFields) return;
         if (result.FromCache) output["fromCache"] = true;
         if (result.CachedAt is not null) output["cachedAt"] = result.CachedAt;
         if (result.ExpiresAt is not null) output["expiresAt"] = result.ExpiresAt;

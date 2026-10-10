@@ -81,6 +81,23 @@ public sealed class McpServerTests
     }
 
     [Theory]
+    [InlineData("alerts.smtp.password", "alerts.smtp.password_file")]
+    [InlineData("database.postgres.connection_string", "sbox-ns config set")]
+    public async Task Config_set_refuses_secret_settings_without_running_anything(string key, string hint)
+    {
+        var response = await SendAsync(Create(),
+            """{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"config_set","arguments":{"key":""" + "\"" + key + "\"" + ""","value":"hunter2"}}}""");
+
+        Assert.Equal(-32602, response["error"]!["code"]!.GetValue<int>());
+        Assert.Contains(hint, response["error"]!["message"]!.GetValue<string>());
+        Assert.DoesNotContain("hunter2", response.ToJsonString());
+        Assert.Empty(_calls);
+
+        await SendAsync(Create(), """{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"config_set","arguments":{"key":"alerts.smtp.password_file","value":"secrets/smtp"}}}""");
+        Assert.Equal(["config", "set", "alerts.smtp.password_file", "secrets/smtp", "--config-dir", "/etc/sbox-ns"], _calls.Single());
+    }
+
+    [Theory]
     [InlineData("""{"method":42}""", -32600)]
     [InlineData("""{"method":true}""", -32600)]
     [InlineData("""{"method":{}}""", -32600)]

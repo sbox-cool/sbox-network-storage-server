@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using SboxNetworkStorage.Server.Configuration;
 
 namespace SboxNetworkStorage.Server.Cli;
 
@@ -103,12 +104,25 @@ public sealed class McpServer
                 return args;
             }),
         new("config_show", "Show every effective setting and its source (secrets redacted).", Schema(), _ => ["config", "show"]),
-        new("config_get", "Read one setting, e.g. server.public_url.",
+        new("config_get", "Read one setting, e.g. server.public_url. Secret settings print as ********.",
             Schema(("key", "string", "Dotted setting key.", true)),
             a => ["config", "get", RequireString(a, "key")]),
-        new("config_set", "Change one setting in its config file (comments preserved). Restart the service to apply.",
+        new("config_set", "Change one setting in its config file (comments preserved). Restart the service to apply. Secret settings are refused: set their *_file variant to a file path instead.",
             Schema(("key", "string", "Dotted setting key.", true), ("value", "string", "New value.", true)),
-            a => ["config", "set", RequireString(a, "key"), RequireString(a, "value")]),
+            a =>
+            {
+                var key = RequireString(a, "key");
+                // A secret value would land in this transcript and in the child process command line.
+                if (SettingDefinitions.Find(key) is { Secret: true } definition)
+                {
+                    var fileVariant = SettingDefinitions.Find(definition.Key + "_file");
+                    throw new McpToolException(fileVariant is null
+                        ? $"{key} is a secret setting; set it outside the agent session with sbox-ns config set or sbox-ns config edit."
+                        : $"{key} is a secret setting; put the value in a file and set {fileVariant.Key} to its path instead.");
+                }
+
+                return ["config", "set", key, RequireString(a, "value")];
+            }),
         new("config_validate", "Validate the config folder.", Schema(), _ => ["config", "validate"]),
         new("db_status", "Show the database provider and schema version.", Schema(), _ => ["db", "status"]),
         new("db_backup", "Write a consistent database backup and return its path.", Schema(), _ => ["db", "backup"]),

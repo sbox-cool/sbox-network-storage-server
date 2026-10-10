@@ -1,54 +1,89 @@
 using System.Text.Json;
+using SboxNetworkStorage.Infrastructure.NetworkStorage.Storage;
 using SboxNetworkStorage.Storage;
 
 namespace SboxNetworkStorage.Infrastructure.NetworkStorage.Metadata;
 
 /// <summary>
 /// Serves collection, endpoint and game-value reads from the project's <see cref="ProjectMetadataSnapshot"/>
-/// and invalidates it on every write that can change them, including project deletion and imports. Every other
-/// operation passes straight through. Identifiers the store would reject are passed through too, so callers
-/// see the store's own validation errors.
+/// and invalidates it on every write that can change them, including project deletion and imports. The same
+/// writes, plus record and player-profile writes, are reported to <see cref="QueryResultCache"/> so cached
+/// query results follow the data. Every other operation passes straight through. Identifiers the store would
+/// reject are passed through too, so callers see the store's own validation errors.
 /// </summary>
 public sealed class MetadataCachingNetworkStore : INetworkStorageStore, IProjectImportStore, IAuthoritativeProjectStore
 {
     private readonly INetworkStorageStore _inner;
     private readonly ProjectMetadataCache _cache;
+    private readonly QueryResultCache _queries;
     // Set on a transaction's store: writes are recorded instead of invalidating, because nothing is visible
     // until commit, and reads bypass the snapshot so they see the transaction's own writes.
-    private readonly HashSet<string>? _pendingInvalidations;
+    private readonly PendingChanges? _pending;
 
-    public MetadataCachingNetworkStore(INetworkStorageStore inner, ProjectMetadataCache cache)
-        : this(inner, cache, null)
+    public MetadataCachingNetworkStore(INetworkStorageStore inner, ProjectMetadataCache cache, QueryResultCache queries)
+        : this(inner, cache, queries, null)
     {
     }
 
-    private MetadataCachingNetworkStore(INetworkStorageStore inner, ProjectMetadataCache cache, HashSet<string>? pendingInvalidations)
+    private MetadataCachingNetworkStore(INetworkStorageStore inner, ProjectMetadataCache cache, QueryResultCache queries, PendingChanges? pending)
     {
         _inner = inner ?? throw new ArgumentNullException(nameof(inner));
         _cache = cache ?? throw new ArgumentNullException(nameof(cache));
-        _pendingInvalidations = pendingInvalidations;
+        _queries = queries ?? throw new ArgumentNullException(nameof(queries));
+        _pending = pending;
     }
 
     private bool Cacheable(string projectId, string? id = null)
-        => _pendingInvalidations is null
+        => _pending is null
            && StorageIdValidation.IsValidCollectionId(projectId)
            && (id is null || StorageIdValidation.IsValidCollectionId(id));
 
     private async Task Changed(Task write, string projectId)
     {
         await write;
-        if (_pendingInvalidations is null) _cache.Invalidate(projectId);
-        else lock (_pendingInvalidations) _pendingInvalidations.Add(projectId);
+        if (_pending is null) DefinitionsChanged(projectId);
+        else lock (_pending) _pending.Definitions.Add(projectId);
+    }
+
+    private void DefinitionsChanged(string projectId)
+    {
+        _cache.Invalidate(projectId);
+        _queries.DefinitionsChanged(projectId);
+    }
+
+    private async Task RecordsChanged(Task write, string projectId)
+    {
+        await write;
+        RecordsChanged(projectId);
+    }
+
+    private async Task<bool> RecordsChanged(Task<bool> write, string projectId)
+    {
+        var applied = await write;
+        if (applied) RecordsChanged(projectId);
+        return applied;
+    }
+
+    private void RecordsChanged(string projectId)
+    {
+        if (_pending is null) _queries.DataChanged(projectId);
+        else lock (_pending) _pending.Records.Add(projectId);
     }
 
     public async Task<IStoreTransaction> BeginTransactionAsync(CancellationToken ct)
     {
-        var pending = new HashSet<string>(StringComparer.Ordinal);
+        var pending = new PendingChanges();
         var transaction = await _inner.BeginTransactionAsync(ct);
-        return new CachingTransaction(transaction, new MetadataCachingNetworkStore(transaction.Store, _cache, pending), _cache, pending);
+        return new CachingTransaction(transaction, new MetadataCachingNetworkStore(transaction.Store, _cache, _queries, pending), this, pending);
     }
 
-    private sealed class CachingTransaction(IStoreTransaction inner, INetworkStorageStore store, ProjectMetadataCache cache, HashSet<string> pending) : IStoreTransaction
+    private sealed class PendingChanges
+    {
+        public readonly HashSet<string> Definitions = new(StringComparer.Ordinal);
+        public readonly HashSet<string> Records = new(StringComparer.Ordinal);
+    }
+
+    private sealed class CachingTransaction(IStoreTransaction inner, INetworkStorageStore store, MetadataCachingNetworkStore owner, PendingChanges pending) : IStoreTransaction
     {
         public INetworkStorageStore Store => store;
 
@@ -56,7 +91,10 @@ public sealed class MetadataCachingNetworkStore : INetworkStorageStore, IProject
         {
             await inner.CommitAsync(ct);
             lock (pending)
-                foreach (var projectId in pending) cache.Invalidate(projectId);
+            {
+                foreach (var projectId in pending.Definitions) owner.DefinitionsChanged(projectId);
+                foreach (var projectId in pending.Records) owner.RecordsChanged(projectId);
+            }
         }
 
         public ValueTask DisposeAsync() => inner.DisposeAsync();
@@ -74,7 +112,7 @@ public sealed class MetadataCachingNetworkStore : INetworkStorageStore, IProject
         }
         finally
         {
-            if (StorageIdValidation.IsValidCollectionId(projectId)) _cache.Invalidate(projectId);
+            if (StorageIdValidation.IsValidCollectionId(projectId)) DefinitionsChanged(projectId);
         }
     }
 
@@ -89,7 +127,7 @@ public sealed class MetadataCachingNetworkStore : INetworkStorageStore, IProject
         }
         finally
         {
-            if (StorageIdValidation.IsValidCollectionId(projectId)) _cache.Invalidate(projectId);
+            if (StorageIdValidation.IsValidCollectionId(projectId)) DefinitionsChanged(projectId);
         }
     }
 
@@ -168,18 +206,18 @@ public sealed class MetadataCachingNetworkStore : INetworkStorageStore, IProject
     public Task<JsonElement?> ReadQueryLastRunAsync(string projectId, string queryId, CancellationToken ct) => _inner.ReadQueryLastRunAsync(projectId, queryId, ct);
     public Task<IReadOnlyList<JsonElement>> ListQueryLastRunsAsync(string projectId, CancellationToken ct) => _inner.ListQueryLastRunsAsync(projectId, ct);
     public Task<IReadOnlyList<JsonElement>> ListQueryLogsAsync(string projectId, string queryId, int limit, CancellationToken ct) => _inner.ListQueryLogsAsync(projectId, queryId, limit, ct);
-    public Task UpsertRecordAsync(string projectId, string collectionId, string recordKey, JsonElement payloadJson, bool deleted, long version, CancellationToken ct) => _inner.UpsertRecordAsync(projectId, collectionId, recordKey, payloadJson, deleted, version, ct);
+    public Task UpsertRecordAsync(string projectId, string collectionId, string recordKey, JsonElement payloadJson, bool deleted, long version, CancellationToken ct) => RecordsChanged(_inner.UpsertRecordAsync(projectId, collectionId, recordKey, payloadJson, deleted, version, ct), projectId);
     public Task<JsonElement?> ReadRecordAsync(string projectId, string collectionId, string recordKey, CancellationToken ct) => _inner.ReadRecordAsync(projectId, collectionId, recordKey, ct);
     public Task<IReadOnlyList<JsonElement>> ListRecordsAsync(string projectId, string collectionId, CancellationToken ct) => _inner.ListRecordsAsync(projectId, collectionId, ct);
-    public Task DeleteRecordAsync(string projectId, string collectionId, string recordKey, CancellationToken ct) => _inner.DeleteRecordAsync(projectId, collectionId, recordKey, ct);
-    public Task<bool> TryMutateRecordAsync(string projectId, string collectionId, string recordKey, bool global, JsonElement payloadJson, bool delete, long? expectedVersion, CancellationToken ct, RecordMutationSnapshot? snapshot = null) => _inner.TryMutateRecordAsync(projectId, collectionId, recordKey, global, payloadJson, delete, expectedVersion, ct, snapshot);
+    public Task DeleteRecordAsync(string projectId, string collectionId, string recordKey, CancellationToken ct) => RecordsChanged(_inner.DeleteRecordAsync(projectId, collectionId, recordKey, ct), projectId);
+    public Task<bool> TryMutateRecordAsync(string projectId, string collectionId, string recordKey, bool global, JsonElement payloadJson, bool delete, long? expectedVersion, CancellationToken ct, RecordMutationSnapshot? snapshot = null) => RecordsChanged(_inner.TryMutateRecordAsync(projectId, collectionId, recordKey, global, payloadJson, delete, expectedVersion, ct, snapshot), projectId);
     public Task UpsertRecordIdempotencyAsync(string projectId, string collectionId, string recordKey, string idempotencyKey, long resultRecordVersion, string resultHash, JsonElement payloadJson, CancellationToken ct) => _inner.UpsertRecordIdempotencyAsync(projectId, collectionId, recordKey, idempotencyKey, resultRecordVersion, resultHash, payloadJson, ct);
     public Task<JsonElement?> ReadRecordIdempotencyAsync(string projectId, string collectionId, string recordKey, string idempotencyKey, CancellationToken ct) => _inner.ReadRecordIdempotencyAsync(projectId, collectionId, recordKey, idempotencyKey, ct);
     public Task DeleteRecordIdempotencyAsync(string projectId, string collectionId, string recordKey, string idempotencyKey, CancellationToken ct) => _inner.DeleteRecordIdempotencyAsync(projectId, collectionId, recordKey, idempotencyKey, ct);
-    public Task UpsertGlobalRecordAsync(string projectId, string collectionId, string recordId, JsonElement payloadJson, long version, CancellationToken ct) => _inner.UpsertGlobalRecordAsync(projectId, collectionId, recordId, payloadJson, version, ct);
+    public Task UpsertGlobalRecordAsync(string projectId, string collectionId, string recordId, JsonElement payloadJson, long version, CancellationToken ct) => RecordsChanged(_inner.UpsertGlobalRecordAsync(projectId, collectionId, recordId, payloadJson, version, ct), projectId);
     public Task<JsonElement?> ReadGlobalRecordAsync(string projectId, string collectionId, string recordId, CancellationToken ct) => _inner.ReadGlobalRecordAsync(projectId, collectionId, recordId, ct);
     public Task<IReadOnlyList<JsonElement>> ListGlobalRecordsAsync(string projectId, string collectionId, CancellationToken ct) => _inner.ListGlobalRecordsAsync(projectId, collectionId, ct);
-    public Task DeleteGlobalRecordAsync(string projectId, string collectionId, string recordId, CancellationToken ct) => _inner.DeleteGlobalRecordAsync(projectId, collectionId, recordId, ct);
+    public Task DeleteGlobalRecordAsync(string projectId, string collectionId, string recordId, CancellationToken ct) => RecordsChanged(_inner.DeleteGlobalRecordAsync(projectId, collectionId, recordId, ct), projectId);
     public Task InsertLedgerEntryAsync(string projectId, string collectionId, string recordKey, long sequence, JsonElement entryJson, CancellationToken ct) => _inner.InsertLedgerEntryAsync(projectId, collectionId, recordKey, sequence, entryJson, ct);
     public Task<IReadOnlyList<JsonElement>> ListLedgerEntriesAsync(string projectId, string collectionId, string recordKey, CancellationToken ct) => _inner.ListLedgerEntriesAsync(projectId, collectionId, recordKey, ct);
     public Task DeleteLedgerEntriesAsync(string projectId, string collectionId, string recordKey, CancellationToken ct) => _inner.DeleteLedgerEntriesAsync(projectId, collectionId, recordKey, ct);
@@ -200,7 +238,7 @@ public sealed class MetadataCachingNetworkStore : INetworkStorageStore, IProject
     public Task InsertPlayerAnalyticsEventV2Async(string projectId, string steamId, long createdAtUnixMs, string eventId, string eventType, string category, string label, string endpointSlug, string collectionId, JsonElement payloadJson, CancellationToken ct) => _inner.InsertPlayerAnalyticsEventV2Async(projectId, steamId, createdAtUnixMs, eventId, eventType, category, label, endpointSlug, collectionId, payloadJson, ct);
     public Task<IReadOnlyList<JsonElement>> ListPlayerEventsAsync(string projectId, string steamId, long fromUnixMs, long toUnixMs, int limit, CancellationToken ct) => _inner.ListPlayerEventsAsync(projectId, steamId, fromUnixMs, toUnixMs, limit, ct);
     public Task<long> CountPlayerEventsAsync(string projectId, string steamId, CancellationToken ct) => _inner.CountPlayerEventsAsync(projectId, steamId, ct);
-    public Task UpsertPlayerProfileAsync(string projectId, string steamId, string playerName, bool isOnline, long? onlineSinceUnixMs, long lastSeenUnixMs, long? lastHeartbeatUnixMs, string? currentSessionId, long? currentSessionLastSeconds, long totalSeconds, long sessionCount, string? lastEventType, string? lastEndpointSlug, string managedCountersJson, long updatedAtUnixMs, CancellationToken ct) => _inner.UpsertPlayerProfileAsync(projectId, steamId, playerName, isOnline, onlineSinceUnixMs, lastSeenUnixMs, lastHeartbeatUnixMs, currentSessionId, currentSessionLastSeconds, totalSeconds, sessionCount, lastEventType, lastEndpointSlug, managedCountersJson, updatedAtUnixMs, ct);
+    public Task UpsertPlayerProfileAsync(string projectId, string steamId, string playerName, bool isOnline, long? onlineSinceUnixMs, long lastSeenUnixMs, long? lastHeartbeatUnixMs, string? currentSessionId, long? currentSessionLastSeconds, long totalSeconds, long sessionCount, string? lastEventType, string? lastEndpointSlug, string managedCountersJson, long updatedAtUnixMs, CancellationToken ct) => RecordsChanged(_inner.UpsertPlayerProfileAsync(projectId, steamId, playerName, isOnline, onlineSinceUnixMs, lastSeenUnixMs, lastHeartbeatUnixMs, currentSessionId, currentSessionLastSeconds, totalSeconds, sessionCount, lastEventType, lastEndpointSlug, managedCountersJson, updatedAtUnixMs, ct), projectId);
     public Task<JsonElement?> ReadPlayerProfileAsync(string projectId, string steamId, CancellationToken ct) => _inner.ReadPlayerProfileAsync(projectId, steamId, ct);
     public Task<IReadOnlyList<JsonElement>> ReadProjectProfilesAsync(string projectId, CancellationToken ct) => _inner.ReadProjectProfilesAsync(projectId, ct);
     public Task InsertPlayerSessionAsync(string projectId, string steamId, string sessionId, long? startedAtUnixMs, long? lastHeartbeatAtUnixMs, long? endedAtUnixMs, string? lastMetricsJson, string? summaryJson, CancellationToken ct) => _inner.InsertPlayerSessionAsync(projectId, steamId, sessionId, startedAtUnixMs, lastHeartbeatAtUnixMs, endedAtUnixMs, lastMetricsJson, summaryJson, ct);

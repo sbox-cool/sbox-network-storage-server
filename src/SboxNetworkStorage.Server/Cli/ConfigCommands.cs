@@ -57,6 +57,13 @@ public static class ConfigCommands
         var definition = SettingDefinitions.Find(key) ?? throw new CliException($"unknown setting '{key}'", CliApp.Usage);
         var config = context.LoadConfig();
         var value = config.Values[definition.Key].Value;
+        // Same redaction as `config show`: this output ends up in terminals, logs and agent transcripts.
+        if (definition.Secret && !context.Args.Flag("show-secrets") && value is string { Length: > 0 })
+        {
+            Console.WriteLine("********");
+            return CliApp.Ok;
+        }
+
         Console.WriteLine(value is string text ? text : ConfigFiles.FormatValue(value));
         return CliApp.Ok;
     }

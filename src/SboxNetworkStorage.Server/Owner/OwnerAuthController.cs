@@ -15,13 +15,14 @@ public sealed record OwnerLoginLinkModel(string? Token, string? OwnerName, strin
     public bool CreatesOwner => Token is not null && OwnerName is null;
 }
 
-[EnableRateLimiting("owner-login")]
+[EnableRateLimiting(OwnerLoginLimits.Policy)]
 public sealed class OwnerAuthController(OwnerAccountService accounts, OwnerSetupToken setupToken,
     OwnerLoginLinkService loginLinks, OwnerTurnstile turnstile, ILogger<OwnerAuthController> logger) : Controller
 {
     [HttpGet("/login")]
     public async Task<IActionResult> Login(CancellationToken ct)
     {
+        if (OwnerTransport.RefusesCredentials(HttpContext)) return InsecureHttpRefused();
         if (await accounts.GetAsync(ct) is null)
             return View("~/Views/Owner/Auth.cshtml", new OwnerAuthModel(false, NoOwner: true));
         return View("~/Views/Owner/Auth.cshtml", new OwnerAuthModel(false));
@@ -31,10 +32,25 @@ public sealed class OwnerAuthController(OwnerAccountService accounts, OwnerSetup
     public async Task<IActionResult> Login([FromForm] string? username, [FromForm] string? password,
         [FromForm] string? secondFactor, [FromForm(Name = "cf-turnstile-response")] string? verification, CancellationToken ct)
     {
+        if (OwnerTransport.RefusesCredentials(HttpContext)) return InsecureHttpRefused();
         if (!await turnstile.VerifyAsync(verification, "owner_login", HttpContext.Connection.RemoteIpAddress, ct)) return StatusCode(403);
         var owner = password is { Length: >= 1 and <= 1024 } && username is { Length: >= 1 and <= 64 }
             ? await accounts.AuthenticateAsync(username, password, ct) : null;
-        if (owner is null || owner.TotpSecret is not null && !await accounts.VerifySecondFactorAsync(owner.SecurityStamp, secondFactor, ct))
+        bool secondFactorOk;
+        try
+        {
+            secondFactorOk = owner is not null && (owner.TotpSecret is null || await accounts.VerifySecondFactorAsync(owner.SecurityStamp, secondFactor, ct));
+        }
+        catch (OwnerAuthenticatorUnavailableException ex)
+        {
+            logger.LogWarning(ex, "Owner authenticator secret cannot be decrypted with this server's key ring (restored from another machine?). Run sbox-ns admin reset-2fa on the server.");
+            Response.StatusCode = StatusCodes.Status401Unauthorized;
+            return View("~/Views/Owner/Auth.cshtml", new OwnerAuthModel(false,
+                Error: "This server cannot read your authenticator, for example after a restore on another machine. Sign in with a recovery code, or run sbox-ns admin reset-2fa on the server and sign in with your password.",
+                Username: username));
+        }
+
+        if (owner is null || !secondFactorOk)
         {
             Response.StatusCode = StatusCodes.Status401Unauthorized;
             return View("~/Views/Owner/Auth.cshtml", new OwnerAuthModel(false, Error: "Invalid credentials or authenticator/recovery code.", Username: username));
@@ -75,6 +91,7 @@ public sealed class OwnerAuthController(OwnerAccountService accounts, OwnerSetup
     [HttpGet("/login/link")]
     public async Task<IActionResult> LoginLink([FromQuery] string? token, CancellationToken ct)
     {
+        if (OwnerTransport.RefusesCredentials(HttpContext)) return InsecureHttpRefused();
         if (!await loginLinks.IsValidAsync(token, ct)) return LoginLinkRejected();
         var owner = await accounts.GetAsync(ct);
         return View(LoginLinkView, new OwnerLoginLinkModel(token, owner?.Username));
@@ -85,6 +102,7 @@ public sealed class OwnerAuthController(OwnerAccountService accounts, OwnerSetup
         [FromForm] string? password, [FromForm] string? confirmPassword,
         [FromForm(Name = "cf-turnstile-response")] string? verification, CancellationToken ct)
     {
+        if (OwnerTransport.RefusesCredentials(HttpContext)) return InsecureHttpRefused();
         if (!await loginLinks.IsValidAsync(token, ct)) return LoginLinkRejected();
         if (!await turnstile.VerifyAsync(verification, "owner_link", HttpContext.Connection.RemoteIpAddress, ct)) return StatusCode(403);
         var owner = await accounts.GetAsync(ct);
@@ -118,8 +136,10 @@ public sealed class OwnerAuthController(OwnerAccountService accounts, OwnerSetup
 
     [Authorize(AuthenticationSchemes = OwnerHostingExtensions.Scheme)]
     [HttpPost("/logout")]
-    public async Task<IActionResult> Logout()
+    public async Task<IActionResult> Logout(CancellationToken ct)
     {
+        // A new stamp also ends copies of this cookie (and any other session); there is only one owner.
+        await accounts.RevokeSessionsAsync(ct);
         await HttpContext.SignOutAsync(OwnerHostingExtensions.Scheme);
         return Redirect("/login");
     }
@@ -131,6 +151,13 @@ public sealed class OwnerAuthController(OwnerAccountService accounts, OwnerSetup
         Response.StatusCode = StatusCodes.Status404NotFound;
         return View(LoginLinkView, new OwnerLoginLinkModel(null, null,
             "This login link is invalid, expired or already used. On the server run sbox-ns admin login-link for a new one."));
+    }
+
+    /// <summary>Plain HTTP from another machine: explain the safe ways in instead of taking a password or link.</summary>
+    private ViewResult InsecureHttpRefused()
+    {
+        Response.StatusCode = StatusCodes.Status403Forbidden;
+        return View("~/Views/Owner/InsecureHttp.cshtml");
     }
 
     private bool IsLocal() => OwnerTransport.IsLoopback(HttpContext);

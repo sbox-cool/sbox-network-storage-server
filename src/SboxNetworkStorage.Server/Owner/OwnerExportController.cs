@@ -1,6 +1,8 @@
 using System.Globalization;
+using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using SboxNetworkStorage.Application.Common;
 using SboxNetworkStorage.Application.Workspace;
 using SboxNetworkStorage.Server.Configuration;
@@ -12,12 +14,13 @@ namespace SboxNetworkStorage.Server.Owner;
 
 /// <summary>
 /// Owner-only download of the same archive <c>sbox-ns export</c> writes. Secrets are
-/// excluded unless the owner opts in; every download is audit-logged per project.
-/// Antiforgery is enforced by the global <c>AutoValidateAntiforgeryToken</c> filter.
+/// excluded unless the owner opts in and confirms the password (and authenticator code when
+/// enabled), so a stolen session cookie alone cannot take the server's keys. Every download is
+/// audit-logged per project. Antiforgery is enforced by the global <c>AutoValidateAntiforgeryToken</c> filter.
 /// </summary>
 [Authorize(AuthenticationSchemes = OwnerHostingExtensions.Scheme)]
 public sealed class OwnerExportController(INetworkStorageStore store, INetworkStorageStoreAdmin admin, EffectiveConfig config,
-    IWorkspaceStore workspace, IAuditLogger audit, ILogger<OwnerExportController> logger) : Controller
+    IWorkspaceStore workspace, IAuditLogger audit, OwnerAccountService accounts, ILogger<OwnerExportController> logger) : Controller
 {
     private const long Owner = NetworkStorageServices.LocalOwnerUserId;
 
@@ -25,8 +28,11 @@ public sealed class OwnerExportController(INetworkStorageStore store, INetworkSt
     private static readonly SemaphoreSlim Gate = new(1, 1);
 
     [HttpPost("/dashboard/export")]
-    public async Task<IActionResult> Export([FromForm] bool includeSecrets, CancellationToken ct)
+    [EnableRateLimiting(OwnerLoginLimits.Policy)]
+    public async Task<IActionResult> Export([FromForm] bool includeSecrets, [FromForm] string? password,
+        [FromForm] string? secondFactor, CancellationToken ct)
     {
+        if (includeSecrets && await ConfirmOwnerAsync(password, secondFactor, ct) is { } refused) return refused;
         if (!await Gate.WaitAsync(TimeSpan.Zero, ct))
         {
             return await DashboardErrorAsync(StatusCodes.Status409Conflict, "An export is already running. Try again when it has finished.", ct);
@@ -123,6 +129,27 @@ public sealed class OwnerExportController(INetworkStorageStore store, INetworkSt
             return await DashboardErrorAsync(400, ex.Message, ct);
         }
         finally { Gate.Release(); }
+    }
+
+    /// <summary>Password plus authenticator or recovery code when enabled, as for enrolling an authenticator. Null when confirmed.</summary>
+    private async Task<IActionResult?> ConfirmOwnerAsync(string? password, string? secondFactor, CancellationToken ct)
+    {
+        const string Required = "To include secrets, enter your password, and your authenticator or recovery code if you enabled one.";
+        var owner = password is { Length: >= 1 and <= 1024 }
+            ? await accounts.AuthenticateAsync(User.Identity!.Name!, password, ct) : null;
+        if (owner is null || owner.SecurityStamp != User.FindFirstValue(OwnerHostingExtensions.StampClaim))
+            return await DashboardErrorAsync(StatusCodes.Status401Unauthorized, Required, ct);
+        if (owner.TotpSecret is null) return null;
+        try
+        {
+            if (await accounts.VerifySecondFactorAsync(owner.SecurityStamp, secondFactor, ct)) return null;
+        }
+        catch (OwnerAuthenticatorUnavailableException)
+        {
+            return await DashboardErrorAsync(StatusCodes.Status401Unauthorized,
+                "This server cannot read your authenticator. Use a recovery code, or run sbox-ns admin reset-2fa on the server.", ct);
+        }
+        return await DashboardErrorAsync(StatusCodes.Status401Unauthorized, Required, ct);
     }
 
     private async Task<IActionResult> DashboardErrorAsync(int status, string error, CancellationToken ct)

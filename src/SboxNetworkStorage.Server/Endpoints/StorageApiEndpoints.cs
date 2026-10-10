@@ -890,8 +890,8 @@ public static partial class StorageApiEndpoints
     /// returned HTTP 200 but its read-back could not confirm the write persisted
     /// (a silent drop — the class of bug that loses player progress). The server
     /// never sees these on the legacy proxied write path, so the client is the
-    /// only place that can detect them. Fires a Discord alert (deduped/rate-limited
-    /// in the sink) and records a diagnostic analytics event so the cause can be
+    /// only place that can detect them. Fires an operator alert (repeats and floods
+    /// are held back by <c>OperatorAlertSink</c>) and records a diagnostic analytics event so the cause can be
     /// correlated per player and save.
     /// </summary>
     internal static async Task PostSaveFailureAsync(HttpContext context)
@@ -924,6 +924,22 @@ public static partial class StorageApiEndpoints
 
         NetworkStorageUsageContext.SetAuthenticated(context, projectId);
 
+        var projectService = context.RequestServices.GetRequiredService<INetworkStorageProjectService>();
+        var access = await projectService.ResolveProjectAccessAsync(auth.UserId, projectId, context.RequestAborted);
+        if (access is null)
+        {
+            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            await context.Response.WriteAsJsonAsync(new { error = "UNAUTHORIZED" }, JsonOptions);
+            return;
+        }
+
+        if (!access.Project.Enabled)
+        {
+            context.Response.StatusCode = StatusCodes.Status403Forbidden;
+            await context.Response.WriteAsJsonAsync(new { error = "PROJECT_DISABLED" }, JsonOptions);
+            return;
+        }
+
         JsonElement body;
         try
         {
@@ -944,9 +960,17 @@ public static partial class StorageApiEndpoints
         }
 
         var report = SaveFailureReport.From(body);
+        // The ids end up in the operator's alert and email subject: accept only real identifiers.
+        if ((report.CollectionId.Length > 0 && !StorageIdValidation.IsValidCollectionId(report.CollectionId))
+            || (report.RecordKey.Length > 0 && !StorageIdValidation.IsValidRecordKey(report.RecordKey)))
+        {
+            context.Response.StatusCode = StatusCodes.Status400BadRequest;
+            await context.Response.WriteAsJsonAsync(new { error = "INVALID_BODY" }, JsonOptions);
+            return;
+        }
 
-        // Immediate human alert. The sink dedupes + rate-limits, so a flaky client
-        // cannot flood the channel.
+        // Immediate human alert. OperatorAlertSink holds back repeats and floods,
+        // so a flaky client or a caller looping this route cannot flood the channel.
         var alertSink = context.RequestServices.GetService<INetworkStorageErrorAlertSink>();
         var message =
             $"Save not confirmed by client — project={projectId} collection={report.CollectionId} key={report.RecordKey} " +
@@ -988,13 +1012,17 @@ public static partial class StorageApiEndpoints
     private readonly record struct SaveFailureReport(
         string CollectionId, string RecordKey, string Reason, long ExpectedSeq, long ObservedSeq, int Attempts)
     {
+        private const int MaxReasonLength = 200;
+
         public static SaveFailureReport From(JsonElement body)
         {
             string Str(string name) =>
                 body.TryGetProperty(name, out var el) && el.ValueKind == JsonValueKind.String ? el.GetString() ?? "" : "";
             long Num(string name) =>
                 body.TryGetProperty(name, out var el) && el.ValueKind == JsonValueKind.Number && el.TryGetInt64(out var v) ? v : -1;
-            return new SaveFailureReport(Str("collectionId"), Str("recordKey"), Str("reason"), Num("expectedSeq"), Num("observedSeq"), (int)Num("attempts"));
+            var reason = Str("reason");
+            if (reason.Length > MaxReasonLength) reason = reason[..MaxReasonLength] + "…";
+            return new SaveFailureReport(Str("collectionId"), Str("recordKey"), reason, Num("expectedSeq"), Num("observedSeq"), (int)Num("attempts"));
         }
     }
 

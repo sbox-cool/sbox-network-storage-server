@@ -1,4 +1,3 @@
-using System.Text;
 using System.Text.Json;
 
 namespace SboxNetworkStorage.Server.Operations;
@@ -28,10 +27,8 @@ public sealed class StoreDumpReader(INetworkStorageStore store)
             _ => throw new ExportArchiveException($"Unexpected archive entry '{entryName}'.")
         };
 
-        using var reader = new StreamReader(content, new UTF8Encoding(false, throwOnInvalidBytes: true), detectEncodingFromByteOrderMarks: false,
-            bufferSize: 64 * 1024, leaveOpen: true);
         var lineNumber = 0;
-        while (await reader.ReadLineAsync(ct) is { } line)
+        await foreach (var line in ArchiveLines.ReadAsync(content, entryName, ct))
         {
             lineNumber++;
             if (line.Length == 0)

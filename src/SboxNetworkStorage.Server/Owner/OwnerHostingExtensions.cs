@@ -1,5 +1,4 @@
 using System.Security.Claims;
-using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.DataProtection;
@@ -70,12 +69,11 @@ public static class OwnerHostingExtensions
             options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
         });
         services.AddControllersWithViews(options => options.Filters.Add(new AutoValidateAntiforgeryTokenAttribute()));
+        services.AddSingleton<OwnerLoginLimits>();
         services.AddRateLimiter(options =>
         {
             options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
-            options.AddPolicy("owner-login", context => RateLimitPartition.GetFixedWindowLimiter(
-                ClientAddress.Resolve(context), _ => new FixedWindowRateLimiterOptions
-                { PermitLimit = 10, Window = TimeSpan.FromMinutes(1), QueueLimit = 0, AutoReplenishment = true }));
+            options.AddPolicy(OwnerLoginLimits.Policy, context => context.RequestServices.GetRequiredService<OwnerLoginLimits>().Partition(context));
         });
         services.AddHostedService<OwnerSetupNotice>();
         return services;

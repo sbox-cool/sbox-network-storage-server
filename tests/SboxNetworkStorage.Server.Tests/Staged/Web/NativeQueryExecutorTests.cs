@@ -429,7 +429,6 @@ public sealed class NativeQueryExecutorTests
         var executor = new NativeQueryExecutor(store, NullLogger<NativeQueryExecutor>.Instance);
 
         // First call: live, populates cache.
-        NativeQueryExecutor.ClearQueryCache("cnt", "proj");
         var result1 = await executor.ExecuteAsync("proj", "cnt", null, false, CancellationToken.None);
         Assert.NotNull(result1);
         Assert.False(result1.FromCache);
@@ -438,8 +437,6 @@ public sealed class NativeQueryExecutorTests
         var result2 = await executor.ExecuteAsync("proj", "cnt", null, false, CancellationToken.None);
         Assert.NotNull(result2);
         Assert.True(result2.FromCache);
-
-        NativeQueryExecutor.ClearQueryCache("cnt", "proj");
     }
 
     [Fact]
@@ -458,7 +455,6 @@ public sealed class NativeQueryExecutorTests
         });
 
         var executor = new NativeQueryExecutor(store, NullLogger<NativeQueryExecutor>.Instance);
-        NativeQueryExecutor.ClearQueryCache("cnt", "proj");
 
         // First call: live, populates cache.
         await executor.ExecuteAsync("proj", "cnt", null, false, CancellationToken.None);
@@ -467,8 +463,6 @@ public sealed class NativeQueryExecutorTests
         var result = await executor.ExecuteAsync("proj", "cnt", null, true, CancellationToken.None);
         Assert.NotNull(result);
         Assert.False(result.FromCache);
-
-        NativeQueryExecutor.ClearQueryCache("cnt", "proj");
     }
 
     // ── Performance tracking ──

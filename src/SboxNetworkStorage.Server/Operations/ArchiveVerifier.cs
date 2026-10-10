@@ -106,9 +106,9 @@ public static class ArchiveVerifier
                 {
                     await ForEachRowAsync(entry, ct, row =>
                     {
-                        if (Text(row, "user_id") != Owner)
+                        if (ExportFormat.ApiKeyRowProblem(row, Owner) is { } problem)
                         {
-                            throw new ExportArchiveException($"{entry.Name}: API keys must have user_id \"{Owner}\" (got {Text(row, "user_id")}).");
+                            throw new ExportArchiveException($"{entry.Name}: {problem}");
                         }
                     });
                 }
@@ -129,7 +129,7 @@ public static class ArchiveVerifier
                 }
             }
         }
-        catch (Exception ex) when (ex is InvalidDataException or FormatException or EndOfStreamException or JsonException)
+        catch (Exception ex) when (ex is InvalidDataException or FormatException or EndOfStreamException or JsonException or System.Text.DecoderFallbackException)
         {
             throw new ExportArchiveException($"The archive is damaged or not a .tar.gz file ({ex.Message}).");
         }
@@ -181,8 +181,7 @@ public static class ArchiveVerifier
 
     private static async Task ForEachRowAsync(TarEntry entry, CancellationToken ct, Action<JsonElement> check)
     {
-        using var reader = new StreamReader(entry.DataStream!, leaveOpen: true);
-        while (await reader.ReadLineAsync(ct) is { } line)
+        await foreach (var line in ArchiveLines.ReadAsync(entry.DataStream!, entry.Name, ct))
         {
             if (line.Length == 0)
             {

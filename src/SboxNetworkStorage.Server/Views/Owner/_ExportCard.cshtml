@@ -5,6 +5,8 @@
         @Html.AntiForgeryToken()
         <label class="check"><input type="checkbox" name="includeSecrets" value="true" /> Include secrets (session, signing and API key encryption keys)</label>
         <p class="notice security">Archives with secrets let anyone holding them forge player sessions and sign security configs. Only include them when moving this server, keep the file private and delete it afterwards. Without secrets, secret API keys stop working on a server that does not already have this server's secrets.</p>
+        <label>Password (needed only to include secrets) <input name="password" type="password" maxlength="1024" autocomplete="current-password" /></label>
+        <label>Authenticator or recovery code (if enabled) <input name="secondFactor" maxlength="32" autocomplete="one-time-code" /></label>
         <button type="submit">Download export</button>
     </form>
 </section>

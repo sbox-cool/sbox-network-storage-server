@@ -64,14 +64,15 @@ Runtime entry points:
   confirmed permanent project deletion.
 - `/dashboard/projects/{projectId}/data`: read-only data browser with JSON
   download per collection and confirmed, audited single-record deletion.
-- `POST /logout`: ends the current cookie session.
+- `POST /logout`: ends every owner session, including copies of the cookie.
 
 All management mutations, login, setup and logout require ASP.NET antiforgery
 tokens. Owner cookies are HttpOnly, SameSite Strict, and `__Host-` prefixed (Secure, no Domain) on HTTPS; sessions
 last eight hours without sliding renewal. Management pages are not cached and
-load an embedded external stylesheet, with no inline scripts or CSS. Use HTTPS
-for remote management; plain HTTP sends credentials in cleartext and should
-only be used locally or through a trusted tunnel. Cookie protection keys live
+load an embedded external stylesheet, with no inline scripts or CSS. Owner
+passwords and login links are refused over plain HTTP from another machine
+unless `adminpanel.allow_insecure_http` is true; use an SSH port forward, a
+tunnel or HTTPS. Cookie protection keys live
 in `data/owner-cookie-keys`; protect and back up that directory with the data
 directory. Keys are protected by OS directory permissions, not encrypted at
 rest on platforms without a configured OS key protector.

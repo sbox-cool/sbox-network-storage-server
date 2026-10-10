@@ -90,3 +90,28 @@ Tool (`POST /v3/manage/{projectId}/package-sync`), exactly as with the
 managed service. Sync your `Editor/Network Storage/` sources after pointing
 the editor at your server (see [client-setup.md](client-setup.md)), then
 publish a new build so players run against the synced revision.
+
+## Query results
+
+`GET /v3/queries/{projectId}/{queryId}` (also `/v1/queries/...` and
+`/api/storage/{projectId}/queries/...`) runs a query over whole collections,
+so the server keeps each query's latest result and shares it between
+callers:
+
+- A result is reused for the query's `cache.ttlSeconds` (300 when not set),
+  and always for at least 2 seconds, even with a TTL of 0.
+- A record or player-profile write in the project ends that reuse: the next
+  call runs the query again once the result is at least 2 seconds old. A
+  player who saves a score sees it in the leaderboard within about 2 seconds.
+- Changing a query, collection or game value drops the project's results at
+  once.
+- When many calls miss at the same time, the query runs once and they all
+  get that result.
+
+Calls with the public key always get the shared result, because every
+player has that key. `?live=1`, `?fresh=1`, `?noCache=1` and `?cache=0`
+force a new run only together with a secret key (as `x-api-key` or
+`x-secret-key`). Without `?cache=1` the response looks like a live result
+(`Cache-Control: no-store`, no cache fields); `lastran` and
+`performance.at` say when the query last ran. With `?cache=1` a reused
+result also carries `fromCache`, `cachedAt` and `expiresAt`.

@@ -78,8 +78,10 @@ public sealed class StoreStorageApiKeyResolver(
             return cached;
 
         var row = await store.ReadApiKeyAsync(projectId, apiKey, ct);
+        // The public path matches the stored key verbatim, so only a public row may answer
+        // it: a planted secret-typed row with a known api_key must never authenticate here.
         var resolved = row is not null ? MapRow(row.Value, projectId) : null;
-        if (resolved is null)
+        if (resolved is not { KeyType: "public" })
         {
             logger.LogDebug("Store public key miss for project={ProjectId}", projectId);
             return null;
@@ -105,7 +107,7 @@ public sealed class StoreStorageApiKeyResolver(
         var rows = await store.ListApiKeysAsync(projectId, ct);
         var row = rows.FirstOrDefault(r =>
             r.ValueKind == JsonValueKind.Object
-            && TryGetString(r, "key_type") != "public"
+            && TryGetString(r, "key_type") == "secret"
             && string.Equals(TryGetString(r, "key_identifier"), identifier, StringComparison.Ordinal));
 
         if (row.ValueKind != JsonValueKind.Object)

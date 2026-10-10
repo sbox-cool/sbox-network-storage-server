@@ -109,9 +109,11 @@ public sealed class ExportCommandsTests : IDisposable
     [InlineData("1", "network-storage/users/1/other/collections.json", "1", "not in the manifest")]
     [InlineData("1", "elsewhere/collections.json", "1", "under network-storage/")]
     [InlineData("1", "network-storage/users/1/proj1/collections.json", "42", "API keys must have user_id")]
-    public async Task Verify_only_rejects_archives_that_break_the_single_owner_contract(string memberUser, string workspacePath, string keyUser, string expected)
+    [InlineData("1", "network-storage/users/1/proj1/collections.json", "1", "secret API key must be stored masked", "secret", "known-plain-key")]
+    public async Task Verify_only_rejects_archives_that_break_the_single_owner_contract(string memberUser, string workspacePath, string keyUser, string expected,
+        string keyType = "public", string apiKey = "sbox_ns_pub_test")
     {
-        var archive = WriteExternalArchive(memberUser, workspacePath, keyUser);
+        var archive = WriteExternalArchive(memberUser, workspacePath, keyUser, keyType, apiKey);
 
         var error = await Assert.ThrowsAsync<CliException>(() => ExportCommands.ImportAsync(Context(CreateServerFolders("unused"), "import", archive, "--verify-only")));
 
@@ -119,7 +121,7 @@ public sealed class ExportCommandsTests : IDisposable
     }
 
     /// <summary>A minimal archive as an external exporter would write it (docs/export.md, "Archive contract").</summary>
-    private string WriteExternalArchive(string memberUser, string workspacePath, string keyUser)
+    private string WriteExternalArchive(string memberUser, string workspacePath, string keyUser, string keyType = "public", string apiKey = "sbox_ns_pub_test")
     {
         var path = Path.Combine(_root, $"external-{Guid.NewGuid():N}.tar.gz");
         var entries = new (string Name, string Content)[]
@@ -132,7 +134,7 @@ public sealed class ExportCommandsTests : IDisposable
             ("data/workspace-objects.jsonl", $$"""{"path":"{{workspacePath}}","content":"[]"}""" + "\n"),
             ("data/memberships.jsonl", $$"""{"user_id":"{{memberUser}}","project_id":"proj1","role":"owner","created_at_unix_ms":1760000000000}""" + "\n"),
             ("data/projects/proj1/project.jsonl", """{"payload":{"id":"proj1","name":"Migrated","storageOwnerUserId":"1"}}""" + "\n"),
-            ("data/projects/proj1/api-keys.jsonl", $$"""{"api_key":"sbox_ns_pub_test","user_id":"{{keyUser}}","key_type":"public","key_hash":"","key_identifier":"","label":"game","enabled":true,"permissions_json":null,"version":1}""" + "\n"),
+            ("data/projects/proj1/api-keys.jsonl", $$"""{"api_key":"{{apiKey}}","user_id":"{{keyUser}}","key_type":"{{keyType}}","key_hash":"","key_identifier":"","label":"game","enabled":true,"permissions_json":null,"version":1}""" + "\n"),
         };
         using (var file = File.Create(path))
         using (var gzip = new GZipStream(file, CompressionLevel.Fastest))

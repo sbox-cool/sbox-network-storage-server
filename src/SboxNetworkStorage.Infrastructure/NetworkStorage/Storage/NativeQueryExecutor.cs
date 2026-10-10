@@ -87,24 +87,24 @@ public sealed class StoreQueryRunRecorder(IServiceScopeFactory scopeFactory, ILo
 /// Native .NET executor for Network Storage queries. Full parity port of the legacy server
 /// <c>tools/sbox/queries.js</c> engine: multi-source merge, foreign-key joins,
 /// computed fields, object-valued metric fields, output column normalization,
-/// in-memory result cache with TTL, and performance tracking. Reads query
+/// result reuse through <see cref="QueryResultCache"/>, and performance tracking. Reads query
 /// definitions and source records from the store. No legacy server fallback.
 /// </summary>
 public sealed partial class NativeQueryExecutor
 {
     private readonly INetworkStorageStore _store;
     private readonly IQueryRunRecorder _recorder;
+    private readonly QueryResultCache _cache;
     private readonly ILogger<NativeQueryExecutor> _logger;
 
-    private static readonly ConcurrentDictionary<string, CachedQuery> ResultCache = new();
-
     public NativeQueryExecutor(INetworkStorageStore store, ILogger<NativeQueryExecutor> logger)
-        : this(store, NullQueryRunRecorder.Instance, logger) { }
+        : this(store, NullQueryRunRecorder.Instance, new QueryResultCache(), logger) { }
 
-    public NativeQueryExecutor(INetworkStorageStore store, IQueryRunRecorder recorder, ILogger<NativeQueryExecutor> logger)
+    public NativeQueryExecutor(INetworkStorageStore store, IQueryRunRecorder recorder, QueryResultCache cache, ILogger<NativeQueryExecutor> logger)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _recorder = recorder ?? throw new ArgumentNullException(nameof(recorder));
+        _cache = cache ?? throw new ArgumentNullException(nameof(cache));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
@@ -204,31 +204,24 @@ public sealed partial class NativeQueryExecutor
         return await ExecuteCoreAsync(projectId, queryId, query.Value, values, bypassCache, ct);
     }
 
-    /// <summary>Clear the cached result for a query (mirror <c>clearQueryCache</c>).</summary>
-    public static void ClearQueryCache(string queryId, string? projectId = null)
-    {
-        var key = CacheKey(queryId, projectId);
-        ResultCache.TryRemove(key, out _);
-    }
-
     // ── Core execution ──
 
-    private async Task<QueryResult?> ExecuteCoreAsync(
+    private Task<QueryResult?> ExecuteCoreAsync(
         string projectId, string queryId, JsonElement query,
         IReadOnlyDictionary<string, object?>? values, bool bypassCache, CancellationToken ct)
     {
-        var cacheKey = CacheKey(queryId, projectId);
+        // A live read runs now for this caller only. Everything else goes through the shared cache, whose
+        // single run must not be cancelled by whichever caller happened to start it.
+        return bypassCache
+            ? RunAsync(projectId, queryId, query, values, live: true, ct)
+            : _cache.GetOrRunAsync(projectId, queryId, ReadCacheTtl(query),
+                () => RunAsync(projectId, queryId, query, values, live: false, CancellationToken.None), ct);
+    }
 
-        // Check cache first unless the caller explicitly asks for live data.
-        if (!bypassCache && ResultCache.TryGetValue(cacheKey, out var cached) && !cached.IsExpired)
-        {
-            var cachedResult = cached.Result;
-            cachedResult.FromCache = true;
-            cachedResult.CachedAt = cached.CachedAtIso;
-            cachedResult.ExpiresAt = cached.ExpiresAtIso;
-            return cachedResult;
-        }
-
+    private async Task<QueryResult?> RunAsync(
+        string projectId, string queryId, JsonElement query,
+        IReadOnlyDictionary<string, object?>? values, bool live, CancellationToken ct)
+    {
         var stopwatch = Stopwatch.StartNew();
         var queryType = Str(query, "type") ?? "leaderboard";
         var config = query.TryGetProperty("config", out var c) && c.ValueKind == JsonValueKind.Object ? c : default;
@@ -306,25 +299,16 @@ public sealed partial class NativeQueryExecutor
         result.Performance = BuildPerformance(merged, config, computedInfo, scannedSources, stopwatch.ElapsedMilliseconds);
         result.FromCache = false;
 
-        // Cache the result unless this was an explicit live read.
-        if (!bypassCache)
-        {
-            var ttlSeconds = ReadCacheTtl(query);
-            var now = DateTimeOffset.UtcNow;
-            var cachedEntry = new CachedQuery(result.Clone(), now, now.AddSeconds(ttlSeconds));
-            ResultCache[cacheKey] = cachedEntry;
-        }
-
-        // Record the run (fire-and-forget, throttled). bypassCache means the
-        // caller asked for a live read (dashboard "Run" button or rerun) —
-        // force the log entry so it shows up immediately even if a recent
-        // cached execution already recorded one this minute.
+        // Record the run (fire-and-forget, throttled). A live read is a
+        // secret-key caller asking for fresh data: force the log entry so it
+        // shows up immediately even if a cached run already recorded one this
+        // minute.
         if (result.Performance is { } perf)
         {
             _recorder.Record(
                 projectId, queryId, perf.At ?? string.Empty, perf.DurationMs,
                 perf.KeysScanned, result.Entries?.Count ?? 0, fromCache: false,
-                force: bypassCache);
+                force: live);
         }
 
         return result;
@@ -1324,11 +1308,6 @@ public sealed partial class NativeQueryExecutor
         return 300;
     }
 
-    // ── Cache helpers ──
-
-    private static string CacheKey(string queryId, string? projectId)
-        => string.IsNullOrEmpty(projectId) ? queryId : $"{projectId}:{queryId}";
-
     private static JsonElement? ExtractDefinition(JsonElement row)
     {
         if (row.TryGetProperty("definition_json", out var def))
@@ -1389,12 +1368,6 @@ public sealed partial class NativeQueryExecutor
     private sealed record OutputColumn(string Key, string Label, string? Path, string? Expression, string? Template, string? OutputPath);
     private sealed record ComputedFieldRaw(string Name, string Label, JsonElement Definition);
     private sealed record ComputedInfo(List<ComputedFieldDef> Definitions, int Errors);
-    private sealed record CachedQuery(QueryResult Result, DateTimeOffset CachedAt, DateTimeOffset ExpiresAt)
-    {
-        public string CachedAtIso => CachedAt.ToString("yyyy-MM-ddTHH:mm:ss.fff'Z'", CultureInfo.InvariantCulture);
-        public string ExpiresAtIso => ExpiresAt.ToString("yyyy-MM-ddTHH:mm:ss.fff'Z'", CultureInfo.InvariantCulture);
-        public bool IsExpired => DateTimeOffset.UtcNow > ExpiresAt;
-    }
 }
 
 // ── Result types ──

@@ -1,6 +1,5 @@
 using System.Formats.Tar;
 using System.IO.Compression;
-using System.Text;
 using System.Text.Json;
 using SboxNetworkStorage.Server.Configuration;
 using SboxNetworkStorage.Server.Hosting;
@@ -312,11 +311,9 @@ public static class ServerArchive
 
     private static async Task<long> CountDataRowsAsync(string name, Stream content, CancellationToken ct)
     {
-        using var reader = new StreamReader(content, new UTF8Encoding(false, throwOnInvalidBytes: true),
-            detectEncodingFromByteOrderMarks: false, bufferSize: 64 * 1024, leaveOpen: true);
         long count = 0;
         long lineNumber = 0;
-        while (await reader.ReadLineAsync(ct) is { } line)
+        await foreach (var line in ArchiveLines.ReadAsync(content, name, ct))
         {
             lineNumber++;
             if (line.Length == 0)

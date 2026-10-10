@@ -100,7 +100,7 @@ public sealed class DataPlanePerformanceTests
     {
         using var memory = new MemoryCache(new MemoryCacheOptions());
         var source = new CountingMetadataStore();
-        var store = new MetadataCachingNetworkStore(source, new ProjectMetadataCache(memory));
+        var store = new MetadataCachingNetworkStore(source, new ProjectMetadataCache(memory), new QueryResultCache());
         await store.UpsertCollectionAsync("p", "c", "Players", "public", Json("{}"), 1, Ct);
         await store.UpsertEndpointAsync("p", "ep", "save", "POST", true, Json("{\"marker\":1}"), null, 1, Ct);
         await store.UpsertGameValuesAsync("p", Json("{\"gold\":5}"), null, 1, Ct);
@@ -129,7 +129,7 @@ public sealed class DataPlanePerformanceTests
     public async Task Import_invalidates_a_previously_empty_snapshot()
     {
         using var memory = new MemoryCache(new MemoryCacheOptions());
-        var store = new MetadataCachingNetworkStore(new InMemoryNetworkStorageStore(), new ProjectMetadataCache(memory));
+        var store = new MetadataCachingNetworkStore(new InMemoryNetworkStorageStore(), new ProjectMetadataCache(memory), new QueryResultCache());
         Assert.Empty(await store.ListCollectionsAsync("p", Ct));
         Assert.True(await store.TryImportProjectAsync("p", async (target, ct) =>
         {
@@ -143,7 +143,7 @@ public sealed class DataPlanePerformanceTests
     public async Task Transaction_metadata_is_not_cached_or_invalidated_until_commit()
     {
         using var memory = new MemoryCache(new MemoryCacheOptions());
-        var store = new MetadataCachingNetworkStore(new InMemoryNetworkStorageStore(), new ProjectMetadataCache(memory));
+        var store = new MetadataCachingNetworkStore(new InMemoryNetworkStorageStore(), new ProjectMetadataCache(memory), new QueryResultCache());
         var first = await store.ListCollectionsAsync("p", Ct);
         await using (var tx = await store.BeginTransactionAsync(Ct))
         {
@@ -153,6 +153,36 @@ public sealed class DataPlanePerformanceTests
             await tx.CommitAsync(Ct);
         }
         Assert.Single(await store.ListCollectionsAsync("p", Ct));
+    }
+
+    [Fact]
+    public async Task Record_writes_reach_cached_query_results_and_transactions_only_on_commit()
+    {
+        using var memory = new MemoryCache(new MemoryCacheOptions());
+        var time = new ManualTime();
+        var queries = new QueryResultCache(time);
+        var store = new MetadataCachingNetworkStore(new InMemoryNetworkStorageStore(), new ProjectMetadataCache(memory), queries);
+        var runs = 0;
+        Task<QueryResult?> Run() => Task.FromResult<QueryResult?>(new QueryResult { Type = "count", Count = ++runs });
+        async Task<int?> CountAsync() => (await queries.GetOrRunAsync("p", "q", 300, Run, Ct))!.Count;
+
+        Assert.Equal(1, await CountAsync());
+        time.Now += QueryResultCache.MinimumLifetime;
+        await using (var tx = await store.BeginTransactionAsync(Ct))
+        {
+            await tx.Store.UpsertRecordAsync("p", "c", "k", Json("{}"), false, 1, Ct);
+            Assert.Equal(1, await CountAsync());
+            await tx.CommitAsync(Ct);
+        }
+        Assert.Equal(2, await CountAsync());
+
+        time.Now += QueryResultCache.MinimumLifetime;
+        await store.UpsertGlobalRecordAsync("p", "c", "g", Json("{}"), 1, Ct);
+        Assert.Equal(3, await CountAsync());
+
+        // A query definition change drops the result without waiting for the minimum lifetime.
+        await store.UpsertQueryAsync("p", "q", "q", false, Json("{}"), 1, Ct);
+        Assert.Equal(4, await CountAsync());
     }
 
     [Fact]

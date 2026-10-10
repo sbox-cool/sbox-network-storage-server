@@ -123,7 +123,7 @@ public sealed class OwnerSecurityTests
         }
     }
 
-    private static EffectiveConfig Override(EffectiveConfig config, params (string Key, object Value)[] overrides)
+    internal static EffectiveConfig Override(EffectiveConfig config, params (string Key, object Value)[] overrides)
     {
         var values = config.Values.ToDictionary(pair => pair.Key, pair => pair.Value);
         foreach (var item in overrides) values[item.Key] = values[item.Key] with { Value = item.Value };

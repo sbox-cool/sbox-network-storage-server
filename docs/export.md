@@ -16,7 +16,8 @@ sbox-ns import ns.tar.gz --verify-only  # validate only; writes nothing to this 
 
 The owner dashboard has the same export: **Export server → Download export**
 (`POST /dashboard/export`). It leaves secrets out unless you tick
-**Include secrets**. Every dashboard download is written to each project's
+**Include secrets**, which also asks for your password, and your authenticator
+or recovery code if you enabled one. Every dashboard download is written to each project's
 audit log (`server.export`) and logged as a warning with the owner name and
 client address. Only one export runs at a time.
 
@@ -144,6 +145,13 @@ importers sharing a database have only one winner; a losing import changes
 nothing. Malformed rows, cancellation and storage failures roll back the entire
 project, so after fixing the cause the corrected archive can be retried normally.
 
+API key rows must have the shape sbox-ns writes, or the import is refused: a
+public key is stored in full and starts with `sbox_ns_`; a secret key is stored
+only masked (`sbox_sk_xxxx...xxxx`) with a 64-character hex `key_hash`, so an
+archive never holds a usable secret key. Public keys in an archive still work
+on the new server. If the archive came from someone else, revoke its keys and
+create new ones.
+
 ## Verify an archive without importing
 
 `sbox-ns import <FILE> --verify-only` checks an archive and changes nothing on
@@ -186,7 +194,8 @@ Every data file declared with a count above 0 must be present with exactly that
 many rows; resources with 0 rows may be omitted from `counts` and from the
 archive. Project ids match `^[a-zA-Z0-9_-]{1,128}$` and are kept as-is.
 
-**Data files.** UTF-8 JSON lines, one object per line, snake_case columns.
+**Data files.** UTF-8 JSON lines, one object per line, snake_case columns. A
+line may be at most 32 MiB.
 Columns marked *required* must be present (JSON `null` reads as empty / 0 /
 false); `*_json` columns marked *JSON* take any JSON value and may be omitted
 (`null`); integers are 64-bit; `*_unix_ms` are Unix milliseconds.
@@ -203,7 +212,7 @@ false); `*_json` columns marked *JSON* take any JSON value and may be omitted
 | `.../endpoints.jsonl` | `endpoint_id`, `slug`, `method`, `enabled`, `version_hash` (nullable), `version`; `definition_json` (JSON) |
 | `.../workflows.jsonl` | `workflow_id`, `name`, `version_hash` (nullable), `version`; `definition_json` (JSON) |
 | `.../queries.jsonl` | `query_id`, `name`, `requires_secret_key`, `version`; `definition_json` (JSON) |
-| `.../api-keys.jsonl` | `api_key`, `user_id` = `"1"`, `key_type` (`public`/`secret`), `key_hash`, `key_identifier`, `label`, `enabled`, `version`; `permissions_json` (JSON) |
+| `.../api-keys.jsonl` | `api_key`, `user_id` = `"1"`, `key_type` (`public`/`secret`), `key_hash`, `key_identifier`, `label`, `enabled`, `version`; `permissions_json` (JSON). Public: `api_key` starts with `sbox_ns_`. Secret: `api_key` is the masked `sbox_sk_xxxx...xxxx` form and `key_hash` is the 64-character hex SHA-256 of the full key |
 | `.../pages.jsonl` | `page_slug`, `title`, `content_json` (string), `created_at_unix_ms`, `updated_at_unix_ms` |
 | `.../game-values.jsonl` | `version_hash` (nullable), `version`; `payload_json` (JSON) |
 | `.../rate-limits.jsonl` | `version`; `rules_json` (JSON) |
