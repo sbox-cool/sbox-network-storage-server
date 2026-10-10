@@ -168,6 +168,7 @@ public static class BinarySwap
     public static void Replace(string source, string target, FolderTrust? trust = null)
     {
         var folder = Path.GetDirectoryName(Path.GetFullPath(target))!;
+        if (IsRunningExecutable(target)) LoadEveryReferencedAssembly();
         (trust ?? FolderTrust.Host).Require(folder, "binary folder");
         var staged = target + ".new";
         FolderTrust.RejectSymbolicLink(target, "binary");
@@ -185,5 +186,38 @@ public static class BinarySwap
         File.Delete(old);
         File.Move(target, old);
         File.Move(staged, target);
+    }
+
+    private static bool IsRunningExecutable(string path)
+        => Environment.ProcessPath is { } running
+            && string.Equals(Path.GetFullPath(running), Path.GetFullPath(path), OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
+
+    /// <summary>
+    /// A single-file build reads its assemblies from its own file the first time each is used. Once that file is
+    /// replaced, the next first use (System.IO.Pipelines for the update record, for example) would read the new
+    /// binary and fail, turning a finished update into a rollback. Load the whole reference graph while the file
+    /// is still this binary. Returns how many references were visited.
+    /// </summary>
+    internal static int LoadEveryReferencedAssembly()
+    {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var pending = new Stack<System.Reflection.Assembly>([typeof(BinarySwap).Assembly]);
+        while (pending.TryPop(out var assembly))
+        {
+            foreach (var reference in assembly.GetReferencedAssemblies())
+            {
+                if (!seen.Add(reference.FullName)) continue;
+                try
+                {
+                    pending.Push(System.Reflection.Assembly.Load(reference));
+                }
+                catch (Exception ex) when (ex is FileNotFoundException or FileLoadException or BadImageFormatException)
+                {
+                    // Reference-only facades and optional platform assemblies are not in every build.
+                }
+            }
+        }
+
+        return seen.Count;
     }
 }

@@ -19,6 +19,37 @@ public sealed class TunnelOperatingSystemTests
 
     [SupportedOSPlatform("linux")]
     [LinuxRootFact]
+    public async Task Root_written_operator_config_stays_readable_by_the_service_group()
+    {
+        // install.sh runs setup as root under umask 0027 in a root:sbox-ns 0750 folder, then hands database work to
+        // the service account. Every file root writes there must take the folder's group, or that step cannot read it.
+        var gid = RandomNumberGenerator.GetInt32(2_100_000_000, int.MaxValue).ToString();
+        await RunAsync("/usr/bin/getent", ["group", gid], expectedExitCode: 2);
+        var configDirectory = Path.Combine("/tmp", "sbox-ns-root-config-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(configDirectory);
+        try
+        {
+            File.SetUnixFileMode(configDirectory, PrivateDirectory | UnixFileMode.GroupRead | UnixFileMode.GroupExecute);
+            await RunAsync("/usr/bin/chown", ["--", "0:" + gid, configDirectory]);
+
+            ConfigFiles.WriteAll(configDirectory, new Dictionary<string, object>());
+            ConfigFiles.SetValue(configDirectory, SettingDefinitions.Find("server.public_url")!, "https://ns.example.com");
+
+            var confDirectory = Path.Combine(configDirectory, ConfigLoader.ConfDirectory);
+            Assert.Equal(uint.Parse(gid), UnixFiles.OwnerOf(confDirectory)!.Value.Group);
+            Assert.True(File.GetUnixFileMode(confDirectory).HasFlag(UnixFileMode.GroupRead | UnixFileMode.GroupExecute));
+            foreach (var file in SettingDefinitions.Files.Select(name => Path.Combine(configDirectory, name)))
+            {
+                Assert.Equal(uint.Parse(gid), UnixFiles.OwnerOf(file)!.Value.Group);
+                Assert.True(File.GetUnixFileMode(file).HasFlag(UnixFileMode.GroupRead), file);
+                Assert.False(File.GetUnixFileMode(file).HasFlag(UnixFileMode.OtherRead), file);
+            }
+        }
+        finally { Directory.Delete(configDirectory, recursive: true); }
+    }
+
+    [SupportedOSPlatform("linux")]
+    [LinuxRootFact]
     public async Task Root_administration_preserves_service_owner_access_and_unprivileged_reenable()
     {
         // No accounts are created or reused. These numeric identities own only this fixture.

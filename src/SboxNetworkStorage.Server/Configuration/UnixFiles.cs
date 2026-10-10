@@ -57,6 +57,25 @@ public static class UnixFiles
         }
     }
 
+    /// <summary>The folder counterpart of <see cref="ShareGroup"/>: group read and traverse (0750).</summary>
+    public static void ShareFolderGroup(string path, string reference)
+    {
+        if (OperatingSystem.IsWindows() || OwnerOf(reference) is not { } parent || OwnerOf(path) is not { } folder || parent.Group == folder.Group)
+        {
+            return;
+        }
+
+        try
+        {
+            Chown(path, folder with { Group = parent.Group });
+            File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute
+                | UnixFileMode.GroupRead | UnixFileMode.GroupExecute);
+        }
+        catch (IOException)
+        {
+        }
+    }
+
     private static UnixOwner? Parse(string[] parts)
         => parts.Length == 2 && uint.TryParse(parts[0], out var user) && uint.TryParse(parts[1], out var group) ? new UnixOwner(user, group) : null;
 

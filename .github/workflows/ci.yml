@@ -95,7 +95,7 @@ jobs:
       - name: Test
         run: dotnet test SboxNetworkStorage.sln -c Release --no-build --logger trx --results-directory TestResults
 
-      - name: Test Linux root tunnel ownership
+      - name: Test Linux root ownership
         if: runner.os == 'Linux' && matrix.postgres == '18'
         shell: bash
         run: |
@@ -108,7 +108,7 @@ jobs:
             DOTNET_SKIP_FIRST_TIME_EXPERIENCE=true \
             "$dotnet_host" test tests/SboxNetworkStorage.Cli.Tests/SboxNetworkStorage.Cli.Tests.csproj \
             -c Release --no-build \
-            --filter 'FullyQualifiedName=SboxNetworkStorage.Cli.Tests.TunnelOperatingSystemTests.Root_administration_preserves_service_owner_access_and_unprivileged_reenable' \
+            --filter 'FullyQualifiedName=SboxNetworkStorage.Cli.Tests.TunnelOperatingSystemTests.Root_administration_preserves_service_owner_access_and_unprivileged_reenable|FullyQualifiedName=SboxNetworkStorage.Cli.Tests.TunnelOperatingSystemTests.Root_written_operator_config_stays_readable_by_the_service_group' \
             --logger 'trx;LogFileName=linux-root-tunnel.trx' --results-directory TestResults
 
       - name: Upload test results
