@@ -65,6 +65,33 @@ NetworkStorage.Configure( projectId, publicKey, "https://ns.example.com" );
 managed service. Only pass the public API key in game code; the secret key
 belongs in the editor only.
 
+## Collection access from game clients
+
+The public key ships inside every game build, so anyone can extract it. The
+direct document API (`GET`, `POST` and `DELETE /v3/storage/{projectId}/{collection}/{key}`,
+the `/api/storage` alias and `/probe`) therefore treats public-key calls as
+untrusted:
+
+- The collection must declare `accessMode: public`. Any other value, or no
+  `accessMode` at all, is endpoint-only and answers `403 ENDPOINT_ONLY`. Route
+  those reads and writes through endpoints or queries. Collections created in
+  the dashboard start as endpoint-only.
+- Deleting needs `allowRecordDelete: true`, otherwise `403 RECORD_DELETE_DISABLED`.
+- Writing or deleting in a collection that is not declared at all answers `404`.
+- When the project requires s&box authentication, the call must carry a valid
+  s&box token (`x-sbox-token` with `x-steam-id`) or auth session, otherwise
+  `401 SBOX_AUTH_FAILED`. Writes and deletes in a per-player collection must then
+  target the player's own document: the key is the verified Steam ID, or starts
+  with `{steamId}_` for save slots. Anything else answers `403 FORBIDDEN`. Reads of
+  public collections are not limited to the player's own documents.
+- With s&box authentication turned off (development), the Steam ID the client
+  sends is trusted as is, but the `accessMode` and `allowRecordDelete` rules
+  still apply.
+
+Secret keys (dedicated servers, tools) count as trusted backend calls: they need
+`collections` execute permission and may read, write and delete in any
+collection without s&box tokens.
+
 ## Client reachability
 
 Whether s&box allows game clients to call a given kind of URL has **not been

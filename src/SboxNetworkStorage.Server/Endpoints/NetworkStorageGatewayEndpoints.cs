@@ -597,6 +597,10 @@ public static class NetworkStorageGatewayEndpoints
 
         NetworkStorageUsageContext.SetAuthenticated(context, projectId);
 
+        if (!await StorageApiEndpoints.AuthorizePublicDocumentAccessAsync(
+                context, auth, apiKey, projectId, collectionId, recordKey, StorageApiEndpoints.DocumentAccess.Read))
+            return;
+
         var dataPlane = context.RequestServices.GetRequiredService<INetworkStorageDataPlane>();
         bool exists;
         try

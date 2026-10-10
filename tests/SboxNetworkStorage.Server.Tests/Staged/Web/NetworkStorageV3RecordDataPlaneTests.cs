@@ -155,6 +155,11 @@ public abstract class NetworkStorageV3RecordDataPlaneTests<TFactory> : IClassFix
     public async Task CreatedPublicKeyCanSaveAndLoadUsingBothStorageAliases()
     {
         var project = await _factory.CreateProjectAsync();
+        // Public keys only reach collections declared accessMode: public.
+        using (var scope = _factory.Services.CreateScope())
+            await scope.ServiceProvider.GetRequiredService<INetworkStorageStore>().UpsertCollectionAsync(
+                project.ProjectId, Collection, Collection, "private",
+                JsonSerializer.SerializeToElement(new { collectionType = "per-steamid", accessMode = "public" }), 1, CancellationToken.None);
         using var client = _factory.CreateClient();
         foreach (var prefix in new[] { "/v3/storage", "/api/storage" })
         {

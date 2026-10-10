@@ -113,6 +113,9 @@ public static partial class StorageApiEndpoints
             return;
         }
 
+        if (!await AuthorizePublicDocumentAccessAsync(context, auth, apiKey, projectId, collectionId, recordKey, DocumentAccess.Read))
+            return;
+
         var dataPlane = context.RequestServices.GetRequiredService<INetworkStorageDataPlane>();
         RecordReadResult read;
         try
@@ -190,6 +193,9 @@ public static partial class StorageApiEndpoints
             await context.Response.WriteAsJsonAsync(invalidIds, JsonOptions);
             return;
         }
+
+        if (!await AuthorizePublicDocumentAccessAsync(context, auth, apiKey, projectId, collectionId, recordKey, DocumentAccess.Write))
+            return;
 
         // Record analytics event
         await analytics.RecordEventAsync(new PlayerEventRequest(
@@ -355,6 +361,9 @@ public static partial class StorageApiEndpoints
             await context.Response.WriteAsJsonAsync(invalidIds, JsonOptions);
             return;
         }
+
+        if (!await AuthorizePublicDocumentAccessAsync(context, auth, apiKey, projectId, collectionId, recordKey, DocumentAccess.Delete))
+            return;
 
         // Record analytics event
         await analytics.RecordEventAsync(new PlayerEventRequest(
@@ -687,7 +696,7 @@ public static partial class StorageApiEndpoints
                 ["severity"] = string.IsNullOrEmpty(severity) ? null : severity,
                 ["code"] = GetStringProperty(body, "code") ?? null,
                 ["message"] = GetStringProperty(body, "message") ?? null,
-                ["context"] = GetStringProperty(body, "context", "data"),
+                ["context"] = GetJsonProperty(body, "context", "data"),
                 ["requestPayload"] = GetStringProperty(body, "requestPayload", "request_payload", "request"),
                 ["responsePayload"] = GetStringProperty(body, "responsePayload", "response_payload", "response"),
                 ["stack"] = GetStringProperty(body, "stack"),
@@ -735,12 +744,115 @@ public static partial class StorageApiEndpoints
         return null;
     }
 
+    internal enum DocumentAccess { Read, Write, Delete }
+
+    /// <summary>
+    /// Public-key (game client) policy for the direct collection document API
+    /// (GET/POST/DELETE <c>/{collectionId}/{key}</c> and the existence probe).
+    /// Secret keys pass through unchanged (their <c>collections:x</c> gate runs
+    /// before this). For public keys:
+    /// <list type="bullet">
+    ///   <item>An undeclared collection keeps the plain read path (a miss is 404);
+    ///   writes and deletes are rejected 404 so clients cannot create collections.</item>
+    ///   <item><c>accessMode</c> other than <c>public</c> (missing defaults to
+    ///   endpoint) is 403 <c>ENDPOINT_ONLY</c>.</item>
+    ///   <item>DELETE needs <c>allowRecordDelete: true</c>, else 403
+    ///   <c>RECORD_DELETE_DISABLED</c>.</item>
+    ///   <item>Projects requiring s&amp;box auth verify the player (401
+    ///   <c>SBOX_AUTH_FAILED</c>); writes/deletes on per-player collections must
+    ///   target the player's own key (<c>{steamId}</c> or <c>{steamId}_*</c>), else
+    ///   403 <c>FORBIDDEN</c>.</item>
+    /// </list>
+    /// Returns false after writing the rejection.
+    /// </summary>
+    internal static async Task<bool> AuthorizePublicDocumentAccessAsync(
+        HttpContext context, StorageApiKeyAuthResult auth, string apiKey, string projectId,
+        string collectionId, string recordKey, DocumentAccess access)
+    {
+        if (string.Equals(auth.KeyType, "secret", StringComparison.Ordinal))
+            return true;
+
+        var projectService = context.RequestServices.GetRequiredService<INetworkStorageProjectService>();
+        var project = await projectService.ResolveProjectAccessAsync(auth.UserId, projectId, context.RequestAborted);
+        if (project is null)
+        {
+            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            await context.Response.WriteAsJsonAsync(new { error = "UNAUTHORIZED" }, JsonOptions);
+            return false;
+        }
+
+        var resources = await projectService.GetProjectResourcesForOwnerAsync(project.StorageOwnerUserId, projectId, context.RequestAborted);
+        var collection = resources is null ? null : FindCollection(resources.Collections, collectionId);
+        if (collection is null)
+        {
+            if (access == DocumentAccess.Read) return true;
+            context.Response.StatusCode = StatusCodes.Status404NotFound;
+            await context.Response.WriteAsJsonAsync(new { error = "NOT_FOUND", detail = "Collection not found." }, JsonOptions);
+            return false;
+        }
+
+        if (!string.Equals(collection.AccessMode, "public", StringComparison.OrdinalIgnoreCase))
+            return await RejectAsync(StatusCodes.Status403Forbidden, "ENDPOINT_ONLY",
+                "This collection can only be accessed through endpoints.");
+
+        if (access == DocumentAccess.Delete && !collection.AllowRecordDelete)
+            return await RejectAsync(StatusCodes.Status403Forbidden, "RECORD_DELETE_DISABLED",
+                "Record deletion is not enabled for this collection.");
+
+        // Auth-disabled (dev) projects keep the unverified client identity.
+        if (!project.RequireSboxAuth)
+            return true;
+
+        var identity = await PlayerIdentity.ResolveAsync(context, default, projectId, collectionId, apiKey,
+            auth.UserId, required: true, sessionsEnabled: project.Project.EnableAuthSessions == true,
+            PlayerIdentity.ClaimedSteamId(context.Request, default));
+        if (!identity.Ok)
+            return await RejectAsync(identity.Status, identity.Code!, identity.Message!);
+
+        if (access != DocumentAccess.Read
+            && !string.Equals(collection.CollectionType, "global", StringComparison.OrdinalIgnoreCase)
+            && !IsOwnDocumentKey(recordKey, identity.SteamId!))
+            return await RejectAsync(StatusCodes.Status403Forbidden, "FORBIDDEN",
+                "Players can only modify their own documents: the key must be the verified Steam ID or start with '{steamId}_'.");
+
+        return true;
+
+        async Task<bool> RejectAsync(int status, string code, string message)
+        {
+            context.Response.StatusCode = status;
+            await context.Response.WriteAsJsonAsync(new { ok = false, error = code, message }, JsonOptions);
+            return false;
+        }
+    }
+
+    /// <summary>A per-player document belongs to the player when keyed by their Steam ID or a save slot of it.</summary>
+    private static bool IsOwnDocumentKey(string recordKey, string steamId)
+        => string.Equals(recordKey, steamId, StringComparison.Ordinal)
+            || (recordKey.Length > steamId.Length + 1
+                && recordKey.StartsWith(steamId, StringComparison.Ordinal)
+                && recordKey[steamId.Length] == '_');
+
     private static string? GetStringProperty(JsonElement body, params string[] names)
     {
         foreach (var name in names)
         {
             if (body.TryGetProperty(name, out var prop) && prop.ValueKind == JsonValueKind.String)
                 return prop.GetString();
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Reads a free-form property as raw JSON: the client library sends
+    /// <c>context</c> as an object, older callers as a string. Both are kept.
+    /// </summary>
+    private static JsonElement? GetJsonProperty(JsonElement body, params string[] names)
+    {
+        foreach (var name in names)
+        {
+            if (body.TryGetProperty(name, out var prop)
+                && prop.ValueKind is JsonValueKind.Object or JsonValueKind.Array or JsonValueKind.String)
+                return prop.Clone();
         }
         return null;
     }

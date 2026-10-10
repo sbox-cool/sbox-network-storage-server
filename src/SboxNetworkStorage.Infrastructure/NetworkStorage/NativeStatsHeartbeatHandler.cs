@@ -224,6 +224,8 @@ public sealed class NativeStatsHeartbeatHandler(
         if (fps is not null) payload["fps"] = fps;
         var performance = ReadBodyObject(body, "performance");
         if (performance is not null) payload["performance"] = performance;
+        var context = ReadBodyContext(body);
+        if (context is not null) payload["context"] = context;
 
         try
         {
@@ -291,6 +293,16 @@ public sealed class NativeStatsHeartbeatHandler(
     {
         if (body is not { ValueKind: JsonValueKind.Object } b
             || !b.TryGetProperty(name, out var v) || v.ValueKind != JsonValueKind.Object)
+            return null;
+        return v.Clone();
+    }
+
+    /// <summary>Reads the client's free-form <c>context</c> (object or string) as raw JSON, cloned for detached reuse.</summary>
+    private static object? ReadBodyContext(JsonElement? body)
+    {
+        if (body is not { ValueKind: JsonValueKind.Object } b
+            || !b.TryGetProperty("context", out var v)
+            || v.ValueKind is not (JsonValueKind.Object or JsonValueKind.Array or JsonValueKind.String))
             return null;
         return v.Clone();
     }
