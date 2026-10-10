@@ -43,7 +43,8 @@ try {
     Step "Install candidate v$Candidate with install.ps1"
     $env:SBOX_NS_VERSION = $Candidate
     $env:SBOX_NS_PROJECT = 'Install Matrix'
-    Invoke-Expression (Invoke-WebRequest -UseBasicParsing -Uri $installer).Content
+    # Exactly the documented command: irm <url> | iex.
+    Invoke-RestMethod -Uri $installer | Invoke-Expression
     $exe = Join-Path $env:ProgramFiles 'sbox-ns\sbox-ns.exe'
     if (-not (Test-Path $exe)) { throw "sbox-ns.exe was not installed to $exe" }
     $dirs = @('--config-dir', (Join-Path $env:ProgramFiles 'sbox-ns\config'), '--data-dir', (Join-Path $env:ProgramFiles 'sbox-ns\data'))
