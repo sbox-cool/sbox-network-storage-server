@@ -8,16 +8,31 @@
     else { <label>Issue date (UTC) <input type="date" name="date" value="@Model.Date" required /></label> }
     <button type="submit">Apply filter</button></form>
 }
-@if (Model.Tab == "errors") { <aside class="notice"><p>Error identifiers, severity and request context are shown below. Raw exception messages and stack traces are deliberately kept out of the dashboard: they can contain credentials or player data. Use protected server logs for detailed investigation.</p></aside> }
+@if (Model.Tab == "logs" || Model.Tab == "errors")
+{
+    var budget = SboxNetworkStorage.Server.Activity.RuntimeActivityLog.RowsPerMinute;
+    <aside class="notice"><p>Each project keeps up to @budget successful requests, @budget rejected or failed requests and @budget errors per minute, for @SboxNetworkStorage.Server.Activity.RuntimeActivityLog.Retention.Days days. For the full server log, run <code>sbox-ns logs -f</code> on the server.</p>
+    <p>In the game, <code>NetworkStorage.TryGetLastEndpointError( "slug", out var code, out var message );</code> reads the last error of an endpoint call. s&amp;box hides 4xx response bodies from game code, so there the code can be <code>HTTP_ERROR</code>; the status here tells you which error it was. <a href="@SboxNetworkStorage.Server.Owner.OwnerErrorHelp.DocsUrl" rel="noreferrer">Error codes</a></p></aside>
+}
+@if (Model.Tab == "errors") { <p class="notice">Messages and stack traces can contain player data. Share them with care.</p> }
 @if (Model.Tab == "usage") { <p class="notice">Usage is recorded by the runtime and may lag until its next flush. A missing row means no stored measurements for that period, not a fabricated zero.</p> }
 @foreach (var table in Model.Tables)
 {
+    var notes = table.Rows.Any(row => row.Help is not null || row.StackTrace is not null);
     <section class="card"><div class="section-heading"><h2>@table.Title</h2><span class="badge">@table.Rows.Count rows</span></div>
-    @if (table.Rows.Count == 0) { <div class="empty-state"><h3>No stored activity</h3><p>Once this project receives matching runtime traffic, its recorded activity will appear here.</p></div> }
+    @if (table.Rows.Count == 0) { <div class="empty-state"><h3>No stored activity</h3><p>@table.Empty</p></div> }
     else
     {
-        <div class="table-scroll"><table><caption class="sr-only">@table.Title</caption><thead><tr>@foreach (var column in table.Columns) { <th scope="col">@column.Replace('_', ' ')</th> }</tr></thead><tbody>
-        @foreach (var row in table.Rows) { <tr>@foreach (var value in row) { <td>@value</td> }</tr> }
+        <div class="table-scroll"><table><caption class="sr-only">@table.Title</caption><thead><tr>@foreach (var column in table.Columns) { <th scope="col">@column</th> }@if (notes) { <th scope="col">What it means</th> }</tr></thead><tbody>
+        @foreach (var row in table.Rows)
+        {
+            <tr>@foreach (var value in row.Cells) { <td>@value</td> }
+            @if (notes)
+            {
+                <td>@if (row.Help is not null) { <span>@row.Help</span> }
+                @if (row.StackTrace is not null) { <details><summary>Stack trace</summary><pre>@row.StackTrace</pre></details> }</td>
+            }</tr>
+        }
         </tbody></table></div>
     }</section>
 }

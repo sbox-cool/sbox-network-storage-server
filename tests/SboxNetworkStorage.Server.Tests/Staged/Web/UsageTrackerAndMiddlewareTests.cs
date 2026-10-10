@@ -5,6 +5,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using SboxNetworkStorage.Infrastructure.NetworkStorage.Storage;
 using SboxNetworkStorage.Infrastructure.NetworkStorage.Usage;
+using SboxNetworkStorage.Server.Activity;
 using SboxNetworkStorage.Server.Middleware;
 using Xunit;
 
@@ -170,16 +171,121 @@ public sealed class UsageTrackerAndMiddlewareTests
         return context;
     }
 
-    private static async Task<InMemoryNetworkStorageStore> RunMiddlewareAsync(DefaultHttpContext context, RequestDelegate handler)
+    private static async Task<InMemoryNetworkStorageStore> RunMiddlewareAsync(DefaultHttpContext context, RequestDelegate handler, RuntimeActivityLog? activity = null)
     {
         var (tracker, store) = BuildTracker();
         var middleware = new NetworkStorageUsageMiddleware(
             handler,
             tracker,
+            activity ?? new RuntimeActivityLog(TimeProvider.System),
             NullLogger<NetworkStorageUsageMiddleware>.Instance);
         await middleware.InvokeAsync(context);
         await tracker.FlushAsync(force: true, CancellationToken.None);
         return store;
+    }
+
+    private static List<RuntimeActivityEntry> Drain(RuntimeActivityLog activity)
+    {
+        var entries = new List<RuntimeActivityEntry>();
+        while (activity.Reader.TryRead(out var entry)) entries.Add(entry);
+        return entries;
+    }
+
+    [Theory]
+    [InlineData(401)]
+    [InlineData(403)]
+    [InlineData(404)]
+    public async Task Rejected_Unauthenticated_Request_Is_Logged_Under_The_Url_Project_But_Not_Metered(int status)
+    {
+        var activity = new RuntimeActivityLog(TimeProvider.System);
+        var context = BuildContext("/v3/storage/proj1/players/765", "POST", routeProjectId: "proj1");
+        var store = await RunMiddlewareAsync(context, ctx =>
+        {
+            ctx.Response.StatusCode = status;
+            return Task.CompletedTask;
+        }, activity);
+
+        var entry = Assert.IsType<RuntimeRequestEntry>(Assert.Single(Drain(activity)));
+        Assert.Equal(("proj1", "POST", "/v3/storage/proj1/players/765", status), (entry.ProjectId, entry.Method, entry.Path, entry.StatusCode));
+        Assert.Null(await store.ReadProjectUsageMonthlyAsync("proj1", Month, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Unauthenticated_Success_And_Suppressed_Requests_Are_Not_Logged()
+    {
+        var activity = new RuntimeActivityLog(TimeProvider.System);
+        await RunMiddlewareAsync(BuildContext("/v3/server-info", routeProjectId: "proj1"), ctx =>
+        {
+            ctx.Response.StatusCode = 200;
+            return Task.CompletedTask;
+        }, activity);
+        await RunMiddlewareAsync(BuildContext("/v3/sessions/proj1/create", "POST", routeProjectId: "proj1"), ctx =>
+        {
+            NetworkStorageUsageContext.Suppress(ctx);
+            ctx.Response.StatusCode = 401;
+            return Task.CompletedTask;
+        }, activity);
+        Assert.Empty(Drain(activity));
+    }
+
+    [Fact]
+    public async Task Authenticated_Request_Is_Logged_Under_The_Authenticated_Project()
+    {
+        var activity = new RuntimeActivityLog(TimeProvider.System);
+        await RunMiddlewareAsync(BuildContext("/api/storage/proj1/players/765", routeProjectId: "other"), ctx =>
+        {
+            NetworkStorageUsageContext.SetAuthenticated(ctx, "proj1");
+            ctx.Response.StatusCode = 200;
+            return Task.CompletedTask;
+        }, activity);
+        var entry = Assert.IsType<RuntimeRequestEntry>(Assert.Single(Drain(activity)));
+        Assert.Equal(("proj1", 200), (entry.ProjectId, entry.StatusCode));
+    }
+
+    [Fact]
+    public async Task Escaping_Exception_Is_Logged_And_Metered_As_A_500()
+    {
+        var activity = new RuntimeActivityLog(TimeProvider.System);
+        var (tracker, store) = BuildTracker();
+        var middleware = new NetworkStorageUsageMiddleware(ctx =>
+        {
+            NetworkStorageUsageContext.SetAuthenticated(ctx, "proj1");
+            throw new InvalidOperationException("boom");
+        }, tracker, activity, NullLogger<NetworkStorageUsageMiddleware>.Instance);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => middleware.InvokeAsync(BuildContext("/v3/storage/proj1/players/765")));
+        await tracker.FlushAsync(force: true, CancellationToken.None);
+
+        Assert.Equal(500, Assert.IsType<RuntimeRequestEntry>(Assert.Single(Drain(activity))).StatusCode);
+        Assert.Equal(1, Long((await store.ReadProjectUsageMonthlyAsync("proj1", Month, CancellationToken.None))!.Value, "errors"));
+    }
+
+    [Fact]
+    public void Request_Log_Budget_Caps_Each_Project_Per_Minute_And_Resets_The_Next_Minute()
+    {
+        var time = new SteppedTime(new DateTimeOffset(2026, 10, 10, 12, 0, 5, TimeSpan.Zero));
+        var activity = new RuntimeActivityLog(time);
+        for (var i = 0; i < RuntimeActivityLog.RowsPerMinute + 5; i++)
+        {
+            activity.RecordRequest("proj1", "GET", "/v3/x", 401, 1);
+            activity.RecordRequest("proj1", "GET", "/v3/x", 200, 1);
+        }
+        activity.RecordRequest("proj2", "GET", "/v3/x", 401, 1);
+        var first = Drain(activity).Cast<RuntimeRequestEntry>().ToList();
+        // Failed and successful requests have separate budgets, so a flood of one never hides the other.
+        Assert.Equal(RuntimeActivityLog.RowsPerMinute, first.Count(entry => entry.ProjectId == "proj1" && entry.StatusCode == 401));
+        Assert.Equal(RuntimeActivityLog.RowsPerMinute, first.Count(entry => entry.ProjectId == "proj1" && entry.StatusCode == 200));
+        Assert.Single(first, entry => entry.ProjectId == "proj2");
+
+        time.Now = time.Now.AddMinutes(1);
+        activity.RecordRequest("proj1", "GET", "/v3/x", 401, 1);
+        Assert.Single(Drain(activity));
+    }
+
+    private sealed class SteppedTime(DateTimeOffset now) : TimeProvider
+    {
+        public DateTimeOffset Now { get; set; } = now;
+        public override DateTimeOffset GetUtcNow() => Now;
     }
 
     [Fact]

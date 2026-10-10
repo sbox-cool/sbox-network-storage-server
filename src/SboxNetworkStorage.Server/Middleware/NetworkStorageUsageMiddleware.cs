@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using SboxNetworkStorage.Infrastructure.NetworkStorage.Usage;
+using SboxNetworkStorage.Server.Activity;
 
 namespace SboxNetworkStorage.Server.Middleware;
 
@@ -16,10 +17,16 @@ namespace SboxNetworkStorage.Server.Middleware;
 /// authenticating (unauthenticated traffic is never metered under a
 /// caller-chosen project). Metering is strictly best-effort — it never throws
 /// into the pipeline.</para>
+///
+/// <para>The same requests are also written to the project's runtime request log
+/// (<see cref="RuntimeActivityLog"/>), plus rejected requests (status 400 or more)
+/// that never authenticated, under the project ID in the URL, so wrong keys and
+/// failed s&amp;box auth show up in the dashboard.</para>
 /// </summary>
 public sealed class NetworkStorageUsageMiddleware(
     RequestDelegate next,
     NetworkStorageUsageTracker tracker,
+    RuntimeActivityLog activity,
     ILogger<NetworkStorageUsageMiddleware> logger)
 {
     // Segment-boundary prefixes: "/api/storage" does NOT match "/api/storage-browse".
@@ -44,16 +51,20 @@ public sealed class NetworkStorageUsageMiddleware(
         var responseCounting = new CountingWriteStream(originalResponseBody);
         context.Request.Body = requestCounting;
         context.Response.Body = responseCounting;
+        var faulted = true;
         try
         {
             await next(context);
+            faulted = false;
         }
         finally
         {
             context.Request.Body = originalRequestBody;
             context.Response.Body = originalResponseBody;
             var bytesIn = Math.Max(context.Request.ContentLength ?? 0, requestCounting.BytesRead);
-            Record(context, bytesIn, responseCounting.BytesWritten, Stopwatch.GetElapsedTime(start).TotalMilliseconds);
+            // An escaping exception becomes a 500 in ExceptionHandlingMiddleware after this point.
+            var status = faulted ? StatusCodes.Status500InternalServerError : context.Response.StatusCode;
+            Record(context, status, bytesIn, responseCounting.BytesWritten, Stopwatch.GetElapsedTime(start).TotalMilliseconds);
         }
     }
 
@@ -66,15 +77,19 @@ public sealed class NetworkStorageUsageMiddleware(
         return false;
     }
 
-    private void Record(HttpContext context, long bytesIn, long bytesOut, double durationMs)
+    private void Record(HttpContext context, int status, long bytesIn, long bytesOut, double durationMs)
     {
         try
         {
-            var status = context.Response.StatusCode;
-            if (status == StatusCodes.Status401Unauthorized) return;
-
             var annotation = NetworkStorageUsageContext.Get(context);
-            if (annotation is null or { Suppressed: true }) return;
+            if (annotation is { Suppressed: true }) return;
+
+            var logProjectId = annotation?.ProjectId
+                ?? (status >= StatusCodes.Status400BadRequest ? context.GetRouteValue("projectId") as string : null);
+            if (logProjectId is not null)
+                activity.RecordRequest(logProjectId, context.Request.Method, context.Request.Path.Value ?? "/", status, durationMs);
+
+            if (annotation is null || status == StatusCodes.Status401Unauthorized) return;
 
             tracker.Track(
                 annotation.ProjectId,
