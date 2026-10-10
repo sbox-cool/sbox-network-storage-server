@@ -12,6 +12,16 @@ updates:
           - "Microsoft.AspNetCore.*"
           - "Microsoft.Data.Sqlite*"
           - "Npgsql*"
+      test-tooling:
+        patterns:
+          - "xunit*"
+          - "Xunit.*"
+          - "Microsoft.NET.Test.Sdk"
+          - "coverlet*"
+    ignore:
+      # Tomlyn 1.x+ replaced the Toml/TomlTable API the config loader uses; port deliberately, not via a bump.
+      - dependency-name: "Tomlyn"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: github-actions
     directory: /
     schedule:

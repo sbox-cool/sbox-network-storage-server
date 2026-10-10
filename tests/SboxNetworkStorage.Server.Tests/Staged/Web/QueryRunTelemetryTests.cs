@@ -15,7 +15,7 @@ public sealed class QueryRunTelemetryTests
 {
     private static (StoreQueryRunRecorder Recorder, InMemoryNetworkStorageStore Store) BuildRecorder()
     {
-        var store = new InMemoryNetworkStorageStore();
+        var store = new InMemoryNetworkStorageStore(new SteppingTime());
         var services = new ServiceCollection();
         services.AddSingleton<INetworkStorageStore>(store);
         var provider = services.BuildServiceProvider();
@@ -25,10 +25,12 @@ public sealed class QueryRunTelemetryTests
         return (recorder, store);
     }
 
-    private static async Task FlushAsync()
+    // Log rows are keyed by millisecond (as in the relational stores); each store write sees a later one.
+    private sealed class SteppingTime : TimeProvider
     {
-        // The recorder fire-and-forgets on the ThreadPool. Give it time to land.
-        await Task.Delay(150);
+        private readonly DateTimeOffset _start = DateTimeOffset.UtcNow;
+        private long _calls;
+        public override DateTimeOffset GetUtcNow() => _start.AddMilliseconds(Interlocked.Increment(ref _calls));
     }
 
     [Fact]
@@ -36,7 +38,7 @@ public sealed class QueryRunTelemetryTests
     {
         var (recorder, store) = BuildRecorder();
         recorder.Record("proj1", "q1", "2026-07-06T12:00:00Z", 42, 100, 5, fromCache: false, force: true);
-        await FlushAsync();
+        await recorder.WhenIdleAsync();
 
         var lastRun = await store.ReadQueryLastRunAsync("proj1", "q1", CancellationToken.None);
         Assert.NotNull(lastRun);
@@ -56,11 +58,11 @@ public sealed class QueryRunTelemetryTests
     {
         var (recorder, store) = BuildRecorder();
         recorder.Record("proj1", "q1", "2026-07-06T12:00:00Z", 10, 50, 1, false, force: true);
-        await FlushAsync();
+        await recorder.WhenIdleAsync();
 
         // Non-forced record within 60s — should be suppressed.
         recorder.Record("proj1", "q1", "2026-07-06T12:00:30Z", 20, 60, 2, false, force: false);
-        await FlushAsync();
+        await recorder.WhenIdleAsync();
 
         var logs = await store.ListQueryLogsAsync("proj1", "q1", 50, CancellationToken.None);
         Assert.Single(logs); // only the forced one
@@ -71,11 +73,11 @@ public sealed class QueryRunTelemetryTests
     {
         var (recorder, store) = BuildRecorder();
         recorder.Record("proj1", "q1", "2026-07-06T12:00:00Z", 10, 50, 1, false, force: true);
-        await FlushAsync();
+        await recorder.WhenIdleAsync();
 
         // Forced record within 60s — should persist.
         recorder.Record("proj1", "q1", "2026-07-06T12:00:10Z", 20, 60, 2, false, force: true);
-        await FlushAsync();
+        await recorder.WhenIdleAsync();
 
         var logs = await store.ListQueryLogsAsync("proj1", "q1", 50, CancellationToken.None);
         Assert.Equal(2, logs.Count);
@@ -88,7 +90,7 @@ public sealed class QueryRunTelemetryTests
         recorder.Record("proj1", "q1", "2026-07-06T12:00:00Z", 10, 50, 1, false, force: true);
         recorder.Record("proj1", "q2", "2026-07-06T12:01:00Z", 20, 60, 2, false, force: true);
         recorder.Record("proj2", "q3", "2026-07-06T12:02:00Z", 30, 70, 3, false, force: true);
-        await FlushAsync();
+        await recorder.WhenIdleAsync();
 
         var proj1Runs = await store.ListQueryLastRunsAsync("proj1", CancellationToken.None);
         Assert.Equal(2, proj1Runs.Count);
@@ -97,18 +99,6 @@ public sealed class QueryRunTelemetryTests
 
         var proj2Runs = await store.ListQueryLastRunsAsync("proj2", CancellationToken.None);
         Assert.Single(proj2Runs);
-    }
-
-    [Fact]
-    public void QueryPerformance_DurationMs_IsSet()
-    {
-        var perf = new QueryPerformance
-        {
-            At = "2026-07-06T12:00:00Z",
-            DurationMs = 1234,
-            KeysScanned = 100
-        };
-        Assert.Equal(1234, perf.DurationMs);
     }
 
 }

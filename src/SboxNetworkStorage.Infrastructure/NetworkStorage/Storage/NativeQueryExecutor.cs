@@ -42,7 +42,9 @@ public sealed class NullQueryRunRecorder : IQueryRunRecorder
 /// </summary>
 public sealed class StoreQueryRunRecorder(IServiceScopeFactory scopeFactory, ILogger<StoreQueryRunRecorder>? logger) : IQueryRunRecorder
 {
-    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, long> _lastRecordUnixMs = new();
+    // Per instance (the recorder is a singleton): a static map leaked throttling between hosts and tests.
+    private readonly ConcurrentDictionary<string, long> _lastRecordUnixMs = new();
+    private readonly ConcurrentDictionary<Task, byte> _pending = new();
     private const int MinLogIntervalMs = 60_000; // 1 minute throttle
     private static readonly TimeSpan WriteTimeout = TimeSpan.FromSeconds(10);
 
@@ -58,22 +60,27 @@ public sealed class StoreQueryRunRecorder(IServiceScopeFactory scopeFactory, ILo
         // Fire-and-forget: never block the request path on a store write.
         // Detached from the request token (bounded timeout instead) so an
         // aborted request doesn't cancel the write mid-commit.
-        _ = System.Threading.Tasks.Task.Run(async () =>
+        var write = Task.Run(async () =>
         {
             using var scope = scopeFactory.CreateScope();
             var store = scope.ServiceProvider.GetRequiredService<INetworkStorageStore>();
-            using var cts = CancellationTokenSource.CreateLinkedTokenSource(CancellationToken.None);
-            cts.CancelAfter(WriteTimeout);
+            using var cts = new CancellationTokenSource(WriteTimeout);
             try
             {
                 await store.RecordQueryRunAsync(projectId, queryId, runAtIso, durationMs, keysScanned, recordsReturned, fromCache, cts.Token);
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (Exception ex) // best-effort, including the write timeout
             {
                 logger?.LogDebug(ex, "Failed to record query run for {ProjectId}/{QueryId}", projectId, queryId);
             }
         });
+        _pending.TryAdd(write, 0);
+        _ = write.ContinueWith(static (done, state) => ((ConcurrentDictionary<Task, byte>)state!).TryRemove(done, out _),
+            _pending, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
     }
+
+    /// <summary>Completes once every write started before the call has finished.</summary>
+    internal Task WhenIdleAsync() => Task.WhenAll(_pending.Keys);
 }
 
 /// <summary>
