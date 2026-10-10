@@ -162,6 +162,38 @@ public abstract partial class RelationalNetworkStorageStore
             Text("project_id", projectId), Text("collection_id", collectionId), Text("record_id", recordId));
     }
 
+    // ── record browsing ─────────────────────────────────────────────
+
+    public Task<long> CountLiveRecordsAsync(string projectId, string collectionId, bool global, string? keyPrefix, CancellationToken ct)
+        => QueryInt64ScalarAsync(_sql.LiveRecords(global, !string.IsNullOrEmpty(keyPrefix), count: true), ct,
+            LiveRecordArgs(projectId, collectionId, global, keyPrefix).ToArray());
+
+    public Task<IReadOnlyList<JsonElement>> ListLiveRecordsAsync(string projectId, string collectionId, bool global, string? keyPrefix, int offset, int limit, CancellationToken ct)
+    {
+        V.Limit(limit);
+        ArgumentOutOfRangeException.ThrowIfNegative(offset);
+        var args = LiveRecordArgs(projectId, collectionId, global, keyPrefix);
+        args.Add(Int32("limit", limit));
+        args.Add(Int32("offset", offset));
+        return QueryListAsync(_sql.LiveRecords(global, !string.IsNullOrEmpty(keyPrefix), count: false),
+            global ? C.GlobalRecord : C.Record, ct, args.ToArray());
+    }
+
+    private static List<Arg> LiveRecordArgs(string projectId, string collectionId, bool global, string? keyPrefix)
+    {
+        V.Id(projectId); V.Id(collectionId);
+        var args = new List<Arg> { Text("project_id", projectId), Text("collection_id", collectionId) };
+        if (!global) args.Add(Bool("live", false));
+        if (!string.IsNullOrEmpty(keyPrefix))
+        {
+            V.RecordKey(keyPrefix);
+            // Record key characters are ASCII, so the prefix range is [prefix, prefix with its last character + 1).
+            args.Add(Text("key_from", keyPrefix));
+            args.Add(Text("key_to", keyPrefix[..^1] + (char)(keyPrefix[^1] + 1)));
+        }
+        return args;
+    }
+
     // ── ledger_entries ──────────────────────────────────────────────
 
     public Task InsertLedgerEntryAsync(string projectId, string collectionId, string recordKey, long sequence, JsonElement entryJson, CancellationToken ct)

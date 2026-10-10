@@ -66,6 +66,8 @@ public class EmptyNetworkStorageStore : INetworkStorageStore
     public virtual Task<JsonElement?> ReadGlobalRecordAsync(string projectId, string collectionId, string recordId, CancellationToken ct) => throw new NotImplementedException();
     public virtual Task<IReadOnlyList<JsonElement>> ListGlobalRecordsAsync(string projectId, string collectionId, CancellationToken ct) => throw new NotImplementedException();
     public virtual Task DeleteGlobalRecordAsync(string projectId, string collectionId, string recordId, CancellationToken ct) => throw new NotImplementedException();
+    public virtual Task<long> CountLiveRecordsAsync(string projectId, string collectionId, bool global, string? keyPrefix, CancellationToken ct) => throw new NotImplementedException();
+    public virtual Task<IReadOnlyList<JsonElement>> ListLiveRecordsAsync(string projectId, string collectionId, bool global, string? keyPrefix, int offset, int limit, CancellationToken ct) => throw new NotImplementedException();
 
     public virtual Task InsertLedgerEntryAsync(string projectId, string collectionId, string recordKey, long sequence, JsonElement entryJson, CancellationToken ct) => throw new NotImplementedException();
     public virtual Task<IReadOnlyList<JsonElement>> ListLedgerEntriesAsync(string projectId, string collectionId, string recordKey, CancellationToken ct) => throw new NotImplementedException();

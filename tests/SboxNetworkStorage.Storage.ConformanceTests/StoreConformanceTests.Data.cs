@@ -131,6 +131,44 @@ public abstract partial class StoreConformanceTests
         Assert.Single(await s.ListGlobalRecordsAsync("p1", "board", Ct));
     }
 
+    [SkippableFact]
+    public async Task Live_records_count_and_page_by_key_with_optional_prefix()
+    {
+        var s = await StoreAsync();
+        foreach (var key in new[] { "z:1", "765_b", "A", "765", "765xa", "7650_x", "765_a" })
+            await s.UpsertRecordAsync("p1", "inv", key, Json.Parse("""{"gold":1}"""), false, 1, Ct);
+        await s.UpsertRecordAsync("p1", "inv", "765_c", Json.Parse("null"), true, 2, Ct);   // tombstone
+        await s.UpsertRecordAsync("p1", "inv", "765_n", Json.Parse("null"), false, 1, Ct);  // no payload
+        await s.UpsertRecordAsync("p1", "other", "765_a", Json.Parse("{}"), false, 1, Ct);
+
+        Assert.Equal(7, await s.CountLiveRecordsAsync("p1", "inv", false, null, Ct));
+        Assert.Equal(new[] { "765", "7650_x", "765_a", "765_b", "765xa", "A", "z:1" },
+            (await s.ListLiveRecordsAsync("p1", "inv", false, null, 0, 50, Ct)).Select(r => Json.Str(r, "record_key")));
+        Assert.Equal(new[] { "765_a", "765_b" },
+            (await s.ListLiveRecordsAsync("p1", "inv", false, null, 2, 2, Ct)).Select(r => Json.Str(r, "record_key")));
+        Assert.Equal(new[] { "z:1" }, (await s.ListLiveRecordsAsync("p1", "inv", false, "", 6, 5, Ct)).Select(r => Json.Str(r, "record_key")));
+        Assert.Empty(await s.ListLiveRecordsAsync("p1", "inv", false, null, 10, 5, Ct));
+
+        // The prefix is literal: "_" is not a wildcard, and longer keys sharing digits do not match.
+        Assert.Equal(2, await s.CountLiveRecordsAsync("p1", "inv", false, "765_", Ct));
+        var page = await s.ListLiveRecordsAsync("p1", "inv", false, "765_", 0, 50, Ct);
+        Assert.Equal(new[] { "765_a", "765_b" }, page.Select(r => Json.Str(r, "record_key")));
+        Assert.Equal(1, page[0].GetProperty("payload_json").GetProperty("gold").GetInt32());
+        Assert.Equal(0, await s.CountLiveRecordsAsync("p1", "inv", false, "zz", Ct));
+        Assert.Equal(0, await s.CountLiveRecordsAsync("p1", "missing", false, null, Ct));
+
+        await s.UpsertGlobalRecordAsync("p1", "board", "season-2", Json.Parse("{}"), 1, Ct);
+        await s.UpsertGlobalRecordAsync("p1", "board", "season-1", Json.Parse("{}"), 1, Ct);
+        await s.UpsertGlobalRecordAsync("p1", "board", "all-time", Json.Parse("{}"), 1, Ct);
+        Assert.Equal(3, await s.CountLiveRecordsAsync("p1", "board", true, null, Ct));
+        Assert.Equal(2, await s.CountLiveRecordsAsync("p1", "board", true, "season-", Ct));
+        Assert.Equal(new[] { "season-2" },
+            (await s.ListLiveRecordsAsync("p1", "board", true, "season-", 1, 5, Ct)).Select(r => Json.Str(r, "record_id")));
+
+        await Assert.ThrowsAsync<ArgumentException>(() => s.CountLiveRecordsAsync("p1", "inv", false, "bad key", Ct));
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => s.ListLiveRecordsAsync("p1", "inv", false, null, 0, 0, Ct));
+    }
+
     // ── ledger / checkpoint ─────────────────────────────────────────
 
     [SkippableFact]
