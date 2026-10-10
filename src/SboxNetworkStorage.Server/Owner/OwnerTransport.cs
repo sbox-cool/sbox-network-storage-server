@@ -6,7 +6,7 @@ namespace SboxNetworkStorage.Server.Owner;
 /// <summary>Transport facts about an owner-panel request (after forwarded-header processing).</summary>
 public static class OwnerTransport
 {
-    public const string HttpsDocsUrl = "https://github.com/sbox-cool/sbox-network-storage-server/blob/main/docs/admin-panel.md#http-vs-https";
+    public const string HttpsDocsUrl = OwnerDocs.Base + "admin-panel.md#http-vs-https";
 
     public static bool IsLoopback(HttpContext context)
         => context.Connection.RemoteIpAddress is { } address

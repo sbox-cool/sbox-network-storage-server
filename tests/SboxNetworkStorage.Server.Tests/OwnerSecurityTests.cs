@@ -32,6 +32,9 @@ public sealed class OwnerSecurityTests
         using var client = await OwnerHttp.LoggedInClientAsync(factory);
         var page = await client.GetStringAsync("/dashboard/security");
         var secret = Regex.Match(page, "<pre>([A-Z2-7]{32})</pre>").Groups[1].Value;
+        // Phones open the otpauth link straight in an authenticator app, with the parameters the server checks codes with.
+        Assert.Contains($"href=\"otpauth://totp/sbox-ns:{Uri.EscapeDataString(OwnerHttp.Username)}?secret={secret}&issuer=sbox-ns&algorithm=SHA1&digits=6&period=30\"",
+            WebUtility.HtmlDecode(page));
         var enrollment = WebUtility.HtmlDecode(Regex.Match(page, "name=\"enrollment\" value=\"([^\"]+)\"").Groups[1].Value);
         await using var scope = factory.Services.CreateAsyncScope();
         var accounts = scope.ServiceProvider.GetRequiredService<OwnerAccountService>();

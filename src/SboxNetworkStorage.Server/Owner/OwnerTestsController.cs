@@ -28,7 +28,8 @@ public sealed class OwnerTestsController(INetworkStorageProjectService projects,
     private static readonly JsonSerializerOptions Indented = new() { WriteIndented = true };
 
     [HttpGet(Route)]
-    public async Task<IActionResult> Index(string projectId, [FromQuery] string? endpoint, [FromQuery] string? test, CancellationToken ct)
+    public async Task<IActionResult> Index(string projectId, [FromQuery] string? endpoint, [FromQuery] string? test,
+        [FromQuery] string? steamId, CancellationToken ct)
     {
         var model = await LoadAsync(projectId, ct);
         if (model is null) return NotFound();
@@ -39,6 +40,8 @@ public sealed class OwnerTestsController(INetworkStorageProjectService projects,
             : model.Endpoints.FirstOrDefault(candidate => candidate.Slug == endpoint) is { } selected
                 ? model.Form with { Endpoint = selected.Slug, InputJson = selected.InputTemplate }
                 : model.Form;
+        // Links from the data browser open Try it as the player whose record was shown.
+        if (saved is null && steamId is not null && SteamIdLooksValid(steamId)) form = form with { SteamId = steamId };
         return View("~/Views/Owner/Tests.cshtml", model with { Form = form });
     }
 

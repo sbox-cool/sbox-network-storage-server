@@ -301,6 +301,34 @@ public partial class InMemoryNetworkStorageStore : INetworkStorageStore, IProjec
     public Task<IReadOnlyList<JsonElement>> ListGlobalRecordsAsync(string projectId, string collectionId, CancellationToken ct) { lock (_stateGate) { Id(projectId); Id(collectionId); return List(Under(GlobalRecords, P(projectId, collectionId)).OrderBy(r => Str(r, "record_id"), StringComparer.Ordinal)); } }
     public Task DeleteGlobalRecordAsync(string projectId, string collectionId, string recordId, CancellationToken ct) { lock (_stateGate) { Id(projectId); Id(collectionId); Id(recordId); return Remove(GlobalRecords, K(projectId, collectionId, recordId)); } }
 
+    // ── record browsing ─────────────────────────────────────────────
+    public Task<long> CountLiveRecordsAsync(string projectId, string collectionId, bool global, string? keyPrefix, CancellationToken ct)
+    {
+        lock (_stateGate) { return Task.FromResult((long)LiveRecords(projectId, collectionId, global, keyPrefix).Count()); }
+    }
+
+    public Task<IReadOnlyList<JsonElement>> ListLiveRecordsAsync(string projectId, string collectionId, bool global, string? keyPrefix, int offset, int limit, CancellationToken ct)
+    {
+        lock (_stateGate)
+        {
+            if (limit <= 0) throw new ArgumentOutOfRangeException(nameof(limit), limit, "LIMIT must be strictly positive.");
+            ArgumentOutOfRangeException.ThrowIfNegative(offset);
+            var key = global ? "record_id" : "record_key";
+            return List(LiveRecords(projectId, collectionId, global, keyPrefix).OrderBy(r => Str(r, key), StringComparer.Ordinal).Skip(offset).Take(limit));
+        }
+    }
+
+    private IEnumerable<JsonElement> LiveRecords(string projectId, string collectionId, bool global, string? keyPrefix)
+    {
+        Id(projectId); Id(collectionId);
+        if (!string.IsNullOrEmpty(keyPrefix)) RecordKey(keyPrefix);
+        var key = global ? "record_id" : "record_key";
+        return Under(global ? GlobalRecords : Records, P(projectId, collectionId))
+            .Where(r => r.GetProperty("payload_json").ValueKind != JsonValueKind.Null
+                && !(r.TryGetProperty("deleted", out var deleted) && deleted.ValueKind == JsonValueKind.True)
+                && (string.IsNullOrEmpty(keyPrefix) || Str(r, key).StartsWith(keyPrefix, StringComparison.Ordinal)));
+    }
+
     // ── ledger_entries (clustered by sequence ASC) ──────────────────
     public Task InsertLedgerEntryAsync(string projectId, string collectionId, string recordKey, long sequence, JsonElement entryJson, CancellationToken ct)
     {

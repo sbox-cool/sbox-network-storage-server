@@ -77,6 +77,12 @@ internal sealed class StoreSql
         ListGlobalRecords = Select("global_records", C.GlobalRecord, "project_id = @project_id AND collection_id = @collection_id", "record_id");
         DeleteGlobalRecord = $"DELETE FROM {T("global_records")} WHERE project_id = @project_id AND collection_id = @collection_id AND record_id = @record_id";
 
+        _liveRecords = new string[8];
+        foreach (var global in new[] { false, true })
+            foreach (var prefixed in new[] { false, true })
+                foreach (var count in new[] { false, true })
+                    _liveRecords[LiveIndex(global, prefixed, count)] = BuildLiveRecords(global, prefixed, count);
+
         UpsertLedgerEntry = Upsert("ledger_entries", ["project_id", "collection_id", "record_key", "sequence"], ["entry_json", "created_at_unix_ms"]);
         ListLedgerEntries = Select("ledger_entries", C.LedgerEntry, "project_id = @project_id AND collection_id = @collection_id AND record_key = @record_key", "sequence");
         DeleteLedgerEntries = $"DELETE FROM {T("ledger_entries")} WHERE project_id = @project_id AND collection_id = @collection_id AND record_key = @record_key";
@@ -261,6 +267,28 @@ internal sealed class StoreSql
     public string ReadSchemaVersion { get; }
     public string InsertSchemaVersion { get; }
     public string CountUsage { get; }
+
+    private readonly string[] _liveRecords;
+
+    /// <summary>
+    /// Count or page (<c>LIMIT @limit OFFSET @offset</c>) of live player or global records; a prefixed
+    /// statement binds <c>@key_from</c>/<c>@key_to</c> as the half-open key range of the prefix.
+    /// </summary>
+    public string LiveRecords(bool global, bool prefixed, bool count) => _liveRecords[LiveIndex(global, prefixed, count)];
+
+    private static int LiveIndex(bool global, bool prefixed, bool count) => (global ? 4 : 0) + (prefixed ? 2 : 0) + (count ? 1 : 0);
+
+    private string BuildLiveRecords(bool global, bool prefixed, bool count)
+    {
+        var table = global ? "global_records" : "records";
+        var key = global ? "record_id" : "record_key";
+        var where = "project_id = @project_id AND collection_id = @collection_id AND payload_json IS NOT NULL AND payload_json <> 'null'";
+        if (!global) where += " AND (deleted IS NULL OR deleted = @live)";
+        if (prefixed) where += $" AND {key} >= @key_from AND {key} < @key_to";
+        return count
+            ? $"SELECT COUNT(*) FROM {T(table)} WHERE {where}"
+            : Select(table, global ? C.GlobalRecord : C.Record, where, key) + " LIMIT @limit OFFSET @offset";
+    }
 
     private string T(string table) => _p + table;
 

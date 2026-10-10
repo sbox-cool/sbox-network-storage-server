@@ -9,6 +9,7 @@
     var configure = $"NetworkStorage.Configure( \"{project.Id}\", \"{connect.PublicKey ?? "<public-api-key>"}\", \"{connect.BaseUrl}\" );";
     var hasDefinitions = (Model.Resources?.Collections.Count ?? 0) + (Model.Resources?.Endpoints.Count ?? 0) > 0;
     string When(DateTimeOffset at) => at.ToString("yyyy-MM-dd HH:mm:ss 'UTC'", CultureInfo.InvariantCulture);
+    var agentPrompt = $"My sbox-ns project ID is {project.Id}. Use the sbox-ns MCP tools to read its definitions, recent requests and errors before you change anything, and dry-run endpoints with endpoint_test before I play.";
 }
 <link rel="stylesheet" href="/owner-assets/m/manage.css" />
 <div class="page-heading"><div><h1>@project.Name</h1><p>@project.Description</p><code>@project.Id</code></div><a class="button" href="@url/data">Browse data</a></div>
@@ -43,7 +44,7 @@
     }
     @if (connect.IsPlainHttp && !connect.IsLoopback)
     {
-        <p class="notice">This base URL uses plain HTTP. Whether s&amp;box game clients may call plain HTTP addresses is untested; a domain with HTTPS is the safer choice. <a href="https://github.com/sbox-cool/sbox-network-storage-server/blob/main/docs/client-setup.md#client-reachability" rel="noreferrer">Client reachability</a></p>
+        <p class="notice">This base URL uses plain HTTP. Whether s&amp;box game clients may call plain HTTP addresses is untested; a domain with HTTPS is the safer choice. <a href="@OwnerDocs.Url("client-setup.md#client-reachability")" rel="noreferrer">Client reachability</a></p>
     }
     <h3>Editor setup window</h3>
     <p>Or enter the same values in <strong>Editor &gt; Network Storage &gt; Setup</strong> in the s&amp;box editor, and leave CDN URL empty.</p>
@@ -147,15 +148,24 @@
         <form method="post" action="@url/settings">
             @Html.AntiForgeryToken()<input type="hidden" name="tab" value="security" />
             <label class="check"><input type="checkbox" name="requireSboxAuth" value="true" checked="@(project.RequireSboxAuth ?? true)" /> Require s&box authentication</label>
-            <label class="check"><input type="checkbox" name="enableAuthSessions" value="true" checked="@(project.EnableAuthSessions ?? false)" /> Enable auth sessions</label>
-            <label>Session TTL (seconds) <input type="number" name="authSessionTtlSeconds" value="@(project.AuthSessionTtlSeconds ?? 3600)" min="60" max="86400" /></label>
-            <label class="check"><input type="checkbox" name="enableEncryptedRequests" value="true" checked="@(project.EnableEncryptedRequests ?? false)" /> Enable encrypted requests</label>
-            <label>Encrypted request window (seconds) <input type="number" name="encryptedRequestWindowSeconds" value="@(project.EncryptedRequestWindowSeconds ?? 120)" min="30" max="600" /></label>
+            <p class="muted">Game clients must send a valid s&amp;box token, so a player can only act as their own Steam ID. Turn it off only for development.</p>
+            <details class="settings-advanced">
+                <summary>Auth sessions and encrypted requests</summary>
+                <label class="check"><input type="checkbox" name="enableAuthSessions" value="true" checked="@(project.EnableAuthSessions ?? false)" /> Enable auth sessions</label>
+                <p class="muted">Lets the game trade its s&amp;box token for a session token, so later calls skip the s&amp;box check until the session ends. <a href="@OwnerDocs.Url("admin-panel.md#auth-sessions")" rel="noreferrer">Auth sessions</a></p>
+                <label>Session TTL (seconds) <input type="number" name="authSessionTtlSeconds" value="@(project.AuthSessionTtlSeconds ?? 3600)" min="60" max="86400" /></label>
+                <label class="check"><input type="checkbox" name="enableEncryptedRequests" value="true" checked="@(project.EnableEncryptedRequests ?? false)" /> Enable encrypted requests</label>
+                <p class="muted">Tells the client library to encrypt endpoint calls; this server decrypts them and still accepts plain calls. <a href="@OwnerDocs.Url("admin-panel.md#encrypted-requests")" rel="noreferrer">Encrypted requests</a></p>
+                <label>Encrypted request window (seconds) <input type="number" name="encryptedRequestWindowSeconds" value="@(project.EncryptedRequestWindowSeconds ?? 120)" min="30" max="600" /></label>
+            </details>
             <button type="submit">Save security settings</button>
         </form>
     </article>
-    <article class="card">
-        <h2>Player keys</h2>
+</section>
+<section class="grid">
+    <details class="card settings-advanced">
+        <summary>Player keys</summary>
+        <p class="muted">Sets the record key endpoint steps use for the calling player. Player: the Steam ID. Player save: <code>{steamId}_{saveId}</code> when the call input has <code>saveId</code>, for save slots. <a href="@OwnerDocs.Url("admin-panel.md#player-key-mode")" rel="noreferrer">Player key mode</a></p>
         <form method="post" action="@url/settings">
             @Html.AntiForgeryToken()<input type="hidden" name="tab" value="player-keys" />
             <label>Mode <select name="playerKeyMode">
@@ -164,30 +174,30 @@
             </select></label>
             <button type="submit">Save player-key mode</button>
         </form>
-    </article>
-    <article class="card">
-        <h2>Player projections</h2>
-        <p class="muted">Built-in repair and leaderboard projection for the <code>players</code>, <code>skills</code>, <code>kills</code> and <code>leaderboard_global</code> collections of endpoint saves. Projects that existed before this setting was introduced keep it on; new projects start with it off.</p>
+    </details>
+    <details class="card settings-advanced">
+        <summary>Player projections</summary>
+        <p class="muted">Built-in repair and leaderboard projection for the <code>players</code>, <code>skills</code>, <code>kills</code> and <code>leaderboard_global</code> collections of endpoint saves. Leave it off unless your game was built on those collections. <a href="@OwnerDocs.Url("admin-panel.md#legacy-player-projections")" rel="noreferrer">Legacy player projections</a></p>
         <form method="post" action="@url/settings">
             @Html.AntiForgeryToken()<input type="hidden" name="tab" value="legacy-projections" />
             <label class="check"><input type="checkbox" name="legacyPlayerProjections" value="true" checked="@(project.LegacyPlayerProjections == true)" /> Enable legacy player projections</label>
             <button type="submit">Save projection setting</button>
         </form>
-    </article>
-    <article class="card">
-        <h2>Revision policy</h2>
-        <p class="muted">Saved with the project and returned to the editor Sync Tool by the management settings API. This server reports outdated game revisions through revision-init; it does not block outdated clients itself.</p>
+    </details>
+    <details class="card settings-advanced">
+        <summary>Revision policy (applied by the client library)</summary>
+        <p class="muted">This server does not block any request. It only reports these settings to the client library and the editor Sync Tool, and tells the client through revision-init when its game revision is outdated. What happens to an outdated player is up to the client library. <a href="@OwnerDocs.Url("admin-panel.md#revision-policy")" rel="noreferrer">Revision policy</a></p>
         <form method="post" action="@url/settings">
             @Html.AntiForgeryToken()<input type="hidden" name="tab" value="revisions" />
-            <label class="check"><input type="checkbox" name="revisionEnforcementEnabled" value="true" checked="@(project.RevisionEnforcementEnabled == true)" /> Enforce revision policy</label>
+            <label class="check"><input type="checkbox" name="revisionEnforcementEnabled" value="true" checked="@(project.RevisionEnforcementEnabled == true)" /> Enforce the revision policy in the client library</label>
             <label>Mode <select name="revisionEnforcementMode">
-                <option value="allow_continue" selected="@(project.RevisionEnforcementMode != "force_upgrade")">Allow outdated players to continue</option>
-                <option value="force_upgrade" selected="@(project.RevisionEnforcementMode == "force_upgrade")">Force an upgrade</option>
+                <option value="allow_continue" selected="@(project.RevisionEnforcementMode != "force_upgrade")">Let outdated players continue</option>
+                <option value="force_upgrade" selected="@(project.RevisionEnforcementMode == "force_upgrade")">Ask outdated players to upgrade</option>
             </select></label>
             <label>Grace period (minutes) <input type="number" name="revisionGracePeriodMinutes" value="@project.RevisionGracePeriodMinutes" min="5" max="1440" placeholder="None" /></label>
             <label>After the grace period <select name="revisionPostGraceAction">
-                <option value="block_writes" selected="@(project.RevisionPostGraceAction != "block_all")">Block writes</option>
-                <option value="block_all" selected="@(project.RevisionPostGraceAction == "block_all")">Block all requests</option>
+                <option value="block_writes" selected="@(project.RevisionPostGraceAction != "block_all")">Client library blocks writes</option>
+                <option value="block_all" selected="@(project.RevisionPostGraceAction == "block_all")">Client library blocks all requests</option>
             </select></label>
             <label>Escalate after (minutes) <input type="number" name="revisionEscalateAfterMinutes" value="@project.RevisionEscalateAfterMinutes" min="60" max="1440" placeholder="Never" /></label>
             <label>Notice for outdated players <textarea name="revisionNotifyMessage" maxlength="500">@project.RevisionNotifyMessage</textarea></label>
@@ -200,7 +210,7 @@
             <label class="check"><input type="checkbox" name="revisionTestOutdatedLive" value="true" checked="@(project.RevisionTestOutdatedLive == true)" /> Simulate an outdated client in live builds</label>
             <button type="submit">Save revision policy</button>
         </form>
-    </article>
+    </details>
 </section>
 <section class="card">
     <h2>Synced resources</h2>
@@ -215,7 +225,12 @@
     else { <ul>@foreach (var endpoint in Model.Resources.Endpoints) { <li><a href="@url/resources/endpoint?id=@Uri.EscapeDataString(endpoint.Id)"><strong>@endpoint.Name</strong></a> · @endpoint.Method <code>@endpoint.Slug</code> · @(endpoint.Enabled ? "Enabled" : "Disabled")</li> }</ul> }
     <div class="actions resource-links"><a href="@url/activity/analytics">Player analytics</a><a href="@url/activity/logs">Audit &amp; request logs</a><a href="@url/activity/errors">Errors</a><a href="@url/activity/usage">Usage</a></div>
 </section>
-<section class="card"><h2>Portable project archive</h2><p>Move this self-hosted project to an independent instance. Export includes its stored data and API-key hashes, but no instance configuration, secrets or signing keys. Keep the archive private. Import on the destination retains the original ID and refuses existing projects.</p><form method="post" action="@url/export">@Html.AntiForgeryToken()<button type="submit" class="secondary">Download project archive</button></form><p class="muted">Create a new secret key on the destination for editor sync and dedicated servers. Existing player sessions must authenticate again. Update your game's server base URL.</p><p class="muted">Self-hosted store portability only; managed-host export parity is not established. For whole-instance recovery, use the separate database backup tools.</p></section>
+<section class="card" id="coding-agent">
+    <h2>Use with a coding agent</h2>
+    <p>After you connect a coding agent to this server (see <a href="/dashboard#coding-agent">All projects</a>), start a session with this prompt so the agent works on this project.</p>
+    <div class="copy-row"><pre>@agentPrompt</pre><button type="button" class="secondary" data-copy-previous>Copy</button></div>
+</section>
+<section class="card"><h2>Portable project archive</h2><p>Move this self-hosted project to an independent instance. Export includes its stored data and API-key hashes, but no instance configuration, secrets or signing keys. Keep the archive private. Import on the destination retains the original ID and refuses existing projects.</p><form method="post" action="@url/export">@Html.AntiForgeryToken()<button type="submit" class="secondary">Download project archive</button></form><p class="muted">Create a new secret key on the destination for editor sync and dedicated servers. Existing player sessions must authenticate again. Update your game's server base URL.</p><p class="muted">To back up the whole server, use Export server on All projects or <code>sbox-ns db backup</code>.</p></section>
 <section class="card danger-zone">
     <h2>Delete project</h2>
     <p>This permanently deletes the project and its data. Enter <code>@project.Id</code> to confirm.</p>

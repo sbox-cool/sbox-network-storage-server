@@ -13,9 +13,15 @@ using SboxNetworkStorage.Server.Hosting;
 namespace SboxNetworkStorage.Server.Owner;
 
 public sealed record OwnerResourceItem(string Id, string Name);
+
+/// <summary>How game code calls the open resource, and links to the pages that work with it.</summary>
+/// <param name="Snippet">C# for game code, or null when game clients cannot call the resource directly.</param>
+/// <param name="Note">A sentence shown with (or instead of) the snippet.</param>
+public sealed record OwnerResourceUsage(string? Snippet, string? Note, string? TestUrl, string? VersionsUrl, string? DataUrl);
+
 public sealed record OwnerResourcesModel(string ProjectId, string ProjectName, string Kind,
     IReadOnlyList<OwnerResourceItem> Items, string? Id, string Definition, string BuilderContext,
-    string? Error = null, bool Saved = false, IReadOnlyList<DefinitionDiagnostic>? Diagnostics = null);
+    string? Error = null, bool Saved = false, IReadOnlyList<DefinitionDiagnostic>? Diagnostics = null, OwnerResourceUsage? Usage = null);
 
 [Authorize(AuthenticationSchemes = OwnerHostingExtensions.Scheme)]
 public sealed class OwnerResourcesController(INetworkStorageProjectService projects, INetworkStorageStore store,
@@ -135,11 +141,47 @@ public sealed class OwnerResourcesController(INetworkStorageProjectService proje
         var rows = resources.Rows(kind);
         var items = rows.Select(row => new OwnerResourceItem(Text(row, kind + "_id") ?? "", Text(row, "name") ?? Text(row, "slug") ?? Text(row, kind + "_id") ?? "")).OrderBy(item => item.Name).ToList();
         if (id is not null && kind != "game-values" && !items.Any(item => item.Id == id)) return null;
+        var row = rows.FirstOrDefault(candidate => Text(candidate, kind + "_id") == id);
         var value = kind == "game-values" ? resources.GameValues
-            : rows.Where(row => Text(row, kind + "_id") == id).Select(row => OwnerProjectResources.Column(row, "definition_json")).FirstOrDefault();
+            : row.ValueKind == JsonValueKind.Object ? OwnerProjectResources.Column(row, "definition_json") : null;
         var display = value is { ValueKind: JsonValueKind.Object } payload ? OwnerResourceSource.DisplayText(payload) : OwnerResourceExamples.Skeletons[kind];
-        var model = new OwnerResourcesModel(projectId, access.Project.Name, kind, items, id, display, resources.BuilderJson());
+        var usage = id is null || row.ValueKind != JsonValueKind.Object ? null : Usage(projectId, kind, id, row, value);
+        var model = new OwnerResourcesModel(projectId, access.Project.Name, kind, items, id, display, resources.BuilderJson(), Usage: usage);
         return (model, resources);
+    }
+
+    private static OwnerResourceUsage? Usage(string projectId, string kind, string id, JsonElement row, JsonElement? definition)
+    {
+        var projectUrl = OwnerProjectScope.ProjectUrl(projectId);
+        switch (kind)
+        {
+            case "endpoint":
+            {
+                var slug = Text(row, "slug") ?? id;
+                var note = OwnerGameSnippets.RequiresSecretKey(definition)
+                    ? "This endpoint requires a secret key: call it from a dedicated server, never from the game client."
+                    : "s&box hides 4xx response bodies from game code, so a rejected call returns no value and the error code can read HTTP_ERROR. The Logs tab shows the status.";
+                return new OwnerResourceUsage(OwnerGameSnippets.EndpointCall(slug, definition), note,
+                    $"{projectUrl}/tests?endpoint={Uri.EscapeDataString(slug)}#try-it",
+                    $"{projectUrl}/versions?kind=endpoint&id={Uri.EscapeDataString(id)}", null);
+            }
+            case "workflow":
+                return new OwnerResourceUsage(null, null, null, $"{projectUrl}/versions?kind=workflow&id={Uri.EscapeDataString(id)}", null);
+            case "collection":
+            {
+                var global = OwnerDataRecords.Describe(row)?.Global == true;
+                var dataUrl = OwnerDataController.CollectionUrl(projectId, id);
+                return OwnerGameSnippets.IsPublicCollection(definition)
+                    ? new OwnerResourceUsage(OwnerGameSnippets.CollectionDocuments(id, global, definition),
+                        global ? null : "With s&box authentication on, players may only write their own document: the key is their Steam ID, or starts with {steamId}_ for save slots.",
+                        null, null, dataUrl)
+                    : new OwnerResourceUsage(null,
+                        "Game clients cannot read or write this collection directly (accessMode is not public). Call an endpoint that reads or writes it; direct calls answer 403 ENDPOINT_ONLY.",
+                        null, null, dataUrl);
+            }
+            default:
+                return null;
+        }
     }
 
     private static bool ExampleExists(OwnerResourceExample example, Dictionary<string, HashSet<string>>? existing, OwnerProjectResources? resources = null)

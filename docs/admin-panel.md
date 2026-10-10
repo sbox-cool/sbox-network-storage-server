@@ -140,6 +140,58 @@ there once. Reloading the page does not create another key or show the raw
 key again. Revoking a key and deleting saved tests, rate limit rules, webhook
 profiles and pages ask for confirmation first.
 
+**All projects** shows the create form first while there are no projects,
+with import and export folded under **Import or export**. Its **Use with a
+coding agent** card has copyable commands for connecting Claude Code or
+another MCP client to `sbox-ns mcp` over SSH, a local `.mcp.json`, the Claude
+Code plugin, and the three `mcp.allow_*` switches with what each allows
+([coding agents](mcp.md)). Each project overview has a copyable first prompt
+that names the project ID.
+
+## Project settings
+
+The overview keeps name, description, **Enabled** and **Require s&box
+authentication** open. The other settings are folded and closed by default.
+
+### Auth sessions
+
+With **Enable auth sessions**, the game can trade its s&box token for a signed
+session token (`/v3/auth-sessions/{projectId}/create`). Later calls send the
+session token and skip the s&box check until it expires after **Session TTL**
+seconds. Off by default.
+
+### Encrypted requests
+
+**Enable encrypted requests** is reported to the client library in the signed
+security config, and the library then encrypts endpoint calls (AES-256-GCM
+with a key derived from the public key, signed with HMAC-SHA256). This server
+decrypts such calls and rejects replays, but still accepts plain calls, so it
+does not make encryption mandatory. It accepts request IDs up to 120 seconds
+old whatever the window setting says; the window value is passed to the client
+library.
+
+### Player key mode
+
+Sets the record key endpoint steps use for the calling player (`playerKey`).
+**Player** uses the Steam ID. **Player save** uses `{steamId}_{saveId}` when
+the call input has a `saveId`, for games with save slots, and the Steam ID
+otherwise.
+
+### Legacy player projections
+
+A built-in repair and leaderboard projection for endpoint saves into the
+`players`, `skills`, `kills` and `leaderboard_global` collections. Projects
+that existed before the setting was introduced keep it on; new projects start
+with it off. Leave it off unless your game was built on those collections.
+
+### Revision policy
+
+These settings are stored with the project and returned to the client library
+and the editor Sync Tool. This server never blocks a request because of them.
+It only answers revision-init with whether the client's game revision is
+outdated ([revision handshake](game-client.md#revision-init-handshake)). Any
+blocking, banner or popup happens in the client library.
+
 ## Data browser
 
 On a project page, choose **Browse data**, or open
@@ -147,11 +199,21 @@ On a project page, choose **Browse data**, or open
 
 - **Collections:** every synced collection with its type (per-player or
   global) and live record count. Deleted (tombstoned) player records are not
-  counted.
+  counted. Without collections, the page links to the Collections editor and
+  to the [Sync Tool setup](client-setup.md#3-configure-the-editor).
+- **Find player:** enter a Steam ID to list that player's records in every
+  per-player collection: the record whose key is the Steam ID and save slots
+  whose key starts with `{steamId}_` (up to 50 per collection; open the
+  collection to see more). `?player=` takes the same value.
 - **Records:** sorted by key, 50 per page by default (`?size=` accepts 1–200).
-  Each row shows version, last change, size and a short preview. Key search
-  (`?q=`, up to 256 characters) is case-insensitive substring matching.
-- **Record detail:** pretty-printed JSON in an editable payload form.
+  Each row shows version, last change, size and a short preview. **Key starts
+  with** (`?q=`, up to 256 characters) lists keys that begin with the text;
+  keys are case-sensitive. An empty collection offers **Create record** and a
+  link to endpoint tests.
+- **Record detail:** pretty-printed JSON in an editable payload form. Records
+  of a player (key is a Steam ID, or starts with `{steamId}_`) link to
+  **Test an endpoint as this player**, which opens Endpoint tests with that
+  Steam ID filled in (`/tests?steamId=`), and to all records of that player.
 - **Create:** choose **Create record** on a collection. Player keys accept
   1–256 letters, numbers, underscores, hyphens or colons; global record IDs
   accept 1–128 letters, numbers, underscores or hyphens. Global records are
@@ -165,9 +227,9 @@ On a project page, choose **Browse data**, or open
   collection type, and each record's key, version, change time and payload.
 
 The browser reads through the storage contract, so it behaves the same on
-SQLite and PostgreSQL. Record counts and pages are computed from the full
-collection on each request. Very large collections therefore take longer to
-list.
+SQLite and PostgreSQL. Counts and pages are queried from the database, so
+large collections are not loaded into memory; only **Download** reads the
+whole collection.
 
 All mutations require the owner session and an antiforgery token. Edit and
 delete forms carry the version and a protected snapshot of the original payload
@@ -230,7 +292,36 @@ dependencies separately; retrying keeps definitions that already exist.
 
 Analytics, audit/request logs, errors and usage tabs read stored runtime data.
 Empty panels mean no matching data has been recorded, not synthetic activity.
-The console does not replace every screen or workflow in the managed dashboard.
+The console does not replace every screen or workflow in the managed dashboard:
+it covers project settings and keys, records, collection, endpoint, workflow and
+query definitions, game values, endpoint tests, version history, rate limit
+rules, webhooks and pages.
+
+### Use from the game
+
+When an endpoint or collection is open in the editor, a **Use from the game**
+card shows the C# for it, with a **Copy** button:
+
+- Endpoints: `await NetworkStorage.CallEndpoint( "<slug>", new { ... } );`
+  with the input filled from the endpoint's `input` schema (declared defaults,
+  otherwise a value of the declared type), followed by the
+  `TryGetLastEndpointError` check. The `endpoint_snippet` MCP tool returns the
+  same code. Links open **Endpoint tests** with the endpoint selected and its
+  **Version history**.
+- Collections with `accessMode: public`: `GetDocument` and `SaveDocument` for
+  the player's own document (per-player) or a named record (global), with the
+  saved object built from the schema. Other collections say to call an
+  endpoint instead, because direct calls answer `403 ENDPOINT_ONLY`. A link
+  opens the collection in the data browser.
+- Workflows link to their version history.
+
+### Pages
+
+**Pages** publishes markdown or key/value pages that games read without a
+key. An open page shows its absolute public URL, built like the Connect card's
+base URL (`server.public_url`, otherwise the dashboard address), and a
+**Fetch it from the game** example. The response is JSON with `title`,
+`updatedAt` and `markdown` (markdown pages) or `data` (key/value pages).
 
 ### Request log and errors
 
@@ -305,10 +396,12 @@ and conflict detection.
 
 ## Optional admin security
 
-Open **Admin security** to add a time-based authenticator. Add the displayed
-secret manually in your authenticator app, then confirm your current password
-and a six-digit code. Enrollment expires after ten minutes. The server does
-not activate 2FA until confirmation succeeds.
+Open **Admin security** to add a time-based authenticator. On a phone, open
+**Add to authenticator app**: it is an `otpauth://totp/` link (issuer
+`sbox-ns`, your owner name, SHA-1, six digits, 30 seconds) that authenticator
+apps open directly. Elsewhere, add the displayed secret manually. Then confirm
+your current password and a six-digit code. Enrollment expires after ten
+minutes. The server does not activate 2FA until confirmation succeeds.
 
 Save the ten recovery codes offline. Each works once. Enrollment and local
 reset invalidate existing owner sessions. Password reset does not remove 2FA.
@@ -347,7 +440,7 @@ especially with a Cloudflare tunnel; keep local recovery access available.
 
 Turnstile is optional. Create a widget for your exact public admin hostname
 (including your `sboxns.com` tunnel name when applicable), then configure
-`adminpanel.turnstile.enabled`, `site_key`, `secret` and `hostname` as described
+`adminpanel.turnstile.enabled`, `adminpanel.turnstile.sitekey`, `adminpanel.turnstile.secret` and `adminpanel.turnstile.hostname` as described
 in [configuration](configuration.md). Keep the secret in a private config file
 or a protected environment variable, not shell history. The server checks
 success, action and hostname with Cloudflare before login/setup/link consumption,

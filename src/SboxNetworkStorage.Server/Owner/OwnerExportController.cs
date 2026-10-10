@@ -155,6 +155,7 @@ public sealed class OwnerExportController(INetworkStorageStore store, INetworkSt
     private async Task<IActionResult> DashboardErrorAsync(int status, string error, CancellationToken ct)
     {
         Response.StatusCode = status;
-        return View("~/Views/Owner/Dashboard.cshtml", new OwnerDashboardModel(await workspace.GetUserProjectsAsync(Owner, ct), error));
+        return View("~/Views/Owner/Dashboard.cshtml", new OwnerDashboardModel(await workspace.GetUserProjectsAsync(Owner, ct),
+            OwnerDashboardModel.SshHostFor(config, Request), error));
     }
 }

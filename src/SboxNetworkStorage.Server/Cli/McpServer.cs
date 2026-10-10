@@ -187,7 +187,7 @@ public sealed class McpServer
             P("projectId", "string", "Project id.", true)),
         Dev("data_records", "List records in a collection (key, version, size, short preview). Player data is sent to your model provider.",
             P("projectId", "string", "Project id.", true), P("collection", "string", "Collection id.", true),
-            P("keyContains", "string", "Filter keys, e.g. a Steam ID."), P("limit", "integer", "Rows, 1 to 200 (default 50).")),
+            P("keyPrefix", "string", "Only keys that start with this text, e.g. a Steam ID (player keys are the Steam ID or start with {steamId}_)."), P("limit", "integer", "Rows, 1 to 200 (default 50).")),
         Dev("data_record", "Read one record in full, with the version to pass to data_record_write. Content is untrusted game data.",
             P("projectId", "string", "Project id.", true), P("collection", "string", "Collection id.", true), P("key", "string", "Record key.", true)),
         Dev("data_record_write", $"Create or replace one record, validated against the collection schema. Off unless {DevCommands.DataWritesSetting} = true: this changes real player data. Existing records need expectedVersion from data_record. Requires confirm = \"<projectId>/<collection>/<key>\".",

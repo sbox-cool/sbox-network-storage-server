@@ -4,6 +4,7 @@
     var url = "/dashboard/projects/" + Uri.EscapeDataString(Model.ProjectId);
     var title = Model.Kind switch { "game-values" => "Game values", "query" => "Queries", _ => char.ToUpperInvariant(Model.Kind[0]) + Model.Kind[1..] + "s" };
 }
+<link rel="stylesheet" href="/owner-assets/m/manage.css" />
 <div class="page-heading"><div><h1>@title</h1><p>Definitions for @Model.ProjectName.</p></div><a class="button secondary" href="@url">Project overview</a></div>
 @if (Model.Saved) { <p class="notice success" role="status">Resource saved. The live definition is shown below.</p> }
 @if (Model.Error is not null) { <div class="notice error" role="alert"><strong>Could not save this definition</strong><pre>@Model.Error</pre><p>Correct the reported field or source syntax and save again. Your input has been preserved.</p></div> }
@@ -52,6 +53,19 @@
 <textarea class="code-editor" id="definition" name="definition" rows="24" required spellcheck="false" aria-describedby="definition-help definition-sync">@Model.Definition</textarea>
 <p class="muted definition-sync" id="definition-sync">Editor pushes can overwrite dashboard edits. Coordinate changes with your checked-in source.</p>
 </form></section>
+@if (Model.Usage is { } usage)
+{
+    <section class="card" id="use-from-game">
+        <h2>@(Model.Kind == "workflow" ? "History" : "Use from the game")</h2>
+        @if (usage.Snippet is not null) { <div class="copy-row"><pre>@usage.Snippet</pre><button type="button" class="secondary" data-copy-previous>Copy</button></div> }
+        @if (usage.Note is not null) { <p class="muted">@usage.Note @if (Model.Kind == "collection") { <a href="@SboxNetworkStorage.Server.Owner.OwnerDocs.Url("client-setup.md#collection-access-from-game-clients")" rel="noreferrer">Collection access</a> }</p> }
+        <div class="actions resource-links">
+            @if (usage.TestUrl is not null) { <a class="button secondary" href="@usage.TestUrl">Test this endpoint</a> }
+            @if (usage.VersionsUrl is not null) { <a class="button secondary" href="@usage.VersionsUrl">Version history</a> }
+            @if (usage.DataUrl is not null) { <a class="button secondary" href="@usage.DataUrl">Browse records</a> }
+        </div>
+    </section>
+}
 <details class="resource-examples"><summary>Examples</summary>
 <p class="muted">Examples show complete definitions that validate. Use an example to replace the editor text, create any needed definitions, then review before saving.</p>
 <div id="example-gallery"><p class="muted">Loading examples...</p></div>
@@ -59,4 +73,5 @@
 </div></div>
 <script src="/owner-assets/resource-builder.js" defer></script>
 <script src="/owner-assets/builder-catalog.js" defer></script>
+<script src="/owner-assets/m/manage.js" defer></script>
 

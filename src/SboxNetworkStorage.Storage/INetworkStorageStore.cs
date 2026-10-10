@@ -97,6 +97,21 @@ public interface INetworkStorageStore
     Task<IReadOnlyList<JsonElement>> ListGlobalRecordsAsync(string projectId, string collectionId, CancellationToken ct);
     Task DeleteGlobalRecordAsync(string projectId, string collectionId, string recordId, CancellationToken ct);
 
+    // ── record browsing (owner tools) ───────────────────────────────
+    /// <summary>
+    /// Counts live records in a player (<paramref name="global"/> false) or global collection: rows with a
+    /// non-null payload that are not tombstoned, exactly the rows the data plane can read. A non-empty
+    /// <paramref name="keyPrefix"/> (record key characters only) counts only keys that start with it.
+    /// </summary>
+    Task<long> CountLiveRecordsAsync(string projectId, string collectionId, bool global, string? keyPrefix, CancellationToken ct);
+
+    /// <summary>
+    /// One page of the rows <see cref="CountLiveRecordsAsync"/> counts, ordered by key (ordinal), skipping
+    /// <paramref name="offset"/> rows and returning at most <paramref name="limit"/> (strictly positive).
+    /// Rows have the shape of <see cref="ListRecordsAsync"/> or <see cref="ListGlobalRecordsAsync"/>.
+    /// </summary>
+    Task<IReadOnlyList<JsonElement>> ListLiveRecordsAsync(string projectId, string collectionId, bool global, string? keyPrefix, int offset, int limit, CancellationToken ct);
+
     // ── ledger_entries ──────────────────────────────────────────────
     Task InsertLedgerEntryAsync(string projectId, string collectionId, string recordKey, long sequence, JsonElement entryJson, CancellationToken ct);
     Task<IReadOnlyList<JsonElement>> ListLedgerEntriesAsync(string projectId, string collectionId, string recordKey, CancellationToken ct);

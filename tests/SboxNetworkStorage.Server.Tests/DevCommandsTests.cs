@@ -106,7 +106,7 @@ public sealed class DevCommandsTests : IDisposable
         Assert.True(rejected["passed"]!.GetValue<bool>());
         Assert.Equal("INVALID_AMOUNT", rejected["result"]!["body"]!["error"]!["code"]!.GetValue<string>());
 
-        Assert.Equal(0, (await RunAsync("data_records", new { projectId = p, collection = "miners" }))["total"]!.GetValue<int>());
+        Assert.Equal(0, (await RunAsync("data_records", new { projectId = p, collection = "miners" }))["total"]!.GetValue<long>());
     }
 
     [Fact]
@@ -124,6 +124,15 @@ public sealed class DevCommandsTests : IDisposable
 
         Assert.True((await RunAsync("data_record_write", new { projectId = p, collection = "miners", key = SteamId, payload = new { ore = 9 }, expectedVersion = version, confirm }))["ok"]!.GetValue<bool>());
         Assert.Equal(9, (await RunAsync("data_record", new { projectId = p, collection = "miners", key = SteamId }))["payload"]!["ore"]!.GetValue<double>());
+
+        // data_records pages from the store and filters by key prefix (the Steam ID, or "{steamId}_" for save slots).
+        Assert.True((await RunAsync("data_record_write", new { projectId = p, collection = "miners", key = SteamId + "_slot1", payload = new { ore = 1 }, confirm = $"{p}/miners/{SteamId}_slot1" }))["ok"]!.GetValue<bool>());
+        var all = await RunAsync("data_records", new { projectId = p, collection = "miners", keyPrefix = SteamId });
+        Assert.Equal(2, all["total"]!.GetValue<long>());
+        var slots = await RunAsync("data_records", new { projectId = p, collection = "miners", keyPrefix = SteamId + "_" });
+        Assert.Equal(1, slots["total"]!.GetValue<long>());
+        Assert.Equal(SteamId + "_slot1", slots["records"]![0]!["key"]!.GetValue<string>());
+        Assert.Equal("INVALID_ARGUMENT", (await RunAsync("data_records", new { projectId = p, collection = "miners", keyPrefix = "not a key" }))["error"]!.GetValue<string>());
     }
 
     [Fact]

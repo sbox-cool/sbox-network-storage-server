@@ -332,14 +332,15 @@ public static class DevCommands
             {
                 if (await OwnerDataRecords.CollectionAsync(store, projectId, Required(a, "collection"), ct) is not { } collection)
                     return Fail("NOT_FOUND", "No such collection. Use data_collections.");
-                var filter = Optional(a, "keyContains");
-                var all = (await OwnerDataRecords.LoadAsync(store, projectId, collection, ct))
-                    .Where(r => filter is null || r.Key.Contains(filter, StringComparison.OrdinalIgnoreCase)).ToList();
+                var prefix = Optional(a, "keyPrefix");
+                if (prefix is not null && !OwnerDataRecords.ValidPrefix(prefix))
+                    return Fail("INVALID_ARGUMENT", "keyPrefix may contain letters, numbers, underscores, hyphens and colons (1 to 256).");
                 var limit = Limit(a);
+                var page = await OwnerDataRecords.PageAsync(store, projectId, collection, prefix, 0, limit, ct);
                 return Ok(new JsonObject
                 {
-                    ["total"] = all.Count,
-                    ["records"] = new JsonArray(all.Take(limit).Select(r => (JsonNode)new JsonObject
+                    ["total"] = await OwnerDataRecords.CountAsync(store, projectId, collection, prefix, ct),
+                    ["records"] = new JsonArray(page.Select(r => (JsonNode)new JsonObject
                     {
                         ["key"] = r.Key, ["version"] = r.Version, ["changedAt"] = Time(r.ChangedAtUnixMs), ["bytes"] = r.SizeBytes, ["preview"] = r.Preview,
                     }).ToArray()),
@@ -437,18 +438,8 @@ public static class DevCommands
         var row = resources.Rows("endpoint").FirstOrDefault(r => OwnerProjectResources.Text(r, "slug") == slug || OwnerProjectResources.Text(r, "endpoint_id") == slug);
         if (row.ValueKind != JsonValueKind.Object) return Fail("ENDPOINT_NOT_FOUND", $"No endpoint '{slug}'.");
         var definition = OwnerProjectResources.Column(row, "definition_json");
-        var input = definition is { } d && d.TryGetProperty("input", out var schema) ? OwnerProjectScope.SchemaSkeleton(schema) : [];
-        var args = input.Count == 0 ? "" : ", new { " + string.Join(", ", input.Select(p => $"{p.Key} = {CSharpLiteral(p.Value)}")) + " }";
-        var code = $$"""
-            var result = await NetworkStorage.CallEndpoint( "{{slug}}"{{args}} );
-            if ( !result.HasValue )
-            {
-                NetworkStorage.TryGetLastEndpointError( "{{slug}}", out var code, out var message );
-                Log.Warning( $"{{slug}} failed: {code} {message}" );
-                return;
-            }
-            """;
-        var requiresSecret = definition is { } def2 && def2.TryGetProperty("requiresSecretKey", out var secret) && secret.ValueKind == JsonValueKind.True;
+        var code = OwnerGameSnippets.EndpointCall(slug, definition);
+        var requiresSecret = OwnerGameSnippets.RequiresSecretKey(definition);
         return Ok(new JsonObject
         {
             ["csharp"] = code,
@@ -460,19 +451,6 @@ public static class DevCommands
             }.Where(n => n is not null).ToArray()),
         });
     }
-
-    private static string CSharpLiteral(object? value) => value switch
-    {
-        null => "(object)null",
-        string s => JsonSerializer.Serialize(s),
-        bool b => b ? "true" : "false",
-        JsonElement { ValueKind: JsonValueKind.String } e => JsonSerializer.Serialize(e.GetString()),
-        JsonElement { ValueKind: JsonValueKind.True } => "true",
-        JsonElement { ValueKind: JsonValueKind.False } => "false",
-        JsonElement { ValueKind: JsonValueKind.Number } e => e.GetRawText(),
-        IFormattable f => f.ToString(null, CultureInfo.InvariantCulture),
-        _ => "default",
-    };
 
     private static Task Audit(IServiceProvider sp, string projectId, string action, object summary, CancellationToken ct)
         => sp.GetRequiredService<IAuditLogger>().LogActionAsync(new AuditLogRequest(projectId, Owner.ToString(CultureInfo.InvariantCulture),

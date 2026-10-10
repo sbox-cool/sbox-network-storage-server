@@ -1,17 +1,47 @@
 @model SboxNetworkStorage.Server.Owner.OwnerDashboardModel
-@{ Layout = "~/Views/Owner/_Layout.cshtml"; }
-<div class="page-heading"><div><h1>Projects</h1><p>Create projects, configure collections and browse stored records.</p></div><a href="#create-project" class="button">Create project</a></div>
-@if (Model.Error is not null) { <p class="notice error" role="alert">@Model.Error</p> }
-<div class="section-heading"><h2>Projects</h2><span class="badge">@Model.Projects.Count total</span></div>
-<section class="grid project-grid" aria-label="Projects">
-@foreach (var project in Model.Projects.OrderBy(project => project.Name))
-{
-    <article class="card project-card"><div class="section-heading"><span class="project-icon" aria-hidden="true">@(project.Name.Length > 0 ? project.Name[..1].ToUpperInvariant() : "P")</span><span class="badge @(project.Enabled ? "positive" : "")">@(project.Enabled ? "Enabled" : "Disabled")</span></div>
-    <h2><a href="/dashboard/projects/@Uri.EscapeDataString(project.Id)">@project.Name</a></h2><p>@(string.IsNullOrEmpty(project.Description) ? "An independent Network Storage project." : project.Description)</p><code class="project-id">@project.Id</code>
-    <div class="card-bottom"><span>s&box auth @((project.RequireSboxAuth ?? true) ? "required" : "off")</span><a href="/dashboard/projects/@Uri.EscapeDataString(project.Id)">Open project →</a></div></article>
+@using SboxNetworkStorage.Server.Owner
+@{
+    Layout = "~/Views/Owner/_Layout.cshtml";
+    var empty = Model.Projects.Count == 0;
+    var sshCommand = $"claude mcp add sbox-ns -- ssh {Model.SshHost} sudo sbox-ns mcp";
+    const string localConfig = "{\n  \"mcpServers\": {\n    \"sbox-ns\": { \"command\": \"sbox-ns\", \"args\": [\"mcp\"] }\n  }\n}";
+    const string pluginCommands = "/plugin marketplace add sbox-cool/sbox-network-storage-server\n/plugin install sbox-ns@sbox-ns";
+    var permissions = new (string Setting, string Allows, string Risk)[]
+    {
+        ("mcp.allow_writes", "Saving collections, endpoints, workflows and queries", "Changes how the game behaves. Saves go to the staged revision unless the agent targets live."),
+        ("mcp.allow_data_writes", "Writing player and global records", "Changes real player data. Take a backup first."),
+        ("mcp.allow_destructive", "Deleting definitions, records, keys and projects", "Cannot be undone except from a backup. A revoked key stops every game build that uses it."),
+    };
+
+    void CreateProjectCard()
+    {
+        <article class="card" id="create-project"><h2>@(empty ? "Create your first project" : "Create project")</h2><p>One project holds the collections, endpoints, keys and player data of one game.</p><form method="post" action="/dashboard/projects">@Html.AntiForgeryToken()<label>Name <input name="name" required maxlength="64" placeholder="My game" /></label><label>Description <textarea name="description" maxlength="256" rows="3" placeholder="What are you building?"></textarea></label><label class="check"><input type="checkbox" name="requireSboxAuth" value="true" checked /> Require Facepunch s&box authentication</label><label class="check"><input type="checkbox" name="createPublicKey" value="true" checked /> Create a public game key</label><button type="submit">Create project</button></form></article>
+    }
+
+    void ImportCard()
+    {
+        <article class="card"><h2>Import a portable project</h2><p>Restore a self-hosted project archive on this instance. The archive retains its original project ID; import refuses an ID that already exists and never overwrites a live project.</p><form method="post" action="/dashboard/import" enctype="multipart/form-data">@Html.AntiForgeryToken()<label>Project archive (.tar.gz) <input type="file" name="archive" accept=".tar.gz,.tgz,application/gzip" required /></label><p class="muted">Maximum 64 MiB compressed / 256 MiB expanded. Archives contain player data and API-key hashes: store and transfer them securely.</p><button type="submit" class="secondary">Import project</button></form></article>
+    }
 }
-</section>
-@if (Model.Projects.Count == 0) { <section class="card empty-state"><h2>Start with your first game</h2><p>Create a project, issue a public runtime key, then connect your existing Network Storage client. No hosted account is required.</p><a href="#create-project" class="button">Create your backend</a></section> }
+<link rel="stylesheet" href="/owner-assets/m/manage.css" />
+<div class="page-heading"><div><h1>Projects</h1><p>Create projects, configure collections and browse stored records.</p></div>@if (!empty) { <a href="#create-project" class="button">Create project</a> }</div>
+@if (Model.Error is not null) { <p class="notice error" role="alert">@Model.Error</p> }
+@if (empty)
+{
+    <section class="grid">@{ CreateProjectCard(); }</section>
+}
+else
+{
+    <div class="section-heading"><span class="badge">@Model.Projects.Count total</span></div>
+    <section class="grid project-grid" aria-label="Projects">
+    @foreach (var project in Model.Projects.OrderBy(project => project.Name))
+    {
+        <article class="card project-card"><div class="section-heading"><span class="project-icon" aria-hidden="true">@(project.Name.Length > 0 ? project.Name[..1].ToUpperInvariant() : "P")</span><span class="badge @(project.Enabled ? "positive" : "")">@(project.Enabled ? "Enabled" : "Disabled")</span></div>
+        <h2><a href="/dashboard/projects/@Uri.EscapeDataString(project.Id)">@project.Name</a></h2>@if (!string.IsNullOrEmpty(project.Description)) { <p>@project.Description</p> }<code class="project-id">@project.Id</code>
+        <div class="card-bottom"><span>s&box auth @((project.RequireSboxAuth ?? true) ? "required" : "off")</span><a href="/dashboard/projects/@Uri.EscapeDataString(project.Id)">Open project →</a></div></article>
+    }
+    </section>
+}
 <section class="card onboarding"><h2>Connect a game</h2><ol class="steps"><li><strong>Create a project</strong><p>Keep production and development data separate.</p></li><li><strong>Get a public key</strong><p>New projects get one by default. Use secret keys only for editor sync or trusted servers.</p></li><li><strong>Point the client here</strong><p>The project overview shows the exact <code>NetworkStorage.Configure</code> line to paste. Existing client calls stay the same.</p></li></ol></section>
 <section class="card" id="author-backend"><h2>Author your first backend</h2><p>Two files under your game's <code>Editor/Network Storage/</code> folder define storage and server logic. Push them with <strong>Editor &gt; Network Storage &gt; Sync Tool</strong>, or paste them into Collections and Endpoints on a project page. Full syntax: <a href="https://sboxcool.com/wiki/network-storage-v3/core-concepts/source-authoring" rel="noreferrer">YAML Source guide</a>.</p><div class="sample-grid"><div><h3>collections/players.collection.yml</h3><pre>sourceVersion: 1
 kind: collection
@@ -48,9 +78,43 @@ response:
   status: 200
   body:
     ok: true</pre></div></div><p class="muted"><code>accessMode: endpoint</code> keeps the collection behind endpoints: the game calls <code>grant-coins</code> and cannot write coins directly. In game code, use the public key only. Secret keys stay in editor tooling and trusted servers.</p></section>
-<section class="grid">
-<article class="card" id="create-project"><h2>Create project</h2><p>One isolated backend for your game.</p><form method="post" action="/dashboard/projects">@Html.AntiForgeryToken()<label>Name <input name="name" required maxlength="64" placeholder="My game" /></label><label>Description <textarea name="description" maxlength="256" rows="3" placeholder="What are you building?"></textarea></label><label class="check"><input type="checkbox" name="requireSboxAuth" value="true" checked /> Require Facepunch s&box authentication</label><label class="check"><input type="checkbox" name="createPublicKey" value="true" checked /> Create a public game key</label><button type="submit">Create project</button></form></article>
-<article class="card"><h2>Import a portable project</h2><p>Restore a self-hosted project archive on this instance. The archive retains its original project ID; import refuses an ID that already exists and never overwrites a live project.</p><form method="post" action="/dashboard/import" enctype="multipart/form-data">@Html.AntiForgeryToken()<label>Project archive (.tar.gz) <input type="file" name="archive" accept=".tar.gz,.tgz,application/gzip" required /></label><p class="muted">Maximum 64 MiB compressed / 256 MiB expanded. Archives contain player data and API-key hashes: store and transfer them securely. This is self-hosted portability, not a claim of managed-host export compatibility.</p><button type="submit" class="secondary">Import project</button></form></article>
+@if (!empty)
+{
+    <section class="grid">@{ CreateProjectCard(); ImportCard(); }</section>
+}
+<section class="card" id="coding-agent">
+    <h2>Use with a coding agent</h2>
+    <p>Coding agents such as Claude Code can create projects, write and dry-run endpoints, and read request logs, errors and records through <code>sbox-ns mcp</code>. <a href="@OwnerDocs.Url("mcp.md")" rel="noreferrer">Coding agents (MCP)</a></p>
+    <h3>Server over SSH</h3>
+    <p>Run this on your computer. SSH must log in with a key, and <code>sudo sbox-ns mcp</code> must not ask for a password, because the agent cannot type one.</p>
+    <div class="copy-row"><pre>@sshCommand</pre><button type="button" class="secondary" data-copy-previous>Copy</button></div>
+    <h3>Server on the same computer</h3>
+    <p>Save this as <code>.mcp.json</code> in your game folder.</p>
+    <div class="copy-row"><pre>@localConfig</pre><button type="button" class="secondary" data-copy-previous>Copy</button></div>
+    <h3>Claude Code plugin</h3>
+    <p>Adds the MCP server for this computer and skills for setup, design, debugging and operations. For a server over SSH, also run the command above.</p>
+    <div class="copy-row"><pre>@pluginCommands</pre><button type="button" class="secondary" data-copy-previous>Copy</button></div>
+    <h3>Allowing changes</h3>
+    <p>Agents can always read. Each kind of change is off until you turn it on with one of these commands on the server.</p>
+    <div class="table-scroll"><table>
+        <thead><tr><th scope="col">Command</th><th scope="col">Allows</th><th scope="col">Risk</th></tr></thead>
+        <tbody>
+        @foreach (var permission in permissions)
+        {
+            <tr><td><div class="copy-row"><code>sbox-ns config set @permission.Setting true</code><button type="button" class="secondary" data-copy-previous>Copy</button></div></td><td>@permission.Allows</td><td>@permission.Risk</td></tr>
+        }
+        </tbody>
+    </table></div>
 </section>
-@await Html.PartialAsync("~/Views/Owner/_ExportCard.cshtml")
-<aside class="notice"><h2>Management coverage</h2><p>This owner console manages project settings and keys, record browsing and mutations, collection/schema, endpoint, workflow and query definitions, and game values. Source-backed YAML/JSON definitions use the same compiler as editor sync and preserve source metadata.</p><p>Analytics, audit/request logs, errors and usage read actual stored runtime data. Portable project archives are scoped to this self-hosted store; full managed-dashboard and managed-host export/import parity are not established. Database backup/restore remains a separate whole-instance operation.</p></aside>
+@if (empty)
+{
+    <details class="settings-advanced import-export"><summary>Import or export</summary>
+        @{ ImportCard(); }
+        @await Html.PartialAsync("~/Views/Owner/_ExportCard.cshtml")
+    </details>
+}
+else
+{
+    @await Html.PartialAsync("~/Views/Owner/_ExportCard.cshtml")
+}
+<script src="/owner-assets/m/manage.js" defer></script>

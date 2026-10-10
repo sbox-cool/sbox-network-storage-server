@@ -19,7 +19,58 @@ internal static class OwnerDataRecords
     public static bool ValidKey(OwnerDataCollection collection, string key)
         => collection.Global ? StorageIdValidation.IsValidCollectionId(key) : StorageIdValidation.IsValidRecordKey(key);
 
-    /// <summary>Every live record of the collection, sorted by key.</summary>
+    /// <summary>True when <paramref name="prefix"/> could start a record key (record key characters only).</summary>
+    public static bool ValidPrefix(string prefix) => StorageIdValidation.IsValidRecordKey(prefix);
+
+    /// <summary>Number of live records, optionally only keys starting with <paramref name="keyPrefix"/> (a <see cref="ValidPrefix"/> value).</summary>
+    public static Task<long> CountAsync(INetworkStorageStore store, string projectId, OwnerDataCollection collection, string? keyPrefix, CancellationToken ct)
+        => store.CountLiveRecordsAsync(projectId, collection.Id, collection.Global, keyPrefix, ct);
+
+    /// <summary>One page of live records sorted by key, read from the store without loading the collection.</summary>
+    public static async Task<List<OwnerDataRecord>> PageAsync(INetworkStorageStore store, string projectId, OwnerDataCollection collection,
+        string? keyPrefix, int offset, int limit, CancellationToken ct)
+    {
+        var rows = await store.ListLiveRecordsAsync(projectId, collection.Id, collection.Global, keyPrefix, offset, limit, ct);
+        var records = new List<OwnerDataRecord>(rows.Count);
+        foreach (var row in rows)
+        {
+            if (ToRecord(row, collection.Global) is { } record) records.Add(record);
+        }
+        return records;
+    }
+
+    /// <summary>
+    /// One player's live records in every per-player collection: the key equal to <paramref name="steamId"/>, then
+    /// keys starting with <c>{steamId}_</c> (save slots), at most <paramref name="perCollection"/> of those per collection.
+    /// </summary>
+    public static async Task<(List<OwnerPlayerRecord> Records, bool Cut)> FindPlayerAsync(INetworkStorageStore store, string projectId,
+        IEnumerable<OwnerDataCollection> collections, string steamId, int perCollection, CancellationToken ct)
+    {
+        var found = new List<OwnerPlayerRecord>();
+        var cut = false;
+        foreach (var collection in collections.Where(collection => !collection.Global))
+        {
+            if (await ReadAsync(store, projectId, collection, steamId, ct) is { } exact) found.Add(new(collection, exact));
+            var slots = await PageAsync(store, projectId, collection, steamId + "_", 0, perCollection + 1, ct);
+            cut |= slots.Count > perCollection;
+            found.AddRange(slots.Take(perCollection).Select(record => new OwnerPlayerRecord(collection, record)));
+        }
+        return (found, cut);
+    }
+
+    /// <summary>
+    /// The Steam ID a per-player record belongs to (its key, or the part before the first underscore) when that is
+    /// all digits; otherwise null.
+    /// </summary>
+    public static string? SteamId(OwnerDataCollection collection, string key)
+    {
+        if (collection.Global) return null;
+        var separator = key.IndexOf('_');
+        var id = separator < 0 ? key : key[..separator];
+        return id.Length is > 0 and <= 32 && id.All(char.IsAsciiDigit) ? id : null;
+    }
+
+    /// <summary>Every live record of the collection, sorted by key. Only for full exports.</summary>
     public static async Task<List<OwnerDataRecord>> LoadAsync(INetworkStorageStore store, string projectId, OwnerDataCollection collection, CancellationToken ct)
     {
         var rows = collection.Global

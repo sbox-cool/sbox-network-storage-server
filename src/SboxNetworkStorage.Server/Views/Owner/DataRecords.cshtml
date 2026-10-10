@@ -12,17 +12,24 @@
 <p class="muted"><code>@collection.Id</code> · @collection.Kind collection · @collection.RecordCount record(s)</p>
 <section class="card">
     <form method="get" action="@url" class="search">
-        <label>Search keys <input name="q" value="@Model.Query" maxlength="@OwnerDataController.MaxQueryLength" placeholder="@(collection.Global ? "record id" : "player id or record key")" /></label>
+        <label>Key starts with <input name="q" value="@Model.Query" maxlength="@OwnerDataController.MaxQueryLength" autocomplete="off" placeholder="@(collection.Global ? "record id" : "Steam ID or record key")" /></label>
         <input type="hidden" name="size" value="@Model.PageSize" />
         <button type="submit">Search</button>
     </form>
     @if (Model.Query is not null)
     {
-        <p>@Model.MatchCount match(es) for <code>@Model.Query</code> · <a href="@url">Clear search</a></p>
+        <p>@Model.MatchCount match(es) for keys starting with <code>@Model.Query</code> · <a href="@url">Clear search</a></p>
     }
     @if (Model.Records.Count == 0)
     {
-        <p>No records.</p>
+        if (Model.Query is not null) { <p>No keys start with <code>@Model.Query</code>. Keys are case-sensitive.</p> }
+        else
+        {
+            <div class="empty-state">
+                <p>No records yet. @(collection.Global ? "Create the first global record here, or save one from an endpoint." : "Records appear when the game saves player data through an endpoint or the document API. You can also create one here.")</p>
+                <div class="actions"><a class="button" href="@url/new">Create record</a><a class="button secondary" href="/dashboard/projects/@Uri.EscapeDataString(Model.ProjectId)/tests">Run an endpoint test</a></div>
+            </div>
+        }
     }
     else
     {

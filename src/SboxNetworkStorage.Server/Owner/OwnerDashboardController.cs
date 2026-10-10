@@ -13,7 +13,15 @@ using SboxNetworkStorage.Server.Hosting;
 
 namespace SboxNetworkStorage.Server.Owner;
 
-public sealed record OwnerDashboardModel(IReadOnlyList<WorkspaceProject> Projects, string? Error = null);
+/// <param name="SshHost">Host shown in the coding-agent SSH command: this server's public host, or a placeholder when it is only reachable locally.</param>
+public sealed record OwnerDashboardModel(IReadOnlyList<WorkspaceProject> Projects, string SshHost, string? Error = null)
+{
+    public static string SshHostFor(EffectiveConfig config, HttpRequest request)
+    {
+        var baseUrl = ServerBaseUrl.ForRequest(config, request);
+        return !ServerBaseUrl.IsLoopback(baseUrl) && Uri.TryCreate(baseUrl, UriKind.Absolute, out var uri) ? uri.Host : "my-vps";
+    }
+}
 
 /// <param name="BaseUrl">server.public_url, or the origin the dashboard was opened with.</param>
 /// <param name="FromPublicUrl">True when <paramref name="BaseUrl"/> comes from server.public_url.</param>
@@ -54,7 +62,7 @@ public sealed class OwnerDashboardController(INetworkStorageProjectService proje
 
     [HttpGet("/dashboard")]
     public async Task<IActionResult> Dashboard(CancellationToken ct)
-        => View("~/Views/Owner/Dashboard.cshtml", new OwnerDashboardModel(await workspace.GetUserProjectsAsync(Owner, ct)));
+        => View("~/Views/Owner/Dashboard.cshtml", new OwnerDashboardModel(await workspace.GetUserProjectsAsync(Owner, ct), OwnerDashboardModel.SshHostFor(config, Request)));
 
     [HttpPost("/dashboard/projects")]
     public async Task<IActionResult> CreateProject([FromForm] string? name, [FromForm] string? description,
@@ -64,7 +72,7 @@ public sealed class OwnerDashboardController(INetworkStorageProjectService proje
         if (name is null || name.Length is < 1 or > 64 || description?.Length > 256)
         {
             Response.StatusCode = StatusCodes.Status400BadRequest;
-            return View("~/Views/Owner/Dashboard.cshtml", new OwnerDashboardModel(await workspace.GetUserProjectsAsync(Owner, ct),
+            return View("~/Views/Owner/Dashboard.cshtml", new OwnerDashboardModel(await workspace.GetUserProjectsAsync(Owner, ct), OwnerDashboardModel.SshHostFor(config, Request),
                 "Project name is required (max 64 characters); description must be at most 256 characters."));
         }
         var result = await projects.CreateProjectAsync(Owner, name, description, true, requireSboxAuth, "player", string.Empty, ct);

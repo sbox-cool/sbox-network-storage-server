@@ -13,7 +13,7 @@ using SboxNetworkStorage.Server.Hosting;
 
 namespace SboxNetworkStorage.Server.Owner;
 
-public sealed record OwnerDataCollection(string Id, string Name, bool Global, int RecordCount = 0)
+public sealed record OwnerDataCollection(string Id, string Name, bool Global, long RecordCount = 0)
 {
     public string Kind => Global ? "Global" : "Per-player";
 }
@@ -24,12 +24,19 @@ public sealed record OwnerDataRecord(string Key, long? Version, long? ChangedAtU
         ? DateTimeOffset.FromUnixTimeMilliseconds(ms).ToString("yyyy-MM-dd HH:mm:ss 'UTC'", CultureInfo.InvariantCulture) : "-";
 }
 
-public sealed record OwnerDataModel(string ProjectId, string ProjectName, IReadOnlyList<OwnerDataCollection> Collections);
+/// <summary>One record found by the player search.</summary>
+public sealed record OwnerPlayerRecord(OwnerDataCollection Collection, OwnerDataRecord Record);
+
+/// <param name="Player">The searched Steam ID, or null when no search ran.</param>
+/// <param name="PlayerRecords">Records whose key is the Steam ID or starts with <c>{steamId}_</c>, in every per-player collection.</param>
+/// <param name="PlayerRecordsCut">True when a collection had more matches than the page shows.</param>
+public sealed record OwnerDataModel(string ProjectId, string ProjectName, IReadOnlyList<OwnerDataCollection> Collections,
+    string? Player = null, IReadOnlyList<OwnerPlayerRecord>? PlayerRecords = null, bool PlayerRecordsCut = false, string? PlayerError = null);
 
 public sealed record OwnerDataRecordsModel(string ProjectId, string ProjectName, OwnerDataCollection Collection,
-    IReadOnlyList<OwnerDataRecord> Records, string? Query, int Page, int PageSize, int MatchCount)
+    IReadOnlyList<OwnerDataRecord> Records, string? Query, int Page, int PageSize, long MatchCount)
 {
-    public int PageCount => Math.Max(1, (MatchCount + PageSize - 1) / PageSize);
+    public int PageCount => (int)Math.Clamp((MatchCount + PageSize - 1) / PageSize, 1, int.MaxValue);
 }
 
 public sealed record OwnerDataRecordModel(string ProjectId, string ProjectName, OwnerDataCollection Collection,
@@ -44,23 +51,35 @@ public sealed class OwnerDataController(INetworkStorageProjectService projects, 
     public const int DefaultPageSize = 50;
     public const int MaxPageSize = 200;
     public const int MaxQueryLength = 256;
+    /// <summary>Matches shown per collection by the player search.</summary>
+    public const int PlayerRecordsPerCollection = 50;
     private const long Owner = NetworkStorageServices.LocalOwnerUserId;
     private const string Base = "/dashboard/projects/{projectId}/data";
     private static readonly JsonSerializerOptions Pretty = new() { WriteIndented = true, Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
     private static readonly JsonSerializerOptions Export = new() { WriteIndented = true };
 
     [HttpGet(Base)]
-    public async Task<IActionResult> Collections(string projectId, CancellationToken ct)
+    public async Task<IActionResult> Collections(string projectId, [FromQuery] string? player, CancellationToken ct)
     {
         if (await ProjectNameAsync(projectId, ct) is not { } name) return NotFound();
         var collections = new List<OwnerDataCollection>();
         foreach (var row in await store.ListCollectionsAsync(projectId, ct))
         {
             if (OwnerDataRecords.Describe(row) is not { } collection) continue;
-            collections.Add(collection with { RecordCount = (await OwnerDataRecords.LoadAsync(store, projectId, collection, ct)).Count });
+            collections.Add(collection with { RecordCount = await OwnerDataRecords.CountAsync(store, projectId, collection, null, ct) });
         }
         collections.Sort((left, right) => string.CompareOrdinal(left.Id, right.Id));
-        return View("~/Views/Owner/Data.cshtml", new OwnerDataModel(projectId, name, collections));
+        var model = new OwnerDataModel(projectId, name, collections);
+        player = string.IsNullOrWhiteSpace(player) ? null : player.Trim();
+        if (player is null) return View("~/Views/Owner/Data.cshtml", model);
+        // The key is the Steam ID itself or "{steamId}_..." (save slots), so the ID leaves room for the underscore.
+        if (player.Length >= MaxQueryLength || !OwnerDataRecords.ValidPrefix(player))
+        {
+            Response.StatusCode = StatusCodes.Status400BadRequest;
+            return View("~/Views/Owner/Data.cshtml", model with { Player = player, PlayerError = "Enter a Steam ID such as 76561198000000000. Record keys only contain letters, numbers, underscores, hyphens and colons." });
+        }
+        var (records, cut) = await OwnerDataRecords.FindPlayerAsync(store, projectId, collections, player, PlayerRecordsPerCollection, ct);
+        return View("~/Views/Owner/Data.cshtml", model with { Player = player, PlayerRecords = records, PlayerRecordsCut = cut });
     }
 
     [HttpGet(Base + "/{collectionId}")]
@@ -72,14 +91,16 @@ public sealed class OwnerDataController(INetworkStorageProjectService projects, 
         q = string.IsNullOrWhiteSpace(q) ? null : q.Trim();
         if (q?.Length > MaxQueryLength) return BadRequest($"Search text may contain at most {MaxQueryLength} characters.");
         size = Math.Clamp(size, 1, MaxPageSize);
-        var all = await OwnerDataRecords.LoadAsync(store, projectId, collection, ct);
-        var matches = all.Where(record => q is null || record.Key.Contains(q, StringComparison.OrdinalIgnoreCase)).ToList();
-        var model = new OwnerDataRecordsModel(projectId, name, collection with { RecordCount = all.Count }, [], q, 1, size, matches.Count);
+        var total = await OwnerDataRecords.CountAsync(store, projectId, collection, null, ct);
+        // Keys only hold record key characters, so other search text matches nothing.
+        var matches = q is null ? total : OwnerDataRecords.ValidPrefix(q) ? await OwnerDataRecords.CountAsync(store, projectId, collection, q, ct) : 0;
+        var model = new OwnerDataRecordsModel(projectId, name, collection with { RecordCount = total }, [], q, 1, size, matches);
         page = Math.Clamp(page, 1, model.PageCount);
+        var offset = (int)Math.Min((long)(page - 1) * size, int.MaxValue);
         return View("~/Views/Owner/DataRecords.cshtml", model with
         {
             Page = page,
-            Records = matches.Skip((page - 1) * size).Take(size).ToList()
+            Records = matches == 0 ? [] : await OwnerDataRecords.PageAsync(store, projectId, collection, q, offset, size, ct)
         });
     }
 
