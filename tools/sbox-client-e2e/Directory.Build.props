@@ -1,0 +1,2 @@
+<!-- The runner compiles s&box game code; keep the server's build settings (nullable, implicit usings) out of it. -->
+<Project />

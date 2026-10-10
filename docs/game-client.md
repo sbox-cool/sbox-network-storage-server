@@ -35,14 +35,16 @@ natively without a database write:
   "version": "0.0.0-dev",
   "apiVersions": ["v3"],
   "database": "sqlite",
-  "capabilities": ["records", "global-records", "endpoints", "workflows", "queries", "game-values", "rate-limits", "auth-sessions", "analytics", "package-sync"],
+  "capabilities": ["records", "global-records", "endpoints", "workflows", "queries", "game-values", "rate-limits", "auth-sessions", "analytics", "package-sync", "https-tunnel"],
+  "tunnel": { "enabled": false, "name": "", "hostname": "", "registry": "", "connectorState": "disabled", "connectorVersion": "", "processId": null, "updatedAt": "2026-10-10T00:00:00+00:00" },
   "update": null
 }
 ```
 
-`database` is the configured provider name. `update` carries the latest
-release notice when an update check has run, else null. `sbox-ns doctor`
-also polls this route to check the listener.
+`database` is the configured provider name. `tunnel` describes the
+`sbox-ns tunnel` connector. `update` carries the latest release notice when
+an update check has run, else null. `sbox-ns doctor` also polls this route
+to check the listener.
 
 ## Revision init handshake
 
@@ -73,7 +75,9 @@ Success body (HTTP 200):
 `revisionOutdated` is true when the client revision trails the synced
 package. A missing client revision is not an error; the server acknowledges
 with its latest revision and a message saying so. A project with no synced
-game package answers that there is nothing to compare against.
+game package answers that there is nothing to compare against. Revisions the
+server does not know (`playerRevision`, `currentRevisionId`,
+`latestRevisionId`) are left out of the body rather than sent as `null`.
 
 Failures use the status code plus a short body: 401 `UNAUTHORIZED` for a
 missing, invalid, or disabled key or an unknown project; 403

@@ -57,7 +57,9 @@ public abstract class RevisionInitHttpTests<TFactory> : IClassFixture<TFactory>
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         Assert.True(body.RootElement.GetProperty("ok").GetBoolean());
-        Assert.Equal(JsonValueKind.Null, body.RootElement.GetProperty("currentRevisionId").ValueKind);
+        // Absent, not null: the client library's TryGetInt64 throws on a null currentRevisionId.
+        Assert.False(body.RootElement.TryGetProperty("currentRevisionId", out _));
+        Assert.False(body.RootElement.TryGetProperty("latestRevisionId", out _));
         Assert.False(body.RootElement.GetProperty("revisionOutdated").GetBoolean());
     }
 
