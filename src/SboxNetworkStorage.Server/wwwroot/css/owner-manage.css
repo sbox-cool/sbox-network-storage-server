@@ -32,6 +32,7 @@
 /* Project overview: Connect your game card. */
 .copy-row { display: flex; align-items: flex-start; gap: .5rem; }
 .copy-row pre { flex: 1 1 auto; margin: 0; }
+.copy-row button { flex: none; white-space: nowrap; }
 .connect-fields { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: .5rem 1rem; align-items: center; }
 .connect-fields dt { font-weight: 600; }
 .connect-fields dd { margin: 0; display: flex; align-items: center; gap: .5rem; min-width: 0; }
