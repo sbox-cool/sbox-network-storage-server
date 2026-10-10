@@ -650,7 +650,10 @@ public static class NetworkStorageGatewayEndpoints
             new NetworkStorageCredentials(apiKey, null, null, null, null),
             Body: null,
             ResolvedOwnerUserId: null,
-            context.RequestAborted);
+            context.RequestAborted)
+        {
+            TargetsNext = TargetsNext(context, query),
+        };
 
         var result = await handler.ExecuteAsync(request);
 
@@ -660,6 +663,10 @@ public static class NetworkStorageGatewayEndpoints
         await context.Response.WriteAsJsonAsync(result.Body, context.RequestAborted);
     }
 
+    private static bool TargetsNext(HttpContext context, IReadOnlyDictionary<string, string> query)
+        => NetworkStoragePublishTarget.IsNext(
+            context.Request.Headers[NetworkStoragePublishTarget.HeaderName].FirstOrDefault(),
+            query.GetValueOrDefault(NetworkStoragePublishTarget.QueryName));
 
     private static void MapManagementMutation(IEndpointRouteBuilder endpoints, string[] methods, string pattern)
     {
@@ -696,7 +703,10 @@ public static class NetworkStorageGatewayEndpoints
         new NetworkStorageCredentials(apiKey, null, null, null, null),
         Body: null,
         ResolvedOwnerUserId: null,
-        context.RequestAborted);
+        context.RequestAborted)
+        {
+            TargetsNext = TargetsNext(context, query),
+        };
 
         // Authenticate from headers before reading any request body.
         var rejection = await handler.RejectUnauthenticatedAsync(request);

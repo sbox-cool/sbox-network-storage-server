@@ -87,6 +87,22 @@ public sealed class UpdateTrustTests : IDisposable
     }
 
     [Fact]
+    public async Task Cosign_absent_still_requires_a_valid_pinned_signature()
+    {
+        using var pinned = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        using var stranger = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        static (int, string) MissingCosign(string file, IReadOnlyList<string> arguments) => (127, "not found");
+
+        Assert.Equal("1.2.0-binary", await Stage(Trust(pinned), Release(pinned), MissingCosign));
+        var error = await Assert.ThrowsAsync<CliException>(() => Stage(Trust(pinned), Release(stranger), MissingCosign));
+        Assert.Contains("signature verification of SHA256SUMS failed", error.Message);
+        var unsigned = Release(pinned);
+        unsigned.Signature = null;
+        error = await Assert.ThrowsAsync<CliException>(() => Stage(Trust(pinned), unsigned, MissingCosign));
+        Assert.Contains("Nothing was installed", error.Message);
+    }
+
+    [Fact]
     public async Task Tampered_sums_abort()
     {
         using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
@@ -268,7 +284,8 @@ public sealed class UpdateTrustTests : IDisposable
     private static UpdateTrust Trust(params ECDsa[] keys)
         => new(UpdateTrust.DefaultRepository, UpdateTrust.DefaultFeedUrl, [.. keys.Select(k => k.ExportSubjectPublicKeyInfo())]);
 
-    private async Task<string> Stage(UpdateTrust trust, FakeRelease release)
+    private async Task<string> Stage(UpdateTrust trust, FakeRelease release,
+        Func<string, IReadOnlyList<string>, (int ExitCode, string Output)>? runCapture = null)
     {
         var archiveName = $"sbox-ns-{Version}-{BuildInfo.RuntimeIdentifier}{(OperatingSystem.IsWindows() ? ".zip" : ".tar.gz")}";
         using var http = new HttpClient(new Handler(url => url.EndsWith("/SHA256SUMS", StringComparison.Ordinal)
@@ -283,7 +300,7 @@ public sealed class UpdateTrustTests : IDisposable
         var feed = new ReleaseFeed(http, ConfigLoader.Load(_root, _root, null, _ => null), trust);
         var work = Directory.CreateDirectory(Path.Combine(_root, "work-" + Guid.NewGuid().ToString("N"))).FullName;
 
-        var staged = await UpdateCommands.StageReleaseAsync(http, feed, Version, "/usr/local/bin/sbox-ns", work);
+        var staged = await UpdateCommands.StageReleaseAsync(http, feed, Version, "/usr/local/bin/sbox-ns", work, runCapture);
 
         return File.ReadAllText(staged);
     }

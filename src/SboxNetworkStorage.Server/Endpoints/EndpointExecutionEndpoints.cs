@@ -7,6 +7,9 @@ using Microsoft.Extensions.DependencyInjection;
 using SboxNetworkStorage.Application.NetworkStorage;
 using SboxNetworkStorage.Application.NetworkStorage.Endpoints;
 using SboxNetworkStorage.Application.NetworkStorage.AuthSessions;
+using SboxNetworkStorage.Application.Workspace;
+using SboxNetworkStorage.Infrastructure.NetworkStorage;
+using SboxNetworkStorage.Infrastructure.NetworkStorage.Storage;
 
 
 namespace SboxNetworkStorage.Server.Endpoints;
@@ -218,6 +221,12 @@ public static class EndpointExecutionEndpoints
         var isDedicatedServer = hasSecretKey;
         var userId = auth.UserId.ToString(System.Globalization.CultureInfo.InvariantCulture);
 
+        // A request targeting the staged revision (editor play sessions with PublishTarget=next send
+        // x-ns-publish-target / ?revisionTarget=next) runs staged endpoint and collection definitions
+        // over the live ones. Live requests never load the overrides.
+        var dataSource = context.RequestServices.GetService<IEndpointDataSource>();
+        var valuesProvider = context.RequestServices.GetService<IQueryValuesContextProvider>();
+
         // Game-values context for `source: "values"` lookups and `values.*`
         // expressions. The executor was designed to receive it (context["values"])
         // but live execution passed an empty map, so any table lookup failed.
@@ -226,7 +235,17 @@ public static class EndpointExecutionEndpoints
         IReadOnlyDictionary<string, object?> gameValues = ReadOnlyDictionary<string, object?>.Empty;
         try
         {
-            var valuesProvider = context.RequestServices.GetService<IQueryValuesContextProvider>();
+            if (NetworkStoragePublishTarget.IsNext(
+                    context.Request.Headers[NetworkStoragePublishTarget.HeaderName].FirstOrDefault(),
+                    context.Request.Query[NetworkStoragePublishTarget.QueryName].FirstOrDefault())
+                && await RevisionOverlay.LoadAsync(context.RequestServices.GetRequiredService<IWorkspaceStore>(),
+                    auth.UserId, projectId, context.RequestAborted) is { } overlay)
+            {
+                var staged = context.RequestServices.GetRequiredService<StoreEndpointDataSource>().WithRevisionOverlay(overlay);
+                dataSource = staged;
+                executor = executor.WithDataSource(staged);
+                valuesProvider = context.RequestServices.GetRequiredService<StoreQueryValuesContextProvider>().WithRevisionOverlay(overlay);
+            }
             if (valuesProvider is not null)
                 gameValues = await valuesProvider.GetValuesAsync(projectId, context.RequestAborted);
         }
@@ -285,7 +304,6 @@ public static class EndpointExecutionEndpoints
             // contract), present-but-unsupported stay reported 501. A store
             // outage mid-request can misread as missing; acceptable, since auth
             // and project reads already succeeded on the same store.
-            var dataSource = context.RequestServices.GetService<IEndpointDataSource>();
             Dictionary<string, object?>? definition = null;
             if (dataSource is not null)
             {

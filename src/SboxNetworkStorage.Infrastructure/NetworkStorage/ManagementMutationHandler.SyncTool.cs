@@ -48,7 +48,8 @@ public sealed partial class ManagementMutationHandler
     /// <summary>
     /// Upserts one resource without touching the others (legacy server <c>routeManagePatch*</c>):
     /// body <c>{ endpoint|collection|workflow: {...} }</c>. Source-backed payloads replace the
-    /// stored definition; plain payloads are shallow-merged over it.
+    /// stored definition; plain payloads are shallow-merged over it. A next-targeted endpoint or
+    /// collection merges over its staged copy (else the live one) and is staged.
     /// </summary>
     private async Task<NetworkStorageResult> PatchResourceAsync(
         NetworkStorageRequest request, string projectId, long ownerUserId, string kind)
@@ -75,7 +76,11 @@ public sealed partial class ManagementMutationHandler
                 return PatchFailure(kind, null, ManagementMutationConstants.ValidationFailedCode,
                     kind switch { "endpoint" => "Endpoint slug is required.", "collection" => "Collection name is required.", _ => "Workflow id is required." });
 
-            var existing = await FindExistingDefinitionAsync(projectId, kind, compiled, request.CancellationToken);
+            var publish = kind == "workflow" ? PublishDecision.Live : await ResolvePublishAsync(request, ownerUserId, projectId);
+            var existing = publish == PublishDecision.Staged
+                ? await FindStagedDefinitionAsync(ownerUserId, projectId, kind, compiled, request.CancellationToken)
+                    ?? await FindExistingDefinitionAsync(projectId, kind, compiled, request.CancellationToken)
+                : await FindExistingDefinitionAsync(projectId, kind, compiled, request.CancellationToken);
             var id = existing?.Id ?? requestedId;
             if (!StorageIdValidation.IsValidCollectionId(id))
                 return PatchFailure(kind, id, ManagementMutationConstants.ValidationFailedCode,
@@ -85,14 +90,25 @@ public sealed partial class ManagementMutationHandler
             var name = kind == "endpoint" ? GetOptionalString(merged, "slug") ?? id : GetOptionalString(merged, "name") ?? id;
             var resourceId = kind == "workflow" ? id : name;
             if (existing is { } current && current.Definition.GetRawText() == merged.GetRawText())
-                return ProductionOkResult(new { ok = true, source = "candidate", resourceKind = kind, resourceId, id, action = "unchanged", skipped = true });
+                return ReportPublishTarget(
+                    ProductionOkResult(new { ok = true, source = "candidate", resourceKind = kind, resourceId, id, action = "unchanged", skipped = true }),
+                    publish);
 
-            await UpsertDefinitionAsync(ownerUserId, projectId, kind, id, name, merged, NextVersion(), "patch", request.CancellationToken);
-            return ProductionOkResult(new
+            if (publish == PublishDecision.Staged)
+            {
+                var staged = new StagedRevisionWrites();
+                AddStaged(staged, kind, id, name, merged);
+                await StageAsync(ownerUserId, projectId, staged, request.CancellationToken);
+            }
+            else
+            {
+                await UpsertDefinitionAsync(ownerUserId, projectId, kind, id, name, merged, NextVersion(), "patch", request.CancellationToken);
+            }
+            return ReportPublishTarget(ProductionOkResult(new
             {
                 ok = true, source = "candidate", resourceKind = kind, resourceId, id,
                 action = existing is null ? "created" : "updated",
-            });
+            }), publish);
         }
     }
 
@@ -211,7 +227,8 @@ public sealed partial class ManagementMutationHandler
         if (spec is null)
             return ValidationFailedResult("test-endpoint", "Provide an endpoint slug, or the testId of a saved test that names an endpoint.");
 
-        var outcome = await new ManagementEndpointTestRunner(_store, _endpointExecutor, _valuesProvider)
+        var testContext = await TestContextAsync(request, ownerUserId, projectId);
+        var outcome = await new ManagementEndpointTestRunner(_store, testContext.Executor!, testContext.Values, testContext.Overlay)
             .RunAsync(projectId, ownerUserId, playerKeyMode, spec, request.CancellationToken);
         return outcome.Found
             ? NetworkStorageResult.Ok(outcome.Body, authDecision: authDecision)
@@ -220,11 +237,12 @@ public sealed partial class ManagementMutationHandler
                 authDecision: authDecision);
     }
 
-    private async Task<NetworkStorageResult> RunSavedTestsAsync(string projectId, long ownerUserId, string? playerKeyMode,
+    private async Task<NetworkStorageResult> RunSavedTestsAsync(NetworkStorageRequest request, string projectId, long ownerUserId, string? playerKeyMode,
         string authDecision, CancellationToken ct)
     {
         if (_endpointExecutor is null) return TestRunnerUnavailable(authDecision);
-        var report = await new ManagementEndpointTestRunner(_store, _endpointExecutor, _valuesProvider)
+        var testContext = await TestContextAsync(request, ownerUserId, projectId);
+        var report = await new ManagementEndpointTestRunner(_store, testContext.Executor!, testContext.Values, testContext.Overlay)
             .RunSavedAsync(projectId, ownerUserId, playerKeyMode, ct);
         return NetworkStorageResult.Ok(report, authDecision: authDecision);
     }

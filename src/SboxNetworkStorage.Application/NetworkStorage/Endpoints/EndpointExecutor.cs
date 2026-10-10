@@ -39,6 +39,10 @@ public sealed partial class EndpointExecutor
         _analyticsService = analyticsService;
     }
 
+    /// <summary>The same executor reading definitions and records through <paramref name="dataSource"/>.</summary>
+    public EndpointExecutor WithDataSource(IEndpointDataSource dataSource)
+        => new(dataSource, _webhookSender, _analyticsService);
+
     /// <summary>
     /// Execute an endpoint natively using the deterministic executor.
     /// Returns <c>null</c> when the endpoint is not found, uses unsupported features,

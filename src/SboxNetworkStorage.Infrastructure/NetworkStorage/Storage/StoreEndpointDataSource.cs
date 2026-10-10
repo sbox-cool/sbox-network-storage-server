@@ -28,14 +28,27 @@ public sealed class StoreEndpointDataSource : IEndpointDataSource, IEndpointReco
 {
     private readonly INetworkStorageStore _store;
     private readonly ILogger<StoreEndpointDataSource> _logger;
+    private readonly RevisionOverlay? _overlay;
 
     public StoreEndpointDataSource(
         INetworkStorageStore store,
         ILogger<StoreEndpointDataSource> logger)
+        : this(store, logger, overlay: null)
+    {
+    }
+
+    private StoreEndpointDataSource(INetworkStorageStore store, ILogger<StoreEndpointDataSource> logger, RevisionOverlay? overlay)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _overlay = overlay;
     }
+
+    /// <summary>
+    /// A data source for a request targeting the staged revision: endpoint definitions and collection
+    /// definitions (name→id resolution and global/per-player routing) come from the overlay first.
+    /// </summary>
+    public StoreEndpointDataSource WithRevisionOverlay(RevisionOverlay overlay) => new(_store, _logger, overlay);
 
     /// <inheritdoc />
     public int MaxPayloadBytes => _store.MaxPayloadBytes;
@@ -45,6 +58,21 @@ public sealed class StoreEndpointDataSource : IEndpointDataSource, IEndpointReco
     {
         try
         {
+            if (_overlay is not null && _overlay.StagesEndpoint(endpointSlug))
+            {
+                JsonElement? live = null;
+                foreach (var row in await _store.ListEndpointsAsync(projectId, ct))
+                {
+                    if (row.TryGetProperty("slug", out var slug) && slug.ValueKind == JsonValueKind.String
+                        && string.Equals(slug.GetString(), endpointSlug, StringComparison.Ordinal))
+                    {
+                        live = RevisionOverlay.DefinitionColumn(row);
+                        break;
+                    }
+                }
+                return _overlay.EndpointDefinition(endpointSlug, live);
+            }
+
             if (_store is MetadataCachingNetworkStore metadata)
                 return await metadata.ReadEndpointDefinitionAsync(projectId, endpointSlug, ct);
 
@@ -71,12 +99,18 @@ public sealed class StoreEndpointDataSource : IEndpointDataSource, IEndpointReco
         }
     }
 
+    private async Task<IReadOnlyList<JsonElement>> CollectionRowsAsync(string projectId, CancellationToken ct)
+    {
+        var rows = await _store.ListCollectionsAsync(projectId, ct);
+        return _overlay is null ? rows : _overlay.MergeCollectionRows(rows);
+    }
+
     public async Task<IReadOnlyList<Dictionary<string, object?>>> ListCollectionsAsync(
         string projectId, CancellationToken ct)
     {
         try
         {
-            var rows = await _store.ListCollectionsAsync(projectId, ct);
+            var rows = await CollectionRowsAsync(projectId, ct);
             var result = new List<Dictionary<string, object?>>();
             foreach (var row in rows)
             {
@@ -345,7 +379,7 @@ public sealed class StoreEndpointDataSource : IEndpointDataSource, IEndpointReco
             return false;
         try
         {
-            var rows = await _store.ListCollectionsAsync(projectId, ct);
+            var rows = await CollectionRowsAsync(projectId, ct);
             foreach (var row in rows)
             {
                 if (!row.TryGetProperty("collection_id", out var idProp) || idProp.ValueKind != JsonValueKind.String)

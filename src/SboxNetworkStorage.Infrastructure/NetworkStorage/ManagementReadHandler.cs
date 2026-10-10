@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using SboxNetworkStorage.Application.NetworkStorage;
 using SboxNetworkStorage.Application.Workspace;
 using SboxNetworkStorage.Domain.Workspace;
@@ -126,10 +127,10 @@ public sealed class ManagementReadHandler : INetworkStorageHandler
         {
             "game-values"      => await ReadResourceJsonAsync(ownerUserId, projectId, "game-values.json",
                                    data => new { ok = true, data }, auth.KeyType, request.CancellationToken),
-            "endpoints"        => await ReadResourceJsonAsync(ownerUserId, projectId, "endpoints.json",
-                                   data => new { ok = true, data }, auth.KeyType, request.CancellationToken),
-            "collections"      => await ReadResourceJsonAsync(ownerUserId, projectId, "collections.json",
-                                   data => new { ok = true, data }, auth.KeyType, request.CancellationToken),
+            "endpoints"        => await ReadDefinitionsAsync(request, ownerUserId, projectId, "endpoints.json",
+                                   RevisionOverrides.EndpointsSection, auth.KeyType),
+            "collections"      => await ReadDefinitionsAsync(request, ownerUserId, projectId, "collections.json",
+                                   RevisionOverrides.CollectionsSection, auth.KeyType),
             "workflows"        => await ReadResourceJsonAsync(ownerUserId, projectId, "workflows.json",
                                    data => new { ok = true, data }, auth.KeyType, request.CancellationToken),
             "queries"          => await ReadResourceJsonAsync(ownerUserId, projectId, "queries.json",
@@ -187,6 +188,63 @@ public sealed class ManagementReadHandler : INetworkStorageHandler
             body,
             storagePathsRead: new[] { resourcePath },
             authDecision: authDecision);
+    }
+
+    // ── Endpoints / collections with the staged revision ──
+
+    /// <summary>
+    /// Live definitions, plus the staged ("next") items marked <c>revisionTarget: "next"</c> when the
+    /// Sync Tool asks for <c>includeStaged=true</c> without pinning <c>revisionTarget=live</c>.
+    /// Live items stay unmarked, matching the reference response.
+    /// </summary>
+    private async Task<NetworkStorageResult> ReadDefinitionsAsync(
+        NetworkStorageRequest request, long userId, string projectId, string fileName, string stagedSection, string authDecision)
+    {
+        var ct = request.CancellationToken;
+        IReadOnlyList<KeyValuePair<string, JsonObject>> staged = [];
+        if (IncludesStaged(request))
+        {
+            try
+            {
+                staged = RevisionOverrides.Items(
+                    await RevisionOverrides.ReadAsync(_workspaceClient, userId, projectId, ct), stagedSection);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception)
+            {
+                return NetworkStorageResult.Error(
+                    500,
+                    "MANAGEMENT_READ_ERROR",
+                    new { ok = false, error = new { code = "MANAGEMENT_READ_ERROR", message = $"Failed to read {RevisionOverrides.ResourcePath}." } },
+                    storagePathsRead: new[] { $"network-storage/users/{userId}/{projectId}/{RevisionOverrides.ResourcePath}" },
+                    authDecision: authDecision);
+            }
+        }
+
+        Func<JsonElement, object> shape = staged.Count == 0
+            ? data => new { ok = true, data }
+            : data => new { ok = true, data = WithStaged(data, staged) };
+        return await ReadResourceJsonAsync(userId, projectId, fileName, shape, authDecision, ct);
+    }
+
+    private static bool IncludesStaged(NetworkStorageRequest request)
+        => request.QueryValue("includeStaged")?.Trim().ToLowerInvariant() is "true" or "1"
+            && !string.Equals(request.QueryValue(NetworkStoragePublishTarget.QueryName)?.Trim(),
+                NetworkStoragePublishTarget.Live, StringComparison.OrdinalIgnoreCase);
+
+    private static JsonArray WithStaged(JsonElement live, IReadOnlyList<KeyValuePair<string, JsonObject>> staged)
+    {
+        var data = live.ValueKind == JsonValueKind.Array ? JsonNode.Parse(live.GetRawText())!.AsArray() : new JsonArray();
+        foreach (var (_, item) in staged)
+        {
+            var copy = item.DeepClone().AsObject();
+            copy["revisionTarget"] = NetworkStoragePublishTarget.Next;
+            data.Add(copy);
+        }
+        return data;
     }
 
     // ── Game Package ──

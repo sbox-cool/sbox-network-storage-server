@@ -76,7 +76,9 @@ public static class NetworkStorageServices
         services.AddSingleton<IPlayerAnalyticsService, QueuedPlayerAnalyticsService>();
         services.AddSingleton<AnalyticsWriterService>();
         services.AddHostedService(sp => sp.GetRequiredService<AnalyticsWriterService>());
-        services.AddScoped<IEndpointDataSource, StoreEndpointDataSource>();
+        // Concrete registrations let staged ("next") endpoint calls derive revision-overlay copies.
+        services.AddScoped<StoreEndpointDataSource>();
+        services.AddScoped<IEndpointDataSource>(sp => sp.GetRequiredService<StoreEndpointDataSource>());
         services.AddScoped<EndpointExecutor>();
         services.AddScoped<IEndpointWebhookSender, HttpEndpointWebhookSender>();
         services.AddScoped<NativeQueryExecutor>();
@@ -116,7 +118,8 @@ public static class NetworkStorageServices
         services.AddSingleton(sp => new HeartbeatFailureThrottle(BoundedCache(), sp.GetRequiredService<TimeProvider>()));
         services.AddSingleton(_ => new HeartbeatAnalyticsGate(BoundedCache()));
         services.AddHttpClient<ISboxAuthVerifier, FacepunchSboxAuthVerifier>();
-        services.AddScoped<IQueryValuesContextProvider, StoreQueryValuesContextProvider>();
+        services.AddScoped<StoreQueryValuesContextProvider>();
+        services.AddScoped<IQueryValuesContextProvider>(sp => sp.GetRequiredService<StoreQueryValuesContextProvider>());
         services.AddSingleton<IAppendRateLimiter, InMemoryAppendRateLimiter>();
 
         return services;

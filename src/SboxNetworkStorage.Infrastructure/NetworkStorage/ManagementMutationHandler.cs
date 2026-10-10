@@ -205,7 +205,7 @@ public sealed partial class ManagementMutationHandler : INetworkStorageHandler
 
             "DELETE:endpoints" => await DeleteEndpointsAsync(request, projectId),
 
-            "PUT:collections" or "POST:collections" => await PutCollectionsAsync(request, projectId),
+            "PUT:collections" or "POST:collections" => await PutCollectionsAsync(request, projectId, ownerUserId),
 
             "DELETE:collections" => await DeleteCollectionsAsync(request, projectId),
 
@@ -254,7 +254,7 @@ public sealed partial class ManagementMutationHandler : INetworkStorageHandler
 
             "POST:auto-test" => await AutoTestAsync(request, projectId, ownerUserId, auth.KeyType),
 
-            "POST:run-tests" => await RunSavedTestsAsync(projectId, ownerUserId, project.PlayerKeyMode, auth.KeyType, request.CancellationToken),
+            "POST:run-tests" => await RunSavedTestsAsync(request, projectId, ownerUserId, project.PlayerKeyMode, auth.KeyType, request.CancellationToken),
 
             "POST:test-endpoint" => await TestEndpointAsync(request, projectId, ownerUserId, project.PlayerKeyMode, auth.KeyType),
 
@@ -269,18 +269,16 @@ public sealed partial class ManagementMutationHandler : INetworkStorageHandler
         };
     }
 
-    private Task<NetworkStorageResult> AutoTestAsync(
+    private async Task<NetworkStorageResult> AutoTestAsync(
         NetworkStorageRequest request,
         string projectId,
         long ownerUserId,
-        string authDecision) =>
-        NetworkStorageManagementAutoTestRunner.RunAsync(
-            request,
-            projectId,
-            ownerUserId,
-            authDecision,
-            _store,
-            _endpointExecutor);
+        string authDecision)
+    {
+        var testContext = await TestContextAsync(request, ownerUserId, projectId);
+        return await NetworkStorageManagementAutoTestRunner.RunAsync(
+            request, projectId, ownerUserId, authDecision, _store, testContext.Executor, testContext.Overlay);
+    }
 
     // ── Production write helpers ──
 
@@ -376,7 +374,7 @@ public sealed partial class ManagementMutationHandler : INetworkStorageHandler
         return ProductionOkResult(new { ok = true, source = "candidate", resourceKind = "rate-limit-rules", action = "upsert" });
     }
 
-    private async Task<NetworkStorageResult> PutCollectionsAsync(NetworkStorageRequest request, string projectId)
+    private async Task<NetworkStorageResult> PutCollectionsAsync(NetworkStorageRequest request, string projectId, long ownerUserId)
     {
         var (items, validationError) = ParseResourceArray(request.Body, "collection", requiredField: "name");
         if (validationError is not null)
@@ -384,12 +382,22 @@ public sealed partial class ManagementMutationHandler : INetworkStorageHandler
             return validationError;
         }
 
-        return await UpsertResourceArrayAsync(
+        var publish = await ResolvePublishAsync(request, ownerUserId, projectId);
+        var staged = new StagedRevisionWrites();
+        var result = await UpsertResourceArrayAsync(
             projectId,
             items,
             "collection",
-            (id, name, _, def, version, ct) => _store.UpsertCollectionAsync(projectId, id, name, GetOptionalString(def, "visibility") ?? "private", def, version, ct),
+            (id, name, _, def, version, ct) =>
+            {
+                if (publish != PublishDecision.Staged)
+                    return _store.UpsertCollectionAsync(projectId, id, name, GetOptionalString(def, "visibility") ?? "private", def, version, ct);
+                AddStaged(staged, "collection", id, name, def);
+                return Task.CompletedTask;
+            },
             request.CancellationToken);
+        await StageAsync(ownerUserId, projectId, staged, request.CancellationToken);
+        return ReportPublishTarget(result, publish);
     }
 
     private async Task<NetworkStorageResult> PutEndpointsAsync(NetworkStorageRequest request, string projectId, long ownerUserId)
@@ -400,12 +408,21 @@ public sealed partial class ManagementMutationHandler : INetworkStorageHandler
             return validationError;
         }
 
-        return await UpsertResourceArrayAsync(
+        var publish = await ResolvePublishAsync(request, ownerUserId, projectId);
+        var staged = new StagedRevisionWrites();
+        var replaceAll = publish != PublishDecision.Staged && request.Query.GetValueOrDefault("replaceAll") == "true";
+        var writtenIds = replaceAll ? new HashSet<string>(StringComparer.Ordinal) : null;
+        var result = await UpsertResourceArrayAsync(
             projectId,
             items,
             "endpoint",
             async (id, slug, _, def, version, ct) =>
             {
+                if (publish == PublishDecision.Staged)
+                {
+                    AddStaged(staged, "endpoint", id, slug, def);
+                    return;
+                }
                 await _store.UpsertEndpointAsync(
                     projectId, id,
                     slug,
@@ -416,8 +433,22 @@ public sealed partial class ManagementMutationHandler : INetworkStorageHandler
                     version,
                     ct);
                 await RecordVersionAsync(ownerUserId, projectId, "endpoint", id, def, "put", version, ct);
+                writtenIds?.Add(id);
             },
             request.CancellationToken);
+        await StageAsync(ownerUserId, projectId, staged, request.CancellationToken);
+        // sync.py requests a full replacement explicitly; normal editor pushes remain upserts.
+        // Never delete old definitions after a partial failure, or for a staged push.
+        if (writtenIds is not null && writtenIds.Count == items.Count)
+        {
+            foreach (var row in await _store.ListEndpointsAsync(projectId, request.CancellationToken))
+            {
+                var id = GetOptionalString(row, "endpoint_id");
+                if (id is not null && !writtenIds.Contains(id))
+                    await _store.DeleteEndpointAsync(projectId, id, request.CancellationToken);
+            }
+        }
+        return ReportPublishTarget(result, publish);
     }
 
     private async Task<NetworkStorageResult> PutWorkflowsAsync(NetworkStorageRequest request, string projectId, long ownerUserId)
@@ -544,6 +575,7 @@ public sealed partial class ManagementMutationHandler : INetworkStorageHandler
     /// payload to the store using the same native upserts as the per-resource
     /// routes. Mirrors the legacy server <c>PUT /sync</c> response shape:
     /// <c>{ ok, endpoints?, collections?, workflows? }</c> with per-section results.
+    /// A next-targeted push stages the endpoints and collections; workflows always go live.
     /// </summary>
     private async Task<NetworkStorageResult> PutSyncAsync(NetworkStorageRequest request, string projectId,
         long ownerUserId, string versionSource)
@@ -562,25 +594,35 @@ public sealed partial class ManagementMutationHandler : INetworkStorageHandler
         var version = NextVersion();
         var response = new Dictionary<string, object?> { ["ok"] = true, ["source"] = "candidate" };
         var overallOk = true;
+        var publish = await ResolvePublishAsync(request, ownerUserId, projectId);
+        var staged = new StagedRevisionWrites();
 
         foreach (var (sectionName, resourceKind) in new[] { ("endpoints", "endpoint"), ("collections", "collection"), ("workflows", "workflow") })
         {
             if (!TryGetSection(root, sectionName, out var sectionValue)) continue;
+            var stageSection = publish == PublishDecision.Staged && resourceKind != "workflow";
             var section = await SyncSectionAsync(projectId, resourceKind, sectionValue, version,
-                (id, name, def, ct) => UpsertDefinitionAsync(ownerUserId, projectId, resourceKind, id, name, def, version, versionSource, ct),
+                (id, name, def, ct) =>
+                {
+                    if (!stageSection)
+                        return UpsertDefinitionAsync(ownerUserId, projectId, resourceKind, id, name, def, version, versionSource, ct);
+                    AddStaged(staged, resourceKind, id, name, def);
+                    return Task.CompletedTask;
+                },
                 request.CancellationToken);
             response[sectionName] = section.Body;
             overallOk &= section.Ok;
         }
 
+        await StageAsync(ownerUserId, projectId, staged, request.CancellationToken);
         response["ok"] = overallOk;
-        return new NetworkStorageResult(
+        return ReportPublishTarget(new NetworkStorageResult(
             overallOk ? 200 : 400,
             overallOk ? null : ManagementMutationConstants.ValidationFailedCode,
             response,
             Array.Empty<string>(),
             Array.Empty<string>(),
-            "allowed");
+            "allowed"), publish);
     }
 
     private async Task<(bool Ok, object Body)> SyncSectionAsync(
@@ -680,7 +722,7 @@ public sealed partial class ManagementMutationHandler : INetworkStorageHandler
         {
             ["ok"] = true,
             ["mode"] = "preflight",
-            ["publishTarget"] = request.QueryValue("revisionTarget") ?? "live",
+            ["publishTarget"] = request.TargetsNext ? NetworkStoragePublishTarget.Next : NetworkStoragePublishTarget.Live,
         };
         var overallOk = true;
 

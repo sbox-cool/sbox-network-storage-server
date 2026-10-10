@@ -18,12 +18,22 @@ public sealed class StoreQueryValuesContextProvider : IQueryValuesContextProvide
 {
     private readonly INetworkStorageStore _store;
     private readonly ILogger<StoreQueryValuesContextProvider> _logger;
+    private readonly RevisionOverlay? _overlay;
 
     public StoreQueryValuesContextProvider(INetworkStorageStore store, ILogger<StoreQueryValuesContextProvider> logger)
+        : this(store, logger, overlay: null)
+    {
+    }
+
+    private StoreQueryValuesContextProvider(INetworkStorageStore store, ILogger<StoreQueryValuesContextProvider> logger, RevisionOverlay? overlay)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _overlay = overlay;
     }
+
+    /// <summary>A provider for a request targeting the staged revision: staged collection constants and tables apply.</summary>
+    public StoreQueryValuesContextProvider WithRevisionOverlay(RevisionOverlay overlay) => new(_store, _logger, overlay);
 
     public async Task<IReadOnlyDictionary<string, object?>> GetValuesAsync(string projectId, CancellationToken cancellationToken)
     {
@@ -35,9 +45,10 @@ public sealed class StoreQueryValuesContextProvider : IQueryValuesContextProvide
             var gvTask = _store.ReadGameValuesAsync(projectId, cancellationToken);
             var colTask = _store.ListCollectionsAsync(projectId, cancellationToken);
             await Task.WhenAll(gvTask, colTask);
+            var collections = _overlay is null ? colTask.Result : _overlay.MergeCollectionRows(colTask.Result);
 
             // ── Collection-level constants and tables take precedence ──
-            foreach (var col in colTask.Result)
+            foreach (var col in collections)
             {
                 if (col.ValueKind != JsonValueKind.Object) continue;
 
