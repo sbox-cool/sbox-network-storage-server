@@ -29,6 +29,15 @@ connector this may be the forwarded visitor address; without trusted forwarding
 it is the connector's address. `CF-Connecting-IP` is not used by this policy.
 Do not expose a loopback-origin listener through an untrusted local proxy.
 
+`adminpanel.allow_insecure_http` defaults to false. While it is false, the
+server refuses owner passwords, login links and the setup form when they arrive
+over plain HTTP from another machine, and shows a page that explains the safe
+ways in: an SSH port forward, `sbox-ns tunnel enable`, or TLS. Loopback
+requests and HTTPS (including a TLS proxy on loopback that sends
+`X-Forwarded-Proto: https`) are not affected. Set it to true only on a network
+you trust: your password, login links and session cookie then travel
+unencrypted.
+
 Owners may enroll an authenticator at `/dashboard/security` after signing in.
 Enter the displayed secret manually in an authenticator app using SHA-1,
 six digits and a 30-second period, then confirm a current code and password.
@@ -295,8 +304,9 @@ On a known route the server reads and discards an over-limit body of up to 4 MiB
 the client sees that response; a declared length above 4 MiB, or any path that is
 not a route, is rejected without reading the body.
 A client over its rate limit is answered with `429`, a `Retry-After` header and
-`{ "error": "RATE_LIMITED" }`. The dashboard import keeps its own limit, and owner
-login keeps its fixed limit of 10 attempts per minute per address.
+`{ "error": "RATE_LIMITED" }`. The dashboard import keeps its own limit. Owner
+login allows 10 attempts per minute per address, 60 per minute across all
+addresses, and checks at most 2 passwords at a time.
 
 ### Analytics retention
 

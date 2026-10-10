@@ -55,7 +55,9 @@ How the link works:
   gets a 404. Expired, wrong or malformed tokens also get a 404. Each
   sign-in through a link is logged as a warning with the client address.
 - **Rate limit.** `/login`, `/login/link` and `/setup` share a limit of 10
-  requests per minute per client IP. Requests over the limit get HTTP 429.
+  requests per minute per client IP and 60 per minute across all addresses,
+  and at most 2 passwords are checked at a time. Requests over the limit get
+  HTTP 429.
 
 Forgot your password? Run `sbox-ns admin login-link` to sign in, or
 `sbox-ns admin reset-password` to set a new password. A reset ends all
@@ -63,9 +65,15 @@ existing sessions.
 
 ## HTTP vs HTTPS
 
-Over plain HTTP, your password, login links and session cookie all travel
-unencrypted. The panel shows a warning banner whenever it is served over plain
-HTTP to a non-loopback address. To use HTTPS, pick one of these:
+From another machine, the server refuses your password, login links and the
+setup form over plain HTTP, because anyone on the network path could read them.
+The refusal page lists the ways in: an SSH port forward
+(`ssh -L 8080:127.0.0.1:8080 you@your-server`, then open
+`http://localhost:8080/login`), `sbox-ns tunnel enable`, or HTTPS. Loopback
+connections are always accepted. On a network you trust you can turn the check
+off with `sbox-ns config set adminpanel.allow_insecure_http true`; the panel then
+shows a warning banner, and your password and session cookie travel
+unencrypted. To use HTTPS, pick one of these:
 
 - **Built-in Let's Encrypt:** `sbox-ns config set tls.mode acme`, then set
   `tls.acme_domain`, `tls.acme_email` and `tls.acme_accept_terms = true`

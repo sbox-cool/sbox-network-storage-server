@@ -16,7 +16,8 @@ sbox-ns import ns.tar.gz --verify-only  # validate only; writes nothing to this 
 
 The owner dashboard has the same export: **Export server → Download export**
 (`POST /dashboard/export`). It leaves secrets out unless you tick
-**Include secrets**. Every dashboard download is written to each project's
+**Include secrets**, which also asks for your password, and your authenticator
+or recovery code if you enabled one. Every dashboard download is written to each project's
 audit log (`server.export`) and logged as a warning with the owner name and
 client address. Only one export runs at a time.
 

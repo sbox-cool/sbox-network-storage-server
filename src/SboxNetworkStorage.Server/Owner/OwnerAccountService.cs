@@ -111,6 +111,9 @@ public sealed class OwnerAccountService(INetworkStorageStore store, EffectiveCon
     public Task ResetAuthenticatorAsync(CancellationToken ct) => UpdateSecurityAsync(account =>
         account with { TotpSecret = null, TotpLastStep = -1, RecoveryHashes = null, SecurityStamp = NewStamp() }, ct);
 
+    /// <summary>Ends every owner session, including copies of the current cookie, by issuing a new security stamp.</summary>
+    public Task RevokeSessionsAsync(CancellationToken ct) => UpdateSecurityAsync(account => account with { SecurityStamp = NewStamp() }, ct);
+
     private static string NewStamp() => Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
 
     private async Task UpdateSecurityAsync(Func<OwnerAccount, OwnerAccount> change, CancellationToken ct)

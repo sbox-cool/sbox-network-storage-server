@@ -10,7 +10,7 @@ public sealed record OwnerSecurityModel(bool Enabled, string? Secret = null, str
     string? Error = null, string[]? RecoveryCodes = null);
 
 [Authorize(AuthenticationSchemes = OwnerHostingExtensions.Scheme)]
-[EnableRateLimiting("owner-login")]
+[EnableRateLimiting(OwnerLoginLimits.Policy)]
 public sealed class OwnerSecurityController(OwnerAccountService accounts) : Controller
 {
     [HttpGet("/dashboard/security")]

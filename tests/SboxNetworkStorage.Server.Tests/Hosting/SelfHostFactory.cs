@@ -102,6 +102,7 @@ public abstract class SelfHostFactory : IDisposable
                     var app = ServerHost.Build(Config, configureBuilder: builder =>
                     {
                         builder.WebHost.UseTestServer();
+                        builder.Services.AddTransient<IStartupFilter, TestPeerStartupFilter>();
                         builder.Logging.ClearProviders();
                         foreach (var configure in _configure)
                         {
@@ -334,6 +335,28 @@ public abstract class SelfHostFactory : IDisposable
 
     private sealed class DerivedFactory(SelfHostFactory parent, Action<IWebHostBuilder> configure)
         : SelfHostFactory(parent, configure);
+
+    /// <summary>Test-only request header naming the peer address, so an HTTP client can act as a remote machine.</summary>
+    public const string PeerHeader = "X-Test-Peer";
+
+    /// <summary>
+    /// The test server leaves the peer address empty, while a real <c>http://localhost</c> client arrives from
+    /// loopback. <see cref="PeerHeader"/> stands in for another machine; requests built with an address keep it.
+    /// </summary>
+    private sealed class TestPeerStartupFilter : IStartupFilter
+    {
+        public Action<IApplicationBuilder> Configure(Action<IApplicationBuilder> next) => app =>
+        {
+            app.Use((context, nextMiddleware) =>
+            {
+                if (context.Request.Headers.TryGetValue(PeerHeader, out var peer) && System.Net.IPAddress.TryParse(peer, out var address))
+                    context.Connection.RemoteIpAddress = address;
+                context.Connection.RemoteIpAddress ??= System.Net.IPAddress.Loopback;
+                return nextMiddleware();
+            });
+            next(app);
+        };
+    }
 }
 
 public sealed record SelfHostProject(string ProjectId, string PublicKey, string SecretKey);

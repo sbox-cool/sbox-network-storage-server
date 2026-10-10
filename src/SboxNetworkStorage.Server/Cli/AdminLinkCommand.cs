@@ -24,7 +24,9 @@ public static class AdminLinkCommand
             : $"Signs in as owner '{owner.Username}'.");
         Console.WriteLine($"Single use; expires {expiresAt.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture)} UTC ({minutes} min). Opening the page does not use it up; confirming does.");
         if (baseUrl.StartsWith("http://", StringComparison.Ordinal) && !ServerBaseUrl.IsLoopback(baseUrl))
-            Console.Error.WriteLine("warning: this link uses plain HTTP, so it and your session can be intercepted on the network. Prefer HTTPS (server.public_url / tls.mode) or an SSH tunnel; see docs/admin-panel.md.");
+            Console.Error.WriteLine(config.GetBoolean("adminpanel.allow_insecure_http")
+                ? "warning: this link uses plain HTTP, so it and your session can be intercepted on the network. Prefer HTTPS (server.public_url / tls.mode) or an SSH tunnel; see docs/admin-panel.md."
+                : $"note: the server refuses plain-HTTP sign-in from other machines. Forward the port first (ssh -L {PortOf(baseUrl)}:127.0.0.1:{PortOf(baseUrl)} you@this-server) and open the link with localhost:{PortOf(baseUrl)} as the host, or use HTTPS / sbox-ns tunnel enable; see docs/admin-panel.md.");
         return CliApp.Ok;
     }
 
@@ -36,4 +38,6 @@ public static class AdminLinkCommand
             throw new CliException($"--minutes must be a whole number from 1 to {OwnerLoginLinkService.MaxMinutes}.", CliApp.Usage);
         return minutes;
     }
+
+    private static int PortOf(string url) => Uri.TryCreate(url, UriKind.Absolute, out var uri) ? uri.Port : 80;
 }

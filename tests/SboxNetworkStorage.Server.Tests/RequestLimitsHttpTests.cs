@@ -21,7 +21,7 @@ namespace SboxNetworkStorage.Server.Tests;
 public abstract class RequestLimitsHttpTests<TFactory> : IClassFixture<TFactory>
     where TFactory : SelfHostFactory
 {
-    private const string PeerHeader = "X-Test-Peer";
+    private const string PeerHeader = SelfHostFactory.PeerHeader;
     private const string ChunkedHeader = "X-Test-Chunked";
     private const long OneMiB = 1024 * 1024;
 
@@ -491,9 +491,9 @@ public abstract class RequestLimitsHttpTests<TFactory> : IClassFixture<TFactory>
     }
 
     /// <summary>
-    /// Stands in for transport details the test server lacks: the peer address comes from a header,
-    /// a header can hide the declared body length (as for a chunked upload), and the bytes the
-    /// pipeline reads from the body are counted.
+    /// Stands in for transport details the test server lacks: a header can hide the declared body length (as for a
+    /// chunked upload), and the bytes the pipeline reads from the body are counted. The peer address comes from
+    /// <see cref="SelfHostFactory.PeerHeader"/>.
     /// </summary>
     private sealed class TestTransportFilter(BodyReadCounter counter) : IStartupFilter
     {
@@ -501,11 +501,6 @@ public abstract class RequestLimitsHttpTests<TFactory> : IClassFixture<TFactory>
         {
             app.Use((context, nextMiddleware) =>
             {
-                if (context.Request.Headers.TryGetValue(PeerHeader, out var peer) && IPAddress.TryParse(peer, out var address))
-                {
-                    context.Connection.RemoteIpAddress = address;
-                }
-
                 if (context.Request.Headers.ContainsKey(ChunkedHeader))
                 {
                     context.Request.Headers.Remove("Content-Length");

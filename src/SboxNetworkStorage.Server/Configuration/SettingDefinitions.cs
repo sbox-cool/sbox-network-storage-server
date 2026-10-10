@@ -104,6 +104,7 @@ public static class SettingDefinitions
         new(ServerFile, "adminpanel.enabled", SettingType.Boolean, true, "Serve owner administration endpoints. Disable leaves game APIs available. Restart after changing."),
         new(ServerFile, "adminpanel.demo_read_only", SettingType.Boolean, false, "Dedicated public demonstration mode: ephemeral guest dashboard, fixtures only, no owner or game writes. Never enable on an operator's real database."),
         new(ServerFile, "adminpanel.allowed_ips", SettingType.String, "", "Comma-separated IP addresses or CIDRs allowed for every owner endpoint. Empty allows all. Uses trusted server RemoteIpAddress, never reads raw forwarded headers."),
+        new(ServerFile, "adminpanel.allow_insecure_http", SettingType.Boolean, false, "Accept owner passwords and login links over plain HTTP from other machines. Off by default: use an SSH tunnel, tunnel enable or TLS instead. When on, passwords travel unencrypted."),
         new(ServerFile, "adminpanel.turnstile.enabled", SettingType.Boolean, false, "Require Cloudflare Turnstile for owner login, setup and login links."),
         new(ServerFile, "adminpanel.turnstile.sitekey", SettingType.String, "", "Operator-created Turnstile widget sitekey."),
         new(ServerFile, "adminpanel.turnstile.secret", SettingType.String, "", "Turnstile Siteverify secret. Prefer NS_ADMINPANEL__TURNSTILE__SECRET.", Secret: true),

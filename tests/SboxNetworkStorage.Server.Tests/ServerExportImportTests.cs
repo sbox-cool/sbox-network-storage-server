@@ -11,6 +11,7 @@ using SboxNetworkStorage.Server.Configuration;
 using SboxNetworkStorage.Server.Operations;
 using SboxNetworkStorage.Server.Owner;
 using SboxNetworkStorage.Server.Tests.Hosting;
+using SboxNetworkStorage.Server.Tests.Support;
 using SboxNetworkStorage.Storage.Relational;
 using SboxNetworkStorage.Storage.Postgres;
 using SboxNetworkStorage.Storage.Sqlite;
@@ -574,6 +575,64 @@ public abstract class ServerExportImportTests<TFactory> : IDisposable
         using var stream = new MemoryStream(await download.Content.ReadAsByteArrayAsync());
         await ServerArchive.ImportAsync(stream, target, factory.Config, new ImportOptions(false, false), Ct);
         await AssertSameDataAsync(Source, target, projectId, ignoreAudit: true);
+    }
+
+    [SkippableFact]
+    public async Task DashboardSecretExportNeedsThePassword()
+    {
+        await SeedAsync();
+        await OwnerHttp.CreateOwnerAsync(factory);
+        using var client = await OwnerHttp.LoggedInClientAsync(factory);
+        var csrf = Csrf(await client.GetStringAsync("/dashboard"));
+
+        Task<HttpResponseMessage> ExportAsync(params (string Key, string Value)[] fields)
+            => client.PostAsync("/dashboard/export", Form([("__RequestVerificationToken", csrf), ("includeSecrets", "true"), .. fields]));
+
+        // A session cookie alone (the stolen-cookie case) or a wrong password gets no archive.
+        foreach (var attempt in new[] { await ExportAsync(), await ExportAsync(("password", "not-the-owner-password")) })
+        {
+            Assert.Equal(HttpStatusCode.Unauthorized, attempt.StatusCode);
+            Assert.NotEqual("application/gzip", attempt.Content.Headers.ContentType?.MediaType);
+            Assert.Contains("enter your password", await attempt.Content.ReadAsStringAsync());
+        }
+
+        using var confirmed = await ExportAsync(("password", OwnerHttp.Password));
+        Assert.Equal(HttpStatusCode.OK, confirmed.StatusCode);
+        var manifest = JsonDocument.Parse(ReadArchive(await confirmed.Content.ReadAsByteArrayAsync())[ExportFormat.ManifestEntry]).RootElement;
+        Assert.True(manifest.GetProperty("includesSecrets").GetBoolean());
+    }
+
+    [SkippableFact]
+    public async Task DashboardSecretExportNeedsAuthenticatorCodeWhenEnrolled()
+    {
+        await SeedAsync();
+        await OwnerHttp.CreateOwnerAsync(factory);
+        string[] recovery;
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var accounts = scope.ServiceProvider.GetRequiredService<OwnerAccountService>();
+            var secret = OwnerTotp.NewSecret();
+            var owner = (await accounts.GetAsync(Ct))!;
+            recovery = await accounts.EnrollAsync(owner.SecurityStamp, accounts.ProtectEnrollment(secret),
+                OwnerTotp.Code(secret, DateTimeOffset.UtcNow.ToUnixTimeSeconds() / 30), Ct);
+        }
+
+        using var client = OwnerHttp.Client(factory);
+        using (var login = await client.PostAsync("/login", Form(("username", OwnerHttp.Username), ("password", OwnerHttp.Password),
+            ("secondFactor", recovery[0]), ("__RequestVerificationToken", Csrf(await client.GetStringAsync("/login"))))))
+            Assert.Equal(HttpStatusCode.Redirect, login.StatusCode);
+        var csrf = Csrf(await client.GetStringAsync("/dashboard"));
+
+        Task<HttpResponseMessage> ExportAsync(params (string Key, string Value)[] fields)
+            => client.PostAsync("/dashboard/export", Form([("__RequestVerificationToken", csrf), ("includeSecrets", "true"), ("password", OwnerHttp.Password), .. fields]));
+
+        using var passwordOnly = await ExportAsync();
+        Assert.Equal(HttpStatusCode.Unauthorized, passwordOnly.StatusCode);
+        using var usedCode = await ExportAsync(("secondFactor", recovery[0]));
+        Assert.Equal(HttpStatusCode.Unauthorized, usedCode.StatusCode);
+        using var confirmed = await ExportAsync(("secondFactor", recovery[1]));
+        Assert.Equal(HttpStatusCode.OK, confirmed.StatusCode);
+        Assert.Equal("application/gzip", confirmed.Content.Headers.ContentType!.MediaType);
     }
 
     private async Task<string> SeedAsync()

@@ -1,0 +1,17 @@
+@using SboxNetworkStorage.Server.Owner
+@{
+    Layout = "~/Views/Owner/_Layout.cshtml";
+    var port = Context.Request.Host.Port ?? 80;
+}
+<section class="card auth">
+    <h1>Sign-in needs a secure connection</h1>
+    <p class="error" role="alert">This server does not accept passwords or login links over plain HTTP from another machine. Anyone on the network path could read them.</p>
+    <p>Use one of these, then sign in again:</p>
+    <ul>
+        <li><strong>SSH port forward.</strong> On your computer run <code>ssh -L @(port):127.0.0.1:@(port) user@@your-server</code>, then open <code>http://localhost:@(port)/login</code>. A login link from <code>sbox-ns admin login-link</code> works the same way: replace its host with <code>localhost:@(port)</code>.</li>
+        <li><strong>Hosted HTTPS address.</strong> On the server run <code>sbox-ns tunnel enable</code>, restart the server, and open the printed HTTPS address.</li>
+        <li><strong>TLS.</strong> Turn on Let's Encrypt or your own certificate (<code>tls.mode</code>), or put a TLS reverse proxy on the same machine.</li>
+    </ul>
+    <p>If you accept the risk, for example on a private network you trust, run <code>sbox-ns config set adminpanel.allow_insecure_http true</code> on the server and restart. Your password, login links and session cookie then travel unencrypted.</p>
+    <p><a href="@OwnerTransport.HttpsDocsUrl" rel="noreferrer">How to enable HTTPS</a></p>
+</section>
