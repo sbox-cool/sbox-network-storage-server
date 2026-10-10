@@ -7,6 +7,8 @@
     var collectionUrl = OwnerDataController.CollectionUrl(Model.ProjectId, collection.Id);
     var recordUrl = OwnerDataController.RecordUrl(Model.ProjectId, collection.Id, record.Key);
     var saveUrl = Model.Creating ? collectionUrl + "/new" : recordUrl + "/save";
+    var steamId = Model.Creating ? null : OwnerDataRecords.SteamId(collection, record.Key);
+    var projectUrl = "/dashboard/projects/" + Uri.EscapeDataString(Model.ProjectId);
 }
 <a href="@collectionUrl">@Model.ProjectName · @collection.Name</a>
 <div class="page-heading">
@@ -15,6 +17,10 @@
 </div>
 @if (Model.Error is not null) { <p class="error" role="alert">@Model.Error</p> }
 <p class="muted"><code>@collection.Id</code> · @if (!Model.Creating) { <span>version @record.Version · changed @record.ChangedAt · @record.SizeBytes B</span> }</p>
+@if (steamId is not null)
+{
+    <p class="actions"><a href="@projectUrl/tests?steamId=@Uri.EscapeDataString(steamId)#try-it">Test an endpoint as this player</a><a href="@projectUrl/data?player=@Uri.EscapeDataString(steamId)#find-player">All records of this player</a></p>
+}
 <form method="post" action="@saveUrl">
     @Html.AntiForgeryToken()
     @if (!Model.Creating) { <input type="hidden" name="expectedVersion" value="@record.Version" /> }

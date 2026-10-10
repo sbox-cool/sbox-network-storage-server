@@ -3,7 +3,7 @@ namespace SboxNetworkStorage.Server.Owner;
 /// <summary>One-line cause and fix for the HTTP statuses and error codes game developers hit most.</summary>
 public static class OwnerErrorHelp
 {
-    public const string DocsUrl = "https://github.com/sbox-cool/sbox-network-storage-server/blob/main/docs/client-setup.md#error-codes";
+    public const string DocsUrl = OwnerDocs.Base + "client-setup.md#error-codes";
 
     private static readonly Dictionary<string, string> Codes = new(StringComparer.Ordinal)
     {

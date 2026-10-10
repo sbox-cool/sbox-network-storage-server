@@ -3,18 +3,61 @@
 @{
     Layout = "~/Views/Owner/_Layout.cshtml";
     var projectUrl = "/dashboard/projects/" + Uri.EscapeDataString(Model.ProjectId);
+    var dataUrl = projectUrl + "/data";
+    var playerSteamId = Model.Player is { } searched && searched.All(char.IsAsciiDigit) && searched.Length <= 32 ? searched : null;
 }
 <a href="@projectUrl">@Model.ProjectName</a>
 <div class="page-heading"><div><h1>Data browser</h1></div><a class="button secondary" href="@projectUrl">Back to project</a></div>
 <p class="muted">Browse, create and edit stored records with collection schema validation and version-checked saves. Deleted (tombstoned) player records are not shown.</p>
-<section class="card">
-    <h2>Collections</h2>
-    @if (Model.Collections.Count == 0)
-    {
-        <p>No collections have been synced to this project yet.</p>
-    }
-    else
-    {
+@if (Model.Collections.Count == 0)
+{
+    <section class="card empty-state">
+        <h2>No collections yet</h2>
+        <p>Records are stored in collections. Create one in the Collections editor, or push your definitions from the s&amp;box editor with <strong>Editor &gt; Network Storage &gt; Sync Tool</strong>.</p>
+        <div class="actions"><a class="button" href="@projectUrl/resources/collection">Create a collection</a><a class="button secondary" href="@OwnerDocs.Url("client-setup.md#3-configure-the-editor")" rel="noreferrer">Set up the Sync Tool</a></div>
+    </section>
+}
+else
+{
+    <section class="card" id="find-player">
+        <h2>Find player</h2>
+        <p class="muted">Lists one player's records in every per-player collection: the record whose key is the Steam ID, and save slots whose key starts with <code>{steamId}_</code>.</p>
+        <form method="get" action="@dataUrl#find-player" class="search">
+            <label>Steam ID <input name="player" value="@Model.Player" maxlength="@(OwnerDataController.MaxQueryLength - 1)" inputmode="numeric" autocomplete="off" placeholder="76561198000000000" required /></label>
+            <button type="submit">Find</button>
+        </form>
+        @if (Model.PlayerError is not null) { <p class="error" role="alert">@Model.PlayerError</p> }
+        @if (Model.PlayerRecords is { } found)
+        {
+            if (found.Count == 0)
+            {
+                <p>No records found for <code>@Model.Player</code> in the per-player collections.</p>
+            }
+            else
+            {
+                <p>@found.Count record(s) for <code>@Model.Player</code></p>
+                <div class="table-scroll"><table>
+                    <thead><tr><th>Collection</th><th>Key</th><th>Version</th><th>Changed</th><th>Preview</th></tr></thead>
+                    <tbody>
+                    @foreach (var match in found)
+                    {
+                        <tr>
+                            <td><a href="@OwnerDataController.CollectionUrl(Model.ProjectId, match.Collection.Id)">@match.Collection.Name</a></td>
+                            <td><a href="@OwnerDataController.RecordUrl(Model.ProjectId, match.Collection.Id, match.Record.Key)"><code>@match.Record.Key</code></a></td>
+                            <td>@match.Record.Version</td>
+                            <td>@match.Record.ChangedAt</td>
+                            <td><code class="preview">@match.Record.Preview</code></td>
+                        </tr>
+                    }
+                    </tbody>
+                </table></div>
+            }
+            if (Model.PlayerRecordsCut) { <p class="notice">A collection has more than @OwnerDataController.PlayerRecordsPerCollection save slots for this player. Open the collection and search its keys for <code>@(Model.Player)_</code> to see all of them.</p> }
+            <div class="actions">@if (playerSteamId is not null) { <a href="@projectUrl/tests?steamId=@Uri.EscapeDataString(playerSteamId)#try-it">Test an endpoint as this player</a> }<a href="@dataUrl">Clear search</a></div>
+        }
+    </section>
+    <section class="card">
+        <h2>Collections</h2>
         <div class="table-scroll"><table>
             <thead><tr><th>Collection</th><th>Type</th><th>Records</th><th>Actions</th></tr></thead>
             <tbody>
@@ -30,5 +73,5 @@
             }
             </tbody>
         </table></div>
-    }
-</section>
+    </section>
+}

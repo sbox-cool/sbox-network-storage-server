@@ -80,10 +80,15 @@ public abstract class OwnerDataBrowserTests<TFactory> : IDisposable
         var oversized = await client.GetStringAsync($"/dashboard/projects/{projectId}/data/inventory?size=100000&page=-4");
         Assert.Contains("Page 1 of 1", oversized);
 
-        var search = await client.GetStringAsync($"/dashboard/projects/{projectId}/data/inventory?q=YER-2");
+        var search = await client.GetStringAsync($"/dashboard/projects/{projectId}/data/inventory?q=player-2");
         Assert.Contains("1 match(es)", search);
         Assert.Contains("player-2", search);
         Assert.DoesNotContain("player-1</code>", search);
+        // Search matches the start of the key, case-sensitively, like the database index.
+        var middle = await client.GetStringAsync($"/dashboard/projects/{projectId}/data/inventory?q=YER-2");
+        Assert.Contains("0 match(es)", middle);
+        Assert.DoesNotContain("player-2</code>", middle);
+        Assert.Contains("0 match(es)", await client.GetStringAsync($"/dashboard/projects/{projectId}/data/inventory?q=player%202"));
         Assert.Equal(HttpStatusCode.BadRequest, (await client.GetAsync($"/dashboard/projects/{projectId}/data/inventory?q={new string('x', 300)}")).StatusCode);
 
         var detail = await client.GetStringAsync($"/dashboard/projects/{projectId}/data/inventory/records/player-2");
@@ -105,6 +110,72 @@ public abstract class OwnerDataBrowserTests<TFactory> : IDisposable
         var records = document.RootElement.GetProperty("records").EnumerateArray().ToList();
         Assert.Equal(new string?[] { "player-1", "player-2", "player-3" }, records.Select(record => record.GetProperty("key").GetString()));
         Assert.Equal(20, records[1].GetProperty("payload").GetProperty("gold").GetInt32());
+    }
+
+    [SkippableFact]
+    public async Task FindPlayerListsThatPlayersRecordsInEveryPlayerCollection()
+    {
+        const string player = "76561198000000001";
+        await CreateOwnerAsync(factory);
+        var project = await factory.CreateProjectAsync("Find player");
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var store = scope.ServiceProvider.GetRequiredService<INetworkStorageStore>();
+            await store.SeedCollectionAsync(project.ProjectId, "players", "players", "private", new { collectionType = "player" });
+            await store.SeedCollectionAsync(project.ProjectId, "saves", "saves", "private", new { collectionType = "player" });
+            await store.SeedCollectionAsync(project.ProjectId, "board", "board", "public", new { collectionType = "global" });
+            var payload = StoreSeeding.ToJson(new { gold = 1 });
+            await store.UpsertRecordAsync(project.ProjectId, "players", player, payload, false, 1, CancellationToken.None);
+            await store.UpsertRecordAsync(project.ProjectId, "players", "76561198000000002", payload, false, 1, CancellationToken.None);
+            await store.UpsertRecordAsync(project.ProjectId, "saves", player + "_slot1", payload, false, 1, CancellationToken.None);
+            await store.UpsertRecordAsync(project.ProjectId, "saves", player + "_slot2", payload, false, 1, CancellationToken.None);
+            await store.UpsertRecordAsync(project.ProjectId, "saves", player + "_gone", JsonDocument.Parse("null").RootElement, true, 2, CancellationToken.None);
+            await store.UpsertRecordAsync(project.ProjectId, "saves", player + "9_slot1", payload, false, 1, CancellationToken.None);
+            await store.UpsertGlobalRecordAsync(project.ProjectId, "board", player, payload, 1, CancellationToken.None);
+        }
+        using var client = await LoggedInClientAsync(factory);
+        var url = $"/dashboard/projects/{project.ProjectId}";
+
+        var found = await client.GetStringAsync($"{url}/data?player={player}");
+        Assert.Contains("3 record(s)", found);
+        Assert.Contains($"{url}/data/players/records/{player}\"", found);
+        Assert.Contains($"{url}/data/saves/records/{player}_slot1\"", found);
+        Assert.Contains($"{url}/data/saves/records/{player}_slot2\"", found);
+        Assert.DoesNotContain($"{player}_gone", found);          // tombstoned
+        Assert.DoesNotContain($"{player}9_slot1", found);        // another player whose ID starts with the same digits
+        Assert.DoesNotContain("76561198000000002", found);
+        Assert.DoesNotContain($"{url}/data/board/records/", found); // global records belong to no player
+        Assert.Contains($"{url}/tests?steamId={player}#try-it", found);
+
+        Assert.Contains("No records found for", await client.GetStringAsync($"{url}/data?player=76561198000000099"));
+        using var invalid = await client.GetAsync($"{url}/data?player=not%20a%20key");
+        Assert.Equal(HttpStatusCode.BadRequest, invalid.StatusCode);
+        Assert.Contains("Enter a Steam ID", await invalid.Content.ReadAsStringAsync());
+
+        var record = await client.GetStringAsync($"{url}/data/saves/records/{player}_slot1");
+        Assert.Contains("Test an endpoint as this player", record);
+        Assert.Contains($"{url}/tests?steamId={player}#try-it", record);
+        Assert.DoesNotContain("Test an endpoint as this player", await client.GetStringAsync($"{url}/data/board/records/{player}"));
+    }
+
+    [SkippableFact]
+    public async Task EmptyProjectsAndCollectionsSayHowToAddData()
+    {
+        await CreateOwnerAsync(factory);
+        var project = await factory.CreateProjectAsync("Empty data");
+        using var client = await LoggedInClientAsync(factory);
+        var url = $"/dashboard/projects/{project.ProjectId}";
+        var noCollections = await client.GetStringAsync($"{url}/data");
+        Assert.Contains("No collections yet", noCollections);
+        Assert.Contains($"href=\"{url}/resources/collection\"", noCollections);
+        Assert.Contains("client-setup.md#3-configure-the-editor", noCollections);
+
+        await using (var scope = factory.Services.CreateAsyncScope())
+            await scope.ServiceProvider.GetRequiredService<INetworkStorageStore>()
+                .SeedCollectionAsync(project.ProjectId, "players", "players", "private", new { collectionType = "player" });
+        var noRecords = await client.GetStringAsync($"{url}/data/players");
+        Assert.Contains("No records yet", noRecords);
+        Assert.Contains($"href=\"{url}/data/players/new\"", noRecords);
     }
 
     [SkippableFact]
