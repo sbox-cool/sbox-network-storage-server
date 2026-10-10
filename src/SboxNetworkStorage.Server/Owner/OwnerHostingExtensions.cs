@@ -135,6 +135,10 @@ public static class OwnerHostingExtensions
             typeof(OwnerHostingExtensions).Assembly.GetManifestResourceStream("SboxNetworkStorage.Server.Owner.manage.css")!, "text/css"));
         app.MapGet("/owner-assets/m/manage.js", () => Results.Stream(
             typeof(OwnerHostingExtensions).Assembly.GetManifestResourceStream("SboxNetworkStorage.Server.Owner.manage.js")!, "text/javascript"));
+        app.MapGet("/owner-assets/dialog.js", () => Results.Stream(
+            typeof(OwnerHostingExtensions).Assembly.GetManifestResourceStream("SboxNetworkStorage.Server.Owner.dialog.js")!, "text/javascript"));
+        app.MapGet("/owner-assets/toast.js", () => Results.Stream(
+            typeof(OwnerHostingExtensions).Assembly.GetManifestResourceStream("SboxNetworkStorage.Server.Owner.toast.js")!, "text/javascript"));
         return app;
     }
 }

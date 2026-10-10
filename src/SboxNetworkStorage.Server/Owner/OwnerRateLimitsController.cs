@@ -13,7 +13,7 @@ public sealed record OwnerRateLimitRule(string Id, string Name, string Collectio
     IReadOnlyDictionary<string, long> Windows, bool Webhook, bool Enabled);
 
 public sealed record OwnerRateLimitsModel(string ProjectId, string ProjectName, IReadOnlyList<OwnerRateLimitRule> Rules,
-    IReadOnlyList<string> Collections, IReadOnlyList<string> Fields, OwnerRateLimitRule? Editing, string? Error = null, bool Saved = false);
+    IReadOnlyList<string> Collections, IReadOnlyList<string> Fields, OwnerRateLimitRule? Editing, string? Error = null);
 
 /// <summary>
 /// Field rate-limit rules editor. Rules persist in the same store row the management API
@@ -42,11 +42,11 @@ public sealed partial class OwnerRateLimitsController(INetworkStorageProjectServ
     private static partial Regex FieldPattern();
 
     [HttpGet(Route)]
-    public async Task<IActionResult> Index(string projectId, [FromQuery] string? edit, [FromQuery] bool saved, CancellationToken ct)
+    public async Task<IActionResult> Index(string projectId, [FromQuery] string? edit, CancellationToken ct)
     {
         var model = await LoadAsync(projectId, ct);
         if (model is null) return NotFound();
-        return View("~/Views/Owner/RateLimits.cshtml", model with { Editing = model.Rules.FirstOrDefault(rule => rule.Id == edit), Saved = saved });
+        return View("~/Views/Owner/RateLimits.cshtml", model with { Editing = model.Rules.FirstOrDefault(rule => rule.Id == edit) });
     }
 
     [HttpPost(Route)]
@@ -81,7 +81,8 @@ public sealed partial class OwnerRateLimitsController(INetworkStorageProjectServ
         var original = Field("originalId");
         await SaveRulesAsync(projectId, model.Rules.Where(existing => existing.Id != rule.Id && existing.Id != original).Append(rule), ct);
         await OwnerProjectScope.AuditAsync(audit, projectId, "rate-limit-rule.save", new { rule.Id }, ct);
-        return Redirect($"{OwnerProjectScope.ProjectUrl(projectId)}/rate-limits?saved=true");
+        OwnerFlash.Success(this, "Rate limit rule saved.");
+        return Redirect($"{OwnerProjectScope.ProjectUrl(projectId)}/rate-limits?edit={Uri.EscapeDataString(rule.Id)}");
     }
 
     [HttpPost(Route + "/preset")]
@@ -93,7 +94,8 @@ public sealed partial class OwnerRateLimitsController(INetworkStorageProjectServ
         if (model.Rules.Any(existing => existing.Id == rule.Id)) return Invalid(model, $"The {preset} preset is already added as {rule.Id}.");
         await SaveRulesAsync(projectId, model.Rules.Append(rule), ct);
         await OwnerProjectScope.AuditAsync(audit, projectId, "rate-limit-rule.save", new { rule.Id, preset }, ct);
-        return Redirect($"{OwnerProjectScope.ProjectUrl(projectId)}/rate-limits?saved=true&edit={Uri.EscapeDataString(rule.Id)}");
+        OwnerFlash.Success(this, "Preset rule added.");
+        return Redirect($"{OwnerProjectScope.ProjectUrl(projectId)}/rate-limits");
     }
 
     [HttpPost(Route + "/delete")]
@@ -102,9 +104,11 @@ public sealed partial class OwnerRateLimitsController(INetworkStorageProjectServ
         var model = await LoadAsync(projectId, ct);
         if (model is null) return NotFound();
         if (!model.Rules.Any(rule => rule.Id == id)) return NotFound();
+        if (!OwnerConfirm.IsConfirmed(Request)) return OwnerConfirm.Page(this);
         await SaveRulesAsync(projectId, model.Rules.Where(rule => rule.Id != id), ct);
         await OwnerProjectScope.AuditAsync(audit, projectId, "rate-limit-rule.delete", new { id }, ct);
-        return Redirect($"{OwnerProjectScope.ProjectUrl(projectId)}/rate-limits?saved=true");
+        OwnerFlash.Success(this, "Rate limit rule deleted.");
+        return Redirect($"{OwnerProjectScope.ProjectUrl(projectId)}/rate-limits");
     }
 
     private IActionResult Invalid(OwnerRateLimitsModel model, string error)

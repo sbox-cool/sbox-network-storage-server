@@ -7,7 +7,6 @@
 }
 <link rel="stylesheet" href="/owner-assets/m/manage.css" />
 <div class="page-heading"><div><h1>Webhooks</h1><p>Discord channels your endpoints can notify, for @Model.ProjectName.</p></div><a class="button secondary" href="@url">Project overview</a></div>
-@if (Model.Saved) { <p class="notice success" role="status">Webhook settings saved.</p> }
 @if (Model.Error is not null) { <p class="error" role="alert">@Model.Error</p> }
 <aside class="notice"><strong>How profiles reach your endpoints</strong><p>A <code>webhook</code> step sends to the URL written in the step. Copy a profile's step below into an endpoint or workflow, or pick the profile in the endpoint builder. Changing a profile URL later does not rewrite steps that already contain the old URL. Webhooks are skipped in test runs.</p></aside>
 <section class="card">
@@ -32,7 +31,7 @@
                 <div class="actions">
                     <span class="badge @(profile.Enabled ? "positive" : "")">@(profile.Enabled ? "Enabled" : "Disabled")</span>
                     <a class="button secondary" href="@url/webhooks?edit=@Uri.EscapeDataString(profile.Id)#profile-form">Edit</a>
-                    <form method="post" action="@url/webhooks/profiles/delete">@Html.AntiForgeryToken()<input type="hidden" name="id" value="@profile.Id" /><button class="danger" type="submit" data-confirm="Delete the webhook profile &quot;@profile.Name&quot;?">Delete</button></form>
+                    <form method="post" action="@url/webhooks/profiles/delete">@Html.AntiForgeryToken()<input type="hidden" name="id" value="@profile.Id" /><input type="hidden" name="confirmTitle" value="Delete webhook profile" /><input type="hidden" name="confirmMessage" value="Delete the webhook profile &quot;@profile.Name&quot;?" /><button class="danger" type="submit" data-confirm-title="Delete webhook profile" data-confirm="Delete the webhook profile &quot;@profile.Name&quot;?">Delete</button></form>
                 </div>
             </div>
             <p class="muted"><code>@profile.Url</code></p>

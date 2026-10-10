@@ -114,10 +114,22 @@
             textarea.focus();
             return;
           }
-          if (textarea.value.trim() && !window.confirm("Replace the editor contents with this example? Unsaved changes will be lost.")) return;
-          textarea.value = source;
-          textarea.dispatchEvent(new Event("input", { bubbles: true }));
-          textarea.focus();
+          var apply = function () {
+            textarea.value = source;
+            textarea.dispatchEvent(new Event("input", { bubbles: true }));
+            textarea.focus();
+          };
+          // The gallery only exists with JavaScript; the confirm dialog is the
+          // same shared one destructive buttons use. Without it, keep the
+          // editor text untouched rather than discarding unsaved changes.
+          if (!textarea.value.trim()) { apply(); return; }
+          if (window.OwnerDialog) window.OwnerDialog.confirm({
+            title: "Use example",
+            message: "Replace the editor contents with this example? Unsaved changes will be lost.",
+            confirmLabel: "Replace",
+            opener: insertButton,
+          }).then(function (ok) { if (ok) apply(); });
+          else insertButton.focus();
         });
         actions.appendChild(insertButton);
         if (example.requires && example.requires.length > 0 && !example.exists) {

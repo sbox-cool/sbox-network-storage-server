@@ -21,7 +21,7 @@ public sealed record OwnerResourceUsage(string? Snippet, string? Note, string? T
 
 public sealed record OwnerResourcesModel(string ProjectId, string ProjectName, string Kind,
     IReadOnlyList<OwnerResourceItem> Items, string? Id, string Definition, string BuilderContext,
-    string? Error = null, bool Saved = false, IReadOnlyList<DefinitionDiagnostic>? Diagnostics = null, OwnerResourceUsage? Usage = null);
+    string? Error = null, IReadOnlyList<DefinitionDiagnostic>? Diagnostics = null, OwnerResourceUsage? Usage = null);
 
 [Authorize(AuthenticationSchemes = OwnerHostingExtensions.Scheme)]
 public sealed class OwnerResourcesController(INetworkStorageProjectService projects, INetworkStorageStore store,
@@ -34,10 +34,10 @@ public sealed class OwnerResourcesController(INetworkStorageProjectService proje
     private static readonly JsonSerializerOptions Web = new(JsonSerializerDefaults.Web);
 
     [HttpGet(Route)]
-    public async Task<IActionResult> Editor(string projectId, string kind, [FromQuery] string? id, [FromQuery] bool saved, CancellationToken ct)
+    public async Task<IActionResult> Editor(string projectId, string kind, [FromQuery] string? id, CancellationToken ct)
     {
         var loaded = await LoadAsync(projectId, kind, id, ct);
-        return loaded is null ? NotFound() : View("~/Views/Owner/Resources.cshtml", loaded.Value.Model with { Saved = saved });
+        return loaded is null ? NotFound() : View("~/Views/Owner/Resources.cshtml", loaded.Value.Model);
     }
 
     [HttpPost(Route)]
@@ -60,7 +60,8 @@ public sealed class OwnerResourcesController(INetworkStorageProjectService proje
                 Response.StatusCode = result.StatusCode;
                 return View("~/Views/Owner/Resources.cshtml", model with { Definition = definition!, Error = JsonSerializer.Serialize(result.Body, Pretty) });
             }
-            return Redirect($"/dashboard/projects/{Uri.EscapeDataString(projectId)}/resources/{kind}?saved=true" + (resourceId is null ? "" : "&id=" + Uri.EscapeDataString(resourceId)));
+            OwnerFlash.Success(this, "Resource saved.");
+            return Redirect($"/dashboard/projects/{Uri.EscapeDataString(projectId)}/resources/{kind}" + (resourceId is null ? "" : "?id=" + Uri.EscapeDataString(resourceId)));
         }
         catch (Exception error) when (error is JsonException or ArgumentException)
         {

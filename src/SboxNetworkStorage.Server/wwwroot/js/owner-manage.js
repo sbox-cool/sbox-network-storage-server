@@ -1,5 +1,21 @@
 "use strict";
+// Owner management pages: endpoint test helpers, copy buttons, project filter
+// and color swatches. Destructive confirmations live in owner-dialog.js, which
+// is loaded before this file. Nothing here calls window.confirm.
 (function () {
+  // Pure helper: server-side ?q= matching mirrored for client enhancement.
+  // Matches project name or id, case-insensitive, on any substring.
+  function matchesProject(name, id, query) {
+    var q = (query || "").trim().toLowerCase();
+    if (!q) return true;
+    return (name || "").toLowerCase().indexOf(q) !== -1 || (id || "").toLowerCase().indexOf(q) !== -1;
+  }
+
+  // Test hook only: the browser never defines module, so this is inert in production.
+  if (typeof module !== "undefined" && module.exports) module.exports = { matchesProject: matchesProject };
+
+  if (typeof document === "undefined" || typeof window === "undefined") return;
+
   // Endpoint tests: switching endpoints swaps in that endpoint's input skeleton,
   // unless the owner already edited the input.
   var endpoint = document.querySelector("select[data-test-endpoint]");
@@ -43,12 +59,23 @@
     });
   });
 
-  // Destructive buttons ask first. The question is in the button's data-confirm attribute.
-  document.querySelectorAll("button[data-confirm]").forEach(function (button) {
-    button.addEventListener("click", function (event) {
-      if (!window.confirm(button.getAttribute("data-confirm"))) event.preventDefault();
+  // Project filter enhancement (server renders data-enhance only above 8
+  // projects). Without JavaScript the same form submits as GET ?q=.
+  var filter = document.getElementById("project-filter");
+  var grid = document.getElementById("project-grid");
+  if (filter && grid && filter.getAttribute("data-enhance") === "true") {
+    var cards = Array.prototype.slice.call(grid.querySelectorAll("[data-project-name]"));
+    var emptyNote = document.getElementById("project-filter-empty");
+    filter.addEventListener("input", function () {
+      var visible = 0;
+      cards.forEach(function (card) {
+        var show = matchesProject(card.getAttribute("data-project-name"), card.getAttribute("data-project-id"), filter.value);
+        card.hidden = !show;
+        if (show) visible += 1;
+      });
+      if (emptyNote) emptyNote.hidden = visible !== 0;
     });
-  });
+  }
 
   // Inline style attributes are blocked by the panel CSP; color swatches are set through CSSOM.
   document.querySelectorAll(".manage-swatch[data-color]").forEach(function (swatch) {

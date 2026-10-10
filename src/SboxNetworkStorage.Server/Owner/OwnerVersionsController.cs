@@ -12,7 +12,7 @@ public sealed record OwnerVersionResource(string Kind, string Id, string Name, i
 public sealed record OwnerDiffLine(char Op, string Text);
 public sealed record OwnerVersionsModel(string ProjectId, string ProjectName, IReadOnlyList<OwnerVersionResource> Resources,
     string? Kind, string? Id, IReadOnlyList<ResourceVersionEntry> Versions, ResourceVersionEntry? Selected,
-    string? SelectedText, string? CurrentText, IReadOnlyList<OwnerDiffLine>? Diff, string? Error = null, bool Restored = false);
+    string? SelectedText, string? CurrentText, IReadOnlyList<OwnerDiffLine>? Diff, string? Error = null);
 
 /// <summary>
 /// Version history for endpoints and workflows. Every save (dashboard, Sync Tool PUT, PATCH, sync push, restore)
@@ -28,10 +28,10 @@ public sealed class OwnerVersionsController(INetworkStorageProjectService projec
 
     [HttpGet(Route)]
     public async Task<IActionResult> Index(string projectId, [FromQuery] string? kind, [FromQuery] string? id, [FromQuery] string? v,
-        [FromQuery] bool restored, CancellationToken ct)
+        CancellationToken ct)
     {
         var model = await LoadAsync(projectId, kind, id, v, ct);
-        return model is null ? NotFound() : View("~/Views/Owner/Versions.cshtml", model with { Restored = restored });
+        return model is null ? NotFound() : View("~/Views/Owner/Versions.cshtml", model);
     }
 
     [HttpPost(Route + "/restore")]
@@ -49,7 +49,8 @@ public sealed class OwnerVersionsController(INetworkStorageProjectService projec
             return View("~/Views/Owner/Versions.cshtml", model with { Error = JsonSerializer.Serialize(result.Body) });
         }
         await OwnerProjectScope.AuditAsync(audit, projectId, "resource.restore", new { kind = model.Kind, id = model.Id, version = model.Selected.Name }, ct);
-        return Redirect($"{OwnerProjectScope.ProjectUrl(projectId)}/versions?kind={model.Kind}&id={Uri.EscapeDataString(model.Id)}&restored=true");
+        OwnerFlash.Success(this, "Version restored.");
+        return Redirect($"{OwnerProjectScope.ProjectUrl(projectId)}/versions?kind={model.Kind}&id={Uri.EscapeDataString(model.Id)}");
     }
 
     private async Task<OwnerVersionsModel?> LoadAsync(string projectId, string? kind, string? id, string? versionName, CancellationToken ct)

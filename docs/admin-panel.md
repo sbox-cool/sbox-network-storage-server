@@ -114,9 +114,26 @@ printed host with `localhost:8080`.
 
 ## Connect a game
 
-**Create project** on **All projects** also creates a public key labeled
-`Game client` unless you clear **Create a public game key**. The project
-overview then opens with a **Connect your game** card:
+**All projects** is the project hub. Each project card is a single link into
+that project and shows its status (**Enabled** or **Disabled**), hosting
+profile (currently **Not set**), live revision (**Not synced** before the
+first sync) and last game request (**No requests yet** until the game calls).
+Above 8 projects a filter matches name or project ID; without JavaScript it
+works as a `GET ?q=` query. With no projects at all the page shows one empty
+state pointing at **Create project** and **Import**.
+
+**Create project**, **Import** and **Export server** live in the page header
+and open modal dialogs. Each dialog form is a plain form POST, so everything
+works with JavaScript disabled (the header links then render the same form on
+the page, and a failed validation re-opens the dialog with the entered values
+and the error). **Create project** also creates a public key labeled
+`Game client` unless you clear **Create a public game key**, then lands on the
+new project page. **Import** takes a portable `.tar.gz` archive (64 MiB
+limit); an error is shown inside the dialog. **Export server** downloads every
+project, record, key and setting as one `.tar.gz`; including secrets needs
+your password (and authenticator code when enabled), exactly as before.
+
+The project overview then opens with a **Connect your game** card:
 
 - The exact `NetworkStorage.Configure( "<projectId>", "<public key>", "<base URL>" );`
   line, filled with the project ID, the oldest enabled public key and the base
@@ -135,18 +152,22 @@ Copy buttons use the browser clipboard. Browsers only allow that over HTTPS
 or on `localhost`; elsewhere the button selects the text and asks you to
 press Ctrl+C.
 
+Every change that redirects (saving settings, keys, records, definitions,
+rules, webhooks, pages, tests, imports, deletes) shows a one-shot toast
+naming what changed. It appears once and never reappears on refresh; without
+JavaScript the same message sits as an inline notice.
+
 Creating a key redirects back to the overview and shows the new raw key
 there once. Reloading the page does not create another key or show the raw
 key again. Revoking a key and deleting saved tests, rate limit rules, webhook
-profiles and pages ask for confirmation first.
+profiles and pages ask for confirmation in a dialog first; deleting a project
+or a record still needs its ID or key typed, checked by the server.
 
-**All projects** shows the create form first while there are no projects,
-with import and export folded under **Import or export**. Its **Use with a
-coding agent** card has copyable commands for connecting Claude Code or
-another MCP client to `sbox-ns mcp` over SSH, a local `.mcp.json`, the Claude
-Code plugin, and the three `mcp.allow_*` switches with what each allows
-([coding agents](mcp.md)). Each project overview has a copyable first prompt
-that names the project ID.
+**All projects** keeps a **Use with a coding agent** card with copyable
+commands for connecting Claude Code or another MCP client to `sbox-ns mcp`
+over SSH, a local `.mcp.json`, the Claude Code plugin, and the three
+`mcp.allow_*` switches with what each allows ([coding agents](mcp.md)). Each
+project overview has a copyable first prompt that names the project ID.
 
 ## Project settings
 

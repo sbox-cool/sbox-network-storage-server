@@ -6,7 +6,6 @@
 }
 <link rel="stylesheet" href="/owner-assets/m/manage.css" />
 <div class="page-heading"><div><h1>@title</h1><p>Definitions for @Model.ProjectName.</p></div><a class="button secondary" href="@url">Project overview</a></div>
-@if (Model.Saved) { <p class="notice success" role="status">Resource saved. The live definition is shown below.</p> }
 @if (Model.Error is not null) { <div class="notice error" role="alert"><strong>Could not save this definition</strong><pre>@Model.Error</pre><p>Correct the reported field or source syntax and save again. Your input has been preserved.</p></div> }
 @if (Model.Diagnostics is { Count: > 0 } diagnostics)
 {

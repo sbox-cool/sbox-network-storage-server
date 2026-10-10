@@ -1,0 +1,23 @@
+@model SboxNetworkStorage.Server.Owner.OwnerConfirm.ConfirmModel
+@{
+    Layout = "~/Views/Owner/_Layout.cshtml";
+    var cancel = Context.Request.Headers.Referer.ToString();
+    if (cancel.Length == 0 || !Uri.IsWellFormedUriString(cancel, UriKind.Absolute)) { cancel = "/dashboard"; }
+}
+<section class="card">
+    <h1>@Model.Title</h1>
+    @if (Model.Message.Length > 0) { <p>@Model.Message</p> }
+    <form method="post" action="@Context.Request.Path@Context.Request.QueryString">
+        @Html.AntiForgeryToken()
+        @foreach (var field in Context.Request.Form)
+        {
+            if (field.Key is "confirmed" or "confirmTitle" or "confirmMessage" or "__RequestVerificationToken") { continue; }
+            foreach (var value in field.Value) { <input type="hidden" name="@field.Key" value="@value" /> }
+        }
+        <input type="hidden" name="confirmed" value="true" />
+        <div class="actions">
+            <button type="submit" class="danger">Confirm</button>
+            <a class="button secondary" href="@cancel">Cancel</a>
+        </div>
+    </form>
+</section>

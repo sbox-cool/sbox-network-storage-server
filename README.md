@@ -1,6 +1,7 @@
 # sbox Network Storage Server: open-source, self-hosted s&box game backend
 
-**Your server. Your data. No sboxcool signup, payment, or mandatory telemetry.**
+**The central server your s&box game was missing. Player-hosted or dedicated, point your saves, leaderboards and stats at a backend you own.**
+Your players host the game. You host the truth. No sboxcool signup, payment, or mandatory telemetry.
 One self-contained `sbox-ns` binary runs player saves, leaderboards, endpoints
 and workflows on your own machine or VPS, with SQLite or PostgreSQL.
 
@@ -21,6 +22,16 @@ No login needed; every change is disabled server-side.
 - **Owner dashboard, no hosted account.** Browse records, author collections
   and endpoints, read analytics and logs, and export portable project
   archives from `/dashboard` on your own server.
+
+## Hosting models
+
+Your game can be fully player-hosted or run on dedicated servers: either way,
+currency, XP, levels, items, high scores and every other important rule run on
+this backend, behind the HTTPS endpoint you control. A player's listen server
+only ever holds the public key; a dedicated box may hold a secret key for
+dedicated-only endpoints. See [docs/hosting-models.md](docs/hosting-models.md)
+for where authority lives, which key each caller uses, and why secret keys
+never ship in games.
 
 ## Gallery
 

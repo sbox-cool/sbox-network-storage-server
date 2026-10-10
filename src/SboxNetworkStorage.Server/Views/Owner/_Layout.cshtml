@@ -38,10 +38,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="dark light" />
     <script src="/owner-assets/theme.js"></script>
+    <script src="/owner-assets/dialog.js" defer></script>
+    <script src="/owner-assets/toast.js" defer></script>
     <title>Network Storage · Owner console</title>
     <link rel="stylesheet" href="/owner-assets/management.css" />
 </head>
-<body>
+<body data-open-dialog="@(ViewData["OpenDialog"] as string ?? "")">
 <a class="skip-link" href="#main-content">Skip to content</a>
 <header class="topbar">
     <a href="/dashboard" class="brand"><span class="brand-mark" aria-hidden="true">ns</span><span>Network Storage</span></a>
@@ -76,6 +78,16 @@
     </nav><div class="sidebar-note">Local owner access<p>No hosted account or billing dependency.</p></div></aside>
 }
 <main id="main-content" tabindex="-1">
+    @{ var flashes = OwnerFlash.Take(TempData); }
+    @if (flashes.Count > 0)
+    {
+        <div class="toasts" aria-live="polite">
+        @foreach (var flash in flashes)
+        {
+            <div class="toast" data-kind="@flash.Kind" data-dismiss-after="6000"><output role="status">@flash.Text</output><button type="button" class="secondary" data-toast-close aria-label="Dismiss notification">Dismiss</button></div>
+        }
+        </div>
+    }
     @if (demo)
     {
         <aside class="notice" role="status"><strong>Read-only demo</strong><p>Generated sample data stored in a real Network Storage database. No real players. Explore the editors; changes cannot be saved.</p></aside>
@@ -94,5 +106,6 @@
 </main>
 </div>
 @if (demo) { <script src="/owner-assets/demo.js" defer></script> }
+<dialog class="owner-dialog" id="owner-confirm" aria-labelledby="owner-confirm-title"><div class="owner-dialog-body"><h2 id="owner-confirm-title" data-confirm-title>Confirm</h2><p data-confirm-message></p><div class="owner-dialog-actions"><form method="dialog"><button type="submit" class="secondary" value="cancel" data-autofocus>Cancel</button><button type="submit" class="danger" value="confirm" data-confirm-ok>Confirm</button></form></div></div></dialog>
 </body>
 </html>

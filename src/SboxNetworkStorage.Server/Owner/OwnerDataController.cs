@@ -165,6 +165,7 @@ public sealed class OwnerDataController(INetworkStorageProjectService projects, 
                 return FormError(draft, "Conflict: this record was created, changed or deleted since the form opened. Your entered JSON is preserved; reload the current record and reconcile your changes before saving.", StatusCodes.Status409Conflict);
         }
         await AuditMutationAsync(projectId, collection, recordKey, creating ? "record.create" : "record.update", expectedVersion, ct);
+        OwnerFlash.Success(this, creating ? "Record created." : "Record saved.");
         return Redirect(RecordUrl(projectId, collectionId, recordKey));
     }
 
@@ -189,6 +190,7 @@ public sealed class OwnerDataController(INetworkStorageProjectService projects, 
             JsonSerializer.SerializeToElement<object?>(null), true, expectedVersion, ct, snapshot))
             return FormError(draft, "Conflict: this record changed or was deleted since the form opened. Reload it before deleting.", StatusCodes.Status409Conflict);
         await AuditMutationAsync(projectId, collection, recordKey, "record.delete", expectedVersion, ct);
+        OwnerFlash.Success(this, "Record deleted.");
         return Redirect(CollectionUrl(projectId, collectionId));
     }
 

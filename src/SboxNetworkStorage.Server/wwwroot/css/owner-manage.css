@@ -21,7 +21,7 @@
 .manage-version-list .muted { font-size: .8rem; }
 .manage-diff { white-space: pre; max-height: 60vh; font-size: .8rem; line-height: 1.5; }
 .manage-diff span { display: block; }
-.manage-diff-add { color: var(--green); background: color-mix(in srgb, var(--green) 12%, transparent); }
+.manage-diff-add { color: var(--success); background: color-mix(in srgb, var(--success) 12%, transparent); }
 .manage-diff-del { color: var(--danger); background: var(--danger-bg); }
 .key-permissions summary { cursor: pointer; overflow-wrap: anywhere; }
 .key-permissions form { display: grid; gap: .5rem; margin-top: .75rem; min-width: 220px; }

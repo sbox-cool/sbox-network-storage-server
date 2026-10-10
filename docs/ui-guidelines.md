@@ -51,13 +51,57 @@ brackets match the Gesso catalog so findings can be cross-referenced.
 
 - Neutral surfaces, one accent per theme, used for primary actions, links,
   focus and the current nav item only. No second accent mid-page.
-- No indigo/violet default accents and no purple washes unless a theme is
-  explicitly purple [indigo-accent, purple-violet-wash].
-- State colors (success, warning, danger) only for state. Never decorative.
+- Brand exception: the default dark and light themes use the sboxns.com brand
+  accent (violet `#bb91f5` on dark surfaces, a darker shade of the same hue
+  `#6633c7` on light surfaces), chosen so accent text meets WCAG AA in both
+  directions. This is the one explicitly-purple theme the catalog allows
+  [indigo-accent, purple-violet-wash]. Slate and warm keep their own accents.
+- State colors (success, warning, danger, info) only for state. Never decorative.
+  Every state is also conveyed in words, never by color alone.
 - No pure `#000` or `#fff` surfaces. Text contrast meets WCAG AA in every
-  theme, including muted text.
+  theme, including muted text. Measured ratios are recorded under
+  [Contrast](#contrast) below.
 - No decorative status dots or fake visualizations [fake-dot-viz]. A status is
   a word ("Healthy", "Disabled"), optionally colored.
+
+## Contrast
+
+Minimum is WCAG AA (4.5 for text). Accent pairs are checked both ways because
+the accent is used as link text on surfaces and as a button background.
+
+| Pair | Dark | Light | Slate | Warm |
+| --- | --- | --- | --- | --- |
+| Text on background | 15.45 | 14.06 | 14.18 | 13.52 |
+| Muted text on background | 8.74 | 6.42 | 8.96 | 8.23 |
+| Accent link text on background | 7.24 (`#bb91f5`) | 6.73 (`#6633c7`) | 10.13 (`#b6cee5`) | 10.51 (`#decbb4`) |
+| Button text on accent background | 7.24 | 7.03 (`#fafafa` on `#6633c7`) | 10.13 | 10.51 |
+| Success on background | 10.77 | 6.52 | 9.87 | 9.97 |
+| Warning on background | 10.50 | 6.58 | 9.61 | 9.71 |
+| Danger on background | 9.02 | 6.97 | 8.26 | 8.35 |
+| Info (`#9cc4e8` dark themes, `#1f5fa8` light) on background | 9.80 | 5.91 | 8.97 | 9.06 |
+
+## Dialogs and toasts
+
+- One modal vocabulary: a native `<dialog>` element with a title, a body, a
+  primary action and a cancel action. `owner-dialog.js` opens it with
+  `showModal` (native focus trap, Escape and top layer) and returns focus to
+  the opener on close. No custom overlay divs.
+- Destructive and irreversible actions ask in the shared confirm dialog, which
+  names the target and the consequence on a danger-styled button. Typed-name
+  confirmation stays for project and record deletes, checked server-side.
+- Never call `window.confirm`. Destructive buttons carry `data-confirm` (and
+  `data-confirm-title`); without JavaScript the form POSTs directly, which is
+  the same fallback those buttons always had.
+- Every dialog form is a plain server `<form method="post">`, reachable
+  without JavaScript (a `?dialog=` link renders the same form with the `open`
+  attribute). A server validation failure re-renders the page with that
+  dialog open, values preserved except secrets, error next to the field.
+- Success toasts name what changed ("Settings saved"), render from one-shot
+  TempData flashes in a polite live region, stay at least 5 seconds, pause on
+  hover/focus, and are dismissible. Errors appear next to their cause, never
+  only as a toast. One-time secrets use a persistent panel, never a toast.
+- Dialogs and toasts animate only `opacity` or `transform`, in 150 ms or
+  less, and not at all under `prefers-reduced-motion`.
 
 ## Type and layout
 
@@ -77,7 +121,7 @@ brackets match the Gesso catalog so findings can be cross-referenced.
 
 - Every color in CSS comes from a token (`--bg`, `--surface`, `--surface-2`,
   `--border`, `--text`, `--muted`, `--accent`, `--accent-text`, `--success`,
-  `--warning`, `--danger`, `--code-bg`). No raw hex outside theme blocks.
+  `--warning`, `--danger`, `--info`, `--code-bg`). No raw hex outside theme blocks.
 - Themes are `[data-theme="…"]` blocks on `<html>` that only redefine tokens.
   Components never branch on the theme name.
 - The default theme follows `prefers-color-scheme`. A user choice is stored in
@@ -99,3 +143,7 @@ brackets match the Gesso catalog so findings can be cross-referenced.
    hex outside theme token blocks in `wwwroot/css`.
 3. Every new view checked in the light theme and one dark theme.
 4. Empty, loading and error states exist for every new list or form.
+5. `rg -n 'window\.confirm' src/SboxNetworkStorage.Server/wwwroot/js` is empty:
+   destructive actions use the shared confirm dialog, and every dialog form
+   works with JavaScript disabled. Toasts render from TempData flashes and
+   stay visible as inline notices without JavaScript.

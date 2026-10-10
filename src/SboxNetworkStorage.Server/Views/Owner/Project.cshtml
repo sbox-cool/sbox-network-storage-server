@@ -115,8 +115,8 @@
                         <button type="submit">@(key.Enabled ? "Disable" : "Enable")</button>
                     </form>
                     <form method="post" action="@url/keys/revoke">
-                        @Html.AntiForgeryToken()<input name="key" type="hidden" value="@key.Key" />
-                        <button class="danger" type="submit" data-confirm="Revoke the key &quot;@key.Label&quot; permanently? Games using it stop working.">Revoke permanently</button>
+                        @Html.AntiForgeryToken()<input name="key" type="hidden" value="@key.Key" /><input name="confirmTitle" type="hidden" value="Revoke API key" /><input name="confirmMessage" type="hidden" value="Revoke the key &quot;@key.Label&quot; permanently? Games using it stop working." />
+                        <button class="danger" type="submit" data-confirm-title="Revoke API key" data-confirm="Revoke the key &quot;@key.Label&quot; permanently? Games using it stop working.">Revoke permanently</button>
                     </form>
                 </td>
             </tr>
