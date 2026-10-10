@@ -163,6 +163,32 @@ public sealed class StoreStorageApiKeyResolverTests
         Assert.Null(result);
     }
 
+    [Fact]
+    public async Task ResolveApiKeyAsync_SecretTypedRowWithPlainKey_IsNotAcceptedOnThePublicPath()
+    {
+        // An imported archive could carry a row whose api_key is a known plain string but whose
+        // key_type says secret; the public path matches api_key verbatim, so it must refuse it.
+        var store = new InMemoryNetworkStorageStore();
+        await store.UpsertApiKeyAsync(ProjectId, "planted-known-key", "1", "secret", keyHash: "", keyIdentifier: "",
+            label: "planted", enabled: true, JsonSerializer.SerializeToElement(new { records = "rw" }), version: 1, CancellationToken.None);
+
+        using var cache = new MemoryCache(new MemoryCacheOptions());
+        Assert.Null(await CreateResolver(store, cache).ResolveApiKeyAsync("planted-known-key", ProjectId, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task ResolveApiKeyAsync_SecretPathIgnoresRowsNotTypedSecret()
+    {
+        var config = BuildConfig();
+        var store = new InMemoryNetworkStorageStore();
+        await store.UpsertApiKeyAsync(ProjectId, SecretKey, "42", "admin", StorageKeyCrypto.HashSecretKey(SecretKey),
+            StorageKeyCrypto.DeriveSecretKeyIdentifier(SecretKey, ProjectId, config), "odd", enabled: true,
+            JsonSerializer.SerializeToElement(new { endpoints = "x" }), version: 1, CancellationToken.None);
+
+        using var cache = new MemoryCache(new MemoryCacheOptions());
+        Assert.Null(await CreateResolver(store, cache).ResolveApiKeyAsync(SecretKey, ProjectId, CancellationToken.None));
+    }
+
     private sealed class ThrowingApiKeyStore : EmptyNetworkStorageStore
     {
         private readonly Exception? _readPublicException;

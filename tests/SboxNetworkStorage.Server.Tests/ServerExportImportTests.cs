@@ -109,6 +109,26 @@ public abstract class ServerExportImportTests<TFactory> : IDisposable
         Assert.Empty(await target.ListWorkspaceObjectsAsync("", Ct));
     }
 
+    [SkippableTheory]
+    [InlineData("""{"api_key":"known-plain-key","user_id":"1","key_type":"secret","key_hash":"","key_identifier":"","label":"x","enabled":true,"permissions_json":null,"version":1}""", "secret API key must be stored masked")]
+    [InlineData("""{"api_key":"known-plain-key","user_id":"1","key_type":"public","key_hash":"","key_identifier":"","label":"x","enabled":true,"permissions_json":null,"version":1}""", "must start with sbox_ns_")]
+    [InlineData("""{"api_key":"sbox_ns_abc","user_id":"1","key_type":"admin","key_hash":"","key_identifier":"","label":"x","enabled":true,"permissions_json":null,"version":1}""", "must be \"public\" or \"secret\"")]
+    [InlineData("""{"api_key":"sbox_ns_abc","user_id":"7","key_type":"public","key_hash":"","key_identifier":"","label":"x","enabled":true,"permissions_json":null,"version":1}""", "user_id \"1\"")]
+    public async Task ProjectArchiveRejectsApiKeyRowsSboxNsWouldNeverWrite(string row, string expected)
+    {
+        var id = await SeedAsync();
+        var entries = ReadArchive(await ProjectExportAsync(id));
+        var keysEntry = ExportFormat.ProjectEntry(id, "api-keys");
+        entries[keysEntry] = Encoding.UTF8.GetBytes(Encoding.UTF8.GetString(entries[keysEntry]) + row + "\n");
+        using var archive = new MemoryStream(BuildArchive(entries.Select(entry => (entry.Key, entry.Value)).ToArray()));
+        var target = await factory.NewStoreAsync();
+
+        var error = await Assert.ThrowsAsync<ExportArchiveException>(() => ProjectArchive.ImportAsync(archive, target, factory.Config, Ct));
+
+        Assert.Contains(expected, error.Message);
+        Assert.Null(await target.ReadProjectAsync(id, Ct));
+    }
+
     [SkippableFact]
     public async Task ProjectArchiveInvalidLaterRowRollsBackEverythingAndCorrectedRetrySucceeds()
     {

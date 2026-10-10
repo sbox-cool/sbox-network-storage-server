@@ -52,11 +52,11 @@ public static class ProjectArchive
                 }
                 var id = manifest.Projects[0].Id;
                 var projectPrefix = ExportFormat.ProjectsPrefix + id + "/";
-                if (entry.Name == ExportFormat.WorkspaceObjectsEntry || entry.Name == ExportFormat.MembershipsEntry)
+                var apiKeysEntry = ExportFormat.ProjectEntry(id, "api-keys");
+                if (entry.Name == ExportFormat.WorkspaceObjectsEntry || entry.Name == ExportFormat.MembershipsEntry || entry.Name == apiKeysEntry)
                 {
                     if (entry.DataStream is null) continue;
-                    using var lines = new StreamReader(entry.DataStream, leaveOpen: true);
-                    while (await lines.ReadLineAsync(ct) is { } line)
+                    await foreach (var line in ArchiveLines.ReadAsync(entry.DataStream, entry.Name, ct))
                     {
                         if (line.Length == 0) continue;
                         using var doc = JsonDocument.Parse(line);
@@ -64,14 +64,19 @@ public static class ProjectArchive
                         if (entry.Name == ExportFormat.MembershipsEntry)
                         {
                             if (row.GetProperty("project_id").GetString() != id
-                                || row.GetProperty("user_id").GetString() != NetworkStorageServices.LocalOwnerUserId.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                                || row.GetProperty("user_id").GetString() != Owner
                                 || row.GetProperty("role").GetString() != "owner")
                                 throw new ExportArchiveException("Project archive contains an unrelated membership.");
+                        }
+                        else if (entry.Name == apiKeysEntry)
+                        {
+                            if (ExportFormat.ApiKeyRowProblem(row, Owner) is { } problem)
+                                throw new ExportArchiveException($"Project archive contains an invalid API key: {problem}");
                         }
                         else
                         {
                             var path = row.GetProperty("path").GetString() ?? "";
-                            var prefix = $"network-storage/users/{NetworkStorageServices.LocalOwnerUserId}/{id}/";
+                            var prefix = $"network-storage/users/{Owner}/{id}/";
                             if (!path.StartsWith(prefix, StringComparison.Ordinal) || path.Contains('\\')
                                 || path.Split('/').Any(segment => segment is ".." or "." or ""))
                                 throw new ExportArchiveException("Project archive contains an unrelated workspace object.");
@@ -84,9 +89,11 @@ public static class ProjectArchive
             }
             return manifest ?? throw new ExportArchiveException("Project archive is empty.");
         }
-        catch (Exception ex) when (ex is InvalidDataException or JsonException or KeyNotFoundException or InvalidOperationException)
+        catch (Exception ex) when (ex is InvalidDataException or JsonException or KeyNotFoundException or InvalidOperationException or System.Text.DecoderFallbackException)
         {
             throw new ExportArchiveException($"Invalid project archive: {ex.Message}");
         }
     }
+
+    private static readonly string Owner = NetworkStorageServices.LocalOwnerUserId.ToString(System.Globalization.CultureInfo.InvariantCulture);
 }
