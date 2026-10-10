@@ -167,7 +167,7 @@ public sealed class PackageSyncHandler(
         try
         {
             var overrides = await workspaceClient.GetProjectResourceAsync<Dictionary<string, JsonElement>>(
-                userId, projectId, "revision-overrides.json", ct);
+                userId, projectId, RevisionOverrides.ResourcePath, ct);
             var endpointOverrides = overrides?.TryGetValue("endpoints", out var ep) == true && ep.ValueKind == JsonValueKind.Object ? (JsonElement?)ep : null;
             var collectionOverrides = overrides?.TryGetValue("collections", out var col) == true && col.ValueKind == JsonValueKind.Object ? (JsonElement?)col : null;
 
@@ -247,7 +247,7 @@ public sealed class PackageSyncHandler(
             }
 
             // Clear overrides after promotion.
-            await workspaceClient.PutProjectResourceAsync(userId, projectId, "revision-overrides.json",
+            await workspaceClient.PutProjectResourceAsync(userId, projectId, RevisionOverrides.ResourcePath,
                 new Dictionary<string, object> { ["endpoints"] = new Dictionary<string, object>(), ["collections"] = new Dictionary<string, object>() }, ct);
 
             return new PackageSyncPromotionResult(endpointCount, collectionCount, true);

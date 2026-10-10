@@ -55,6 +55,31 @@ The Setup window stores the base URL in your project's Network Storage
 credentials, and the generated config is picked up automatically by
 `NetworkStorage.AutoConfigure()` at runtime.
 
+### Staged pushes and editor play sessions
+
+The Sync Tool's **Push Staged** sends `x-ns-publish-target: next`. Endpoint and
+collection definitions go into `revision-overrides.json`, leaving live game
+definitions unchanged. Workflows and saved tests remain live. Staging requires
+a synced game package with a numeric current revision; without one, the push
+goes live and reports `publishTarget: live` and `stagedFallback` in its response.
+
+Management lists with `includeStaged=true` include live definitions and staged
+copies marked `revisionTarget: next`. Explicit `revisionTarget=live` returns
+only live definitions. Editor play sessions and management endpoint tests
+targeting `next` use staged endpoint and collection definitions, falling back
+to live definitions for anything not staged. Player records are shared, not a
+separate staging database: a next-targeted runtime call can change real data.
+Dry-run management tests do not persist those writes.
+
+Syncing a new game package revision promotes staged definitions into live and
+clears the overrides. Use the normal live target for changes that should take
+effect immediately.
+
+The command-line sync tool's `PUT endpoints?replaceAll=true` replaces the live
+endpoint set after a successful push: omitted endpoints are deleted. Without
+that query parameter, pushes only upsert the supplied endpoints. Staged pushes
+never delete live definitions.
+
 ## 4. Or configure in code
 
 ```csharp

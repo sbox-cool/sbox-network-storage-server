@@ -43,6 +43,8 @@ public sealed record NetworkStorageRequest(
 
     public string? QueryValue(string name) => Query.TryGetValue(name, out var value) ? value : null;
 
+    /// <summary>True when the caller targets the staged ("next") revision; see <see cref="NetworkStoragePublishTarget"/>.</summary>
+    public bool TargetsNext { get; init; }
 }
 
 /// <summary>

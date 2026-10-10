@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Text.Json;
-using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
@@ -155,12 +154,13 @@ internal static partial class EndpointDashboardMutations
         endpoints[idx] = endpoint;
 
         var publishTarget = (form.GetValueOrDefault("publishTarget") ?? "live").Trim().ToLowerInvariant();
-        if (publishTarget == "staged" && await HasRevisionDataAsync(client, storageOwnerUserId, projectId, cancellationToken))
+        if (publishTarget == "staged" && await RevisionOverrides.HasRevisionDataAsync(client, storageOwnerUserId, projectId, cancellationToken))
         {
             // Staged saves never touch the live store — they overlay onto the next
             // revision via revision-overrides.json, keyed by slug (matches legacy server).
-            var slug = ReadString(endpoint, "slug") ?? endpointId;
-            await SaveStagedEndpointAsync(client, storageOwnerUserId, projectId, slug, endpoint, cancellationToken);
+            var staged = new StagedRevisionWrites();
+            staged.Endpoints[ReadString(endpoint, "slug") ?? endpointId] = JsonSerializer.SerializeToNode(endpoint)!.AsObject();
+            await RevisionOverrides.StageAsync(client, storageOwnerUserId, projectId, staged, cancellationToken);
         }
         else
         {
@@ -224,34 +224,6 @@ internal static partial class EndpointDashboardMutations
         {
             Console.Error.WriteLine($"[SaveEndpointsAsync] Verification read failed: {ex.Message}");
         }
-    }
-
-    private static async Task<bool> HasRevisionDataAsync(
-        IWorkspaceStore client, long storageOwnerUserId, string projectId, CancellationToken cancellationToken)
-    {
-        var pkg = await client.GetProjectResourceAsync<Dictionary<string, JsonElement>>(
-            storageOwnerUserId, projectId, "game-package.json", cancellationToken);
-        return pkg is not null
-            && pkg.TryGetValue("currentRevisionId", out var v)
-            && v.ValueKind == JsonValueKind.Number;
-    }
-
-    private static async Task SaveStagedEndpointAsync(
-        IWorkspaceStore client, long storageOwnerUserId, string projectId,
-        string slug, Dictionary<string, object?> endpoint, CancellationToken cancellationToken)
-    {
-        var overrides = await client.GetProjectResourceAsync<JsonObject>(
-            storageOwnerUserId, projectId, "revision-overrides.json", cancellationToken) ?? new JsonObject();
-
-        if (overrides["endpoints"] is not JsonObject endpointOverrides)
-        {
-            endpointOverrides = new JsonObject();
-            overrides["endpoints"] = endpointOverrides;
-        }
-
-        endpointOverrides[slug] = JsonSerializer.SerializeToNode(endpoint);
-        await client.PutProjectResourceAsync(
-            storageOwnerUserId, projectId, "revision-overrides.json", overrides, cancellationToken);
     }
 
     // ── Field shaping ──

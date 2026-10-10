@@ -15,7 +15,8 @@ namespace SboxNetworkStorage.Infrastructure.NetworkStorage;
 public sealed class ManagementEndpointTestRunner(
     INetworkStorageStore store,
     EndpointExecutor executor,
-    IQueryValuesContextProvider? valuesProvider)
+    IQueryValuesContextProvider? valuesProvider,
+    RevisionOverlay? overlay = null)
 {
     public const string DefaultSteamId = "76561198000000000";
 
@@ -185,7 +186,8 @@ public sealed class ManagementEndpointTestRunner(
 
     private async Task<JsonElement?> FindEndpointAsync(string projectId, string slug, CancellationToken ct)
     {
-        foreach (var row in await store.ListEndpointsAsync(projectId, ct))
+        var rows = await store.ListEndpointsAsync(projectId, ct);
+        foreach (var row in overlay?.MergeEndpointRows(rows) ?? rows)
         {
             if (string.Equals(Text(row, "slug"), slug, StringComparison.Ordinal)
                 || string.Equals(Text(row, "endpoint_id"), slug, StringComparison.Ordinal))

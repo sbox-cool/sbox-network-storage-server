@@ -238,7 +238,8 @@ public static class UpdateCommands
     /// Downloads a release, verifies the pinned-key signature of SHA256SUMS and then the archive checksum,
     /// and extracts it; returns the new binary. Any missing or invalid signature aborts before anything is installed.
     /// </summary>
-    internal static async Task<string> StageReleaseAsync(HttpClient http, ReleaseFeed feed, string version, string binary, string work)
+    internal static async Task<string> StageReleaseAsync(HttpClient http, ReleaseFeed feed, string version, string binary, string work,
+        Func<string, IReadOnlyList<string>, (int ExitCode, string Output)>? runCapture = null)
     {
         var archiveName = $"sbox-ns-{version}-{BuildInfo.RuntimeIdentifier}{(OperatingSystem.IsWindows() ? ".zip" : ".tar.gz")}";
         var archive = Path.Combine(work, archiveName);
@@ -250,7 +251,7 @@ public static class UpdateCommands
         Console.WriteLine($"Downloading {archiveName}...");
         await DownloadAsync(http, feed.AssetUrl(version, archiveName), archive);
         VerifyChecksum(archive, archiveName, sums);
-        await VerifyCosignAsync(http, feed, version, sums, work);
+        await VerifyCosignAsync(http, feed, version, sums, work, runCapture ?? ServiceCommands.RunCapture);
 
         var extracted = Path.Combine(work, "extracted");
         Extract(archive, extracted);
@@ -331,9 +332,10 @@ public static class UpdateCommands
     }
 
     /// <summary>Extra transparency check when cosign is installed; the pinned-key signature is the required one.</summary>
-    private static async Task VerifyCosignAsync(HttpClient http, ReleaseFeed feed, string version, string sums, string work)
+    private static async Task VerifyCosignAsync(HttpClient http, ReleaseFeed feed, string version, string sums, string work,
+        Func<string, IReadOnlyList<string>, (int ExitCode, string Output)> runCapture)
     {
-        if (ServiceCommands.RunCapture("cosign", ["version"]).ExitCode != 0)
+        if (runCapture("cosign", ["version"]).ExitCode != 0)
         {
             return;
         }
@@ -342,7 +344,7 @@ public static class UpdateCommands
         var certificate = Path.Combine(work, "SHA256SUMS.pem");
         await DownloadAsync(http, feed.AssetUrl(version, "SHA256SUMS.sig"), signature);
         await DownloadAsync(http, feed.AssetUrl(version, "SHA256SUMS.pem"), certificate);
-        var result = ServiceCommands.RunCapture("cosign",
+        var result = runCapture("cosign",
         [
             "verify-blob", "--signature", signature, "--certificate", certificate,
             "--certificate-identity-regexp", feed.Trust.CosignIdentityPattern,

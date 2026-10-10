@@ -15,7 +15,8 @@ internal static class NetworkStorageManagementAutoTestRunner
         long ownerUserId,
         string authDecision,
         INetworkStorageStore store,
-        EndpointExecutor? executor)
+        EndpointExecutor? executor,
+        RevisionOverlay? overlay = null)
     {
         if (executor is null)
         {
@@ -32,6 +33,7 @@ internal static class NetworkStorageManagementAutoTestRunner
 
         var requestedSlug = ReadRequestedSlug(request.Body);
         var endpoints = await store.ListEndpointsAsync(projectId, request.CancellationToken);
+        if (overlay is not null) endpoints = overlay.MergeEndpointRows(endpoints);
         var candidates = endpoints
             .Select(TryReadEndpoint)
             .Where(endpoint => endpoint is not null)

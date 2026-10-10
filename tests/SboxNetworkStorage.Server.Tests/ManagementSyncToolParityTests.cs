@@ -74,6 +74,30 @@ public sealed class ManagementSyncToolParityTests
     }
 
     [Fact]
+    public async Task ReplaceAllDeletesOmittedEndpointsOnlyAfterSuccessfulPush()
+    {
+        using var factory = new SqliteHostFactory();
+        var project = await factory.CreateProjectAsync("Replacement parity");
+        using var client = factory.CreateClient();
+        var p = project.ProjectId;
+        const string both = """[{"slug":"keep","steps":[]},{"slug":"remove","steps":[]}]""";
+        const string keep = """[{"slug":"keep","steps":[]}]""";
+        await SendAsync(client, SyncTool(HttpMethod.Put, p, "endpoints", project, both));
+        await SendAsync(client, SyncTool(HttpMethod.Put, p, "endpoints", project, keep));
+        var listed = await SendAsync(client, SyncTool(HttpMethod.Get, p, "endpoints", project));
+        Assert.Equal(2, listed.Body.GetProperty("data").GetArrayLength());
+
+        var invalid = await SendAsync(client, SyncTool(HttpMethod.Put, p, "endpoints?replaceAll=true", project, """[{}]"""));
+        Assert.Equal(HttpStatusCode.BadRequest, invalid.Status);
+        listed = await SendAsync(client, SyncTool(HttpMethod.Get, p, "endpoints", project));
+        Assert.Equal(2, listed.Body.GetProperty("data").GetArrayLength());
+
+        await SendAsync(client, SyncTool(HttpMethod.Put, p, "endpoints?replaceAll=true", project, keep));
+        listed = await SendAsync(client, SyncTool(HttpMethod.Get, p, "endpoints", project));
+        Assert.Equal("keep", Assert.Single(listed.Body.GetProperty("data").EnumerateArray()).GetProperty("slug").GetString());
+    }
+
+    [Fact]
     public async Task PatchUpsertsSingleResourcesAndMergesWithoutReplacingOthers()
     {
         using var factory = new SqliteHostFactory();
