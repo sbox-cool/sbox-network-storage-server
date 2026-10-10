@@ -39,6 +39,8 @@
     <EmbeddedResource Include="Owner/Examples/*.yml" LogicalName="SboxNetworkStorage.Server.Owner.Examples.%(Filename)%(Extension)" />
     <EmbeddedResource Include="Updates/release-signing-keys.pub" LogicalName="SboxNetworkStorage.Server.Updates.release-signing-keys.pub" />
     <EmbeddedResource Include="../../install/*.service;../../install/*.timer" LogicalName="SboxNetworkStorage.Server.Systemd.%(Filename)%(Extension)" />
+    <!-- Guides served as MCP resources. A glob, like the units above, so builds without docs/ (the container image) still succeed. -->
+    <EmbeddedResource Include="../../docs/*.md" LogicalName="SboxNetworkStorage.Server.Docs.%(Filename)%(Extension)" />
     <InternalsVisibleTo Include="SboxNetworkStorage.Server.Tests" />
     <InternalsVisibleTo Include="SboxNetworkStorage.Cli.Tests" />
   </ItemGroup>

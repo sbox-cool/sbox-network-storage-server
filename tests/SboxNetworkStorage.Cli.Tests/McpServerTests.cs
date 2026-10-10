@@ -6,16 +6,21 @@ namespace SboxNetworkStorage.Cli.Tests;
 public sealed class McpServerTests
 {
     private readonly List<IReadOnlyList<string>> _calls = [];
+    private readonly List<string?> _stdin = [];
 
     private McpServer Create(int exitCode = 0, string output = "ok")
-        => new((args, _) =>
+        => new((args, stdin, _) =>
         {
             _calls.Add(args);
+            _stdin.Add(stdin);
             return Task.FromResult(new McpServer.CommandResult(exitCode, output, string.Empty));
         }, ["--config-dir", "/etc/sbox-ns"]);
 
     private static async Task<JsonObject> SendAsync(McpServer server, string json)
         => (await server.HandleAsync(json, CancellationToken.None))!;
+
+    private static string Call(string tool, string arguments)
+        => "{\"jsonrpc\":\"2.0\",\"id\":9,\"method\":\"tools/call\",\"params\":{\"name\":\"" + tool + "\",\"arguments\":" + arguments + "}}";
 
     [Theory]
     [InlineData("2025-03-26", "2025-03-26")]
@@ -35,19 +40,95 @@ public sealed class McpServerTests
     }
 
     [Fact]
-    public async Task Tool_list_excludes_destructive_operations()
+    public async Task Restore_import_and_address_revocation_are_never_tools()
     {
         var response = await SendAsync(Create(), """{"jsonrpc":"2.0","id":2,"method":"tools/list"}""");
         var names = response["result"]!["tools"]!.AsArray().Select(t => t!["name"]!.GetValue<string>()).ToList();
-        Assert.Contains("quickstart", names);
-        Assert.Contains("server_status", names);
-        Assert.Contains("tunnel_status", names);
-        Assert.Contains("tunnel_enable", names);
         Assert.DoesNotContain("tunnel_disable", names);
-        Assert.Contains("dns_status", names);
         Assert.DoesNotContain("dns_enable", names);
         Assert.DoesNotContain("dns_disable", names);
-        Assert.DoesNotContain(names, n => n.Contains("delete") || n.Contains("restore") || n.Contains("import") || n.Contains("revoke"));
+        Assert.DoesNotContain(names, n => n.Contains("restore") || n.Contains("import"));
+    }
+
+    [Fact]
+    public async Task Every_tool_that_writes_or_deletes_names_its_opt_in_setting()
+    {
+        var response = await SendAsync(Create(), """{"jsonrpc":"2.0","id":2,"method":"tools/list"}""");
+        foreach (var (tool, setting) in DevCommands.Tools.Where(t => t.Value is not null))
+        {
+            var listed = response["result"]!["tools"]!.AsArray().Single(t => t!["name"]!.GetValue<string>() == tool)!;
+            Assert.Contains(setting!, listed["description"]!.GetValue<string>());
+        }
+    }
+
+    [Fact]
+    public async Task Dev_tool_payloads_go_through_stdin_never_the_command_line()
+    {
+        const string source = "- id: starts-with-a-dash\n--- yaml that looks like an option";
+        var response = await SendAsync(Create(output: """{"ok":true,"diagnostics":[]}"""),
+            Call("definition_check", "{\"projectId\":\"proj_1\",\"kind\":\"endpoint\",\"source\":" + JsonValue.Create(source).ToJsonString() + "}"));
+
+        Assert.Equal(["dev", "definition_check", "--config-dir", "/etc/sbox-ns"], _calls.Single());
+        Assert.Equal(source, JsonNode.Parse(_stdin.Single()!)!["source"]!.GetValue<string>());
+        Assert.True(response["result"]!["structuredContent"]!["ok"]!.GetValue<bool>());
+    }
+
+    [Theory]
+    [InlineData("endpoint_test", """{"projectId":"p","slug":"s","input":"not an object"}""")]
+    [InlineData("endpoint_test", """{"projectId":"p","slug":"s","asServer":"yes"}""")]
+    [InlineData("logs_requests", """{"projectId":"p","limit":"10"}""")]
+    [InlineData("data_record", """{"projectId":"p","collection":"c"}""")]
+    [InlineData("usage", """{"projectId":"p","extra":1}""")]
+    public async Task Dev_tool_arguments_are_type_checked_before_running(string tool, string arguments)
+    {
+        var response = await SendAsync(Create(), Call(tool, arguments));
+        Assert.Equal(-32602, response["error"]!["code"]!.GetValue<int>());
+        Assert.Empty(_calls);
+    }
+
+    [Fact]
+    public async Task Resources_serve_the_embedded_guides_and_prompts_fill_their_arguments()
+    {
+        var server = Create();
+        var list = await SendAsync(server, """{"jsonrpc":"2.0","id":1,"method":"resources/list"}""");
+        var uri = list["result"]!["resources"]![0]!["uri"]!.GetValue<string>();
+        var read = await SendAsync(server, "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"resources/read\",\"params\":{\"uri\":\"" + uri + "\"}}");
+        Assert.StartsWith("#", read["result"]!["contents"]![0]!["text"]!.GetValue<string>());
+
+        var prompt = await SendAsync(server, """{"jsonrpc":"2.0","id":3,"method":"prompts/get","params":{"name":"first-setup","arguments":{"gameName":"Ore Miner"}}}""");
+        Assert.Contains("Ore Miner", prompt["result"]!["messages"]![0]!["content"]!["text"]!.GetValue<string>());
+        var missing = await SendAsync(server, """{"jsonrpc":"2.0","id":4,"method":"prompts/get","params":{"name":"first-setup"}}""");
+        Assert.Equal(-32602, missing["error"]!["code"]!.GetValue<int>());
+        Assert.Empty(_calls);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(16)]
+    public async Task Dashboard_links_are_limited_to_fifteen_minutes(int minutes)
+    {
+        var response = await SendAsync(Create(), Call("dashboard_link", "{\"minutes\":" + minutes + "}"));
+        Assert.Equal(-32602, response["error"]!["code"]!.GetValue<int>());
+        Assert.Empty(_calls);
+    }
+
+    [Fact]
+    public void Agent_plugin_skills_only_name_tools_that_exist()
+    {
+        var root = new DirectoryInfo(AppContext.BaseDirectory);
+        while (root is not null && !File.Exists(Path.Combine(root.FullName, "SboxNetworkStorage.sln"))) root = root.Parent;
+        Assert.NotNull(root);
+        var skills = Directory.GetFiles(Path.Combine(root.FullName, "agent-plugin", "skills"), "SKILL.md", SearchOption.AllDirectories);
+        Assert.NotEmpty(skills);
+        var tools = McpServer.ToolNames.ToHashSet(StringComparer.Ordinal);
+        foreach (var skill in skills)
+        {
+            // Inline code that looks like a tool name (lower_snake_case) must be one.
+            foreach (System.Text.RegularExpressions.Match match in System.Text.RegularExpressions.Regex.Matches(File.ReadAllText(skill), "`([a-z]+(?:_[a-z]+)+)`"))
+            {
+                Assert.True(tools.Contains(match.Groups[1].Value), $"{skill} names unknown tool {match.Groups[1].Value}");
+            }
+        }
     }
 
     [Fact]

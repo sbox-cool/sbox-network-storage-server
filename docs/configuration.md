@@ -318,6 +318,20 @@ of slowing requests down. Reading a record produces no analytics event.
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `analytics.retention_days` | `90` | Timeline events and project issues older than this many days are deleted once a day. `0` keeps them forever. Player profiles and sessions are never purged. |
+
+### Coding agent permissions
+
+Coding agents connected through `sbox-ns mcp` can always read definitions,
+logs, errors, usage and records, and dry-run endpoints. Anything that changes
+the server is off until you turn it on here. The settings are read on every
+tool call, so no restart is needed. See [mcp.md](mcp.md).
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `mcp.allow_writes` | `false` | Agents may save definitions (collections, endpoints, workflows, queries, game values). Endpoint and collection saves go to the staged revision unless the agent asks for live. |
+| `mcp.allow_data_writes` | `false` | Agents may create and replace player and global records. A wrong write changes real player data; take a backup first. |
+| `mcp.allow_destructive` | `false` | Agents may delete definitions and records, revoke API keys and delete projects. These cannot be undone except from a backup. |
+
 ### Hosted tunnel and notice settings
 
 These keys also belong to `server.toml`. Use `tunnel enable|disable` and

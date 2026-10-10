@@ -1,0 +1,11 @@
+{
+  "name": "sbox-ns",
+  "description": "Self-hosted s&box Network Storage: set up the server, connect your game, build collections and endpoints, and debug player data from your coding agent.",
+  "author": {
+    "name": "sbox.cool",
+    "url": "https://github.com/sbox-cool"
+  },
+  "homepage": "https://sboxns.com",
+  "repository": "https://github.com/sbox-cool/sbox-network-storage-server",
+  "license": "AGPL-3.0-only"
+}

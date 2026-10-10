@@ -20,7 +20,9 @@ public static class CliApp
                                         Configure (if needed), create the project and keys,
                                         and print the line to add to your game. Safe to re-run.
           mcp                           Serve the Model Context Protocol over stdio for coding agents
-                                        (e.g. command: ssh my-vps sbox-ns mcp)
+                                        (e.g. command: ssh my-vps sudo sbox-ns mcp)
+          dev <tool>                    The agent backend behind mcp: reads JSON arguments on stdin,
+                                        prints JSON (see docs/mcp.md)
 
         Server
           start                         Run the server in the foreground
@@ -132,7 +134,7 @@ public static class CliApp
         var context = new CliContext(parsed);
         try
         {
-            if (command is "db" or "export" or "import" or "admin" or "project" or "key")
+            if (command is "db" or "export" or "import" or "admin" or "project" or "key" or "dev")
             {
                 if (await RuntimeCommand.TryRunAsync(context.LoadValidConfig(), args) is { } runtimeExit)
                     return runtimeExit;
@@ -144,6 +146,7 @@ public static class CliApp
                 "setup" => await SetupCommand.RunAsync(context),
                 "quickstart" => await QuickstartCommand.RunAsync(context),
                 "mcp" => await McpServer.RunStdioAsync(context),
+                "dev" => await DevCommands.RunAsync(context),
                 "tunnel" => await TunnelCommands.RunAsync(context),
                 "dns" => await DnsCommands.RunAsync(context),
                 "register" => await NoticeCommands.RunAsync(context),
