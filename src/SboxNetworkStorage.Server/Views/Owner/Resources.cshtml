@@ -7,6 +7,11 @@
 <div class="page-heading"><div><h1>@title</h1><p>Definitions for @Model.ProjectName.</p></div><a class="button secondary" href="@url">Project overview</a></div>
 @if (Model.Saved) { <p class="notice success" role="status">Resource saved. The live definition is shown below.</p> }
 @if (Model.Error is not null) { <div class="notice error" role="alert"><strong>Could not save this definition</strong><pre>@Model.Error</pre><p>Correct the reported field or source syntax and save again. Your input has been preserved.</p></div> }
+@if (Model.Diagnostics is { Count: > 0 } diagnostics)
+{
+    <div class="notice error" role="alert"><strong>Could not save this definition</strong><p>Fix the errors below and save again. Your input has been preserved.</p>
+    <ul>@foreach (var item in diagnostics) { <li>@(item.IsError ? "Error" : "Warning") @item.Code at @item.Path: @item.Message</li> }</ul></div>
+}
 <div class="editor-grid resource-editor">
 @if (Model.Kind != "game-values")
 {
@@ -32,8 +37,12 @@
 @if (Model.Kind == "collection")
 {
 <details class="resource-tools"><summary>Collection builder</summary>
-<p class="muted">Set the storage kind or insert a field at the cursor. Place new fields under <code>schema:</code> before saving.</p>
-<div class="form-grid"><label>Storage kind <select id="builder-collection-type"><option value="per-steamid">Per player</option><option value="global">Global</option></select></label><div class="actions"><button type="button" class="secondary" id="builder-apply-collection">Apply storage kind</button></div></div>
+<p class="muted">Set storage and client access, or insert a field at the cursor. Place new fields under <code>schema:</code> <code>properties:</code> before saving.</p>
+<div class="form-grid"><label>Storage kind <select id="builder-collection-type"><option value="per-steamid">Per player</option><option value="global">Global</option></select></label>
+<label>Game client access <select id="builder-access-mode"><option value="endpoint">Endpoints only</option><option value="public">Game clients may read and write directly</option></select></label>
+<label>Deletes from game clients <select id="builder-allow-delete"><option value="false">Not allowed</option><option value="true">Allowed</option></select></label>
+<div class="actions"><button type="button" class="secondary" id="builder-apply-collection">Apply storage and access</button></div></div>
+<p class="muted">With Endpoints only, direct reads and writes from the game answer <code>403 ENDPOINT_ONLY</code>; call an endpoint instead. Deletes also need <code>accessMode: public</code>.</p>
 <div class="form-grid"><label>Field name <input id="builder-field-name" maxlength="64" placeholder="coins" /></label><label>Field type <select id="builder-field-type"><option value="number">number</option><option value="string">string</option><option value="boolean">boolean</option><option value="array">array</option><option value="object">object</option></select></label><div class="actions"><button type="button" class="secondary" id="builder-add-field">Insert field</button></div></div></details>
 }
 <form id="resource-definition-form" method="post" action="@url/resources/@Model.Kind">

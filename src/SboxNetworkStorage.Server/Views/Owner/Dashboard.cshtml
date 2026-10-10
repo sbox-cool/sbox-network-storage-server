@@ -12,40 +12,44 @@
 }
 </section>
 @if (Model.Projects.Count == 0) { <section class="card empty-state"><h2>Start with your first game</h2><p>Create a project, issue a public runtime key, then connect your existing Network Storage client. No hosted account is required.</p><a href="#create-project" class="button">Create your backend</a></section> }
-<section class="card onboarding"><h2>Connect a game</h2><ol class="steps"><li><strong>Create a project</strong><p>Keep production and development data separate.</p></li><li><strong>Issue a public key</strong><p>Use secret keys only for editor sync or trusted servers.</p></li><li><strong>Point the client here</strong><p>Pass this server's base URL to <code>NetworkStorage.Configure</code>. Existing client calls stay the same.</p></li></ol></section>
+<section class="card onboarding"><h2>Connect a game</h2><ol class="steps"><li><strong>Create a project</strong><p>Keep production and development data separate.</p></li><li><strong>Get a public key</strong><p>New projects get one by default. Use secret keys only for editor sync or trusted servers.</p></li><li><strong>Point the client here</strong><p>The project overview shows the exact <code>NetworkStorage.Configure</code> line to paste. Existing client calls stay the same.</p></li></ol></section>
 <section class="card" id="author-backend"><h2>Author your first backend</h2><p>Two files under your game's <code>Editor/Network Storage/</code> folder define storage and server logic. Push them with <strong>Editor &gt; Network Storage &gt; Sync Tool</strong>, or paste them into Collections and Endpoints on a project page. Full syntax: <a href="https://sboxcool.com/wiki/network-storage-v3/core-concepts/source-authoring" rel="noreferrer">YAML Source guide</a>.</p><div class="sample-grid"><div><h3>collections/players.collection.yml</h3><pre>sourceVersion: 1
 kind: collection
 id: players
-name: "players"
-definition:
-  collectionType: "per-steamid"
-  accessMode: "public"
-  maxRecords: 1
-  allowRecordDelete: false
-  schema:
+name: players
+collectionType: per-steamid
+accessMode: endpoint
+maxRecords: 1
+allowRecordDelete: false
+schema:
+  type: object
+  properties:
     coins:
-      type: "number"
+      type: number
       default: 0
     level:
-      type: "number"
+      type: number
       default: 1</pre></div><div><h3>endpoints/grant-coins.endpoint.yml</h3><pre>sourceVersion: 1
 kind: endpoint
 id: grant-coins
-name: "grant coins"
-definition:
-  method: "POST"
-  enabled: true
-  steps:
-    - id: "grant"
-      type: "write"
-      collection: "players"
-      key: "{{steamId}}"
-      ops:
-        - op: "inc"
-          path: "coins"
-          value: "{{input.amount}}"</pre></div></div><p class="muted">In game code, read and call with the public key only. Secret keys stay in editor tooling and trusted servers.</p></section>
+name: Grant coins
+method: POST
+enabled: true
+steps:
+  - id: grant
+    type: write
+    collection: players
+    key: "{{steamId}}"
+    ops:
+      - op: inc
+        path: coins
+        value: 10
+response:
+  status: 200
+  body:
+    ok: true</pre></div></div><p class="muted"><code>accessMode: endpoint</code> keeps the collection behind endpoints: the game calls <code>grant-coins</code> and cannot write coins directly. In game code, use the public key only. Secret keys stay in editor tooling and trusted servers.</p></section>
 <section class="grid">
-<article class="card" id="create-project"><h2>Create project</h2><p>One isolated backend for your game.</p><form method="post" action="/dashboard/projects">@Html.AntiForgeryToken()<label>Name <input name="name" required maxlength="64" placeholder="My game" /></label><label>Description <textarea name="description" maxlength="256" rows="3" placeholder="What are you building?"></textarea></label><label class="check"><input type="checkbox" name="requireSboxAuth" value="true" checked /> Require Facepunch s&box authentication</label><button type="submit">Create project</button></form></article>
+<article class="card" id="create-project"><h2>Create project</h2><p>One isolated backend for your game.</p><form method="post" action="/dashboard/projects">@Html.AntiForgeryToken()<label>Name <input name="name" required maxlength="64" placeholder="My game" /></label><label>Description <textarea name="description" maxlength="256" rows="3" placeholder="What are you building?"></textarea></label><label class="check"><input type="checkbox" name="requireSboxAuth" value="true" checked /> Require Facepunch s&box authentication</label><label class="check"><input type="checkbox" name="createPublicKey" value="true" checked /> Create a public game key</label><button type="submit">Create project</button></form></article>
 <article class="card"><h2>Import a portable project</h2><p>Restore a self-hosted project archive on this instance. The archive retains its original project ID; import refuses an ID that already exists and never overwrites a live project.</p><form method="post" action="/dashboard/import" enctype="multipart/form-data">@Html.AntiForgeryToken()<label>Project archive (.tar.gz) <input type="file" name="archive" accept=".tar.gz,.tgz,application/gzip" required /></label><p class="muted">Maximum 64 MiB compressed / 256 MiB expanded. Archives contain player data and API-key hashes: store and transfer them securely. This is self-hosted portability, not a claim of managed-host export compatibility.</p><button type="submit" class="secondary">Import project</button></form></article>
 </section>
 @await Html.PartialAsync("~/Views/Owner/_ExportCard.cshtml")

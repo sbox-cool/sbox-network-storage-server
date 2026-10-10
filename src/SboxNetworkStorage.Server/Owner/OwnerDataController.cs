@@ -119,7 +119,7 @@ public sealed class OwnerDataController(INetworkStorageProjectService projects, 
         var draft = Draft(projectId, name, collection, recordKey, payload, expectedVersion, creating) with { SnapshotToken = snapshotToken };
         if (!ValidKey(collection, recordKey))
             return FormError(draft, "Use letters, numbers, underscores and hyphens" +
-                (collection.Global ? " (1–128 characters) for the global record ID." : ", or colons (1–256 characters) for the player record key."));
+                (collection.Global ? " (1-128 characters) for the global record ID." : ", or colons (1-256 characters) for the player record key."));
         if (!ModelState.IsValid || (!creating && expectedVersion is null or < 1 or long.MaxValue))
             return FormError(draft, "A valid expected version is required. Reload the record before editing.");
         RecordMutationSnapshot? snapshot = null;

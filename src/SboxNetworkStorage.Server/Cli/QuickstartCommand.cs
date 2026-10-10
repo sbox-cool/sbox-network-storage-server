@@ -102,7 +102,8 @@ public static class QuickstartCommand
             (_, secretKey) = await projects.CreateProjectKeyAsync(Owner, projectId, "Editor sync", "secret", permissions: null, ct);
         }
 
-        var baseUrl = BaseUrl(config);
+        // A wildcard bind keeps the placeholder: the CLI cannot know the address players use.
+        var baseUrl = ServerBaseUrl.FromConfig(config, () => ServerBaseUrl.HostPlaceholder);
         var csharp = $"NetworkStorage.Configure( \"{projectId}\", \"{publicKey}\", \"{baseUrl}\" );";
 
         if (json)
@@ -147,7 +148,7 @@ public static class QuickstartCommand
         }
 
         Console.WriteLine();
-        if (string.IsNullOrWhiteSpace(config.GetString("server.public_url")))
+        if (baseUrl.Contains(ServerBaseUrl.HostPlaceholder, StringComparison.Ordinal))
         {
             Console.WriteLine("Replace <this-host> with your server's address, or set it once with:");
             Console.WriteLine("    sbox-ns config set server.public_url https://your.domain && sbox-ns service restart");
@@ -196,17 +197,5 @@ public static class QuickstartCommand
         }
 
         return result;
-    }
-
-    internal static string BaseUrl(EffectiveConfig config)
-    {
-        var publicUrl = config.GetString("server.public_url");
-        if (!string.IsNullOrWhiteSpace(publicUrl))
-        {
-            return publicUrl.TrimEnd('/');
-        }
-
-        var port = ListenAddress.TryParse(config.GetString("server.listen"), out var listen) ? listen.Port : 8080;
-        return $"http://<this-host>:{port}";
     }
 }

@@ -19,7 +19,7 @@
             @if (isExisting)
             {
                 <div class="actions"><a class="button secondary" href="/pages/@Uri.EscapeDataString(Model.ProjectId)/@Uri.EscapeDataString(editing!.Slug)" rel="noreferrer">Open public JSON</a>
-                <form method="post" action="@url/pages/delete">@Html.AntiForgeryToken()<input type="hidden" name="slug" value="@editing.Slug" /><button class="danger" type="submit">Delete page</button></form></div>
+                <form method="post" action="@url/pages/delete">@Html.AntiForgeryToken()<input type="hidden" name="slug" value="@editing.Slug" /><button class="danger" type="submit" data-confirm="Delete the page &quot;@editing.Slug&quot;? Its public URL stops working.">Delete page</button></form></div>
             }
         </div>
         @if (isExisting) { <p class="muted">Public URL: <code>/pages/@Model.ProjectId/@(editing!.Slug)</code>@(editing.UpdatedAt is null ? "" : " · updated " + editing.UpdatedAt)</p> }
@@ -41,3 +41,4 @@
         </form>
     </section>
 </div>
+<script src="/owner-assets/m/manage.js" defer></script>

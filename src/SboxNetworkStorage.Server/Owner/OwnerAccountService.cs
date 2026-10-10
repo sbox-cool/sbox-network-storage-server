@@ -118,9 +118,9 @@ public sealed class OwnerAccountService(INetworkStorageStore store, EffectiveCon
     public static void ValidateCredentials(string? username, string password)
     {
         if (username is not null && (username.Trim().Length is < 1 or > 64 || username.Any(char.IsControl)))
-            throw new ArgumentException("Owner username must contain 1–64 characters and no control characters.");
+            throw new ArgumentException("Owner username must contain 1-64 characters and no control characters.");
         if (password.Length is < 12 or > 1024)
-            throw new ArgumentException("Owner password must contain 12–1024 characters.");
+            throw new ArgumentException("Owner password must contain 12-1024 characters.");
     }
 
     private async Task<OwnerAccount> MutateAsync(string? username, string password, bool reset, CancellationToken ct)

@@ -1,12 +1,14 @@
 # Starting YAML for a new resource of each kind. Each saves without
 # diagnostics (the query reads the collection skeleton) and runs as-is.
+# Collections start endpoint-only (docs/client-setup.md); switch accessMode
+# to public only for data game clients may read and write directly.
 collection: |
   sourceVersion: 1
   kind: collection
   id: player_stats
   name: player_stats
   collectionType: per-steamid
-  accessMode: public
+  accessMode: endpoint
   maxRecords: 1
   allowRecordDelete: false
   schema:

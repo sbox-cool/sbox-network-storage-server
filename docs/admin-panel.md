@@ -30,6 +30,7 @@ Open the link and confirm. If no owner exists yet, the page asks you to choose
 the owner username and password (at least 12 characters). Being able to run
 commands on the server proves you control it, so this works from any address.
 The loopback-only `/setup?token=…` URL in the server log still works as well.
+Until an owner exists, `/login` shows these steps instead of a password form.
 
 How the link works:
 
@@ -37,7 +38,9 @@ How the link works:
   is built from the active listener: HTTPS with the ACME domain when TLS is on,
   or the bound address. For wildcard binds like `0.0.0.0` it uses the first
   routable IPv4 address of the machine. Set `server.public_url` if that guess
-  is wrong, for example behind NAT or a proxy.
+  is wrong, for example behind NAT or a proxy. `sbox-ns setup` and
+  `sbox-ns quickstart` use the same rule, but print `<this-host>` for wildcard
+  binds instead of guessing.
 - **Token.** Each token is 256 bits of randomness. Only its SHA-256 hash and
   expiry time are stored, as workspace object
   `server/identity/login-links/<sha256>.json` in the configured
@@ -101,9 +104,37 @@ Open `http://localhost:8080/login` locally. Loopback HTTP does not show the
 warning banner. `sbox-ns admin login-link` still works this way: replace the
 printed host with `localhost:8080`.
 
+## Connect a game
+
+**Create project** on **All projects** also creates a public key labeled
+`Game client` unless you clear **Create a public game key**. The project
+overview then opens with a **Connect your game** card:
+
+- The exact `NetworkStorage.Configure( "<projectId>", "<public key>", "<base URL>" );`
+  line, filled with the project ID, the oldest enabled public key and the base
+  URL. Without an enabled public key the line shows `<public-api-key>`.
+- The same values as fields for **Editor > Network Storage > Setup** in the
+  s&box editor. The secret key is only shown once, when you create it under
+  **API keys**.
+- The base URL is `server.public_url` when set, otherwise the address you
+  opened the dashboard with. The card warns when that address is `localhost`
+  (players on other machines cannot use it) or plain HTTP.
+- A checklist: a public key exists, a collection or endpoint is defined, the
+  game reached the server (with the last request from the request log), and
+  401/403 responses in the last 24 hours with what each status usually means.
+
+Copy buttons use the browser clipboard. Browsers only allow that over HTTPS
+or on `localhost`; elsewhere the button selects the text and asks you to
+press Ctrl+C.
+
+Creating a key redirects back to the overview and shows the new raw key
+there once. Reloading the page does not create another key or show the raw
+key again. Revoking a key and deleting saved tests, rate limit rules, webhook
+profiles and pages ask for confirmation first.
+
 ## Data browser
 
-On a project page, choose **Browse stored records**, or open
+On a project page, choose **Browse data**, or open
 `/dashboard/projects/{projectId}/data`.
 
 - **Collections:** every synced collection with its type (per-player or
@@ -172,6 +203,16 @@ storage and snippet controls. Expand **Examples** below the editor to browse
 complete definitions; **Use example** replaces the editor text and asks for
 confirmation when it is not empty. Review the replacement before saving.
 
+A new collection starts as `accessMode: endpoint`: game clients reach it only
+through endpoints and queries, and direct document calls answer
+`403 ENDPOINT_ONLY`. The collection builder sets **Game client access**
+(`accessMode: endpoint` or `public`) and **Deletes from game clients**
+(`allowRecordDelete`) together with the storage kind. See
+[collection access from game clients](client-setup.md#collection-access-from-game-clients).
+
+A save that fails validation keeps your text and lists each diagnostic as
+`Error CODE at path: message`, the same wording **Check definition** uses.
+
 **Check definition** validates the current text without saving or executing it.
 It reports server diagnostics, not a guarantee of runtime success. If the text
 changes during a check, check again. A failed request never counts as successful
@@ -182,6 +223,35 @@ dependencies separately; retrying keeps definitions that already exist.
 Analytics, audit/request logs, errors and usage tabs read stored runtime data.
 Empty panels mean no matching data has been recorded, not synthetic activity.
 The console does not replace every screen or workflow in the managed dashboard.
+
+### Request log and errors
+
+**Logs** lists recent data-plane requests (`/v3`, `/v1`, `/api/storage`,
+`/api/network-storage`, `/pages`, `/api/pages`) with time, method, path,
+status and duration:
+
+- Authenticated requests are listed under their project.
+- Rejected requests that never authenticated (status 400 or more, such as a
+  wrong API key or failed s&box authentication) are listed under the project
+  ID in the URL, but only when that project exists.
+- Successful unauthenticated requests (for example `/v3/server-info`) and
+  OPTIONS preflights are not listed.
+
+**Errors** lists errors the server reported for the project: unhandled
+exceptions on a project route, endpoint failures and conflicts, storage
+failures and unconfirmed client saves. Each row shows the error code, message
+and source, plus up to 4,000 characters of the stack trace when there is one.
+Messages and stack traces can contain player data.
+
+Both tabs explain common statuses and codes (`UNAUTHORIZED`,
+`SBOX_AUTH_FAILED`, `ENDPOINT_ONLY`, `RECORD_DELETE_DISABLED`, `FORBIDDEN`
+and others) in a **What it means** column; see
+[error codes](client-setup.md#error-codes).
+
+To keep the database small, each project records at most 20 successful
+requests, 20 rejected or failed requests and 20 errors per minute. Rows are
+written within a few seconds and deleted after 7 days. For more detail, read
+the server log with `sbox-ns logs -f`.
 
 ## Move one project
 

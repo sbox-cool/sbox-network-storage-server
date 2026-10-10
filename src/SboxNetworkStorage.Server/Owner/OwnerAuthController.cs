@@ -8,7 +8,8 @@ using SboxNetworkStorage.Server.Hosting;
 
 namespace SboxNetworkStorage.Server.Owner;
 
-public sealed record OwnerAuthModel(bool Setup, string? Token = null, string? Error = null, string? Username = null);
+/// <param name="NoOwner">Login page on a server without an owner: shows the steps to create one instead of the form.</param>
+public sealed record OwnerAuthModel(bool Setup, string? Token = null, string? Error = null, string? Username = null, bool NoOwner = false);
 public sealed record OwnerLoginLinkModel(string? Token, string? OwnerName, string? Error = null, string? Username = null)
 {
     public bool CreatesOwner => Token is not null && OwnerName is null;
@@ -22,7 +23,7 @@ public sealed class OwnerAuthController(OwnerAccountService accounts, OwnerSetup
     public async Task<IActionResult> Login(CancellationToken ct)
     {
         if (await accounts.GetAsync(ct) is null)
-            return View("~/Views/Owner/Auth.cshtml", new OwnerAuthModel(false, Error: "No owner exists yet. On the server run sbox-ns admin login-link and open the printed link, or run sbox-ns admin create."));
+            return View("~/Views/Owner/Auth.cshtml", new OwnerAuthModel(false, NoOwner: true));
         return View("~/Views/Owner/Auth.cshtml", new OwnerAuthModel(false));
     }
 

@@ -1,24 +1,43 @@
 using System.Globalization;
+using System.Security.Cryptography;
+using System.Text.Json;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Caching.Memory;
 using SboxNetworkStorage.Application.Common;
 using SboxNetworkStorage.Application.NetworkStorage;
 using SboxNetworkStorage.Application.Workspace;
 using SboxNetworkStorage.Domain.Workspace;
+using SboxNetworkStorage.Server.Configuration;
 using SboxNetworkStorage.Server.Hosting;
 
 namespace SboxNetworkStorage.Server.Owner;
 
 public sealed record OwnerDashboardModel(IReadOnlyList<WorkspaceProject> Projects, string? Error = null);
+
+/// <param name="BaseUrl">server.public_url, or the origin the dashboard was opened with.</param>
+/// <param name="FromPublicUrl">True when <paramref name="BaseUrl"/> comes from server.public_url.</param>
+/// <param name="PublicKey">The first enabled public key, or null when the project has none.</param>
+public sealed record OwnerConnectInfo(string BaseUrl, bool FromPublicUrl, string? PublicKey)
+{
+    public bool IsLoopback => ServerBaseUrl.IsLoopback(BaseUrl);
+    public bool IsPlainHttp => BaseUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase);
+}
+
+public sealed record OwnerRequestSummary(DateTimeOffset At, string Method, string Path, int Status);
+
 public sealed record OwnerProjectModel(WorkspaceProject Project, NetworkStorageProjectResources? Resources,
-    IReadOnlyList<ApiKeyInfo> Keys, string? RawKey = null, string? Error = null);
+    IReadOnlyList<ApiKeyInfo> Keys, OwnerConnectInfo Connect, OwnerRequestSummary? LastRequest,
+    IReadOnlyList<OwnerRequestSummary> RecentRejected, string? RawKey = null, string? Error = null);
 
 /// <summary>Standalone adaptation of the Network Storage project/settings/key management surface.</summary>
 [Authorize(AuthenticationSchemes = OwnerHostingExtensions.Scheme)]
 public sealed class OwnerDashboardController(INetworkStorageProjectService projects, IWorkspaceStore workspace,
-    IAuditLogger audit) : Controller
+    IAuditLogger audit, INetworkStorageStore store, EffectiveConfig config, IMemoryCache cache, TimeProvider time) : Controller
 {
     private const long Owner = NetworkStorageServices.LocalOwnerUserId;
+    private const int RecentRequests = 200;
+    private static readonly TimeSpan RawKeyLifetime = TimeSpan.FromMinutes(5);
 
     /// <summary>Permission scopes enforced by ApiKeyPermissionPolicy for secret keys.</summary>
     public static readonly string[] KeyScopes = ["endpoints", "queries", "collections", "workflows", "game_values", "rate_limits", "settings"];
@@ -39,7 +58,7 @@ public sealed class OwnerDashboardController(INetworkStorageProjectService proje
 
     [HttpPost("/dashboard/projects")]
     public async Task<IActionResult> CreateProject([FromForm] string? name, [FromForm] string? description,
-        [FromForm] bool requireSboxAuth, CancellationToken ct)
+        [FromForm] bool requireSboxAuth, [FromForm] bool createPublicKey, CancellationToken ct)
     {
         name = name?.Trim();
         if (name is null || name.Length is < 1 or > 64 || description?.Length > 256)
@@ -50,14 +69,28 @@ public sealed class OwnerDashboardController(INetworkStorageProjectService proje
         }
         var result = await projects.CreateProjectAsync(Owner, name, description, true, requireSboxAuth, "player", string.Empty, ct);
         await AuditAsync(result.ProjectId, "project.create", new { name, description, requireSboxAuth }, ct);
+        if (createPublicKey)
+        {
+            // Same label as `sbox-ns quickstart`; public keys stay visible in the key table, so no one-time notice.
+            var (key, _) = await projects.CreateProjectKeyAsync(Owner, result.ProjectId, "Game client", "public", null, ct);
+            await AuditAsync(result.ProjectId, "key.create", new { keyType = "public", key.Label }, ct);
+        }
         return Redirect(ProjectUrl(result.ProjectId));
     }
 
     [HttpGet("/dashboard/projects/{projectId}")]
-    public async Task<IActionResult> Project(string projectId, CancellationToken ct)
+    public async Task<IActionResult> Project(string projectId, [FromQuery] string? created, CancellationToken ct)
     {
         var model = await LoadProjectAsync(projectId, ct);
-        return model is null ? NotFound() : View("~/Views/Owner/Project.cshtml", model);
+        if (model is null) return NotFound();
+        // The raw key from the POST that redirected here; shown once, then forgotten.
+        if (created is not null && cache.Get<(string ProjectId, string Raw)>(RawKeyCacheKey(created)) is { Raw: not null } stored
+            && stored.ProjectId == projectId)
+        {
+            cache.Remove(RawKeyCacheKey(created));
+            model = model with { RawKey = stored.Raw };
+        }
+        return View("~/Views/Owner/Project.cshtml", model);
     }
 
     [HttpPost("/dashboard/projects/{projectId}/settings")]
@@ -69,7 +102,7 @@ public sealed class OwnerDashboardController(INetworkStorageProjectService proje
         var values = form.ToDictionary(pair => pair.Key, pair => pair.Value.ToString(), StringComparer.Ordinal);
         if (tab == "project" && (values.GetValueOrDefault("name")?.Trim().Length is not (>= 1 and <= 64)
             || values.GetValueOrDefault("description")?.Length > 256))
-            return await ProjectErrorAsync(projectId, "Name must contain 1–64 characters; description may contain at most 256.", ct);
+            return await ProjectErrorAsync(projectId, "Name must contain 1-64 characters; description may contain at most 256.", ct);
         if (tab == "player-keys" && values.GetValueOrDefault("playerKeyMode") is not ("player" or "playerSave"))
             return BadRequest("Invalid player key mode.");
         if (tab == "revisions" && (values.GetValueOrDefault("revisionEnforcementMode") is not ("force_upgrade" or "allow_continue")
@@ -87,11 +120,13 @@ public sealed class OwnerDashboardController(INetworkStorageProjectService proje
         var model = await LoadProjectAsync(projectId, ct);
         if (model is null) return NotFound();
         if (keyType is not ("public" or "secret") || label is null || label.Trim().Length is < 1 or > 64 || model.Keys.Count >= 100)
-            return await ProjectErrorAsync(projectId, "Choose public or secret, provide a label of 1–64 characters, and keep fewer than 100 keys.", ct);
+            return await ProjectErrorAsync(projectId, "Choose public or secret, provide a label of 1-64 characters, and keep fewer than 100 keys.", ct);
         var (key, raw) = await projects.CreateProjectKeyAsync(Owner, projectId, label.Trim(), keyType, null, ct);
         await AuditAsync(projectId, "key.create", new { keyType, key.Label }, ct);
-        model = await LoadProjectAsync(projectId, ct);
-        return View("~/Views/Owner/Project.cshtml", model! with { RawKey = raw });
+        // Post/redirect/get: a refresh must not create a second key. The raw key waits server-side for one view.
+        var notice = Convert.ToHexString(RandomNumberGenerator.GetBytes(16));
+        cache.Set(RawKeyCacheKey(notice), (projectId, raw), RawKeyLifetime);
+        return Redirect(ProjectUrl(projectId) + "?created=" + notice + "#api-keys");
     }
 
     [HttpPost("/dashboard/projects/{projectId}/keys/toggle")]
@@ -147,9 +182,21 @@ public sealed class OwnerDashboardController(INetworkStorageProjectService proje
     {
         var access = await projects.ResolveProjectAccessAsync(Owner, projectId, ct);
         if (access is null || access.StorageOwnerUserId != Owner || !access.CanManage) return null;
+        var keys = await projects.GetProjectKeysAsync(Owner, projectId, ct);
+        var publicUrl = ServerBaseUrl.PublicUrl(config);
+        var connect = new OwnerConnectInfo(ServerBaseUrl.ForRequest(config, Request), publicUrl is not null,
+            keys.Where(key => key.Enabled && key.KeyType == "public").OrderBy(key => key.CreatedAt).FirstOrDefault()?.Key);
+        var requests = (await store.ListStorageRequestLogAsync(projectId, RecentRequests, ct)).Select(Summary).ToList();
+        var since = time.GetUtcNow().AddDays(-1);
+        var rejected = requests.Where(request => request.Status is StatusCodes.Status401Unauthorized or StatusCodes.Status403Forbidden
+            && request.At >= since).ToList();
         return new OwnerProjectModel(access.Project, await projects.GetProjectResourcesForOwnerAsync(Owner, projectId, ct),
-            await projects.GetProjectKeysAsync(Owner, projectId, ct));
+            keys, connect, requests.FirstOrDefault(), rejected);
     }
+
+    private static OwnerRequestSummary Summary(JsonElement row) => new(
+        DateTimeOffset.FromUnixTimeMilliseconds(row.GetProperty("created_at_unix_ms").GetInt64()),
+        row.GetProperty("method").GetString() ?? "", row.GetProperty("path").GetString() ?? "", row.GetProperty("status_code").GetInt32());
 
     private async Task<IActionResult> ProjectErrorAsync(string projectId, string error, CancellationToken ct)
     {
@@ -162,6 +209,8 @@ public sealed class OwnerDashboardController(INetworkStorageProjectService proje
         => audit.LogActionAsync(new AuditLogRequest(ProjectId: projectId, UserId: Owner.ToString(CultureInfo.InvariantCulture),
             Action: action, Actor: new { id = Owner, type = "owner-dashboard" }, Target: new { id = projectId, type = "project" },
             Summary: summary, Before: null, After: null), ct);
+
+    private static string RawKeyCacheKey(string notice) => "owner-dashboard:raw-key:" + notice;
 
     private static string ProjectUrl(string projectId) => $"/dashboard/projects/{Uri.EscapeDataString(projectId)}";
 }

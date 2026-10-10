@@ -32,8 +32,16 @@
     setScalar("method", document.getElementById("builder-method").value);
     setScalar("enabled", document.getElementById("builder-enabled").value);
   });
+  // Collection builder selects start from the values already in the text.
+  [["builder-collection-type", "collectionType"], ["builder-access-mode", "accessMode"], ["builder-allow-delete", "allowRecordDelete"]].forEach(function (pair) {
+    var select = document.getElementById(pair[0]);
+    var match = new RegExp("^" + pair[1] + ":\\s*\"?([\\w-]+)\"?\\s*$", "m").exec(textarea.value);
+    if (select && match && select.querySelector("option[value='" + match[1] + "']")) select.value = match[1];
+  });
   on("builder-apply-collection", function () {
     setScalar("collectionType", document.getElementById("builder-collection-type").value);
+    setScalar("accessMode", document.getElementById("builder-access-mode").value);
+    setScalar("allowRecordDelete", document.getElementById("builder-allow-delete").value);
   });
   on("builder-add-field", function () {
     var name = (document.getElementById("builder-field-name").value || "field").trim() || "field";

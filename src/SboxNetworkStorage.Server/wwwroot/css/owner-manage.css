@@ -29,3 +29,11 @@
 .key-permissions select { margin-top: .2rem; padding: .4rem; }
 @media (max-width: 1100px) { .manage-versions { grid-template-columns: minmax(180px, 240px) minmax(0, 1fr); } .manage-version-detail { grid-column: 1 / -1; } }
 @media (max-width: 760px) { .manage-versions { grid-template-columns: 1fr; } .manage-versions > .empty-state { grid-column: auto; } }
+/* Project overview: Connect your game card. */
+.copy-row { display: flex; align-items: flex-start; gap: .5rem; }
+.copy-row pre { flex: 1 1 auto; margin: 0; }
+.connect-fields { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: .5rem 1rem; align-items: center; }
+.connect-fields dt { font-weight: 600; }
+.connect-fields dd { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; overflow-wrap: anywhere; }
+.checklist td { vertical-align: top; }
+.checklist ul { margin: .25rem 0 0; padding-left: 1.1rem; }
