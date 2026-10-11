@@ -1,5 +1,6 @@
 using SboxNetworkStorage.Server.Configuration;
 using SboxNetworkStorage.Server.Hosting;
+using SboxNetworkStorage.Storage.Relational;
 
 namespace SboxNetworkStorage.Server.Cli;
 
@@ -172,6 +173,12 @@ public static class CliApp
         {
             Console.Error.WriteLine($"error: {ex.Message}");
             return ex.ExitCode;
+        }
+        catch (Exception ex) when (ex is SchemaVersionTooNewException or SchemaMigrationRequiredException)
+        {
+            // The message already says what to do; a stack trace only adds the build machine's paths.
+            Console.Error.WriteLine($"error: {ex.Message}");
+            return Failure;
         }
     }
 
