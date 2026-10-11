@@ -123,6 +123,7 @@ public static class ProjectCommands
         var store = services.GetRequiredService<INetworkStorageStore>();
         var check = await Authority.AuthorityCheckService.RunAsync(projects, store, Owner, projectId, ct);
         if (check is null) throw new CliException($"unknown project '{projectId}'");
+        var damaged = await Authority.LegacyOpsRecordScan.RunAsync(store, projectId, ct);
         if (json)
         {
             Console.WriteLine(JsonSerializer.Serialize(new
@@ -130,6 +131,7 @@ public static class ProjectCommands
                 projectId,
                 hostingProfile = check.Profile,
                 findings = check.Findings.Select(f => new { id = f.Id, target = f.Target, detail = f.Detail, fix = f.Fix }),
+                legacyOpsRecords = damaged.Select(d => new { collection = d.Collection, records = d.Records, sampleKeys = d.SampleKeys }),
             }, JsonOutput));
             return CliApp.Ok;
         }
@@ -137,11 +139,19 @@ public static class ProjectCommands
         if (check.Findings.Count == 0)
         {
             Console.WriteLine("No client-writable game data found.");
-            return CliApp.Ok;
         }
         foreach (var finding in check.Findings)
         {
             Console.WriteLine($"- [{finding.Id}] {finding.Target}: {finding.Detail} Fix: {finding.Fix}");
+        }
+        if (damaged.Count == 0)
+        {
+            Console.WriteLine("No records damaged by the 0.4.0 update-ops bug.");
+        }
+        foreach (var d in damaged)
+        {
+            Console.WriteLine($"- [legacy-ops-record] collection {d.Collection}: {d.Records} record(s) hold only an `ops` field (for example {string.Join(", ", d.SampleKeys)}). "
+                + "sbox-ns 0.4.0 stored an update-ops request as the whole document; the original data is gone. Restore from a backup or have the player save again.");
         }
         return CliApp.Ok;
     }

@@ -201,6 +201,17 @@ The same check runs as `sbox-ns project authority <projectId> [--json]`,
 `sbox-ns doctor --project <projectId>` and the read-only MCP tool
 `project_authority`.
 
+The CLI and MCP output also runs a data check that the dashboard card does not:
+it scans the live records of every defined collection for documents whose only
+field is `ops`, a list of operation objects. sbox-ns 0.4.0 stored an
+`update-ops` request as the whole document instead of applying it, which
+replaced the player's data. Releases after 0.4.0 apply the operations. The
+scan reports each affected collection with a count and sample keys
+(`legacy-ops-record` in text, `legacyOpsRecords` in JSON). The replaced data
+is not recoverable from the database: restore a backup taken before the bad
+write, or let the player save again. Records in collections that have no
+definition are not scanned.
+
 ### Auth sessions
 
 With **Enable auth sessions**, the game can trade its s&box token for a signed
