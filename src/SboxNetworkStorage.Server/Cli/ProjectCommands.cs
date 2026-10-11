@@ -1,8 +1,11 @@
 using System.Text.Json;
+using Microsoft.Extensions.DependencyInjection;
 using SboxNetworkStorage.Application.Common;
 using SboxNetworkStorage.Application.NetworkStorage;
 using SboxNetworkStorage.Application.Workspace;
+using SboxNetworkStorage.Server.Authority;
 using SboxNetworkStorage.Server.Hosting;
+using SboxNetworkStorage.Storage;
 using SboxNetworkStorage.Storage.Relational;
 
 namespace SboxNetworkStorage.Server.Cli;
@@ -31,10 +34,15 @@ public static class ProjectCommands
                 {
                     throw new CliException("--key-mode must be player or public", CliApp.Usage);
                 }
+                var hosting = context.Args.Option("hosting") ?? "unset";
+                if (hosting is not ("player-hosted" or "dedicated" or "hybrid" or "unset"))
+                {
+                    throw new CliException("--hosting must be player-hosted, dedicated, hybrid or unset", CliApp.Usage);
+                }
 
                 var requireSboxAuth = !string.Equals(context.Args.Option("require-sbox-auth"), "false", StringComparison.OrdinalIgnoreCase);
                 var result = await projects.CreateProjectAsync(Owner, name, context.Args.Option("description") ?? string.Empty,
-                    enabled: true, requireSboxAuth, keyMode, organizationId: string.Empty, ct);
+                    enabled: true, requireSboxAuth, keyMode, organizationId: string.Empty, ct, hosting);
                 var projectId = result.ProjectId ?? throw new CliException("project creation failed");
                 await scope.ServiceProvider.GetRequiredService<IAuditLogger>().LogActionAsync(new AuditLogRequest(
                     ProjectId: projectId,
@@ -98,9 +106,44 @@ public static class ProjectCommands
                 Console.WriteLine($"Deleted project {projectId}");
                 return CliApp.Ok;
             }
+            case "authority":
+            {
+                var projectId = context.RequirePositional(2, "projectId");
+                return await RunAuthorityAsync(scope.ServiceProvider, projectId, context.Args.Flag("json"), ct);
+            }
             default:
                 throw new CliException($"unknown project command '{sub}'", CliApp.Usage);
         }
+    }
+
+    /// <summary>Authority check for one project: hosting profile plus advisory findings. Shared by `project authority` and `doctor --project`.</summary>
+    public static async Task<int> RunAuthorityAsync(IServiceProvider services, string projectId, bool json, CancellationToken ct)
+    {
+        var projects = services.GetRequiredService<INetworkStorageProjectService>();
+        var store = services.GetRequiredService<INetworkStorageStore>();
+        var check = await Authority.AuthorityCheckService.RunAsync(projects, store, Owner, projectId, ct);
+        if (check is null) throw new CliException($"unknown project '{projectId}'");
+        if (json)
+        {
+            Console.WriteLine(JsonSerializer.Serialize(new
+            {
+                projectId,
+                hostingProfile = check.Profile,
+                findings = check.Findings.Select(f => new { id = f.Id, target = f.Target, detail = f.Detail, fix = f.Fix }),
+            }, JsonOutput));
+            return CliApp.Ok;
+        }
+        Console.WriteLine($"Hosting profile: {check.Profile}");
+        if (check.Findings.Count == 0)
+        {
+            Console.WriteLine("No client-writable game data found.");
+            return CliApp.Ok;
+        }
+        foreach (var finding in check.Findings)
+        {
+            Console.WriteLine($"- [{finding.Id}] {finding.Target}: {finding.Detail} Fix: {finding.Fix}");
+        }
+        return CliApp.Ok;
     }
 
     public static async Task<int> RunKeyAsync(CliContext context)

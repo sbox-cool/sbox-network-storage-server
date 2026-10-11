@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection;
 using System.Net;
 using System.Net.Sockets;
 using SboxNetworkStorage.Server.Configuration;
@@ -47,6 +48,12 @@ public static class DoctorCommand
 
         CheckLayout(config, Report);
 
+        if (context.Args.Option("project") is { } projectId)
+        {
+            await using var projectServices = CliServices.Build(config);
+            await using var scope = projectServices.CreateAsyncScope();
+            return await ProjectCommands.RunAuthorityAsync(scope.ServiceProvider, projectId, context.Args.Flag("json"), CancellationToken.None);
+        }
         await using (var services = CliServices.Build(config))
         {
             var admin = services.GetRequiredService<INetworkStorageStoreAdmin>();

@@ -648,7 +648,7 @@ public abstract class NetworkStorageManagementReadTests<TFactory> : IClassFixtur
                 Rules: _hasRateLimits ? Array.Empty<RateLimitRule>() : null));
         }
 
-        public Task<NetworkStorageProjectCreateResult> CreateProjectAsync(long userId, string name, string? description, bool enabled, bool requireSboxAuth, string keyMode, string organizationId, CancellationToken cancellationToken)
+        public Task<NetworkStorageProjectCreateResult> CreateProjectAsync(long userId, string name, string? description, bool enabled, bool requireSboxAuth, string keyMode, string organizationId, CancellationToken cancellationToken, string? hostingProfile = null)
             => Task.FromResult(new NetworkStorageProjectCreateResult("new-proj"));
 
         public Task<NetworkStorageProjectAccessResult?> ResolveProjectAccessAsync(long userId, string projectId, CancellationToken cancellationToken)

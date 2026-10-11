@@ -8,6 +8,7 @@ using SboxNetworkStorage.Application.Common;
 using SboxNetworkStorage.Application.NetworkStorage;
 using SboxNetworkStorage.Application.Workspace;
 using SboxNetworkStorage.Domain.Workspace;
+using SboxNetworkStorage.Server.Authority;
 using SboxNetworkStorage.Server.Configuration;
 using SboxNetworkStorage.Server.Hosting;
 
@@ -57,7 +58,7 @@ public sealed record OwnerRequestSummary(DateTimeOffset At, string Method, strin
 
 public sealed record OwnerProjectModel(WorkspaceProject Project, NetworkStorageProjectResources? Resources,
     IReadOnlyList<ApiKeyInfo> Keys, OwnerConnectInfo Connect, OwnerRequestSummary? LastRequest,
-    IReadOnlyList<OwnerRequestSummary> RecentRejected, string? RawKey = null, string? Error = null);
+    IReadOnlyList<OwnerRequestSummary> RecentRejected, AuthorityCheckService.AuthorityCheckResult? Authority = null, string? RawKey = null, string? Error = null);
 
 /// <summary>Standalone adaptation of the Network Storage project/settings/key management surface.</summary>
 [Authorize(AuthenticationSchemes = OwnerHostingExtensions.Scheme)]
@@ -91,7 +92,7 @@ public sealed class OwnerDashboardController(INetworkStorageProjectService proje
 
     [HttpPost("/dashboard/projects")]
     public async Task<IActionResult> CreateProject([FromForm] string? name, [FromForm] string? description,
-        [FromForm] bool requireSboxAuth, [FromForm] bool createPublicKey, CancellationToken ct)
+        [FromForm] bool requireSboxAuth, [FromForm] bool createPublicKey, [FromForm] string? hostingProfile, CancellationToken ct)
     {
         name = name?.Trim();
         if (name is null || name.Length is < 1 or > 64 || description?.Length > 256)
@@ -102,8 +103,9 @@ public sealed class OwnerDashboardController(INetworkStorageProjectService proje
                 "Project name is required (max 64 characters); description must be at most 256 characters.",
                 "create-project", name, description, ct));
         }
-        var result = await projects.CreateProjectAsync(Owner, name, description, true, requireSboxAuth, "player", string.Empty, ct);
-        await AuditAsync(result.ProjectId, "project.create", new { name, description, requireSboxAuth }, ct);
+        var profile = hostingProfile is "dedicated" or "hybrid" or "unset" ? hostingProfile : "player-hosted";
+        var result = await projects.CreateProjectAsync(Owner, name, description, true, requireSboxAuth, "player", string.Empty, ct, profile);
+        await AuditAsync(result.ProjectId, "project.create", new { name, description, requireSboxAuth, hostingProfile = profile }, ct);
         if (createPublicKey)
         {
             // Same label as `sbox-ns quickstart`; public keys stay visible in the key table, so no one-time notice.
@@ -246,12 +248,15 @@ public sealed class OwnerDashboardController(INetworkStorageProjectService proje
         var publicUrl = ServerBaseUrl.PublicUrl(config);
         var connect = new OwnerConnectInfo(ServerBaseUrl.ForRequest(config, Request), publicUrl is not null,
             keys.Where(key => key.Enabled && key.KeyType == "public").OrderBy(key => key.CreatedAt).FirstOrDefault()?.Key);
-        var requests = (await store.ListStorageRequestLogAsync(projectId, RecentRequests, ct)).Select(Summary).ToList();
+        var rawRequests = await store.ListStorageRequestLogAsync(projectId, RecentRequests, ct);
+        var requests = rawRequests.Select(Summary).ToList();
         var since = time.GetUtcNow().AddDays(-1);
         var rejected = requests.Where(request => request.Status is StatusCodes.Status401Unauthorized or StatusCodes.Status403Forbidden
             && request.At >= since).ToList();
-        return new OwnerProjectModel(access.Project, await projects.GetProjectResourcesForOwnerAsync(Owner, projectId, ct),
-            keys, connect, requests.FirstOrDefault(), rejected);
+        var resources = await projects.GetProjectResourcesForOwnerAsync(Owner, projectId, ct);
+        var authority = AuthorityCheckService.AnalyzeLoaded(access.Project.HostingProfile, resources, keys, rawRequests);
+        return new OwnerProjectModel(access.Project, resources,
+            keys, connect, requests.FirstOrDefault(), rejected, authority);
     }
 
     private static OwnerRequestSummary Summary(JsonElement row) => new(

@@ -42,7 +42,8 @@ public sealed class NetworkStorageProjectService(
         bool requireSboxAuth,
         string keyMode,
         string organizationId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? hostingProfile = null)
     {
         var projects = await workspaceStore.GetUserProjectsAsync(userId, cancellationToken);
 
@@ -58,7 +59,8 @@ public sealed class NetworkStorageProjectService(
             UpdatedAt: now,
             CompiledAt: null,
             RequireSboxAuth: requireSboxAuth,
-            PlayerKeyMode: keyMode
+            PlayerKeyMode: keyMode,
+            HostingProfile: WorkspaceProjectProfiles.NormalizeHostingProfile(hostingProfile) == "unset" ? null : hostingProfile
         );
 
         var updatedProjects = projects.Concat([project]).ToList();
@@ -456,6 +458,9 @@ public sealed class NetworkStorageProjectService(
                     var desc = (formValues.GetValueOrDefault("description") ?? "").Trim();
                     project = project with { Description = desc.Length > 256 ? desc[..256] : string.IsNullOrEmpty(desc) ? null : desc };
                     project = project with { Enabled = IsChecked(formValues.GetValueOrDefault("enabled")) };
+                    var hosting = formValues.GetValueOrDefault("hostingProfile");
+                    if (hosting is "player-hosted" or "dedicated" or "hybrid" or "unset")
+                        project = project with { HostingProfile = hosting == "unset" ? null : hosting };
                     break;
                 }
             case "security":

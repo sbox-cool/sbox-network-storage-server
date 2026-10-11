@@ -60,6 +60,7 @@ public sealed record WorkspaceProject(
     bool? EnableEncryptedRequests = null,
     int? EncryptedRequestWindowSeconds = null,
     string? PlayerKeyMode = null,
+    string? HostingProfile = null,
     bool? RevisionEnforcementEnabled = null,
     string? RevisionEnforcementMode = null,
     int? RevisionGracePeriodMinutes = null,
@@ -79,6 +80,23 @@ public sealed record WorkspaceProject(
     Dictionary<string, object>? EndpointRateLimits = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? LegacyPlayerProjections = null
 );
+public static class WorkspaceProjectProfiles
+{
+    /// <summary>Hosting profiles: how the game is hosted. Missing or unknown values read as "unset".</summary>
+    public static string NormalizeHostingProfile(string? value) => value switch
+    {
+        "player-hosted" or "dedicated" or "hybrid" => value,
+        _ => "unset",
+    };
+
+    public static string DisplayName(string? value) => NormalizeHostingProfile(value) switch
+    {
+        "player-hosted" => "Player-hosted",
+        "dedicated" => "Dedicated",
+        "hybrid" => "Hybrid",
+        _ => "Not set",
+    };
+}
 
 public sealed record WorkspaceProjectContext(
     WorkspaceProject Project,

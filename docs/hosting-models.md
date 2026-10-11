@@ -36,7 +36,9 @@ secret-key endpoints for your box.
   > Setup`, the Sync Tool) and trusted servers. It never ships in a
   published game.
 - The dashboard authority check lists any game data a client could still
-  change directly, so you can close the gaps before players find them.
+  change directly, so you can close the gaps before players find them. Set
+  the project's hosting profile first; see [admin-panel.md](admin-panel.md#authority-check)
+  for the findings and the CLI/MCP equivalents.
 
 For pointing the game and editor at your server, see
 [client-setup.md](client-setup.md). For what the client says to your

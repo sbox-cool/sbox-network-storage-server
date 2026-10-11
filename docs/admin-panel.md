@@ -116,7 +116,7 @@ printed host with `localhost:8080`.
 
 **All projects** is the project hub. Each project card is a single link into
 that project and shows its status (**Enabled** or **Disabled**), hosting
-profile (currently **Not set**), live revision (**Not synced** before the
+profile (**Player-hosted**, **Dedicated**, **Hybrid** or **Not set**), live revision (**Not synced** before the
 first sync) and last game request (**No requests yet** until the game calls).
 Above 8 projects a filter matches name or project ID; without JavaScript it
 works as a `GET ?q=` query. With no projects at all the page shows one empty
@@ -173,6 +173,33 @@ project overview has a copyable first prompt that names the project ID.
 
 The overview keeps name, description, **Enabled** and **Require s&box
 authentication** open. The other settings are folded and closed by default.
+
+### Hosting profile
+
+**How the game is hosted** is **Player-hosted** (a player's listen server holds
+only the public key), **Dedicated** (your own box holds a secret key) or
+**Hybrid** (both). **Create project** in the dashboard defaults to
+Player-hosted; `sbox-ns project create` and MCP create projects as **Not set**
+unless you pass `--hosting`. The profile changes no request behavior. It only
+tells the authority check which findings apply ([hosting models](hosting-models.md)).
+
+### Authority check
+
+The project overview has an **Authority check** card listing game data a
+client or untrusted host could still change. It is advisory, runs only when
+you open the page, and never touches the request path:
+
+- a collection with `accessMode: public` (clients read and write it directly);
+- an enabled endpoint that writes or deletes with no `condition` or `assert`
+  step (this heuristic can flag valid endpoints that validate some other way);
+- an endpoint with `requiresSecretKey` in a Player-hosted project (no trusted
+  caller exists to use it);
+- a secret API key seen on game routes in the last 200 logged requests of a
+  Player-hosted project (a secret cannot be held safely there).
+
+The same check runs as `sbox-ns project authority <projectId> [--json]`,
+`sbox-ns doctor --project <projectId>` and the read-only MCP tool
+`project_authority`.
 
 ### Auth sessions
 

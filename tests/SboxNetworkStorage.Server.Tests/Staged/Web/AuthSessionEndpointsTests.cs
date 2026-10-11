@@ -247,7 +247,7 @@ public abstract class AuthSessionEndpointsTests<TFactory> : IClassFixture<TFacto
                 Organization: null, StorageOwnerUserId: userId,
                 RequireSboxAuth: false, PlayerKeyMode: null, CanManage: true));
 
-        public Task<NetworkStorageProjectCreateResult> CreateProjectAsync(long userId, string name, string? description, bool enabled, bool requireSboxAuth, string keyMode, string organizationId, CancellationToken cancellationToken)
+        public Task<NetworkStorageProjectCreateResult> CreateProjectAsync(long userId, string name, string? description, bool enabled, bool requireSboxAuth, string keyMode, string organizationId, CancellationToken cancellationToken, string? hostingProfile = null)
             => throw new NotImplementedException();
         public Task<NetworkStorageProjectResources?> GetProjectResourcesAsync(long userId, string projectId, CancellationToken cancellationToken)
             => throw new NotImplementedException();
