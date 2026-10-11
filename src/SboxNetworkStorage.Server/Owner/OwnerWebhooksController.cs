@@ -12,7 +12,7 @@ namespace SboxNetworkStorage.Server.Owner;
 public sealed record OwnerWebhookProfile(string Id, string Name, string Url, string Color, bool Enabled);
 
 public sealed record OwnerWebhooksModel(string ProjectId, string ProjectName, string DefaultUrl, IReadOnlyList<OwnerWebhookProfile> Profiles,
-    OwnerWebhookProfile? Editing, string? Error = null, bool Saved = false);
+    OwnerWebhookProfile? Editing, string? Error = null);
 
 /// <summary>
 /// Discord webhook profiles stored on the project (<c>webhooks.defaultUrl</c>, <c>webhooks.profiles</c>, the hosted
@@ -43,11 +43,11 @@ public sealed partial class OwnerWebhooksController(INetworkStorageProjectServic
     private static string Quote(string value) => "\"" + value.Replace("\\", "\\\\", StringComparison.Ordinal).Replace("\"", "\\\"", StringComparison.Ordinal) + "\"";
 
     [HttpGet(Route)]
-    public async Task<IActionResult> Index(string projectId, [FromQuery] string? edit, [FromQuery] bool saved, CancellationToken ct)
+    public async Task<IActionResult> Index(string projectId, [FromQuery] string? edit, CancellationToken ct)
     {
         var model = await LoadAsync(projectId, ct);
         if (model is null) return NotFound();
-        return View("~/Views/Owner/Webhooks.cshtml", model with { Editing = model.Profiles.FirstOrDefault(profile => profile.Id == edit), Saved = saved });
+        return View("~/Views/Owner/Webhooks.cshtml", model with { Editing = model.Profiles.FirstOrDefault(profile => profile.Id == edit) });
     }
 
     [HttpGet(Route + "/profiles.json")]
@@ -73,7 +73,8 @@ public sealed partial class OwnerWebhooksController(INetworkStorageProjectServic
             return Invalid(model, "The default URL must be a Discord webhook URL (https://discord.com/api/webhooks/...).");
         await SaveAsync(projectId, url, model.Profiles, ct);
         await OwnerProjectScope.AuditAsync(audit, projectId, "webhooks.default", new { configured = url.Length > 0 }, ct);
-        return Redirect($"{OwnerProjectScope.ProjectUrl(projectId)}/webhooks?saved=true");
+        OwnerFlash.Success(this, "Webhook settings saved.");
+        return Redirect($"{OwnerProjectScope.ProjectUrl(projectId)}/webhooks");
     }
 
     [HttpPost(Route + "/profiles")]
@@ -93,7 +94,8 @@ public sealed partial class OwnerWebhooksController(INetworkStorageProjectServic
         var profiles = model.Profiles.Where(existing => existing.Id != profile.Id && existing.Id != originalId).Append(profile).ToList();
         await SaveAsync(projectId, model.DefaultUrl, profiles, ct);
         await OwnerProjectScope.AuditAsync(audit, projectId, "webhooks.profile.save", new { profile.Id }, ct);
-        return Redirect($"{OwnerProjectScope.ProjectUrl(projectId)}/webhooks?saved=true#profile-{profile.Id}");
+        OwnerFlash.Success(this, "Webhook profile saved.");
+        return Redirect($"{OwnerProjectScope.ProjectUrl(projectId)}/webhooks#profile-{profile.Id}");
     }
 
     [HttpPost(Route + "/profiles/delete")]
@@ -102,9 +104,11 @@ public sealed partial class OwnerWebhooksController(INetworkStorageProjectServic
         var model = await LoadAsync(projectId, ct);
         if (model is null) return NotFound();
         if (!model.Profiles.Any(profile => profile.Id == id)) return NotFound();
+        if (!OwnerConfirm.IsConfirmed(Request)) return OwnerConfirm.Page(this);
         await SaveAsync(projectId, model.DefaultUrl, model.Profiles.Where(profile => profile.Id != id).ToList(), ct);
         await OwnerProjectScope.AuditAsync(audit, projectId, "webhooks.profile.delete", new { id }, ct);
-        return Redirect($"{OwnerProjectScope.ProjectUrl(projectId)}/webhooks?saved=true");
+        OwnerFlash.Success(this, "Webhook profile deleted.");
+        return Redirect($"{OwnerProjectScope.ProjectUrl(projectId)}/webhooks");
     }
 
     private IActionResult Invalid(OwnerWebhooksModel model, string error)

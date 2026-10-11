@@ -98,7 +98,8 @@ public interface INetworkStorageProjectService
         bool requireSboxAuth,
         string keyMode,
         string organizationId,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        string? hostingProfile = null);
 
     Task<NetworkStorageProjectAccessResult?> ResolveProjectAccessAsync(
         long userId,

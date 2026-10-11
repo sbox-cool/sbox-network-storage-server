@@ -294,7 +294,7 @@ public abstract class NetworkStorageRateLimitsTests<TFactory> : IClassFixture<TF
 
         public Task<NetworkStorageProjectCreateResult> CreateProjectAsync(
             long userId, string name, string? description, bool enabled, bool requireSboxAuth,
-            string keyMode, string organizationId, CancellationToken cancellationToken)
+            string keyMode, string organizationId, CancellationToken cancellationToken, string? hostingProfile = null)
             => throw new NotSupportedException();
 
         public Task<NetworkStorageProjectAccessResult?> ResolveProjectAccessAsync(

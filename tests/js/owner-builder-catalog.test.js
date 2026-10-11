@@ -85,7 +85,7 @@ function browser(responses, definition = "") {
   const context = {
     document: { getElementById: id => nodes[id] || null, createElement: tag => new Node(tag), querySelector: () => null },
     window: { location: { pathname: "/dashboard/projects/proj_1/resources/endpoint" },
-      confirm: message => { confirmations.push(message); return context.confirmReplacement; } },
+      OwnerDialog: { confirm: options => { confirmations.push(options.message); return Promise.resolve(context.confirmReplacement); } } },
     confirmReplacement: false,
     Event: class { constructor(type) { this.type = type; } },
     FormData, URLSearchParams,
@@ -143,6 +143,7 @@ describe("catalog browser behavior", () => {
     assert.match(ui.confirmations[0], /Unsaved changes/);
     ui.context.confirmReplacement = true;
     ui.button("Use example").click();
+    await settle();
     assert.equal(ui.nodes.definition.value, example.source);
     assert.equal(inputEvents, 1);
   });

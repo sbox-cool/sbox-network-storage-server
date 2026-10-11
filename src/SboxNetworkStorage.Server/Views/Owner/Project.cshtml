@@ -75,6 +75,23 @@
         </tbody>
     </table></div>
 </section>
+<section class="card" id="authority">
+    <h2>Authority check</h2>
+    <p>Hosting profile: <strong>@SboxNetworkStorage.Domain.Workspace.WorkspaceProjectProfiles.DisplayName(project.HostingProfile)</strong>. These findings are advisory: game data a client or untrusted host could still change. The same check is available as <code>sbox-ns doctor --project @project.Id</code>.</p>
+    @if (Model.Authority is null || Model.Authority.Findings.Count == 0)
+    {
+        <p class="notice success">No client-writable game data found. Checked direct collection access, endpoint input validation, secret-key endpoints and recent secret-key use.</p>
+    }
+    else
+    {
+        <div class="table-scroll"><table>
+            <thead><tr><th scope="col">Finding</th><th scope="col">Detail</th><th scope="col">Fix</th></tr></thead>
+            <tbody>
+            @foreach (var finding in Model.Authority.Findings) { <tr><td><code>@finding.Target</code></td><td>@finding.Detail</td><td>@finding.Fix</td></tr> }
+            </tbody>
+        </table></div>
+    }
+</section>
 <section class="card" id="api-keys">
     <h2>API keys</h2>
     <p><code>sbox_ns_...</code> public keys are runtime credentials. <code>sbox_sk_...</code> secret keys must stay server-side.</p>
@@ -115,8 +132,8 @@
                         <button type="submit">@(key.Enabled ? "Disable" : "Enable")</button>
                     </form>
                     <form method="post" action="@url/keys/revoke">
-                        @Html.AntiForgeryToken()<input name="key" type="hidden" value="@key.Key" />
-                        <button class="danger" type="submit" data-confirm="Revoke the key &quot;@key.Label&quot; permanently? Games using it stop working.">Revoke permanently</button>
+                        @Html.AntiForgeryToken()<input name="key" type="hidden" value="@key.Key" /><input name="confirmTitle" type="hidden" value="Revoke API key" /><input name="confirmMessage" type="hidden" value="Revoke the key &quot;@key.Label&quot; permanently? Games using it stop working." />
+                        <button class="danger" type="submit" data-confirm-title="Revoke API key" data-confirm="Revoke the key &quot;@key.Label&quot; permanently? Games using it stop working.">Revoke permanently</button>
                     </form>
                 </td>
             </tr>
@@ -140,6 +157,7 @@
             <label>Name <input name="name" value="@project.Name" required maxlength="64" /></label>
             <label>Description <textarea name="description" maxlength="256">@project.Description</textarea></label>
             <label class="check"><input type="checkbox" name="enabled" value="true" checked="@project.Enabled" /> Enabled</label>
+            <label>How the game is hosted <select name="hostingProfile"><option value="player-hosted" selected="@(SboxNetworkStorage.Domain.Workspace.WorkspaceProjectProfiles.NormalizeHostingProfile(project.HostingProfile) == "player-hosted")">A player hosts (listen server, public key only)</option><option value="dedicated" selected="@(SboxNetworkStorage.Domain.Workspace.WorkspaceProjectProfiles.NormalizeHostingProfile(project.HostingProfile) == "dedicated")">Dedicated server (secret key)</option><option value="hybrid" selected="@(SboxNetworkStorage.Domain.Workspace.WorkspaceProjectProfiles.NormalizeHostingProfile(project.HostingProfile) == "hybrid")">Both player-hosted and dedicated</option><option value="unset" selected="@(SboxNetworkStorage.Domain.Workspace.WorkspaceProjectProfiles.NormalizeHostingProfile(project.HostingProfile) == "unset")">Not set</option></select></label>
             <button type="submit">Save project settings</button>
         </form>
     </article>

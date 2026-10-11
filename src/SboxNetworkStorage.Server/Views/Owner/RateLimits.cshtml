@@ -9,7 +9,6 @@
 }
 <link rel="stylesheet" href="/owner-assets/m/manage.css" />
 <div class="page-heading"><div><h1>Rate limit rules</h1><p>Cap how fast a field can grow per player or across the project, for @Model.ProjectName.</p></div><a class="button secondary" href="@url">Project overview</a></div>
-@if (Model.Saved) { <p class="notice success" role="status">Rate limit rules saved.</p> }
 @if (Model.Error is not null) { <p class="error" role="alert">@Model.Error</p> }
 <aside class="notice"><strong>How these rules are used</strong><p>Rules are saved with the project and served to the editor Sync Tool through <code>GET /v3/manage/@Model.ProjectId/rate-limit-rules</code>. This server does not enforce field windows at runtime. Write volume per collection is enforced by the collection <code>rateLimits.savesPerDay</code> setting.</p></aside>
 <section class="card">
@@ -34,7 +33,7 @@
                     <td><span class="badge @(rule.Enabled ? "positive" : "")">@(rule.Enabled ? "Enabled" : "Disabled")</span></td>
                     <td class="actions">
                         <a class="button secondary" href="@url/rate-limits?edit=@Uri.EscapeDataString(rule.Id)#rule-form">Edit</a>
-                        <form method="post" action="@url/rate-limits/delete">@Html.AntiForgeryToken()<input type="hidden" name="id" value="@rule.Id" /><button class="danger" type="submit" data-confirm="Delete the rate limit rule &quot;@rule.Id&quot;?">Delete</button></form>
+                        <form method="post" action="@url/rate-limits/delete">@Html.AntiForgeryToken()<input type="hidden" name="id" value="@rule.Id" /><input type="hidden" name="confirmTitle" value="Delete rate limit rule" /><input type="hidden" name="confirmMessage" value="Delete the rate limit rule &quot;@rule.Id&quot;?" /><button class="danger" type="submit" data-confirm-title="Delete rate limit rule" data-confirm="Delete the rate limit rule &quot;@rule.Id&quot;?">Delete</button></form>
                     </td>
                 </tr>
             }

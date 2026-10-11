@@ -1,8 +1,11 @@
 @model SboxNetworkStorage.Server.Owner.OwnerDashboardModel
+@using System.Globalization
+@using SboxNetworkStorage.Domain.Workspace
 @using SboxNetworkStorage.Server.Owner
 @{
     Layout = "~/Views/Owner/_Layout.cshtml";
-    var empty = Model.Projects.Count == 0;
+    var empty = Model.TotalProjects == 0;
+    string? OpenAttr(string id) => Model.OpenDialog == id ? "open" : null;
     var sshCommand = $"claude mcp add sbox-ns -- ssh {Model.SshHost} sudo sbox-ns mcp";
     const string localConfig = "{\n  \"mcpServers\": {\n    \"sbox-ns\": { \"command\": \"sbox-ns\", \"args\": [\"mcp\"] }\n  }\n}";
     const string pluginCommands = "/plugin marketplace add sbox-cool/sbox-network-storage-server\n/plugin install sbox-ns@sbox-ns";
@@ -12,36 +15,53 @@
         ("mcp.allow_data_writes", "Writing player and global records", "Changes real player data. Take a backup first."),
         ("mcp.allow_destructive", "Deleting definitions, records, keys and projects", "Cannot be undone except from a backup. A revoked key stops every game build that uses it."),
     };
-
-    void CreateProjectCard()
-    {
-        <article class="card" id="create-project"><h2>@(empty ? "Create your first project" : "Create project")</h2><p>One project holds the collections, endpoints, keys and player data of one game.</p><form method="post" action="/dashboard/projects">@Html.AntiForgeryToken()<label>Name <input name="name" required maxlength="64" placeholder="My game" /></label><label>Description <textarea name="description" maxlength="256" rows="3" placeholder="What are you building?"></textarea></label><label class="check"><input type="checkbox" name="requireSboxAuth" value="true" checked /> Require Facepunch s&box authentication</label><label class="check"><input type="checkbox" name="createPublicKey" value="true" checked /> Create a public game key</label><button type="submit">Create project</button></form></article>
-    }
-
-    void ImportCard()
-    {
-        <article class="card"><h2>Import a portable project</h2><p>Restore a self-hosted project archive on this instance. The archive retains its original project ID; import refuses an ID that already exists and never overwrites a live project.</p><form method="post" action="/dashboard/import" enctype="multipart/form-data">@Html.AntiForgeryToken()<label>Project archive (.tar.gz) <input type="file" name="archive" accept=".tar.gz,.tgz,application/gzip" required /></label><p class="muted">Maximum 64 MiB compressed / 256 MiB expanded. Archives contain player data and API-key hashes: store and transfer them securely.</p><button type="submit" class="secondary">Import project</button></form></article>
-    }
+    string When(DateTimeOffset at) => at.ToString("yyyy-MM-dd HH:mm:ss 'UTC'", CultureInfo.InvariantCulture);
+    var showFilter = Model.TotalProjects > 8;
+    var enhanceFilter = Model.TotalProjects > 8 ? "true" : "false";
 }
 <link rel="stylesheet" href="/owner-assets/m/manage.css" />
-<div class="page-heading"><div><h1>Projects</h1><p>Create projects, configure collections and browse stored records.</p></div>@if (!empty) { <a href="#create-project" class="button">Create project</a> }</div>
+<div class="page-heading"><div><h1>Projects</h1><p>Each project holds the collections, endpoints, keys and player data of one game. Choose a card to open it.</p></div>
+<div class="page-actions">
+<button type="button" data-dialog="create-project">Create project</button>
+<noscript><a class="button" href="/dashboard?dialog=create-project">Create project</a></noscript>
+<button type="button" class="secondary" data-dialog="import">Import</button>
+<noscript><a class="button secondary" href="/dashboard?dialog=import">Import</a></noscript>
+<button type="button" class="secondary" data-dialog="export">Export server</button>
+<noscript><a class="button secondary" href="/dashboard?dialog=export">Export server</a></noscript>
+</div></div>
 @if (Model.Error is not null) { <p class="notice error" role="alert">@Model.Error</p> }
 @if (empty)
 {
-    <section class="grid">@{ CreateProjectCard(); }</section>
+    <section class="card empty-state"><h2>No projects yet</h2><p>A project holds everything one game needs on this server: collections, endpoints, API keys and player data. Create your first project, or restore one from a portable archive.</p><div class="page-actions"><button type="button" data-dialog="create-project">Create project</button><button type="button" class="secondary" data-dialog="import">Import</button></div></section>
 }
 else
 {
-    <div class="section-heading"><span class="badge">@Model.Projects.Count total</span></div>
-    <section class="grid project-grid" aria-label="Projects">
-    @foreach (var project in Model.Projects.OrderBy(project => project.Name))
+    @if (showFilter)
     {
-        <article class="card project-card"><div class="section-heading"><span class="project-icon" aria-hidden="true">@(project.Name.Length > 0 ? project.Name[..1].ToUpperInvariant() : "P")</span><span class="badge @(project.Enabled ? "positive" : "")">@(project.Enabled ? "Enabled" : "Disabled")</span></div>
-        <h2><a href="/dashboard/projects/@Uri.EscapeDataString(project.Id)">@project.Name</a></h2>@if (!string.IsNullOrEmpty(project.Description)) { <p>@project.Description</p> }<code class="project-id">@project.Id</code>
-        <div class="card-bottom"><span>s&box auth @((project.RequireSboxAuth ?? true) ? "required" : "off")</span><a href="/dashboard/projects/@Uri.EscapeDataString(project.Id)">Open project →</a></div></article>
+        <form method="get" action="/dashboard" class="search project-filter" role="search"><label>Filter projects <input id="project-filter" name="q" value="@Model.Query" maxlength="128" placeholder="Name or project ID" data-enhance="@enhanceFilter" /></label><button type="submit" class="secondary">Filter</button>@if (Model.Query is not null) { <a class="button secondary" href="/dashboard">Clear</a> }</form>
     }
-    </section>
+    @if (Model.Cards.Count == 0)
+    {
+        <section class="card empty-state" id="project-filter-empty"><h2>No projects match</h2><p>No project name or ID contains "@Model.Query".</p><p><a class="button secondary" href="/dashboard">Clear the filter</a></p></section>
+    }
+    else
+    {
+        <div class="section-heading"><span class="badge">@Model.Cards.Count of @Model.TotalProjects shown</span></div>
+        <section class="grid project-grid" id="project-grid" aria-label="Projects">
+        @foreach (var card in Model.Cards)
+        {
+            var project = card.Project;
+            <a class="card project-card" href="/dashboard/projects/@Uri.EscapeDataString(project.Id)" data-project-name="@project.Name" data-project-id="@project.Id"><span class="section-heading"><span class="project-icon" aria-hidden="true">@(project.Name.Length > 0 ? project.Name[..1].ToUpperInvariant() : "P")</span><span class="badge @(project.Enabled ? "positive" : "")">@(project.Enabled ? "Enabled" : "Disabled")</span></span>
+            <h2>@project.Name</h2>@if (!string.IsNullOrEmpty(project.Description)) { <p>@project.Description</p> }<code class="project-id">@project.Id</code>
+            <dl class="project-facts"><dt>Status</dt><dd>@(project.Enabled ? "Enabled" : "Disabled")</dd><dt>Hosting profile</dt><dd>@WorkspaceProjectProfiles.DisplayName(project.HostingProfile)</dd><dt>Live revision</dt><dd>@(card.LiveRevision is { } revision ? revision.ToString(CultureInfo.InvariantCulture) : "Not synced")</dd><dt>Last request</dt><dd>@(card.LastRequestAt is { } last ? When(last) : "No requests yet")</dd></dl></a>
+        }
+        </section>
+        <section class="card empty-state" id="project-filter-empty" hidden><h2>No projects match</h2><p>No project name or ID matches the filter.</p></section>
+    }
 }
+<dialog class="owner-dialog" id="create-project" aria-labelledby="create-project-title" open="@OpenAttr("create-project")"><div class="owner-dialog-body"><h2 id="create-project-title">@(empty ? "Create your first project" : "Create project")</h2><p class="muted">One project holds the collections, endpoints, keys and player data of one game.</p><form method="post" action="/dashboard/projects">@Html.AntiForgeryToken()<label>Name <input name="name" required maxlength="64" placeholder="My game" value="@Model.CreateName" data-autofocus /></label><label>Description <textarea name="description" maxlength="256" rows="3" placeholder="What are you building?">@Model.CreateDescription</textarea></label><label class="check"><input type="checkbox" name="requireSboxAuth" value="true" checked /> Require Facepunch s&box authentication</label><label class="check"><input type="checkbox" name="createPublicKey" value="true" checked /> Create a public game key</label><label>How the game is hosted <select name="hostingProfile"><option value="player-hosted" selected>A player hosts (listen server, public key only)</option><option value="dedicated">Dedicated server (secret key)</option><option value="hybrid">Both player-hosted and dedicated</option></select></label><div class="owner-dialog-actions"><button type="submit">Create project</button><button type="submit" class="secondary" formmethod="dialog" formnovalidate value="cancel">Cancel</button></div></form></div></dialog>
+<dialog class="owner-dialog" id="import" aria-labelledby="import-title" open="@OpenAttr("import")"><div class="owner-dialog-body"><h2 id="import-title">Import a portable project</h2><p class="muted">Restore a self-hosted project archive on this instance. The archive retains its original project ID; import refuses an ID that already exists and never overwrites a live project.</p><form method="post" action="/dashboard/import" enctype="multipart/form-data">@Html.AntiForgeryToken()<label>Project archive (.tar.gz) <input type="file" name="archive" accept=".tar.gz,.tgz,application/gzip" required data-autofocus /></label><p class="muted">Maximum 64 MiB compressed / 256 MiB expanded. Archives contain player data and API-key hashes: store and transfer them securely.</p><div class="owner-dialog-actions"><button type="submit" class="secondary">Import project</button><button type="submit" class="secondary" formmethod="dialog" formnovalidate value="cancel">Cancel</button></div></form></div></dialog>
+<dialog class="owner-dialog" id="export" aria-labelledby="export-title" open="@OpenAttr("export")"><div class="owner-dialog-body"><h2 id="export-title">Export server</h2><p class="muted">Download every project, record, key and setting as one <code>.tar.gz</code>. Restore it on any server, SQLite or PostgreSQL, with <code>sbox-ns import FILE</code>.</p><form method="post" action="/dashboard/export">@Html.AntiForgeryToken()<label class="check"><input type="checkbox" name="includeSecrets" value="true" /> Include secrets (session, signing and API key encryption keys)</label><p class="notice security">Archives with secrets let anyone holding them forge player sessions and sign security configs. Only include them when moving this server, keep the file private and delete it afterwards. Without secrets, secret API keys stop working on a server that does not already have this server's secrets.</p><label>Password (needed only to include secrets) <input name="password" type="password" maxlength="1024" autocomplete="current-password" data-autofocus /></label><label>Authenticator or recovery code (if enabled) <input name="secondFactor" maxlength="32" autocomplete="one-time-code" /></label><div class="owner-dialog-actions"><button type="submit">Download export</button><button type="submit" class="secondary" formmethod="dialog" formnovalidate value="cancel">Cancel</button></div></form></div></dialog>
 <section class="card onboarding"><h2>Connect a game</h2><ol class="steps"><li><strong>Create a project</strong><p>Keep production and development data separate.</p></li><li><strong>Get a public key</strong><p>New projects get one by default. Use secret keys only for editor sync or trusted servers.</p></li><li><strong>Point the client here</strong><p>The project overview shows the exact <code>NetworkStorage.Configure</code> line to paste. Existing client calls stay the same.</p></li></ol></section>
 <section class="card" id="author-backend"><h2>Author your first backend</h2><p>Two files under your game's <code>Editor/Network Storage/</code> folder define storage and server logic. Push them with <strong>Editor &gt; Network Storage &gt; Sync Tool</strong>, or paste them into Collections and Endpoints on a project page. Full syntax: <a href="https://sboxcool.com/wiki/network-storage-v3/core-concepts/source-authoring" rel="noreferrer">YAML Source guide</a>.</p><div class="sample-grid"><div><h3>collections/players.collection.yml</h3><pre>sourceVersion: 1
 kind: collection
@@ -78,10 +98,6 @@ response:
   status: 200
   body:
     ok: true</pre></div></div><p class="muted"><code>accessMode: endpoint</code> keeps the collection behind endpoints: the game calls <code>grant-coins</code> and cannot write coins directly. In game code, use the public key only. Secret keys stay in editor tooling and trusted servers.</p></section>
-@if (!empty)
-{
-    <section class="grid">@{ CreateProjectCard(); ImportCard(); }</section>
-}
 <section class="card" id="coding-agent">
     <h2>Use with a coding agent</h2>
     <p>Coding agents such as Claude Code can create projects, write and dry-run endpoints, and read request logs, errors and records through <code>sbox-ns mcp</code>. <a href="@OwnerDocs.Url("mcp.md")" rel="noreferrer">Coding agents (MCP)</a></p>
@@ -106,15 +122,4 @@ response:
         </tbody>
     </table></div>
 </section>
-@if (empty)
-{
-    <details class="settings-advanced import-export"><summary>Import or export</summary>
-        @{ ImportCard(); }
-        @await Html.PartialAsync("~/Views/Owner/_ExportCard.cshtml")
-    </details>
-}
-else
-{
-    @await Html.PartialAsync("~/Views/Owner/_ExportCard.cshtml")
-}
 <script src="/owner-assets/m/manage.js" defer></script>

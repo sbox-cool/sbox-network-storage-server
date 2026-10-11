@@ -125,9 +125,11 @@ public sealed class OwnerTestsController(INetworkStorageProjectService projects,
         if (model is null) return NotFound();
         var existing = await ManagementProjectObjects.ReadTestsAsync(store, OwnerProjectScope.Owner, projectId, ct);
         if (!existing.Any(test => OwnerProjectScope.Text(test, "id") == id)) return NotFound();
+        if (!OwnerConfirm.IsConfirmed(Request)) return OwnerConfirm.Page(this);
         await ManagementProjectObjects.WriteTestsAsync(store, OwnerProjectScope.Owner, projectId,
             existing.Where(test => OwnerProjectScope.Text(test, "id") != id).ToList(), ct);
         await OwnerProjectScope.AuditAsync(audit, projectId, "test.delete", new { id }, ct);
+        OwnerFlash.Success(this, "Saved test deleted.");
         return Redirect($"{OwnerProjectScope.ProjectUrl(projectId)}/tests");
     }
 

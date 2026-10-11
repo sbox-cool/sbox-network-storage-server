@@ -7,7 +7,6 @@
 }
 <link rel="stylesheet" href="/owner-assets/m/manage.css" />
 <div class="page-heading"><div><h1>Pages</h1><p>Public content your game can fetch without a key, such as patch notes or a message of the day, for @Model.ProjectName.</p></div><a class="button secondary" href="@url">Project overview</a></div>
-@if (Model.Saved) { <p class="notice success" role="status">Pages saved.</p> }
 @if (Model.Error is not null) { <p class="error" role="alert">@Model.Error</p> }
 <div class="editor-grid">
     <aside class="card resource-list"><h2>Pages <span class="badge">@Model.Pages.Count</span></h2><a class="button secondary" href="@url/pages">+ New page</a>
@@ -19,7 +18,7 @@
             @if (isExisting)
             {
                 <div class="actions"><a class="button secondary" href="@Model.PublicUrl(editing!.Slug)" rel="noreferrer">Open public JSON</a>
-                <form method="post" action="@url/pages/delete">@Html.AntiForgeryToken()<input type="hidden" name="slug" value="@editing.Slug" /><button class="danger" type="submit" data-confirm="Delete the page &quot;@editing.Slug&quot;? Its public URL stops working.">Delete page</button></form></div>
+                <form method="post" action="@url/pages/delete">@Html.AntiForgeryToken()<input type="hidden" name="slug" value="@editing.Slug" /><input type="hidden" name="confirmTitle" value="Delete page" /><input type="hidden" name="confirmMessage" value="Delete the page &quot;@editing.Slug&quot;? Its public URL stops working." /><button class="danger" type="submit" data-confirm-title="Delete page" data-confirm="Delete the page &quot;@editing.Slug&quot;? Its public URL stops working.">Delete page</button></form></div>
             }
         </div>
         @if (isExisting)

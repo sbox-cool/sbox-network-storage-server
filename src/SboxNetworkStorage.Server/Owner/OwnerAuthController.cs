@@ -56,6 +56,7 @@ public sealed class OwnerAuthController(OwnerAccountService accounts, OwnerSetup
             return View("~/Views/Owner/Auth.cshtml", new OwnerAuthModel(false, Error: "Invalid credentials or authenticator/recovery code.", Username: username));
         }
         await SignInAsync(owner);
+        OwnerFlash.Success(this, "Signed in.");
         return Redirect("/dashboard");
     }
 
@@ -78,6 +79,7 @@ public sealed class OwnerAuthController(OwnerAccountService accounts, OwnerSetup
             if (password != confirmPassword) throw new ArgumentException("Passwords do not match.");
             var owner = await accounts.CreateAsync(username ?? string.Empty, password ?? string.Empty, ct);
             await SignInAsync(owner);
+            OwnerFlash.Success(this, "Owner account created. Signed in.");
             return Redirect("/dashboard");
         }
         catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
@@ -131,6 +133,7 @@ public sealed class OwnerAuthController(OwnerAccountService accounts, OwnerSetup
         logger.LogWarning("Owner '{Username}' signed in with a single-use login link from {RemoteAddress}.",
             owner.Username, HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown");
         await SignInAsync(owner);
+        OwnerFlash.Success(this, "Signed in.");
         return Redirect("/dashboard");
     }
 
@@ -141,6 +144,7 @@ public sealed class OwnerAuthController(OwnerAccountService accounts, OwnerSetup
         // A new stamp also ends copies of this cookie (and any other session); there is only one owner.
         await accounts.RevokeSessionsAsync(ct);
         await HttpContext.SignOutAsync(OwnerHostingExtensions.Scheme);
+        OwnerFlash.Success(this, "Signed out.");
         return Redirect("/login");
     }
 

@@ -35,7 +35,7 @@ public sealed class OwnerExportController(INetworkStorageStore store, INetworkSt
         if (includeSecrets && await ConfirmOwnerAsync(password, secondFactor, ct) is { } refused) return refused;
         if (!await Gate.WaitAsync(TimeSpan.Zero, ct))
         {
-            return await DashboardErrorAsync(StatusCodes.Status409Conflict, "An export is already running. Try again when it has finished.", ct);
+            return await DashboardErrorAsync(StatusCodes.Status409Conflict, "An export is already running. Try again when it has finished.", "export", ct);
         }
 
         try
@@ -47,7 +47,7 @@ public sealed class OwnerExportController(INetworkStorageStore store, INetworkSt
             }
             catch (ExportArchiveException ex)
             {
-                return await DashboardErrorAsync(StatusCodes.Status500InternalServerError, ex.Message, ct);
+                return await DashboardErrorAsync(StatusCodes.Status500InternalServerError, ex.Message, "export", ct);
             }
 
             await using (staged)
@@ -84,7 +84,7 @@ public sealed class OwnerExportController(INetworkStorageStore store, INetworkSt
     public async Task<IActionResult> ExportProject(string projectId, CancellationToken ct)
     {
         if (!await Gate.WaitAsync(TimeSpan.Zero, ct))
-            return await DashboardErrorAsync(409, "An export or import is already running.", ct);
+            return await DashboardErrorAsync(409, "An export or import is already running.", "export", ct);
         try
         {
             if (!(await workspace.GetUserProjectsAsync(Owner, ct)).Any(project => project.Id == projectId))
@@ -100,7 +100,7 @@ public sealed class OwnerExportController(INetworkStorageStore store, INetworkSt
         }
         catch (ExportArchiveException ex)
         {
-            return await DashboardErrorAsync(400, ex.Message, ct);
+            return await DashboardErrorAsync(400, ex.Message, "export", ct);
         }
         finally { Gate.Release(); }
     }
@@ -111,9 +111,9 @@ public sealed class OwnerExportController(INetworkStorageStore store, INetworkSt
     public async Task<IActionResult> ImportProject(IFormFile? archive, CancellationToken ct)
     {
         if (archive is null || archive.Length == 0 || archive.Length > ProjectArchive.MaxUploadBytes)
-            return await DashboardErrorAsync(400, "Choose a project .tar.gz export no larger than 64 MiB.", ct);
+            return await DashboardErrorAsync(400, "Choose a project .tar.gz export no larger than 64 MiB.", "import", ct);
         if (!await Gate.WaitAsync(TimeSpan.Zero, ct))
-            return await DashboardErrorAsync(409, "An export or import is already running.", ct);
+            return await DashboardErrorAsync(409, "An export or import is already running.", "import", ct);
         try
         {
             await using var input = archive.OpenReadStream();
@@ -122,11 +122,12 @@ public sealed class OwnerExportController(INetworkStorageStore store, INetworkSt
             await audit.LogActionAsync(new AuditLogRequest(projectId, Owner.ToString(CultureInfo.InvariantCulture),
                 "project.import", new { id = Owner, type = "owner-dashboard" }, new { id = projectId, type = "project" },
                 new { message = "Imported a portable project export", rows = result.RowsApplied }, null, null), ct);
+            OwnerFlash.Success(this, "Project imported.");
             return Redirect("/dashboard/projects/" + Uri.EscapeDataString(projectId));
         }
         catch (ExportArchiveException ex)
         {
-            return await DashboardErrorAsync(400, ex.Message, ct);
+            return await DashboardErrorAsync(400, ex.Message, "import", ct);
         }
         finally { Gate.Release(); }
     }
@@ -138,7 +139,7 @@ public sealed class OwnerExportController(INetworkStorageStore store, INetworkSt
         var owner = password is { Length: >= 1 and <= 1024 }
             ? await accounts.AuthenticateAsync(User.Identity!.Name!, password, ct) : null;
         if (owner is null || owner.SecurityStamp != User.FindFirstValue(OwnerHostingExtensions.StampClaim))
-            return await DashboardErrorAsync(StatusCodes.Status401Unauthorized, Required, ct);
+            return await DashboardErrorAsync(StatusCodes.Status401Unauthorized, Required, "export", ct);
         if (owner.TotpSecret is null) return null;
         try
         {
@@ -147,15 +148,17 @@ public sealed class OwnerExportController(INetworkStorageStore store, INetworkSt
         catch (OwnerAuthenticatorUnavailableException)
         {
             return await DashboardErrorAsync(StatusCodes.Status401Unauthorized,
-                "This server cannot read your authenticator. Use a recovery code, or run sbox-ns admin reset-2fa on the server.", ct);
+                "This server cannot read your authenticator. Use a recovery code, or run sbox-ns admin reset-2fa on the server.", "export", ct);
         }
-        return await DashboardErrorAsync(StatusCodes.Status401Unauthorized, Required, ct);
+        return await DashboardErrorAsync(StatusCodes.Status401Unauthorized, Required, "export", ct);
     }
 
-    private async Task<IActionResult> DashboardErrorAsync(int status, string error, CancellationToken ct)
+    private async Task<IActionResult> DashboardErrorAsync(int status, string error, string? openDialog, CancellationToken ct)
     {
         Response.StatusCode = status;
-        return View("~/Views/Owner/Dashboard.cshtml", new OwnerDashboardModel(await workspace.GetUserProjectsAsync(Owner, ct),
-            OwnerDashboardModel.SshHostFor(config, Request), error));
+        if (openDialog is not null) ViewData["OpenDialog"] = openDialog;
+        var cards = await OwnerProjectCards.LoadAsync(workspace, store, Owner, ct);
+        return View("~/Views/Owner/Dashboard.cshtml", new OwnerDashboardModel(cards,
+            OwnerDashboardModel.SshHostFor(config, Request), error, null, openDialog, null, null, cards.Count));
     }
 }

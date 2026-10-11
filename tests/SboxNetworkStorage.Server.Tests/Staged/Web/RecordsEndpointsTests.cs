@@ -365,7 +365,7 @@ public abstract class RecordsEndpointsTests<TFactory> : IClassFixture<TFactory>
             => Task.FromResult<NetworkStorageProjectResources?>(new NetworkStorageProjectResources(collections, Array.Empty<EndpointResource>()));
 
         // Unused members throw NotImplementedException (not reached by the records endpoint path).
-        public Task<NetworkStorageProjectCreateResult> CreateProjectAsync(long userId, string name, string? description, bool enabled, bool requireSboxAuth, string keyMode, string organizationId, CancellationToken ct) => throw new NotImplementedException();
+        public Task<NetworkStorageProjectCreateResult> CreateProjectAsync(long userId, string name, string? description, bool enabled, bool requireSboxAuth, string keyMode, string organizationId, CancellationToken ct, string? hostingProfile = null) => throw new NotImplementedException();
         public Task<NetworkStorageProjectResources?> GetProjectResourcesAsync(long userId, string projectId, CancellationToken ct) => throw new NotImplementedException();
         public Task<NetworkStorageTeamData?> GetProjectTeamAsync(long storageOwnerUserId, string projectId, string? organizationId, string callerRole, CancellationToken ct) => throw new NotImplementedException();
         public Task<IReadOnlyList<ApiKeyInfo>> GetProjectKeysAsync(long storageOwnerUserId, string projectId, CancellationToken ct) => throw new NotImplementedException();

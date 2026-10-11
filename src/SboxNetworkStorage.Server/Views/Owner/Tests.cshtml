@@ -114,7 +114,7 @@ else
                     <td>@(test.ExpectOutcome switch { "fail" => "Rejection", "any" => "Either", _ => "Success" })@(test.ExpectStatus is { } status ? $" (HTTP {status})" : "")</td>
                     <td><code>@test.SteamId</code>@(test.AsServer ? " as server" : "")</td>
                     <td class="actions"><a class="button secondary" href="@url/tests?test=@Uri.EscapeDataString(test.Id)#try-it">Open</a>
-                        <form method="post" action="@url/tests/delete">@Html.AntiForgeryToken()<input type="hidden" name="id" value="@test.Id" /><button class="danger" type="submit" data-confirm="Delete the saved test &quot;@test.Name&quot;?">Delete</button></form></td></tr>
+                        <form method="post" action="@url/tests/delete">@Html.AntiForgeryToken()<input type="hidden" name="id" value="@test.Id" /><input type="hidden" name="confirmTitle" value="Delete saved test" /><input type="hidden" name="confirmMessage" value="Delete the saved test &quot;@test.Name&quot;?" /><button class="danger" type="submit" data-confirm-title="Delete saved test" data-confirm="Delete the saved test &quot;@test.Name&quot;?">Delete</button></form></td></tr>
             }
             </tbody>
         </table></div>

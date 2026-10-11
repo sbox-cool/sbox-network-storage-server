@@ -15,7 +15,7 @@ public sealed record OwnerPage(string Slug, string Title, string Type, string Co
 
 /// <param name="BaseUrl">server.public_url, or the origin the dashboard was opened with (<see cref="ServerBaseUrl.ForRequest"/>).</param>
 public sealed record OwnerPagesModel(string ProjectId, string ProjectName, IReadOnlyList<OwnerPage> Pages, OwnerPage? Editing,
-    string BaseUrl, string? Error = null, bool Saved = false)
+    string BaseUrl, string? Error = null)
 {
     /// <summary>Absolute public URL of a page.</summary>
     public string PublicUrl(string slug) => $"{BaseUrl}/pages/{Uri.EscapeDataString(ProjectId)}/{Uri.EscapeDataString(slug)}";
@@ -36,11 +36,11 @@ public sealed partial class OwnerPagesController(INetworkStorageProjectService p
     private static partial Regex SlugPattern();
 
     [HttpGet(Route)]
-    public async Task<IActionResult> Index(string projectId, [FromQuery] string? slug, [FromQuery] bool saved, CancellationToken ct)
+    public async Task<IActionResult> Index(string projectId, [FromQuery] string? slug, CancellationToken ct)
     {
         var model = await LoadAsync(projectId, ct);
         if (model is null) return NotFound();
-        return View("~/Views/Owner/Pages.cshtml", model with { Editing = model.Pages.FirstOrDefault(page => page.Slug == slug), Saved = saved });
+        return View("~/Views/Owner/Pages.cshtml", model with { Editing = model.Pages.FirstOrDefault(page => page.Slug == slug) });
     }
 
     [HttpPost(Route)]
@@ -87,7 +87,8 @@ public sealed partial class OwnerPagesController(INetworkStorageProjectService p
         await workspace.PutProjectResourceAsync(OwnerProjectScope.Owner, projectId, $"pages/{page.Slug}.json", pageDocument, ct);
         if (previous is not null && previous.Slug != page.Slug) await DeletePageAsync(projectId, previous.Slug, ct);
         await OwnerProjectScope.AuditAsync(audit, projectId, "page.save", new { slug = page.Slug }, ct);
-        return Redirect($"{OwnerProjectScope.ProjectUrl(projectId)}/pages?saved=true&slug={Uri.EscapeDataString(page.Slug)}");
+        OwnerFlash.Success(this, "Page saved.");
+        return Redirect($"{OwnerProjectScope.ProjectUrl(projectId)}/pages?slug={Uri.EscapeDataString(page.Slug)}");
     }
 
     [HttpPost(Route + "/delete")]
@@ -96,9 +97,11 @@ public sealed partial class OwnerPagesController(INetworkStorageProjectService p
         var model = await LoadAsync(projectId, ct);
         if (model is null) return NotFound();
         if (!model.Pages.Any(page => page.Slug == slug)) return NotFound();
+        if (!OwnerConfirm.IsConfirmed(Request)) return OwnerConfirm.Page(this);
         await DeletePageAsync(projectId, slug!, ct);
         await OwnerProjectScope.AuditAsync(audit, projectId, "page.delete", new { slug }, ct);
-        return Redirect($"{OwnerProjectScope.ProjectUrl(projectId)}/pages?saved=true");
+        OwnerFlash.Success(this, "Page deleted.");
+        return Redirect($"{OwnerProjectScope.ProjectUrl(projectId)}/pages");
     }
 
     private Task DeletePageAsync(string projectId, string slug, CancellationToken ct)

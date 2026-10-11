@@ -29,7 +29,9 @@ public static class CliApp
           setup                         Create or update the config folder interactively
                                         (--non-interactive with --database, --listen, --public-url, --pg-* flags)
                                         (--admin-username with --admin-password-file FILE or NS_ADMIN_PASSWORD)
-          doctor                        Check config, database, port, TLS, disk and updates
+          doctor [--project ID] [--json]
+                                        Check config, database, port, TLS, disk and updates;
+                                        with --project, the authority check for that project instead
           version                       Print the version
 
         HTTPS tunnel (optional, no account required)
@@ -85,8 +87,11 @@ public static class CliApp
                                         creates the owner if none exists. Run on the server, e.g. over SSH
 
         Projects and API keys
-          project create <name>         Create a project
+          project create <name> [--hosting player-hosted|dedicated|hybrid|unset]
+                                        Create a project (hosting profile defaults to unset)
           project list                  List projects
+          project authority <projectId> [--json]
+                                        Advisory check: game data a client could still change
           project delete <projectId>    Delete a project
           key create <projectId> --type public|secret [--label LABEL]
           key list <projectId>

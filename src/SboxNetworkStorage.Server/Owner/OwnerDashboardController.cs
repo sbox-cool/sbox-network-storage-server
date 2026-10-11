@@ -8,18 +8,40 @@ using SboxNetworkStorage.Application.Common;
 using SboxNetworkStorage.Application.NetworkStorage;
 using SboxNetworkStorage.Application.Workspace;
 using SboxNetworkStorage.Domain.Workspace;
+using SboxNetworkStorage.Server.Authority;
 using SboxNetworkStorage.Server.Configuration;
 using SboxNetworkStorage.Server.Hosting;
 
 namespace SboxNetworkStorage.Server.Owner;
 
+/// <param name="LiveRevision">The synced game package revision, or null when the project never synced.</param>
+/// <param name="LastRequestAt">When the game last called this server, or null when it never did.</param>
+public sealed record OwnerProjectCard(WorkspaceProject Project, long? LiveRevision, DateTimeOffset? LastRequestAt);
+
+/// <param name="Cards">One card per project, ordered by name.</param>
 /// <param name="SshHost">Host shown in the coding-agent SSH command: this server's public host, or a placeholder when it is only reachable locally.</param>
-public sealed record OwnerDashboardModel(IReadOnlyList<WorkspaceProject> Projects, string SshHost, string? Error = null)
+/// <param name="Query">The current <c>?q=</c> filter text, if any.</param>
+/// <param name="OpenDialog">Dialog id (<c>create-project</c>, <c>import</c>, <c>export</c>) to render open: the no-JS target or the re-opened dialog after a validation error.</param>
+/// <param name="CreateName">The create-project name to preserve when re-rendering after a validation error.</param>
+/// <param name="CreateDescription">The create-project description to preserve when re-rendering after a validation error.</param>
+public sealed record OwnerDashboardModel(IReadOnlyList<OwnerProjectCard> Cards, string SshHost, string? Error = null,
+    string? Query = null, string? OpenDialog = null, string? CreateName = null, string? CreateDescription = null, int TotalProjects = 0)
 {
+    public IReadOnlyList<WorkspaceProject> Projects => Cards.Select(card => card.Project).ToList();
+
     public static string SshHostFor(EffectiveConfig config, HttpRequest request)
     {
         var baseUrl = ServerBaseUrl.ForRequest(config, request);
         return !ServerBaseUrl.IsLoopback(baseUrl) && Uri.TryCreate(baseUrl, UriKind.Absolute, out var uri) ? uri.Host : "my-vps";
+    }
+
+    /// <summary>Server-side <c>?q=</c> matching, mirrored by the client enhancement: name or id, case-insensitive substring.</summary>
+    public static bool Matches(OwnerProjectCard card, string query)
+    {
+        query = query.Trim();
+        if (query.Length == 0) return true;
+        return card.Project.Name.Contains(query, StringComparison.OrdinalIgnoreCase)
+            || card.Project.Id.Contains(query, StringComparison.OrdinalIgnoreCase);
     }
 }
 
@@ -36,7 +58,7 @@ public sealed record OwnerRequestSummary(DateTimeOffset At, string Method, strin
 
 public sealed record OwnerProjectModel(WorkspaceProject Project, NetworkStorageProjectResources? Resources,
     IReadOnlyList<ApiKeyInfo> Keys, OwnerConnectInfo Connect, OwnerRequestSummary? LastRequest,
-    IReadOnlyList<OwnerRequestSummary> RecentRejected, string? RawKey = null, string? Error = null);
+    IReadOnlyList<OwnerRequestSummary> RecentRejected, AuthorityCheckService.AuthorityCheckResult? Authority = null, string? RawKey = null, string? Error = null);
 
 /// <summary>Standalone adaptation of the Network Storage project/settings/key management surface.</summary>
 [Authorize(AuthenticationSchemes = OwnerHostingExtensions.Scheme)]
@@ -61,28 +83,36 @@ public sealed class OwnerDashboardController(INetworkStorageProjectService proje
     public IActionResult Index() => Redirect("/dashboard");
 
     [HttpGet("/dashboard")]
-    public async Task<IActionResult> Dashboard(CancellationToken ct)
-        => View("~/Views/Owner/Dashboard.cshtml", new OwnerDashboardModel(await workspace.GetUserProjectsAsync(Owner, ct), OwnerDashboardModel.SshHostFor(config, Request)));
+    public async Task<IActionResult> Dashboard([FromQuery] string? q, [FromQuery] string? dialog, CancellationToken ct)
+    {
+        var open = DialogId(dialog);
+        if (open is not null) ViewData["OpenDialog"] = open;
+        return View("~/Views/Owner/Dashboard.cshtml", await DashboardModelAsync(q, null, open, null, null, ct));
+    }
 
     [HttpPost("/dashboard/projects")]
     public async Task<IActionResult> CreateProject([FromForm] string? name, [FromForm] string? description,
-        [FromForm] bool requireSboxAuth, [FromForm] bool createPublicKey, CancellationToken ct)
+        [FromForm] bool requireSboxAuth, [FromForm] bool createPublicKey, [FromForm] string? hostingProfile, CancellationToken ct)
     {
         name = name?.Trim();
         if (name is null || name.Length is < 1 or > 64 || description?.Length > 256)
         {
             Response.StatusCode = StatusCodes.Status400BadRequest;
-            return View("~/Views/Owner/Dashboard.cshtml", new OwnerDashboardModel(await workspace.GetUserProjectsAsync(Owner, ct), OwnerDashboardModel.SshHostFor(config, Request),
-                "Project name is required (max 64 characters); description must be at most 256 characters."));
+            ViewData["OpenDialog"] = "create-project";
+            return View("~/Views/Owner/Dashboard.cshtml", await DashboardModelAsync(null,
+                "Project name is required (max 64 characters); description must be at most 256 characters.",
+                "create-project", name, description, ct));
         }
-        var result = await projects.CreateProjectAsync(Owner, name, description, true, requireSboxAuth, "player", string.Empty, ct);
-        await AuditAsync(result.ProjectId, "project.create", new { name, description, requireSboxAuth }, ct);
+        var profile = hostingProfile is "dedicated" or "hybrid" or "unset" ? hostingProfile : "player-hosted";
+        var result = await projects.CreateProjectAsync(Owner, name, description, true, requireSboxAuth, "player", string.Empty, ct, profile);
+        await AuditAsync(result.ProjectId, "project.create", new { name, description, requireSboxAuth, hostingProfile = profile }, ct);
         if (createPublicKey)
         {
             // Same label as `sbox-ns quickstart`; public keys stay visible in the key table, so no one-time notice.
             var (key, _) = await projects.CreateProjectKeyAsync(Owner, result.ProjectId, "Game client", "public", null, ct);
             await AuditAsync(result.ProjectId, "key.create", new { keyType = "public", key.Label }, ct);
         }
+        OwnerFlash.Success(this, $"Project {name} created.");
         return Redirect(ProjectUrl(result.ProjectId));
     }
 
@@ -119,6 +149,7 @@ public sealed class OwnerDashboardController(INetworkStorageProjectService proje
             return await ProjectErrorAsync(projectId, "Choose an enforcement mode and post-grace action; the notice may contain at most 500 characters.", ct);
         await projects.UpdateProjectSettingsAsync(Owner, projectId, tab, values, ct);
         await AuditAsync(projectId, "project.settings", new { tab }, ct);
+        OwnerFlash.Success(this, "Settings saved");
         return Redirect(ProjectUrl(projectId));
     }
 
@@ -134,6 +165,7 @@ public sealed class OwnerDashboardController(INetworkStorageProjectService proje
         // Post/redirect/get: a refresh must not create a second key. The raw key waits server-side for one view.
         var notice = Convert.ToHexString(RandomNumberGenerator.GetBytes(16));
         cache.Set(RawKeyCacheKey(notice), (projectId, raw), RawKeyLifetime);
+        OwnerFlash.Success(this, $"API key {key.Label} created.");
         return Redirect(ProjectUrl(projectId) + "?created=" + notice + "#api-keys");
     }
 
@@ -161,6 +193,7 @@ public sealed class OwnerDashboardController(INetworkStorageProjectService proje
         }
         await projects.UpdateProjectKeyPermissionsAsync(Owner, projectId, keyIdentifier, permissions, ct);
         await AuditAsync(projectId, "key.permissions", new { keyIdentifier, permissions }, ct);
+        OwnerFlash.Success(this, "Key permissions saved.");
         return Redirect(ProjectUrl(projectId) + "#api-keys");
     }
 
@@ -172,6 +205,7 @@ public sealed class OwnerDashboardController(INetworkStorageProjectService proje
             return await ProjectErrorAsync(projectId, "Type the exact project ID to confirm permanent deletion.", ct);
         await AuditAsync(projectId, "project.delete", new { projectId }, ct);
         await projects.DeleteProjectAsync(Owner, projectId, ct);
+        OwnerFlash.Success(this, "Project deleted.");
         return Redirect("/dashboard");
     }
 
@@ -180,10 +214,30 @@ public sealed class OwnerDashboardController(INetworkStorageProjectService proje
         var model = await LoadProjectAsync(projectId, ct);
         if (model is null) return NotFound();
         if (key is null || !model.Keys.Any(candidate => string.Equals(candidate.Key, key, StringComparison.Ordinal))) return NotFound();
-        if (revoke) await projects.RemoveProjectKeyAsync(Owner, projectId, key, ct);
-        else await projects.ToggleProjectKeyAsync(Owner, projectId, key, ct);
+        if (revoke && !OwnerConfirm.IsConfirmed(Request)) return OwnerConfirm.Page(this);
+        var label = model.Keys.First(candidate => string.Equals(candidate.Key, key, StringComparison.Ordinal)).Label;
+        if (revoke) await projects.RemoveProjectKeyAsync(Owner, projectId, key!, ct);
+        else await projects.ToggleProjectKeyAsync(Owner, projectId, key!, ct);
         await AuditAsync(projectId, revoke ? "key.revoke" : "key.toggle", new { }, ct);
+        OwnerFlash.Success(this, revoke ? $"API key {label} revoked." : $"API key {label} updated.");
         return Redirect(ProjectUrl(projectId));
+    }
+
+    private static string? DialogId(string? dialog) => dialog switch
+    {
+        "create-project" or "import" or "export" => dialog,
+        _ => null,
+    };
+
+    private async Task<OwnerDashboardModel> DashboardModelAsync(string? query, string? error, string? openDialog,
+        string? createName, string? createDescription, CancellationToken ct)
+    {
+        query = query?.Trim() ?? "";
+        var cards = await OwnerProjectCards.LoadAsync(workspace, store, Owner, ct);
+        var total = cards.Count;
+        if (query.Length > 0) cards.RemoveAll(card => !OwnerDashboardModel.Matches(card, query));
+        return new OwnerDashboardModel(cards, OwnerDashboardModel.SshHostFor(config, Request), error,
+            query.Length == 0 ? null : query, openDialog, createName, createDescription, total);
     }
 
     private async Task<OwnerProjectModel?> LoadProjectAsync(string projectId, CancellationToken ct)
@@ -194,12 +248,15 @@ public sealed class OwnerDashboardController(INetworkStorageProjectService proje
         var publicUrl = ServerBaseUrl.PublicUrl(config);
         var connect = new OwnerConnectInfo(ServerBaseUrl.ForRequest(config, Request), publicUrl is not null,
             keys.Where(key => key.Enabled && key.KeyType == "public").OrderBy(key => key.CreatedAt).FirstOrDefault()?.Key);
-        var requests = (await store.ListStorageRequestLogAsync(projectId, RecentRequests, ct)).Select(Summary).ToList();
+        var rawRequests = await store.ListStorageRequestLogAsync(projectId, RecentRequests, ct);
+        var requests = rawRequests.Select(Summary).ToList();
         var since = time.GetUtcNow().AddDays(-1);
         var rejected = requests.Where(request => request.Status is StatusCodes.Status401Unauthorized or StatusCodes.Status403Forbidden
             && request.At >= since).ToList();
-        return new OwnerProjectModel(access.Project, await projects.GetProjectResourcesForOwnerAsync(Owner, projectId, ct),
-            keys, connect, requests.FirstOrDefault(), rejected);
+        var resources = await projects.GetProjectResourcesForOwnerAsync(Owner, projectId, ct);
+        var authority = AuthorityCheckService.AnalyzeLoaded(access.Project.HostingProfile, resources, keys, rawRequests);
+        return new OwnerProjectModel(access.Project, resources,
+            keys, connect, requests.FirstOrDefault(), rejected, authority);
     }
 
     private static OwnerRequestSummary Summary(JsonElement row) => new(

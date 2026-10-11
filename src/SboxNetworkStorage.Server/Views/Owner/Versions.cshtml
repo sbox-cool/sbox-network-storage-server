@@ -13,7 +13,6 @@
 }
 <link rel="stylesheet" href="/owner-assets/m/manage.css" />
 <div class="page-heading"><div><h1>Version history</h1><p>Every save of an endpoint or workflow is kept, newest first (up to 50 per resource), for @Model.ProjectName.</p></div><a class="button secondary" href="@url">Project overview</a></div>
-@if (Model.Restored) { <p class="notice success" role="status">Version restored. It is now the live definition and was recorded as a new version.</p> }
 @if (Model.Error is not null) { <div class="notice error" role="alert"><strong>Could not restore this version</strong><pre>@Model.Error</pre></div> }
 <div class="manage-versions">
     <aside class="card resource-list">

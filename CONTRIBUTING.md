@@ -17,7 +17,11 @@ Requires the [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0).
 ```sh
 dotnet build SboxNetworkStorage.sln
 dotnet test
+node --test tests/js/*.test.js
 ```
+
+`node --test` runs the dashboard helper unit tests (dialog focus return,
+toast schedules, project filter matching, editor guards).
 
 Run the server locally with a throwaway config and data folder:
 

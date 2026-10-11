@@ -34,8 +34,10 @@
     <EmbeddedResource Include="wwwroot/js/owner-resource-builder.js" LogicalName="SboxNetworkStorage.Server.Owner.builder.js" />
     <EmbeddedResource Include="wwwroot/js/owner-builder-catalog.js" LogicalName="SboxNetworkStorage.Server.Owner.builder-catalog.js" />
     <EmbeddedResource Include="wwwroot/js/owner-demo.js" LogicalName="SboxNetworkStorage.Server.Owner.demo.js" />
-    <EmbeddedResource Include="wwwroot/css/owner-manage.css" LogicalName="SboxNetworkStorage.Server.Owner.manage.css" />
+    <EmbeddedResource Include="wwwroot/js/owner-dialog.js" LogicalName="SboxNetworkStorage.Server.Owner.dialog.js" />
+    <EmbeddedResource Include="wwwroot/js/owner-toast.js" LogicalName="SboxNetworkStorage.Server.Owner.toast.js" />
     <EmbeddedResource Include="wwwroot/js/owner-manage.js" LogicalName="SboxNetworkStorage.Server.Owner.manage.js" />
+    <EmbeddedResource Include="wwwroot/css/owner-manage.css" LogicalName="SboxNetworkStorage.Server.Owner.manage.css" />
     <EmbeddedResource Include="Owner/Examples/*.yml" LogicalName="SboxNetworkStorage.Server.Owner.Examples.%(Filename)%(Extension)" />
     <EmbeddedResource Include="Updates/release-signing-keys.pub" LogicalName="SboxNetworkStorage.Server.Updates.release-signing-keys.pub" />
     <EmbeddedResource Include="../../install/*.service;../../install/*.timer" LogicalName="SboxNetworkStorage.Server.Systemd.%(Filename)%(Extension)" />

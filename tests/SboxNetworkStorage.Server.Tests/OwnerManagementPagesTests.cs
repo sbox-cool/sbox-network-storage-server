@@ -79,7 +79,7 @@ public sealed class OwnerManagementPagesTests
             Assert.Contains(rules.EnumerateArray(), rule => rule.GetProperty("id").GetString() == "rl_gold_hourly");
         }
 
-        using (var deleted = await PostFormAsync(owner, url + "/rate-limits", url + "/rate-limits/delete", ("id", "rl_xp")))
+        using (var deleted = await PostFormAsync(owner, url + "/rate-limits", url + "/rate-limits/delete", ("id", "rl_xp"), ("confirmed", "true")))
             Assert.Equal(HttpStatusCode.Redirect, deleted.StatusCode);
         var page = await owner.GetStringAsync(url + "/rate-limits");
         Assert.DoesNotContain("rl_xp", page);
@@ -188,7 +188,7 @@ public sealed class OwnerManagementPagesTests
         Assert.Contains($"Http.RequestJsonAsync<JsonElement>( \"{publicUrl}\" );", markdownPage);
         Assert.Contains("page.GetProperty( \"markdown\" )", markdownPage);
         Assert.Contains("page.GetProperty( \"data\" )", WebUtility.HtmlDecode(await owner.GetStringAsync(url + "/pages?slug=motd")));
-        using (var deleted = await PostFormAsync(owner, url + "/pages?slug=motd", url + "/pages/delete", ("slug", "motd")))
+        using (var deleted = await PostFormAsync(owner, url + "/pages?slug=motd", url + "/pages/delete", ("slug", "motd"), ("confirmed", "true")))
             Assert.Equal(HttpStatusCode.Redirect, deleted.StatusCode);
         using var gone = await anonymous.GetAsync($"/pages/{project.ProjectId}/motd");
         Assert.Equal(HttpStatusCode.NotFound, gone.StatusCode);
@@ -241,7 +241,11 @@ public sealed class OwnerManagementPagesTests
         var create = empty.IndexOf("id=\"create-project\"", StringComparison.Ordinal);
         Assert.True(create >= 0);
         Assert.True(create < empty.IndexOf("Connect a game", StringComparison.Ordinal));
-        Assert.True(create < empty.IndexOf("<summary>Import or export</summary>", StringComparison.Ordinal));
+        Assert.Contains("data-dialog=\"create-project\"", empty);
+        Assert.Contains("data-dialog=\"import\"", empty);
+        Assert.Contains("data-dialog=\"export\"", empty);
+        Assert.Contains("No projects yet", empty);
+        Assert.DoesNotContain("<summary>Import or export</summary>", empty);
         Assert.Single(System.Text.RegularExpressions.Regex.Matches(empty, ">Projects</h[12]>"));
         Assert.DoesNotContain("Management coverage", empty);
         Assert.DoesNotContain("parity", empty);
@@ -266,6 +270,19 @@ public sealed class OwnerManagementPagesTests
         Assert.Contains("This server does not block any request.", overview);
         foreach (var anchor in new[] { "auth-sessions", "encrypted-requests", "player-key-mode", "legacy-player-projections", "revision-policy" })
             Assert.Contains($"docs/admin-panel.md#{anchor}\"", overview);
+    }
+
+    [Fact]
+    public async Task DashboardUsesNetworkStorageBrand()
+    {
+        using var factory = new SqliteHostFactory();
+        await CreateOwnerAsync(factory);
+        using var owner = await LoggedInClientAsync(factory);
+        var page = WebUtility.HtmlDecode(await owner.GetStringAsync("/dashboard"));
+        Assert.Contains("<title>Network Storage · Owner console</title>", page);
+        Assert.Contains("<span>Network Storage</span>", page);
+        Assert.Contains("Network Storage · Single local owner", page);
+        Assert.DoesNotContain("Networked Storage", page);
     }
 
     [Fact]

@@ -7,6 +7,7 @@
 - [README](README.md): Linux VPS quickstart, HTTPS tunnel opt-in, project/public-key setup, editor secret key and Base URL, YAML definition sync, preview caveats and CLI reference.
 - [Self-hosting](docs/self-hosting.md): Linux/macOS, Windows, Docker, manual installation, services, HTTPS, optional tunnel/email/telemetry and backups.
 - [Client setup](docs/client-setup.md): Connect the s&box editor and game to a self-hosted Base URL; distinguish syncing definitions from moving runtime player records.
+- [Hosting models](docs/hosting-models.md): Player-hosted, dedicated and hybrid games; where authority lives and which key each caller uses.
 - [Game-client protocol](docs/game-client.md): Startup handshakes performed by the library.
 
 ## Operators and coding agents
