@@ -346,13 +346,17 @@ public sealed partial class StoreMetadataWorkspaceClient : IWorkspaceStore
             case MetadataKind.GameValues:
                 return Unwrap(await _networkStore.ReadGameValuesAsync(projectId, ct), "payload_json");
             case MetadataKind.RateLimitRules:
-                return Unwrap(await _networkStore.ReadRateLimitRulesAsync(projectId, ct), "rules_json");
+                return UnwrapRulesArray(Unwrap(await _networkStore.ReadRateLimitRulesAsync(projectId, ct), "rules_json"));
             case MetadataKind.Pages:
                 return ReconstructPagesArray(await _networkStore.ListPagesAsync(projectId, ct));
             default:
                 return null;
         }
     }
+
+    // Rows written by 0.4.0 hold the documented {rules:[...]} wrapper; readers bind a bare array.
+    private static JsonNode? UnwrapRulesArray(JsonNode? node)
+        => node is JsonObject obj && obj["rules"] is JsonArray rules ? rules.DeepClone() : node;
 
     private async Task<JsonNode?> ReadPageContentAsync(string resourcePath, string projectId, CancellationToken ct)
     {

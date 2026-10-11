@@ -41,11 +41,12 @@ if [[ -n "$postgres" ]]; then setup+=(--database postgres --pg-connection-string
 cli "${setup[@]}"
 project_output="$(cli project create 'HTTP Parity Smoke' --key-mode public --require-sbox-auth false)"
 project=''
-while IFS= read -r line; do [[ "$line" != 'Project ID: '* ]] || project="${line#Project ID: }"; done <<< "$project_output"
+while IFS= read -r line; do line="${line%$'\r'}"; [[ "$line" != 'Project ID: '* ]] || project="${line#Project ID: }"; done <<< "$project_output"
 [[ -n "$project" ]] || { echo "Cannot parse project id: $project_output" >&2; exit 1; }
 parse_key() {
   local line key=''
   while IFS= read -r line; do
+    line="${line%$'\r'}"
     if [[ "$line" =~ ^[[:space:]]+(sbox_[^[:space:]]+)[[:space:]]*$ ]]; then key="${BASH_REMATCH[1]}"; fi
   done
   [[ -n "$key" ]] || { echo 'Cannot parse CLI key output' >&2; return 1; }
