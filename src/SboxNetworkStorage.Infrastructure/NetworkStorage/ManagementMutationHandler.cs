@@ -842,6 +842,26 @@ public sealed partial class ManagementMutationHandler : INetworkStorageHandler
                     });
                 }
             }
+            else if (resourceKind is "endpoint" or "workflow")
+            {
+                // The push path stores what it is given, as the hosted backend does, so these never fail
+                // preflight. Each one would fail when the resource runs (for example a condition with no
+                // check answers 400 ENDPOINT_ERROR.CONDITION), so say so before the game does.
+                foreach (var finding in NetworkStorageDefinitionValidator.Validate(resourceKind, definition, DefinitionValidationContext.None))
+                {
+                    if (!finding.IsError) continue;
+                    warnings++;
+                    diagnostics.Add(new
+                    {
+                        severity = "warning",
+                        code = finding.Code,
+                        message = finding.Message,
+                        resourceKind,
+                        resourceId,
+                        sourcePath = finding.Path,
+                    });
+                }
+            }
 
             var action = PreflightMatchesExisting(resourceKind, definition, existing) ? "would_update" : "would_create";
             results.Add(new { ok = true, resourceKind, resourceId, action, diagnostics });

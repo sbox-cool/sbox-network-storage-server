@@ -252,7 +252,10 @@ acme_accept_terms = false
 hsts = true
 
 [logging]
-# Trace, Debug, Information, Warning, Error
+# Trace, Debug, Information, Warning, Error.
+# The per-request timing line (`HTTP POST /v3/... status=200 latencyMs=...`) is
+# written at Debug only; at Information and above it never appears. The
+# dashboard request log is separate and always records requests.
 level = "Information"
 
 [analytics]

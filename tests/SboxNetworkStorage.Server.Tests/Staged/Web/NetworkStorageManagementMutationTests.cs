@@ -616,6 +616,57 @@ public abstract class NetworkStorageManagementMutationTests<TFactory> : IClassFi
         Assert.Equal(1, json.GetProperty("summary").GetProperty("warnings").GetInt32());
     }
 
+    // The scaffold shipped by the editor library once emitted a condition with field/operator and no check.
+    // The executor answers 400 ENDPOINT_ERROR.CONDITION for it at run time; the push still stores what it is given.
+    private const string CheckLessCondition = """
+        {"endpoints":[{"slug":"init-player","method":"POST","enabled":true,
+          "steps":[{"id":"guard","type":"condition","field":"player","operator":"is_null","onFail":"return"}]}]}
+        """;
+
+    [SkippableFact]
+    public async Task PreflightSync_ConditionWithoutCheck_WarnsButStillPasses()
+    {
+        var handler = new ManagementMutationHandler(
+            new FakeKeyResolver("sk-valid", "proj-1"),
+            new FakeWorkspace("proj-1"),
+            new InMemoryNetworkStorageStore(),
+            TimeProvider.System);
+
+        var result = await handler.ExecuteAsync(
+            BuildRequest("POST", "proj-1", apiKey: "sk-valid", routeSuffix: "sync/preflight", body: CheckLessCondition));
+
+        Assert.Equal(200, result.StatusCode);
+        var json = JsonSerializer.SerializeToElement(result.Body);
+        Assert.True(json.GetProperty("ok").GetBoolean());
+        Assert.Equal(2, json.GetProperty("summary").GetProperty("warnings").GetInt32());
+        var diagnostics = json.GetProperty("endpoints").GetProperty("results")[0].GetProperty("diagnostics").EnumerateArray().ToList();
+        Assert.All(diagnostics, d =>
+        {
+            Assert.Equal("warning", d.GetProperty("severity").GetString());
+            Assert.Equal("init-player", d.GetProperty("resourceId").GetString());
+        });
+        // The missing check, and the scaffold's string onFail ("return") that the executor also rejects.
+        Assert.Equal(["INVALID_ON_FAIL:/steps/0/onFail", "MISSING_CHECK:/steps/0/check"],
+            diagnostics.Select(d => $"{d.GetProperty("code").GetString()}:{d.GetProperty("sourcePath").GetString()}").Order().ToArray());
+    }
+
+    [SkippableFact]
+    public async Task PutSync_ConditionWithoutCheck_IsStoredAsGiven()
+    {
+        var store = new InMemoryNetworkStorageStore();
+        var handler = new ManagementMutationHandler(
+            new FakeKeyResolver("sk-valid", "proj-1"),
+            new FakeWorkspace("proj-1"),
+            store,
+            TimeProvider.System);
+
+        var result = await handler.ExecuteAsync(
+            BuildRequest("PUT", "proj-1", apiKey: "sk-valid", routeSuffix: "sync", body: CheckLessCondition));
+
+        Assert.Equal(200, result.StatusCode);
+        Assert.Single(await store.ListEndpointsAsync("proj-1", CancellationToken.None));
+    }
+
     // ══════════════════════════════════════════════════════════════════
     // Sync batch push — PUT /sync
     // ══════════════════════════════════════════════════════════════════
