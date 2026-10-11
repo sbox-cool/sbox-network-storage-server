@@ -91,7 +91,8 @@ public static class CliApp
                                         Create a project (hosting profile defaults to unset)
           project list                  List projects
           project authority <projectId> [--json]
-                                        Advisory check: game data a client could still change
+                                        Advisory check: game data a client could still change, and records
+                                        damaged by the 0.4.0 update-ops bug
           project delete <projectId>    Delete a project
           key create <projectId> --type public|secret [--label LABEL]
           key list <projectId>
