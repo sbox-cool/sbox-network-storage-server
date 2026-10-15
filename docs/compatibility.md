@@ -16,6 +16,24 @@ Tracking: [server epic #57](https://github.com/sbox-cool/sbox-network-storage-se
 
 Link the parent server/client issues, counterpart PR, dependency and priority (`compat`, `priority: P0/P1/P2`). State whether the change is additive, deprecated or removal; which existing clients remain accepted; the replacement and sunset; and the request/response and database implications. A library counterpart must be merged/released before a backend removal depends on it. Include SQLite/PostgreSQL corpus results and update the tested matrix evidence. Run the unchanged legacy path, not only a newly versioned client. Reviewers must reject a shortened notice, a patch-only syntax change, or an untested removal.
 
+## Automated gates
+
+These run without anyone remembering to. All of them are `ci-only` evidence (hosted runners cannot
+start the s&box editor); they hold changes back, they do not certify a pairing.
+
+| Where | Check | Blocks |
+| --- | --- | --- |
+| Server PR and `main` | **Compat gate** ([`compat-matrix.yml`](../.github/workflows/compat-matrix.yml)): the parity corpus on the change, diffed against the approved stable reference **and against the latest release**; library version headers; the real library inside s&box (newest Facepunch/sbox-public, `-mcp` dedicated server) for every library in [`compat/library-targets.json`](../compat/library-targets.json) | Any unlisted wire difference. Any library that passes on the latest release and fails on the change (**regression**). A library failing on both is reported as an engine/library problem, not blamed on the change. |
+| Server release | The same gate inside `release.yml`, before anything is built or signed | Publishing. Passing libraries go into the signed `release.json` `testedLibraries`. |
+| Server nightly | The same gate on `main` with the newest engine | Nothing; opens or updates a `compat` issue on a regression, a contract failure, or a library that now fails on the released server too (an s&box update broke it). |
+| Library PR | Its own **Compat gate**: public API diff, the PR's library inside s&box against the latest server release and server `main`, and an editor-evidence hold for `Code/`/`Editor/` changes | See the library repo's `docs/`. |
+
+An intentional wire change is not a failure to work around: add the difference to
+[`tests/parity/intentional-differences.json`](../tests/parity/intentional-differences.json) with a
+reason in the same PR, so review sees exactly what older games will receive. When a new library
+revision is published on sbox.game, add it to `compat/library-targets.json` so every later server
+change is run against it too; keep the revisions players still run there.
+
 ## Certification: certify once, re-test on fundamental change
 
 Both sides are LTS: games embed the library for months and self-hosted servers
@@ -191,3 +209,27 @@ Distinct-player sketches merge across requests, flushes and days with approximat
 ## Safe binary rollback is a separate guarantee
 
 Schema rollback (preserved-data downgrades, schema floors, `rollback --keep-data`) is documented in [database.md](database.md). It certifies schema/config compatibility, not game behavior. For release notes, capture each prospective target's successful `compatibility --json` result against the release's schema/config and pass it as `--rollback-report /path/to/report.json` to `compat-release.py`; without reports, the generated notes explicitly certify no preserved-data target.
+
+## On the owner's server: preflight, watch, roll back
+
+CI cannot cover every library build in every published game, so each server also guards its own
+games (details in [self-hosting.md](self-hosting.md#updates)):
+
+- **Before an update**, `sbox-ns update` compares the release's signed `release.json`
+  `testedLibraries` with the library versions this server's games sent in the last 30 days. A
+  library with at least 1% of requests that the release lists as `fail` stops the update
+  (`--ignore-compat` overrides); untested builds are a warning. Unattended updates hold such a
+  release.
+- **After an update**, every request is counted per library version and server version
+  (`client_outcomes_hourly`, additive migration v7; telemetry only, nothing on the wire changes).
+  For 48 hours the server compares each library's error rate (5xx plus 4xx other than 401, 403, 409
+  and 429) with the previous release; a jump of at least 10 points and 2x, with at least 50
+  requests on both sides, is a regression. It sends one critical alert with the rollback commands,
+  shows it in `sbox-ns doctor` and the owner console's Server page, and `sbox-ns update verify`
+  prints the table (exit 5 on a regression).
+- **Rolling back** is one command: `sbox-ns rollback --keep-data` when every migration since is
+  additive, otherwise `sbox-ns rollback` (restores the pre-update backup). Unattended updates roll
+  back by themselves on a regression when that keeps all data (`updates.auto_rollback`, default on).
+
+These are self-reported library versions: they detect breakage, they never authenticate anything
+or refuse a request.

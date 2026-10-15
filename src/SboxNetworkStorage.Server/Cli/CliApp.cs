@@ -112,13 +112,18 @@ public static class CliApp
           logs [-f]                     Show service logs
 
         Updates (unattended only when updates.auto_install = true)
-          update [--check] [--version X.Y.Z]   Check for or install a release
+          update [--check] [--version X.Y.Z] [--ignore-compat]   Check for or install a release. Refused when the release's
+                                        signed evidence marks a library this server serves as failing; --ignore-compat overrides
           update --auto [--all-instances]      Unattended update for updates.channel inside updates.window; every
                                         instance is health-checked and all are rolled back on any failure
                                         (exit 0 done/nothing to do, 1 rolled back, 2 config, 3 rollback incomplete,
                                         4 feed unavailable)
           update --version X.Y.Z --allow-downgrade   Install an OLDER release, only when it can run on the current database
                                         schema without a restore (every migration since is additive); otherwise refused
+          update verify [--json] [--hours N]   Post-update regression verdict for this binary (per library, last N
+                                        hours, default 24, vs the previous binary); exit 5 on regression
+          update observed-libraries [--json]   Client library builds this server served in the last 30 days (input to the
+                                        compatibility preflight that holds updates a release's signed evidence marks as failing)
           rollback [--all-instances]    Restore the binary and database(s) from before the last update
           rollback --keep-data [--all-instances]   Restore the previous binary and keep the current database, only when
                                         every migration since the update is additive; otherwise refused with the reason

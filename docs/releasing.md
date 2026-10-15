@@ -39,8 +39,12 @@ project is only the value for local builds.
    row for this server version (or release commit) and the matrix's `recommended` library, or the
    release must be marked `ci-only`. See [Release evidence](#release-evidence).
 6. Tag the commit on `main` and push the tag: `git tag v0.x.z && git push origin v0.x.z`.
-7. The release workflow runs the tests, the HTTP smoke gate and the stable-reference parity
-   diff, then builds, signs and publishes. A failing gate stops the release.
+7. The release workflow runs the tests, the HTTP smoke gate, the stable-reference parity diff and
+   the **Compat** gate (`.github/workflows/compat-matrix.yml`): the corpus diffed against the
+   stable reference and the previous release, and the real library inside s&box for every library
+   in [`compat/library-targets.json`](../compat/library-targets.json) against this release's
+   source. A library that worked on the previous release and fails on this one stops the release.
+   Then it builds, signs and publishes. A failing gate stops the release.
 8. Check the published assets: `SHA256SUMS`, `SHA256SUMS.p256.sig`, the SBOMs and the
    provenance attestations. `docs/self-hosting.md` describes how operators verify them.
 
@@ -49,6 +53,14 @@ project is only the value for local builds.
 Every release can say which library, on which engine build, it was tested with. The source is
 the `tested` list in [`compat/library-matrix.json`](../compat/library-matrix.json); editor runs
 add their rows as described in [editor-test-plan.md](editor-test-plan.md#recording-the-result).
+
+The Compat gate also writes machine-readable evidence into the signed `release.json` asset:
+`testedLibraries` lists each library it ran (`library`, sbox.game `revision`, `source`, the
+Facepunch/sbox-public `engine` commit, `target: dedicated`) with `result` `ci-only` (passed) or
+`fail`. Libraries that also fail on the previous release (an engine or library problem) are left
+out. `sbox-ns update` compares this list with the library versions the owner's games actually
+send before installing (docs/self-hosting.md, "Updates"). These are hosted-runner results, never
+an editor `pass`.
 
 1. Generate the release-notes table and put it in the GitHub Release notes:
 
@@ -102,9 +114,10 @@ real `sbox-ns update` then run unchanged, signature checks included.
 
 | Job | Checks |
 | --- | --- |
-| Ubuntu 22.04, Ubuntu 24.04, Ubuntu 24.04 arm64 | Fresh install, and upgrade from the previous release (`0.4.0`) with layout migration; then `update`, `rollback`, port 80 through the capability drop-in, a named instance, and no seccomp, `ProtectProc` or AppArmor denials in the journal |
+| Ubuntu 22.04, Ubuntu 24.04, Ubuntu 24.04 arm64 | Fresh install, and upgrades from the newest release (`0.5.4`) and from the oldest one owners may still run (`0.4.0`, which also exercises the layout migration); then `update`, `rollback`, port 80 through the capability drop-in, a named instance, and no seccomp, `ProtectProc` or AppArmor denials in the journal |
 | Debian 12 | The same scenarios in a privileged container running systemd. GitHub has no Debian runner; the kernel is the host's, so the journal check is weaker there |
 | Windows | `install.ps1` under Windows PowerShell 5.1 and PowerShell 7, then the Windows service |
 
-Not covered: the hosted tunnel and signed DNS modes, which need the sboxcool registry. Update
-`PREVIOUS` in the workflow after each release so the upgrade path starts from the newest one.
+Not covered: the hosted tunnel and signed DNS modes, which need the sboxcool registry. After each
+release, bump the newest `previous` value in the workflow matrix so one upgrade path always starts
+from the latest release; keep `0.4.0` until releases before the state layout are out of support.

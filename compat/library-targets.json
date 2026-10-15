@@ -1,0 +1,33 @@
+{
+  "$comment": "Library builds the Compat workflow runs inside s&box against every server change (.github/workflows/compat-matrix.yml, scripts/ci/compat-engine.ps1). Published games embed the library they were built with, so a server change that breaks any of these fails the gate. ref is anything tools/sbox-cli-e2e accepts for --library (main, git:<sha>, r<revision>), or latest:N for the newest N r<revision> releases of sbox-cool/sbox-network-storage. Builds that point at the same commit run once. Pin older revisions players still run as git:<sha>; one that stops compiling on a newer engine is reported as an upstream failure (it fails on the latest release too) instead of blaming the change.",
+  "targets": [
+    {
+      "ref": "latest:3",
+      "label": "newest published revisions"
+    },
+    {
+      "ref": "main",
+      "label": "library main (next release)"
+    },
+    {
+      "ref": "git:780d09cd12b7ac624f02246165564267ad77627f",
+      "label": "published r423774",
+      "version": "1.1.0",
+      "revision": 423774,
+      "notes": "First published revision that sends x-ns-library-version (content-matched by sbox-cool/sbox-network-storage#26)."
+    },
+    {
+      "ref": "git:026acfac737e351c4d58c5af2989d159c3a33fe3",
+      "label": "published r422519 (legacy)",
+      "version": "legacy",
+      "revision": 422519,
+      "notes": "Last revision before library version headers; most games published before 2026-10-15 embed it."
+    },
+    {
+      "ref": "git:5c33cb5556d23323fc78e33d5d51f2d4417e4fa0",
+      "label": "published r238672 (legacy)",
+      "version": "legacy",
+      "revision": 238672
+    }
+  ]
+}

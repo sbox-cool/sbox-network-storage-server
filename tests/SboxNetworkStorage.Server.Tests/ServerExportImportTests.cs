@@ -578,6 +578,40 @@ public abstract class ServerExportImportTests<TFactory> : IDisposable
     }
 
     [SkippableFact]
+    public async Task DashboardExportRefusesAConcurrentExportOnTheSameServerOnly()
+    {
+        await SeedAsync();
+        await OwnerHttp.CreateOwnerAsync(factory);
+        using var client = await OwnerHttp.LoggedInClientAsync(factory);
+        var csrf = Csrf(await client.GetStringAsync("/dashboard"));
+        using var other = new TFactory();
+        await OwnerHttp.CreateOwnerAsync(other);
+        using var otherClient = await OwnerHttp.LoggedInClientAsync(other);
+        var otherCsrf = Csrf(await otherClient.GetStringAsync("/dashboard"));
+
+        // An export is in progress on the first server.
+        var gate = factory.Services.GetRequiredService<OwnerExportGate>().Semaphore;
+        Assert.True(await gate.WaitAsync(0));
+        try
+        {
+            using var busy = await client.PostAsync("/dashboard/export", Form(("__RequestVerificationToken", csrf)));
+            Assert.Equal(HttpStatusCode.Conflict, busy.StatusCode);
+            Assert.Contains("already running", await busy.Content.ReadAsStringAsync());
+
+            // A second server in the same process is not blocked by it.
+            using var independent = await otherClient.PostAsync("/dashboard/export", Form(("__RequestVerificationToken", otherCsrf)));
+            Assert.Equal(HttpStatusCode.OK, independent.StatusCode);
+        }
+        finally
+        {
+            gate.Release();
+        }
+
+        using var after = await client.PostAsync("/dashboard/export", Form(("__RequestVerificationToken", csrf)));
+        Assert.Equal(HttpStatusCode.OK, after.StatusCode);
+    }
+
+    [SkippableFact]
     public async Task DashboardSecretExportNeedsThePassword()
     {
         await SeedAsync();
@@ -844,21 +878,10 @@ public abstract class ServerExportImportTests<TFactory> : IDisposable
     }
 }
 
-// OwnerExportController allows one export or import per process (a static gate) and answers 409
-// to a concurrent one. Classes that pass that gate share a collection so xUnit never runs them in
-// parallel; otherwise the SQLite and PostgreSQL variants intermittently see each other's export.
-[CollectionDefinition(OwnerExportGateCollection.Name, DisableParallelization = true)]
-public sealed class OwnerExportGateCollection
-{
-    public const string Name = "Owner export gate";
-}
-
-[Collection(OwnerExportGateCollection.Name)]
 public sealed class SqliteServerExportImportTests : ServerExportImportTests<SqliteHostFactory>
 {
 }
 
-[Collection(OwnerExportGateCollection.Name)]
 public sealed class PostgresServerExportImportTests : ServerExportImportTests<PostgresHostFactory>
 {
 }

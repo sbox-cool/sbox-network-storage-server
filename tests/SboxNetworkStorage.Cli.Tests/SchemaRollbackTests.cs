@@ -3,6 +3,7 @@ using SboxNetworkStorage.Server.Configuration;
 using SboxNetworkStorage.Server.Updates;
 using SboxNetworkStorage.Storage.Postgres;
 using SboxNetworkStorage.Storage.Relational;
+using SboxNetworkStorage.Storage;
 using SboxNetworkStorage.Storage.Sqlite;
 
 namespace SboxNetworkStorage.Cli.Tests;
@@ -191,6 +192,10 @@ public sealed class SchemaRollbackTests
         public Task<BinarySchemaInfo?> ProbeSchemaInfoAsync(string binary, CancellationToken ct) => Task.FromResult(Target);
 
         public Task<bool> IsActiveAsync(string unit, CancellationToken ct) => throw new NotSupportedException();
+
+        public Task<PostUpdateVerdict?> ReadUpdateVerdictAsync(string binary, ServerInstance instance, int hours, CancellationToken ct) => throw new NotSupportedException();
+
+        public Task<IReadOnlyList<ObservedLibrary>?> ReadObservedLibrariesAsync(string binary, ServerInstance instance, CancellationToken ct) => throw new NotSupportedException();
 
         public Task<int> StartAsync(string unit, CancellationToken ct) => throw new NotSupportedException();
 

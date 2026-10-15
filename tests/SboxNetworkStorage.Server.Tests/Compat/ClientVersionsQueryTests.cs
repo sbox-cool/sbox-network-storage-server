@@ -13,6 +13,10 @@ public sealed class ClientVersionsQueryTests
         public Task WriteClientVersionsAsync(IReadOnlyList<ClientVersionDelta> batch, CancellationToken ct) => Task.CompletedTask;
         public Task<IReadOnlyList<ClientVersionRow>> ReadClientVersionsAsync(string projectId, int sinceDay, CancellationToken ct) => Task.FromResult(rows);
         public Task PurgeClientVersionsAsync(int beforeDay, CancellationToken ct) => Task.CompletedTask;
+        public Task<IReadOnlyList<ObservedLibrary>> ReadObservedLibrariesAsync(int sinceDay, CancellationToken ct) => Task.FromResult<IReadOnlyList<ObservedLibrary>>([]);
+        public Task WriteClientOutcomesAsync(IReadOnlyList<ClientOutcomeDelta> batch, CancellationToken ct) => Task.CompletedTask;
+        public Task<IReadOnlyList<ClientOutcomeTotals>> ReadClientOutcomeTotalsAsync(long sinceHour, CancellationToken ct) => Task.FromResult<IReadOnlyList<ClientOutcomeTotals>>([]);
+        public Task PurgeClientOutcomesAsync(long beforeHour, CancellationToken ct) => Task.CompletedTask;
     }
 
     private static ClientVersionRow Row(string version, long requests, long? revision = null, string clientType = "game", long? game = 7)

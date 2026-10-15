@@ -5,7 +5,9 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SboxNetworkStorage.Application.Workspace;
 using SboxNetworkStorage.Server.Alerts;
+using SboxNetworkStorage.Server.Hosting;
 using SboxNetworkStorage.Server.Monitoring;
+using SboxNetworkStorage.Server.Updates;
 using SboxNetworkStorage.Storage.Relational;
 
 namespace SboxNetworkStorage.Server.Owner;
@@ -13,7 +15,10 @@ namespace SboxNetworkStorage.Server.Owner;
 public sealed record OwnerServerModel(
     string Version, string Runtime, string Platform, DateTimeOffset StartedAt, string Database, string? DatabaseVersion,
     double? DatabaseLatencyMs, string DataDirectory, string Scope, double CpuCores, long? MemoryLimit, int RuleCount,
-    HostSample? Latest, SlowInfo Slow);
+    HostSample? Latest, SlowInfo Slow, OwnerUpdateHealth Update);
+
+/// <summary>This build's post-update watch: its state, and the live per-library verdict when the database answers.</summary>
+public sealed record OwnerUpdateHealth(string Version, string Watch, string Detail, PostUpdateVerdict? Verdict);
 
 public sealed record OwnerProjectOption(string Id, string Name);
 
@@ -66,7 +71,8 @@ public sealed class OwnerServerController(
     ProviderRegistry providers,
     INetworkStorageStoreAdmin admin,
     IWorkspaceStore workspace,
-    SboxNetworkStorage.Server.Configuration.EffectiveConfig config) : Controller
+    SboxNetworkStorage.Server.Configuration.EffectiveConfig config,
+    PostUpdateVerifier verifier) : Controller
 {
     private const string AlertsUrl = "/dashboard/server/alerts";
 
@@ -93,7 +99,40 @@ public sealed class OwnerServerController(
         return View("~/Views/Owner/Server.cshtml", new OwnerServerModel(
             MetricsSampler.Version, MetricsSampler.Runtime, MetricsSampler.Platform, sampler.StartedAt,
             admin.ProviderName, dbVersion, latency, Path.GetFullPath(config.DataDirectory), reader.Scope, reader.CpuCores,
-            reader.MemoryLimitBytes, store.Rules.Count(r => r.Enabled), sampler.Latest, sampler.Slow));
+            reader.MemoryLimitBytes, store.Rules.Count(r => r.Enabled), sampler.Latest, sampler.Slow, await UpdateHealthAsync(ct)));
+    }
+
+    /// <summary>The post-update watch for this build and its live per-library verdict. The watch state works without the database.</summary>
+    private async Task<OwnerUpdateHealth> UpdateHealthAsync(CancellationToken ct)
+    {
+        var version = BuildInfo.Version;
+        var marker = UpdateWatchService.ReadMarkerFile(config.StateDirectory);
+        if (marker is null || marker.Version != version)
+        {
+            return new(version, "Not watching", "No post-update watch has started for this build yet.", null);
+        }
+
+        var elapsed = DateTimeOffset.UtcNow - DateTimeOffset.FromUnixTimeMilliseconds(marker.SinceUnixMs);
+        var windowHours = PostUpdateVerifier.WatchWindowHours;
+        var alerted = marker.AlertedAtUnixMs is not null;
+        if (!alerted && elapsed > TimeSpan.FromHours(windowHours))
+        {
+            return new(version, "Watch ended", $"No library regression alert in the {windowHours} h after the update.", null);
+        }
+
+        PostUpdateVerdict? verdict = null;
+        try
+        {
+            verdict = await verifier.VerifyAsync(version, Math.Clamp((int)Math.Ceiling(elapsed.TotalHours), 1, windowHours), VerdictThresholds.Default, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // The verdict needs the database; the watch state above does not.
+        }
+
+        return alerted
+            ? new(version, "Regression", $"A library regression alert was sent at {DateTimeOffset.FromUnixTimeMilliseconds(marker.AlertedAtUnixMs!.Value):u}. Confirm it with sbox-ns update verify, then roll back as shown below.", verdict)
+            : new(version, "Watching", $"{Math.Floor(elapsed.TotalHours)} of {windowHours} h since this build started.", verdict);
     }
 
     /// <summary>

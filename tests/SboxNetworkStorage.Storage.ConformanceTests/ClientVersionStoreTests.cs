@@ -56,6 +56,48 @@ public abstract class ClientVersionStoreTests : IAsyncLifetime
         Assert.Equal(2L * batch.Length, rows.Sum(row => row.Requests));
         Assert.All(rows, row => Assert.Equal(1, row.EstimatedPlayers));
     }
+
+    [SkippableFact]
+    public async Task Outcome_deltas_add_up_per_hour_and_totals_sum_across_projects()
+    {
+        var store = (IClientVersionStore)_store!;
+        var early = new ClientOutcomeKey("proj_a", 500_000, "1.0.0", "1.1.0", 42, "game");
+        var late = early with { Hour = 500_010 };
+        await store.WriteClientOutcomesAsync([new(early, 10, 1, 2), new(late, 5, 0, 1), new(early with { ProjectId = "proj_b" }, 7, 3, 0)], CancellationToken.None);
+        // A second flush for the same hour and project adds to the existing bucket rather than replacing it.
+        await store.WriteClientOutcomesAsync([new(early, 4, 0, 0)], CancellationToken.None);
+        var row = Assert.Single(await store.ReadClientOutcomeTotalsAsync(500_000, CancellationToken.None));
+        Assert.Equal("1.0.0", row.ServerVersion);
+        Assert.Equal("1.1.0", row.LibraryVersion);
+        Assert.Equal(10 + 4 + 5 + 7, row.Requests);
+        Assert.Equal(1 + 3, row.Rejected);
+        Assert.Equal(2 + 1, row.ServerErrors);
+        Assert.Equal(500_010, row.LastHour);
+        Assert.Empty(await store.ReadClientOutcomeTotalsAsync(500_011, CancellationToken.None));
+    }
+
+    [SkippableFact]
+    public async Task Purge_removes_only_hours_before_the_cutoff()
+    {
+        var store = (IClientVersionStore)_store!;
+        var early = new ClientOutcomeKey("proj_a", 500_000, "1.0.0", "1.1.0", 42, "game");
+        await store.WriteClientOutcomesAsync([new(early, 10, 1, 2), new(early with { Hour = 500_010 }, 5, 0, 1)], CancellationToken.None);
+        await store.PurgeClientOutcomesAsync(500_005, CancellationToken.None);
+        var remaining = Assert.Single(await store.ReadClientOutcomeTotalsAsync(0, CancellationToken.None));
+        Assert.Equal(5, remaining.Requests);
+        Assert.Equal(1, remaining.ServerErrors);
+    }
+
+    [SkippableFact]
+    public async Task Observed_libraries_group_the_daily_census_by_version_and_revision()
+    {
+        var store = (IClientVersionStore)_store!;
+        var sketch = new byte[PlayerCountSketch.Size];
+        await store.WriteClientVersionsAsync([new(new ClientVersionKey("proj_example", 1000, "1.1.0", 42, "game", 11), 10, 1, sketch)], CancellationToken.None);
+        var observed = await store.ReadObservedLibrariesAsync(1000, CancellationToken.None);
+        Assert.Contains(observed, library => library.LibraryVersion == "1.1.0" && library.LibraryRevision == 42 && library.Requests == 10);
+        Assert.Empty(await store.ReadObservedLibrariesAsync(1001, CancellationToken.None));
+    }
 }
 
 public sealed class SqliteClientVersionStoreTests : ClientVersionStoreTests

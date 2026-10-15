@@ -470,6 +470,12 @@ window = "03:00-05:00"
 # Hours a release must have been on its channel before an unattended install.
 # -1 = channel default: 24 on stable, 0 on canary.
 min_release_age_hours = -1
+
+# After an unattended update, put the previous binary back (database kept) when
+# games using some library version start failing far more often than on the
+# previous release (docs/self-hosting.md, "Watching an update"). Only when that
+# rollback keeps all data; otherwise the owner is alerted instead.
+auto_rollback = true
 ```
 
 ## Analytics retention and buffering

@@ -23,6 +23,7 @@ public static class OwnerHostingExtensions
         services.AddScoped<OwnerLoginLinkService>();
         services.AddSingleton<OwnerSetupToken>();
         services.AddSingleton<OwnerAccessPolicy>();
+        services.AddSingleton<OwnerExportGate>();
         services.AddHttpClient<OwnerTurnstile>();
         if (config.GetBoolean("adminpanel.demo_read_only"))
             services.AddHostedService<SboxNetworkStorage.Server.Demo.DemoSeedService>();

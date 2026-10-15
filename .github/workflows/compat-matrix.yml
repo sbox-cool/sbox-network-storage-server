@@ -1,0 +1,265 @@
+name: Compat
+
+# The server x library compatibility gate. Owners update servers freely; published games keep the
+# library they were built with for months, so a server change must not break any of them.
+#
+# - contract (every PR, main, nightly, release): the HTTP parity corpus (the requests the library
+#   sends) against this build, diffed against the approved stable reference AND against the latest
+#   release. Any unlisted wire difference fails; intentional ones go in
+#   tests/parity/intentional-differences.json with a reason, where review sees them. Also checks the
+#   library version headers and that a request with no version is never refused.
+# - engine (PRs that touch the server, main, nightly, release): the real library inside s&box (the
+#   newest Facepunch/sbox-public built from source, an -mcp dedicated server, tools/sbox-cli-e2e) for
+#   every library in compat/library-targets.json, against this build. A library that fails here but
+#   passes on the latest release is a regression and fails the gate; one that fails on both is an
+#   engine or library problem and is reported, not blamed on the change.
+# - "Compat gate": the single required check.
+#
+# Hosted runners cannot run the s&box editor (it needs Steam), so everything here is `ci-only`
+# evidence, never a compat/library-matrix.json `pass` row (docs/compatibility.md).
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  schedule:
+    - cron: '31 4 * * *'
+  workflow_dispatch:
+    inputs:
+      libraries:
+        description: 'Library refs to run instead of compat/library-targets.json (comma-separated: latest, main, git:<sha>, r<revision>)'
+        required: false
+        default: ''
+      engine_ref:
+        description: 'Facepunch/sbox-public ref (default: HEAD)'
+        required: false
+        default: ''
+  workflow_call:
+    outputs:
+      tested_libraries:
+        description: 'JSON array for release.json testedLibraries'
+        value: ${{ jobs.engine.outputs.tested_libraries }}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: compat-${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  DOTNET_NOLOGO: "true"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "true"
+  PARITY_DLL: tools/SboxNetworkStorage.Parity/bin/Release/net10.0/sbox-ns-parity.dll
+
+jobs:
+  resolve:
+    name: Resolve versions
+    runs-on: ubuntu-latest
+    outputs:
+      server_tag: ${{ steps.v.outputs.server_tag }}
+      engine_needed: ${{ steps.scope.outputs.engine_needed }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Latest server release
+        id: v
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName -q .tagName)"
+          [ -n "$tag" ] || { echo "::error::No server release to compare with."; exit 1; }
+          echo "server_tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "latest server release: $tag"
+      - name: Does this change reach the engine leg?
+        id: scope
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          # Pull requests that change nothing the library can observe (docs, owner-console assets
+          # aside, CI for other workflows) skip the 20-minute engine leg; everything else runs it.
+          needed=true
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            if ! git diff --name-only "$BASE...HEAD" | grep -qE '^(src/|tests/parity/|tools/sbox-cli-e2e/|compat/|scripts/ci/compat-engine\.ps1|\.github/workflows/compat-matrix\.yml|Directory\.Build\.props|global\.json)'; then
+              needed=false
+            fi
+          fi
+          echo "engine_needed=$needed" >> "$GITHUB_OUTPUT"
+          echo "engine leg needed: $needed"
+
+  contract:
+    name: HTTP contract (this build vs stable reference and latest release)
+    needs: resolve
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SERVER_TAG: ${{ needs.resolve.outputs.server_tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: 10.0.x
+      - run: dotnet build SboxNetworkStorage.sln -c Release
+      - name: Latest release binary
+        run: |
+          set -euo pipefail
+          gh release download "$SERVER_TAG" --repo "$GITHUB_REPOSITORY" --dir "$RUNNER_TEMP/release" --pattern '*-linux-x64.tar.gz'
+          tar -xzf "$RUNNER_TEMP"/release/*-linux-x64.tar.gz -C "$RUNNER_TEMP/release"
+          test -x "$RUNNER_TEMP/release/sbox-ns"
+      - name: Replay the corpus on this build and on the latest release
+        run: |
+          set -euo pipefail
+          bash scripts/smoke.sh --no-build --out TestResults/candidate.json
+          bash scripts/smoke.sh --no-build --binary "$RUNNER_TEMP/release/sbox-ns" --port 18431 --out TestResults/latest-release.json
+      - name: This build vs approved stable reference
+        run: dotnet "$PARITY_DLL" diff --stable tests/parity/stable-reference.json --candidate TestResults/candidate.json --allow tests/parity/intentional-differences.json
+      - name: This build vs latest release (${{ needs.resolve.outputs.server_tag }})
+        run: dotnet "$PARITY_DLL" diff --stable TestResults/latest-release.json --candidate TestResults/candidate.json --allow tests/parity/intentional-differences.json
+      - name: Library main's version
+        run: |
+          set -euo pipefail
+          git clone -q --depth 1 https://github.com/sbox-cool/sbox-network-storage.git "$RUNNER_TEMP/library"
+          version="$(grep -rhoE 'LibraryVersion = "[^"]+"' "$RUNNER_TEMP/library/Code" | head -1 | cut -d'"' -f2)"
+          [ -n "$version" ] || { echo "::error::library main has no LibraryVersion constant"; exit 1; }
+          echo "LIBRARY_VERSION=$version" >> "$GITHUB_ENV"
+      - name: Library version headers
+        shell: pwsh
+        run: |
+          # The newest library version reports supported/outdated, and a request with no version
+          # header (every game published before library 1.1.0) is still served.
+          $lib = $env:LIBRARY_VERSION
+          $work = Join-Path $env:RUNNER_TEMP 'headers'
+          $dll = 'src/SboxNetworkStorage.Server/bin/Release/net10.0/sbox-ns.dll'
+          $common = @('--config-dir', "$work/config", '--data-dir', "$work/data")
+          dotnet $dll setup --non-interactive --listen 127.0.0.1:18422 @common
+          $quick = dotnet $dll quickstart 'Header contract' --require-sbox-auth false --json @common | ConvertFrom-Json
+          $server = Start-Process dotnet -ArgumentList (@($dll, 'start') + $common) -PassThru -RedirectStandardOutput "$work/server.log"
+          try {
+            for ($i = 0; $i -lt 120; $i++) { try { if ((Invoke-WebRequest http://127.0.0.1:18422/health -TimeoutSec 2).StatusCode -eq 200) { break } } catch { Start-Sleep -Milliseconds 500 } }
+            $uri = "http://127.0.0.1:18422/v3/manage/$($quick.projectId)/revision-init"
+            $body = @{ revisionId = 1 } | ConvertTo-Json
+            $r = Invoke-WebRequest $uri -Method Post -ContentType application/json -Body $body -Headers @{ 'x-api-key' = $quick.publicKey; 'x-ns-library-version' = $lib }
+            $status = @($r.Headers['x-ns-library-status'])[0]
+            Write-Host "library $lib -> $status"
+            if ($status -notin 'supported', 'outdated') { throw "library $lib reported as '$status'" }
+            $legacy = Invoke-WebRequest $uri -Method Post -ContentType application/json -Body $body -Headers @{ 'x-api-key' = $quick.publicKey }
+            Write-Host "no version header -> $($legacy.StatusCode) $(@($legacy.Headers['x-ns-library-status'])[0])"
+            if ($legacy.StatusCode -ne 200) { throw 'a request without a library version was refused' }
+          } finally { Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue }
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: compat-contract
+          path: TestResults/*.json
+          if-no-files-found: ignore
+
+  engine:
+    name: Library in s&box (this build vs latest release)
+    needs: resolve
+    if: needs.resolve.outputs.engine_needed == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 120
+    outputs:
+      tested_libraries: ${{ steps.run.outputs.tested_libraries }}
+      upstream: ${{ steps.run.outputs.upstream }}
+    env:
+      GITHUB_TOKEN: ${{ github.token }}
+      GH_TOKEN: ${{ github.token }}
+      SERVER_TAG: ${{ needs.resolve.outputs.server_tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: global.json
+      - name: Build s&box from source (newest Facepunch/sbox-public, nothing pinned)
+        shell: pwsh
+        env:
+          ENGINE_REF: ${{ inputs.engine_ref }}
+        run: |
+          $engine = Join-Path $env:RUNNER_TEMP 'sbox-public'
+          git clone -q --filter=blob:none https://github.com/Facepunch/sbox-public.git $engine
+          if ($env:ENGINE_REF) { git -C $engine checkout -q $env:ENGINE_REF }
+          Write-Host "engine $(git -C $engine rev-parse HEAD) $(git -C $engine log -1 --format='%cs %s')"
+          "ENGINE=$engine/game" | Add-Content $env:GITHUB_ENV
+          Push-Location $engine
+          cmd /c Setup.bat
+          $code = $LASTEXITCODE
+          Pop-Location
+          if ($code -ne 0) { throw "Setup.bat failed ($code)" }
+          foreach ($f in 'sbox-server.exe', 'bin/managed/sbox-cli.exe') { if (-not (Test-Path "$engine/game/$f")) { throw "engine build has no $f" } }
+      - name: Latest release binary (baseline)
+        shell: pwsh
+        run: |
+          gh release download $env:SERVER_TAG --repo $env:GITHUB_REPOSITORY --dir "$env:RUNNER_TEMP/release" --pattern '*-win-x64.zip'
+          Expand-Archive (Get-ChildItem "$env:RUNNER_TEMP/release/*-win-x64.zip")[0].FullName -DestinationPath "$env:RUNNER_TEMP/release/bin"
+          $exe = "$env:RUNNER_TEMP/release/bin/sbox-ns.exe"
+          if (-not (Test-Path $exe)) { throw 'no sbox-ns.exe in the release zip' }
+          "BASELINE=$exe" | Add-Content $env:GITHUB_ENV
+      - name: Build this server
+        run: dotnet build src/SboxNetworkStorage.Server -c Release -nologo
+      - name: Every library in compat/library-targets.json
+        id: run
+        shell: pwsh
+        env:
+          ONLY: ${{ inputs.libraries }}
+        run: |
+          ./scripts/ci/compat-engine.ps1 -Engine $env:ENGINE -Baseline $env:BASELINE -Out e2e-out -Only "$env:ONLY"
+          $code = $LASTEXITCODE
+          "tested_libraries=$(Get-Content e2e-out/tested-libraries.json -Raw)".Trim() | Add-Content $env:GITHUB_OUTPUT
+          $upstream = @((Get-Content e2e-out/compat-results.json -Raw | ConvertFrom-Json) | Where-Object { $_.verdict -eq 'upstream' }).Count
+          "upstream=$upstream" | Add-Content $env:GITHUB_OUTPUT
+          exit $code
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: compat-engine
+          path: e2e-out
+          if-no-files-found: warn
+
+  nightly-issue:
+    name: Report nightly failure
+    needs: [resolve, contract, engine]
+    # Also on green runs with upstream failures: a new engine commit (or library change) broke a
+    # library on the released server too, which no server PR would ever report.
+    if: always() && github.event_name == 'schedule' && (needs.contract.result == 'failure' || needs.engine.result == 'failure' || needs.engine.outputs.upstream != '0')
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          CONTRACT: ${{ needs.contract.result }}
+          ENGINE: ${{ needs.engine.result }}
+          UPSTREAM: ${{ needs.engine.outputs.upstream }}
+          SERVER_TAG: ${{ needs.resolve.outputs.server_tag }}
+        run: |
+          set -euo pipefail
+          title="Nightly compat failure on main"
+          body="$(printf 'Nightly Compat run on main needs attention (%s).\n\n- HTTP contract: %s\n- Library in s&box: %s (libraries failing on the latest release too: %s)\n- Latest release compared: %s\n\nThe run summary lists each library with its verdict: **regression** (passes on the latest release, fails on main: fix main before releasing), **upstream** (fails on both: a Facepunch/sbox-public or library change that can already affect published games; open a library issue). Close this issue when a nightly run is clean again.' "$RUN_URL" "$CONTRACT" "$ENGINE" "${UPSTREAM:-0}" "$SERVER_TAG")"
+          gh label create compat --repo "$GITHUB_REPOSITORY" --color B60205 --description "Library/server compatibility" 2>/dev/null || true
+          existing="$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --label compat --search "\"$title\" in:title" --json number -q '.[0].number')"
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --repo "$GITHUB_REPOSITORY" --body "$body"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --label compat --body "$body"
+          fi
+
+  gate:
+    name: Compat gate
+    needs: [resolve, contract, engine]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          RESOLVE: ${{ needs.resolve.result }}
+          CONTRACT: ${{ needs.contract.result }}
+          ENGINE: ${{ needs.engine.result }}
+        run: |
+          echo "resolve=$RESOLVE contract=$CONTRACT engine=$ENGINE"
+          [ "$RESOLVE" = success ] && [ "$CONTRACT" = success ] && { [ "$ENGINE" = success ] || [ "$ENGINE" = skipped ]; }

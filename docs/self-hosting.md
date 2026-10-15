@@ -749,6 +749,21 @@ sbox-ns rollback                  # return to the previous binary (restores the 
 sbox-ns rollback --keep-data      # return to the previous binary and keep the database, when safe
 ```
 
+Before installing, `sbox-ns update` checks the release's own compatibility evidence
+against your games. Every release is tested in CI with the real library inside s&box for
+the library builds games still embed, and lists them in its signed `release.json`
+(`testedLibraries`). The update compares that list with the library versions your games
+sent in the last 30 days:
+
+- a library build with at least 1% of your requests that the release lists as `fail`
+  stops the update (`Nothing was installed`); `--ignore-compat` installs it anyway;
+- a library build the release was not tested with is printed as a warning;
+- releases published before this evidence existed, and servers without traffic, are
+  not judged.
+
+Unattended updates hold a release with a `fail` for one of your libraries and re-check
+on the next run.
+
 Take a backup (`sbox-ns db backup`) before updating to a release that needs a
 database migration. Releases list a minimum version they can be upgraded
 from; older installs must step through an intermediate release.
@@ -826,6 +841,15 @@ back *to* one of them (or from a database it migrated) always needs the backup r
 and `--keep-data` refuses with "predates rollback-safe migrations". The first release
 that contains the floor rule is the oldest one `--keep-data` can return to.
 
+### Watching an update
+
+For 48 hours after each update, the server compares the error rate of each client library on the new build with the previous build. A library whose error rate rises by at least 10 points and at least 2× its baseline, with at least 50 requests on both sides, is a regression. The first regression sends one critical alert through your alert channels per build. The watch never rolls back on its own: a regression during the window is what the unattended updater acts on (see [Automatic updates](#automatic-updates)).
+
+- `sbox-ns doctor` shows the watch as "update health", and the Server page of the owner console shows the same state with the per-library numbers.
+- `sbox-ns update verify [--hours N] [--json]` prints the verdict for the last N hours on the running build (default 24, at most 168). It exits with code 5 on a regression. A regression verdict is the signal for `sbox-ns rollback --keep-data`, or `sbox-ns rollback` when the database must return too.
+
+A verdict needs traffic on both sides. `insufficient data` means too few requests to judge; `no baseline` means no previous build has traffic in the last 7 days.
+
 ### Automatic updates
 
 Off by default. On Linux with systemd, opt in with:
@@ -851,6 +875,16 @@ by up to 15 minutes). A run installs nothing unless all of these hold:
   from the feed's `promotedAt` (or the release's `publishedAt`);
 - that version has not already failed an unattended install on this host
   (install it by hand with `sbox-ns update --version X.Y.Z` to retry).
+- the release's compatibility evidence lists no `fail` for a library version
+  your games use (see [Updates](#updates)).
+
+**Automatic rollback.** For 48 hours after an unattended update, each hourly run
+first checks the post-update watch ([Watching an update](#watching-an-update)). When
+a library regressed and `updates.auto_rollback` is on (the default), it puts the
+previous binary back with the database kept as it is, records the version as failed
+so it is not installed again, and exits 1. It only does this when
+`rollback --keep-data` is safe for every instance; otherwise it leaves everything in
+place and the regression alert tells you how to roll back.
 
 **Channels.** `canary` receives every new release as soon as it is published.
 `stable` receives a release only after it has run on the official canary

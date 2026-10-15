@@ -22,6 +22,7 @@ using SboxNetworkStorage.Server.Configuration;
 using SboxNetworkStorage.Server.Infrastructure;
 using SboxNetworkStorage.Server.Infrastructure.NetworkStorage;
 using SboxNetworkStorage.Server.Monitoring;
+using SboxNetworkStorage.Server.Updates;
 using SboxNetworkStorage.Storage;
 using SboxNetworkStorage.Storage.Relational;
 
@@ -64,9 +65,12 @@ public static class NetworkStorageServices
             return admin is IClientVersionStore versions ? versions
                 : throw new InvalidOperationException($"The configured {nameof(INetworkStorageStoreAdmin)} ({admin.GetType().FullName}) does not implement {nameof(IClientVersionStore)}: client-version analytics need a relational store.");
         });
+        services.AddSingleton<ClientOutcomeTracker>(sp => new ClientOutcomeTracker(sp.GetRequiredService<TimeProvider>(), BuildInfo.Version));
         services.AddSingleton<ClientVersionsQuery>();
         services.AddSingleton<ClientVersionWriter>();
         services.AddHostedService(sp => sp.GetRequiredService<ClientVersionWriter>());
+        services.AddSingleton<PostUpdateVerifier>();
+        services.AddHostedService<UpdateWatchService>();
 
         // Errors are logged locally; the bounded in-memory archive backs correlation lookups.
         services.AddSingleton<IErrorArchive, InMemoryErrorArchive>();

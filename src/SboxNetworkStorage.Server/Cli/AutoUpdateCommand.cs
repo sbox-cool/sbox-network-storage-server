@@ -63,6 +63,11 @@ public static class AutoUpdateCommand
 
         var now = DateTimeOffset.UtcNow;
         Console.WriteLine($"sbox-ns {BuildInfo.Version}; channel {settings.Channel}; window {settings.Window}; instances: {string.Join(", ", instances.Select(i => i.Name))}");
+        if (await AutoRollbackIfRegressedAsync(instances, state, now) is { } rolledBack)
+        {
+            return rolledBack;
+        }
+
         var schedule = AutoUpdatePolicy.EvaluateSchedule(settings, now);
         if (!schedule.Install)
         {
@@ -106,6 +111,17 @@ public static class AutoUpdateCommand
         var binary = Environment.ProcessPath ?? throw new CliException("cannot determine the sbox-ns executable path");
         UpdateCommands.RequireStandaloneExecutable(binary);
         using var updateLock = UpdateCommands.AcquireUpdateLock(binary);
+        var review = await UpdatePreflightCommand.ReviewAsync(http, feed, release.Version, new SystemUpdateHost(), binary, instances);
+        if (review?.Blocked == true)
+        {
+            // Held, not skipped: the next run re-checks, so new evidence or a changed library mix takes effect without a marker to clear.
+            Console.WriteLine($"Holding {release.Version}: known to break {string.Join(", ", review.Failed)}. Nothing was changed.");
+            return CliApp.Ok;
+        }
+        if (review is { Untested.Count: > 0 })
+        {
+            Console.WriteLine($"warning: no compatibility evidence for {string.Join(", ", review.Untested)}.");
+        }
         var work = Directory.CreateTempSubdirectory("sbox-ns-update-");
         try
         {
@@ -132,6 +148,96 @@ public static class AutoUpdateCommand
             try { work.Delete(recursive: true); } catch (IOException) { }
         }
     }
+
+    /// <summary>
+    /// Rolls back an unattended update when the census shows a per-library regression on it. Runs before the schedule, so
+    /// a regression is never waited out. Null means nothing was rolled back and the run continues normally.
+    /// </summary>
+    private static async Task<int?> AutoRollbackIfRegressedAsync(IReadOnlyList<ServerInstance> instances, UpdateState state, DateTimeOffset now)
+    {
+        var records = new List<(ServerInstance Instance, UpdateRecord Record)>();
+        foreach (var instance in instances)
+        {
+            var record = state.Read(instance.Name);
+            if (record is null || record.Status != UpdateRecord.Succeeded || record.Mode != "auto"
+                || record.ToVersion != BuildInfo.Version || now - record.UpdatedAt > TimeSpan.FromHours(PostUpdateVerifier.WatchWindowHours))
+            {
+                return null;
+            }
+
+            records.Add((instance, record));
+        }
+
+        if (records.Count == 0) return null;
+
+        var binary = Environment.ProcessPath ?? throw new CliException("cannot determine the sbox-ns executable path");
+        var host = new SystemUpdateHost();
+        var regressions = new List<string>();
+        foreach (var (instance, _) in records)
+        {
+            var verdict = await host.ReadUpdateVerdictAsync(binary, instance, PostUpdateVerifier.DefaultWindowHours, CancellationToken.None);
+            if (verdict is null)
+            {
+                Console.Error.WriteLine($"warning: no post-update verdict for instance {instance.Name}; treating it as no evidence.");
+                continue;
+            }
+
+            foreach (var library in verdict.Libraries.Where(library => library.Outcome == LibraryOutcome.Regressed))
+            {
+                regressions.Add($"{instance.Name}: {library.Library} error rate {Percent(library.PostErrorRate)} (was {Percent(library.BaselineErrorRate)} on {verdict.BaselineVersion})");
+            }
+        }
+
+        if (regressions.Count == 0) return null;
+
+        var reason = $"post-update regression on {BuildInfo.Version}: {string.Join("; ", regressions)}";
+        Console.Error.WriteLine($"warning: {reason}");
+        if (!instances.All(i => i.Config.GetBoolean("updates.auto_rollback")))
+        {
+            Console.Error.WriteLine("updates.auto_rollback is off; not rolling back. Roll back with `sbox-ns rollback` once you have confirmed the regression.");
+            return null;
+        }
+
+        if (!File.Exists(state.PreviousBinaryPath))
+        {
+            Console.Error.WriteLine($"warning: cannot roll back automatically; the rollback binary is missing ({state.PreviousBinaryPath}).");
+            return null;
+        }
+
+        var decision = await UpdateCommands.CheckDataPreservingAsync(host, binary, state.PreviousBinaryPath, instances);
+        if (!decision.Safe)
+        {
+            Console.Error.WriteLine($"warning: cannot roll back automatically without losing data: {decision.Reason}. Roll back with `sbox-ns rollback` when ready.");
+            return null;
+        }
+
+        UpdateCommands.RequireStandaloneExecutable(binary);
+        using var updateLock = UpdateCommands.AcquireUpdateLock(binary);
+        using var health = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+        var problems = await new AutoUpdater(host, state, health, Console.WriteLine).RollbackRecordedAsync(records, binary, CancellationToken.None, keepData: true);
+        if (problems.Count > 0)
+        {
+            foreach (var problem in problems)
+            {
+                Console.Error.WriteLine($"error: {problem}");
+            }
+
+            Console.Error.WriteLine("error: automatic rollback did not complete; check `sbox-ns doctor` and the service logs.");
+            return RollbackFailed;
+        }
+
+        // Hold the bad release: the failed record makes the release policy skip this version until a newer one ships.
+        foreach (var (instance, record) in records)
+        {
+            state.Write(instance.Name, new UpdateRecord(record.FromVersion, record.ToVersion, record.BinaryPath, record.PreviousBinaryPath,
+                record.BackupPath, DateTimeOffset.UtcNow, UpdateRecord.Failed, reason, "auto"));
+        }
+
+        Console.WriteLine($"Rolled back to {records[0].Record.FromVersion}; no data was lost. {BuildInfo.Version} is held until a newer release is published.");
+        return RolledBack;
+    }
+
+    private static string Percent(decimal rate) => $"{rate * 100:0.0}%";
 
     public static async Task<int> RollbackAllAsync(CliContext context)
     {

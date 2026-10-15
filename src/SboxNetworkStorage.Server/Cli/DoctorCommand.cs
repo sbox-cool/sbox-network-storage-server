@@ -138,6 +138,7 @@ public static class DoctorCommand
         }
 
         CheckUnattendedUpdates(config, Report);
+        CheckUpdateHealth(config, Report);
 
         var publicUrl = config.GetString("server.public_url");
         Report(string.IsNullOrWhiteSpace(publicUrl) ? Outcome.Warn : Outcome.Pass, "public url",
@@ -196,6 +197,28 @@ public static class DoctorCommand
                 report(Outcome.Pass, label, $"no update recorded ({instance.Unit}, {instance.Config.ConfigDirectory})");
             }
         }
+    }
+
+    /// <summary>Reports the post-update regression watch for this build. The verdict itself needs the database: `sbox-ns update verify`.</summary>
+    private static void CheckUpdateHealth(EffectiveConfig config, Action<Outcome, string, string> report)
+    {
+        var marker = UpdateWatchService.ReadMarkerFile(config.StateDirectory);
+        if (marker is null || marker.Version != BuildInfo.Version)
+        {
+            return;
+        }
+
+        if (marker.AlertedAtUnixMs is not null)
+        {
+            report(Outcome.Fail, "update health", $"{marker.Version} shows a library regression since the update; run `sbox-ns update verify`, then `{RollbackAdvice.KeepData}` (or `{RollbackAdvice.RestoreBackup}`) if it stands");
+            return;
+        }
+
+        var elapsed = DateTimeOffset.UtcNow - DateTimeOffset.FromUnixTimeMilliseconds(marker.SinceUnixMs);
+        var window = PostUpdateVerifier.WatchWindowHours;
+        report(Outcome.Pass, "update health", elapsed < TimeSpan.FromHours(window)
+            ? $"watching {marker.Version} for library regressions ({Math.Floor(elapsed.TotalHours)} of {window} h)"
+            : $"{marker.Version}: no library regression alert in the {window} h after the update");
     }
 
     /// <summary>Warns when the hosted DNS name does not (yet) resolve to every configured address.</summary>

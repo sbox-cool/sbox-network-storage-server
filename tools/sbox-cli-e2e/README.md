@@ -26,13 +26,18 @@ run it.
 
 ## CI
 
-[`.github/workflows/sbox-cli-e2e.yml`](../../.github/workflows/sbox-cli-e2e.yml) runs the dedicated
-target on `windows-latest` for pull requests that touch the server, the corpus or this tool, nightly,
-and on demand (`library`: `latest`, `main`, `git:<ref>`, `r<revision>`). Each run builds the newest
-[Facepunch/sbox-public](https://github.com/Facepunch/sbox-public) engine from source (`Setup.bat`,
-no pin), so new engine releases are picked up without changes here. It tests the library players
-currently have (`latest`) and library `main`. Source builds report engine version `0000000`; the
-evidence records the sbox-public commit instead. The rows it writes are `ci-only`.
+The **Compat** workflow ([`.github/workflows/compat-matrix.yml`](../../.github/workflows/compat-matrix.yml),
+driven by [`scripts/ci/compat-engine.ps1`](../../scripts/ci/compat-engine.ps1)) runs the dedicated
+target on `windows-latest` for every library in
+[`compat/library-targets.json`](../../compat/library-targets.json) (the current sbox.game revision,
+library `main`, and older published revisions games still embed): on pull requests that touch the
+server, on main, nightly, on demand, and as a release gate. A library that fails against the change
+is re-run against the latest release (`--server-binary`): passing there makes it a **regression**
+that fails the check; failing on both is reported as an engine or library problem. Each run builds
+the newest [Facepunch/sbox-public](https://github.com/Facepunch/sbox-public) engine from source
+(`Setup.bat`, no pin), so new engine releases are picked up without changes here. Source builds
+report engine version `0000000`; the evidence records the sbox-public commit instead. The rows it
+writes are `ci-only`.
 
 ## What it does
 

@@ -18,6 +18,15 @@ public static class UpdateCommands
 {
     public static async Task<int> UpdateAsync(CliContext context)
     {
+        if (context.Args.Positional(1) == "verify")
+        {
+            return await UpdateVerifyCommand.RunAsync(context);
+        }
+        if (context.Args.Positional(1) == "observed-libraries")
+        {
+            return await UpdatePreflightCommand.RunObservedAsync(context);
+        }
+
         if (context.Args.Flag("auto"))
         {
             return await AutoUpdateCommand.RunAsync(context);
@@ -68,6 +77,15 @@ public static class UpdateCommands
         state.Ensure();
         var host = new SystemUpdateHost();
         var instance = ServerInstances.ForConfig(config);
+        var review = await UpdatePreflightCommand.ReviewAsync(http, feed, release.Version, host, binary, [instance]);
+        if (review?.Blocked == true && !context.Args.Flag("ignore-compat"))
+        {
+            throw new CliException($"{release.Version} is known to break: {string.Join(", ", review.Failed)}. Nothing was installed. Install it anyway with --ignore-compat.");
+        }
+        if (review is { Untested.Count: > 0 })
+        {
+            Console.WriteLine($"warning: no compatibility evidence for {string.Join(", ", review.Untested)}.");
+        }
         var work = Directory.CreateTempSubdirectory("sbox-ns-update-");
         try
         {
@@ -367,7 +385,7 @@ public static class UpdateCommands
         }
     }
 
-    private static async Task DownloadAsync(HttpClient http, string url, string target)
+    internal static async Task DownloadAsync(HttpClient http, string url, string target)
     {
         using var response = await http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead);
         if (!response.IsSuccessStatusCode)
@@ -413,7 +431,7 @@ public static class UpdateCommands
         Console.WriteLine("Release signature verified.");
     }
 
-    private static async Task DownloadRequiredAsync(HttpClient http, string url, string target)
+    internal static async Task DownloadRequiredAsync(HttpClient http, string url, string target)
     {
         try
         {

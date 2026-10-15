@@ -180,6 +180,8 @@ public static class SettingDefinitions
             "UTC time window \"HH:MM-HH:MM\" in which unattended updates may start. May wrap midnight; \"00:00-24:00\" is always."),
         new(UpdatesFile, "updates.min_release_age_hours", SettingType.Integer, -1L,
             "Hours a release must have been on its channel before it is installed unattended. -1 = channel default (24 for stable, 0 for canary)."),
+        new(UpdatesFile, "updates.auto_rollback", SettingType.Boolean, true,
+            "After an unattended update, roll the binary back to the previous release (keeping the database) when the post-update census shows a per-library regression. On by default; off = alert only."),
         new(AlertsFile, "alerts.discord.enabled", SettingType.Boolean, false,
             "Send captured errors and endpoint failures to a Discord channel via webhook."),
         new(AlertsFile, "alerts.discord.webhook_url", SettingType.String, "",

@@ -7,7 +7,6 @@ using static SboxNetworkStorage.Server.Tests.Support.OwnerHttp;
 namespace SboxNetworkStorage.Server.Tests;
 
 /// <summary>Project hub: single-link cards with facts, header dialogs, ?q= filter and TempData flashes.</summary>
-[Collection(OwnerExportGateCollection.Name)]
 public sealed class OwnerProjectHubTests
 {
     private static async Task<HttpResponseMessage> PostFormAsync(HttpClient client, string pageUrl, string action, params (string Key, string Value)[] fields)

@@ -180,7 +180,7 @@ public sealed class UsageTrackerAndMiddlewareTests
             tracker,
             activity ?? new RuntimeActivityLog(TimeProvider.System),
             NullLogger<NetworkStorageUsageMiddleware>.Instance,
-            new ClientVersionTracker(TimeProvider.System));
+            new ClientVersionTracker(TimeProvider.System), new ClientOutcomeTracker(TimeProvider.System, "test"));
         await middleware.InvokeAsync(context);
         await tracker.FlushAsync(force: true, CancellationToken.None);
         return store;
@@ -253,7 +253,7 @@ public sealed class UsageTrackerAndMiddlewareTests
         {
             NetworkStorageUsageContext.SetAuthenticated(ctx, "proj1");
             throw new InvalidOperationException("boom");
-        }, tracker, activity, NullLogger<NetworkStorageUsageMiddleware>.Instance, new ClientVersionTracker(TimeProvider.System));
+        }, tracker, activity, NullLogger<NetworkStorageUsageMiddleware>.Instance, new ClientVersionTracker(TimeProvider.System), new ClientOutcomeTracker(TimeProvider.System, "test"));
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => middleware.InvokeAsync(BuildContext("/v3/storage/proj1/players/765")));
         await tracker.FlushAsync(force: true, CancellationToken.None);

@@ -45,6 +45,15 @@ public interface IUpdateHost
     /// rollback-safe migrations and only runs on the exact schema it shipped with.
     /// </summary>
     Task<BinarySchemaInfo?> ProbeSchemaInfoAsync(string binary, CancellationToken ct);
+
+    /// <summary>
+    /// Runs <c>&lt;binary&gt; update verify --json</c> for one instance as the service user and parses the verdict.
+    /// Null when the command fails, prints something else, or the binary predates the census (exit 5 is a regression, still a verdict).
+    /// </summary>
+    Task<PostUpdateVerdict?> ReadUpdateVerdictAsync(string binary, ServerInstance instance, int hours, CancellationToken ct);
+
+    /// <summary>Runs <c>&lt;binary&gt; update observed-libraries --json</c> for one instance as the service user. Null when it fails.</summary>
+    Task<IReadOnlyList<ObservedLibrary>?> ReadObservedLibrariesAsync(string binary, ServerInstance instance, CancellationToken ct);
 }
 
 /// <summary>systemd on Linux; elsewhere only the default service via the platform service manager.</summary>
@@ -130,6 +139,33 @@ public sealed class SystemUpdateHost : IUpdateHost
     {
         var result = ServiceCommands.RunCapture(binary, ["schema-info", "--json"]);
         return Task.FromResult(result.ExitCode == 0 ? BinarySchemaInfo.TryParse(result.Output) : null);
+    }
+
+    public Task<PostUpdateVerdict?> ReadUpdateVerdictAsync(string binary, ServerInstance instance, int hours, CancellationToken ct)
+    {
+        var (file, arguments) = ServiceUserInvocation(binary, instance, ["update", "verify", "--json", "--hours", hours.ToString()]);
+        var result = ServiceCommands.RunCapture(file, arguments);
+        var passed = result.ExitCode is 0 or UpdateVerifyCommand.RegressionExitCode;
+        return Task.FromResult(passed ? PostUpdateVerdict.TryParse(result.Output) : null);
+    }
+
+    public Task<IReadOnlyList<ObservedLibrary>?> ReadObservedLibrariesAsync(string binary, ServerInstance instance, CancellationToken ct)
+    {
+        var (file, arguments) = ServiceUserInvocation(binary, instance, ["update", "observed-libraries", "--json"]);
+        var result = ServiceCommands.RunCapture(file, arguments);
+        if (result.ExitCode != 0)
+        {
+            return Task.FromResult<IReadOnlyList<ObservedLibrary>?>(null);
+        }
+
+        try
+        {
+            return Task.FromResult<IReadOnlyList<ObservedLibrary>?>(System.Text.Json.JsonSerializer.Deserialize<List<ObservedLibrary>>(result.Output, ReleaseCompatibility.Json));
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return Task.FromResult<IReadOnlyList<ObservedLibrary>?>(null);
+        }
     }
 
     /// <summary>

@@ -1,6 +1,7 @@
 @model SboxNetworkStorage.Server.Owner.OwnerServerModel
 @using System.Globalization
 @using SboxNetworkStorage.Server.Monitoring
+@using SboxNetworkStorage.Server.Updates
 @{
     Layout = "~/Views/Owner/_Layout.cshtml";
     var s = Model.Latest;
@@ -18,6 +19,13 @@
     string Percent(double? value) => value is null ? "Unavailable" : value.Value.ToString("0.0", CultureInfo.InvariantCulture) + " %";
     string Ms(double? value) => value is null ? "No requests" : value.Value.ToString("0.#", CultureInfo.InvariantCulture) + " ms";
     string Number(double? value, string format = "0.##") => value is null ? "Unavailable" : value.Value.ToString(format, CultureInfo.InvariantCulture);
+    string VerdictLabel(VerdictStatus status) => status switch
+    {
+        VerdictStatus.Regression => "Regression",
+        VerdictStatus.Ok => "No regression",
+        VerdictStatus.InsufficientData => "Not enough traffic yet",
+        VerdictStatus.NoBaseline => "No baseline yet",
+    };
     var scope = Model.Scope == "container" ? "container limit" : "host";
     var cores = Model.CpuCores.ToString("0.##", CultureInfo.InvariantCulture);
     var tiles = new (string Key, string Label, string Value, string Hint)[]
@@ -55,6 +63,38 @@
         <div><dt>Database</dt><dd>@Model.Database @(Model.DatabaseVersion ?? "(not reachable)")@(Model.DatabaseLatencyMs is { } ms ? $", {ms.ToString("0.#", CultureInfo.InvariantCulture)} ms ping" : "")</dd></div>
         <div><dt>Data folder</dt><dd><code class="selectable">@Model.DataDirectory</code></dd></div>
     </dl>
+</section>
+<section class="card" aria-labelledby="server-update">
+    <h2 id="server-update">Update health</h2>
+    <dl class="stat-strip cols-3 server-facts">
+        <div><dt>Running version</dt><dd>@Model.Update.Version</dd></div>
+        <div><dt>Post-update watch</dt><dd data-update-watch>@Model.Update.Watch</dd></div>
+        <div><dt>Verdict</dt><dd>@(Model.Update.Verdict is null ? "Not available" : VerdictLabel(Model.Update.Verdict.Status))</dd></div>
+    </dl>
+    <p class="muted">@Model.Update.Detail</p>
+    @if (Model.Update.Verdict is { Libraries.Count: > 0 } verdict)
+    {
+        <div class="table-scroll"><table><caption class="sr-only">Library outcomes since the update</caption>
+        <thead><tr><th scope="col">Library</th><th scope="col">Outcome</th><th scope="col">Requests since update</th><th scope="col">Error rate since update</th><th scope="col">Requests before</th><th scope="col">Error rate before</th></tr></thead>
+        <tbody>
+        @foreach (var library in verdict.Libraries)
+        {
+            <tr><td>@library.Library</td><td>@library.Outcome</td><td>@library.PostRequests</td><td>@Percent((double)library.PostErrorRate * 100)</td><td>@library.BaselineRequests</td><td>@Percent((double)library.BaselineErrorRate * 100)</td></tr>
+        }
+        </tbody></table></div>
+        <p class="stat-strip-caption muted">Error rate counts server errors (5xx) and rejected requests (4xx other than 401, 403, 409 and 429) from games using each library version.</p>
+    }
+    @{ var previous = Model.Update.Verdict?.BaselineVersion; }
+    <details class="rollback-help" open="@(Model.Update.Watch == "Regression" ? "open" : null)">
+        <summary>If a game broke after this update: roll back to @(previous ?? "the previous release")</summary>
+        <ol>
+            <li><code class="selectable">sudo @RollbackAdvice.KeepData</code>: previous binary, database kept as it is. Refused, with the reason, when a migration since the update is not rollback-safe.</li>
+            <li><code class="selectable">sudo @RollbackAdvice.RestoreBackup</code>: previous binary plus the database backup taken before the update. Everything written since the update is lost.</li>
+            <li>Docker: recreate the container from <code class="selectable">@RollbackAdvice.Image:@(previous ?? "<previous version>")</code> with the same volumes.</li>
+        </ol>
+        <p class="muted">Leave out <code>sudo</code> on Windows and macOS user installs. Unattended updates roll back by themselves when <code>updates.auto_rollback</code> is on (the default).</p>
+    </details>
+    <p class="stat-strip-caption muted">Run <code>sbox-ns update verify</code> for the full report. Alerts go to the channels on <a href="/dashboard/server/alerts">Alerts</a>.</p>
 </section>
 <section class="card" aria-labelledby="server-live" data-server-live>
     <div class="section-heading">

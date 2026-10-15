@@ -3,6 +3,7 @@ using SboxNetworkStorage.Server.Cli;
 using SboxNetworkStorage.Server.Configuration;
 using SboxNetworkStorage.Server.Tunnels;
 using SboxNetworkStorage.Server.Updates;
+using SboxNetworkStorage.Storage;
 using SboxNetworkStorage.Storage.Relational;
 
 namespace SboxNetworkStorage.Cli.Tests;
@@ -547,6 +548,10 @@ public sealed class LayoutMigratorTests : IDisposable
         public Action? OnStop { get; set; }
 
         public Task<bool> IsActiveAsync(string unit, CancellationToken ct) => Task.FromResult(true);
+
+        public Task<PostUpdateVerdict?> ReadUpdateVerdictAsync(string binary, ServerInstance instance, int hours, CancellationToken ct) => throw new NotSupportedException();
+
+        public Task<IReadOnlyList<ObservedLibrary>?> ReadObservedLibrariesAsync(string binary, ServerInstance instance, CancellationToken ct) => throw new NotSupportedException();
 
         public Task<int> StartAsync(string unit, CancellationToken ct)
         {

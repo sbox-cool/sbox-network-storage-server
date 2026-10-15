@@ -22,6 +22,7 @@ public static class PostgresMigrations
         new(4, "Request log records the caller's library version, client type and engine build", SchemaChange.Additive, V4),
         new(5, "Daily client-version aggregates; errors record the caller's library identity", SchemaChange.Additive, V5),
         new(6, "Integrity flags, player blocks and player action log for the integrity and insights modules", SchemaChange.Additive, V6),
+        new(7, "Hourly per-library request outcomes by server version for post-update regression checks", SchemaChange.Additive, V7),
     ];
 
     // Additive: three new tables plus two indexes. No existing table is touched, so the
@@ -32,6 +33,16 @@ public static class PostgresMigrations
         CREATE TABLE {p}player_blocks (project_id {Key}, steam_id {Key}, scope text NOT NULL, reason text, created_at_unix_ms bigint NOT NULL, expires_at_unix_ms bigint, created_by text, PRIMARY KEY (project_id, steam_id));
         CREATE TABLE {p}player_action_log (project_id {Key}, steam_id {Key}, created_at_unix_ms bigint NOT NULL, entry_id {Key}, endpoint_slug text, revision_id bigint, outcome text, changed_fields_json text, body_json text, PRIMARY KEY (project_id, steam_id, created_at_unix_ms, entry_id));
         CREATE INDEX ix_player_action_log_project_time ON {p}player_action_log (project_id, created_at_unix_ms DESC);
+        """;
+
+    // Additive: one new table. Older binaries never read or write it, so they keep working on the result.
+    private static string V7(string p) => $"""
+        CREATE TABLE {p}client_outcomes_hourly (
+            project_id {Key}, hour bigint NOT NULL, server_version text NOT NULL, group_key {Key},
+            library_version text NOT NULL, library_revision bigint, client_type text NOT NULL,
+            requests bigint NOT NULL, rejected bigint NOT NULL, server_errors bigint NOT NULL,
+            PRIMARY KEY (project_id, hour, server_version, group_key));
+        CREATE INDEX ix_client_outcomes_hour ON {p}client_outcomes_hourly (hour);
         """;
 
     // Additive: one new table plus five nullable error columns. The previous binary's named-column

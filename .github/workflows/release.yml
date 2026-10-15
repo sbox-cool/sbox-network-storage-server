@@ -26,6 +26,17 @@ jobs:
     name: HTTP parity release gate
     uses: ./.github/workflows/smoke.yml
 
+  compat:
+    # The real library inside s&box for every library in compat/library-targets.json, against this
+    # release's source, compared with the previous release. A library that worked on the previous
+    # release and fails here blocks the release; the passing ones are published in release.json
+    # `testedLibraries`, which `sbox-ns update` checks against the libraries an owner's games use.
+    name: Library x server compat release gate
+    uses: ./.github/workflows/compat-matrix.yml
+    permissions:
+      contents: read
+      issues: write
+
   stable-parity:
     name: Approved stable HTTP parity release gate
     runs-on: ubuntu-latest
@@ -82,7 +93,7 @@ jobs:
 
   publish:
     name: Publish ${{ matrix.rid }}
-    needs: [test, smoke, stable-parity, meta]
+    needs: [test, smoke, stable-parity, compat, meta]
     runs-on: ${{ matrix.os }}
     permissions:
       contents: read
@@ -161,7 +172,7 @@ jobs:
 
   image:
     name: Container image
-    needs: [test, smoke, stable-parity, meta]
+    needs: [test, smoke, stable-parity, compat, meta]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -229,7 +240,7 @@ jobs:
 
   release:
     name: GitHub Release
-    needs: [meta, publish, image]
+    needs: [meta, compat, publish, image]
     runs-on: ubuntu-latest
     environment: release-signing
     permissions:
@@ -238,6 +249,7 @@ jobs:
     env:
       VERSION: ${{ needs.meta.outputs.version }}
       PRERELEASE: ${{ needs.meta.outputs.prerelease }}
+      TESTED_LIBRARIES: ${{ needs.compat.outputs.tested_libraries }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -262,6 +274,7 @@ jobs:
             --arg changelogUrl "$CHANGELOG_URL" \
             --arg publishedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             --argjson prerelease "$PRERELEASE" \
+            --argjson tested "${TESTED_LIBRARIES:-null}" \
             --slurpfile meta "$meta_file" \
             '{
               version: $version,
@@ -271,7 +284,7 @@ jobs:
               security: ($meta[0].security // false),
               changelogUrl: $changelogUrl,
               publishedAt: $publishedAt
-            }' > dist/release.json
+            } + (if ($tested | type) == "array" and ($tested | length) > 0 then { testedLibraries: $tested } else {} end)' > dist/release.json
           cat dist/release.json
 
       - name: Generate SHA256SUMS

@@ -14,7 +14,8 @@ internal static class DemoMonitoring
     internal static OwnerServerModel Server() => new(
         "Sample server", ".NET 10 (sample)", "Linux / arm64 (sample)", StartedAt,
         "SQLite (sample)", "3.50 (sample)", 1.2, "/srv/sbox-ns/demo-data (sample)", "sample host", 4, 8 * GiB,
-        3, Sample(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() / 500), Disk);
+        3, Sample(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() / 500), Disk,
+        new OwnerUpdateHealth("0.0.0 (sample)", "Watching", "Sample data: no real update is being watched.", null));
 
     internal static object Stats(int interval, long after)
     {

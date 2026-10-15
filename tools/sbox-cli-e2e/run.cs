@@ -582,9 +582,11 @@ static class Scripts
 		return r;
 		""";
 
+	// No NetworkStorage.LibraryVersion here: libraries published before 1.1.0 do not have the constant, and the
+	// snippet would not compile against them. The version comes from the library source instead.
 	public static string Configure(Server s) => $$"""
 		NetworkStorage.Configure( {{Lit(s.ProjectId)}}, {{Lit(s.PublicKey)}}, {{Lit(s.Url)}} );
-		return new { libraryVersion = NetworkStorage.LibraryVersion, allowed = Http.IsAllowed( new Uri( {{Lit(s.Url + "/v3/server-info")}} ) ) };
+		return new { allowed = Http.IsAllowed( new Uri( {{Lit(s.Url + "/v3/server-info")}} ) ) };
 		""";
 
 	public static string CallEndpoint(string slug, JsonObject? input) => $$"""

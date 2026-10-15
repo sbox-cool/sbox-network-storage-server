@@ -48,6 +48,26 @@
         "sbox-cool/sbox-network-storage-server#75"
       ],
       "notes": "No s&box editor run. CI build and tests (SQLite, PostgreSQL 13-18), HTTP smoke and SQLite/PostgreSQL differential gate, and the install matrix on the release commit."
+    },
+    {
+      "server": "0.5.3",
+      "commit": "6bf5b2a0f5a2eb0c34244cb574780a6ab30d4b36",
+      "kind": "self-hosted",
+      "library": "1.1.0",
+      "database": [
+        "sqlite",
+        "postgres"
+      ],
+      "result": "ci-only",
+      "date": "2026-10-14",
+      "evidence": [
+        "https://github.com/sbox-cool/sbox-network-storage-server/actions/runs/38482447722",
+        "https://github.com/sbox-cool/sbox-network-storage-server/actions/runs/38483016911",
+        "https://github.com/sbox-cool/sbox-network-storage-server/actions/runs/38483016789",
+        "https://github.com/sbox-cool/sbox-network-storage-server/actions/runs/38483044853",
+        "sbox-cool/sbox-network-storage-server#89"
+      ],
+      "notes": "No s&box editor run. Owner-console-only release (client surface None). PR and main CI (SQLite, PostgreSQL 13-18), HTTP smoke and SQLite/PostgreSQL differential gate, and the install matrix on the release commit. Recorded after release from the v0.5.3 release notes (#90)."
     }
   ]
 }

@@ -1,6 +1,9 @@
 using System.Diagnostics;
 using System.Security;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using SboxNetworkStorage.Server.Configuration;
+using SboxNetworkStorage.Server.Hosting;
 
 namespace SboxNetworkStorage.Server.Cli;
 
@@ -20,7 +23,7 @@ public static class ServiceCommands
             "install" => await InstallAsync(context),
             "uninstall" when context.Args.Option("instance") is { } instance => await InstanceServiceCommands.UninstallAsync(instance),
             "uninstall" => await UninstallAsync(),
-            "start" => await WaitUntilServingAsync(context, await ControlAsync("start")),
+            "start" => await StartAsync(context),
             "stop" => await ControlAsync("stop"),
             "restart" => await RestartAsync(context),
             "status" => await ControlAsync("status"),
@@ -133,6 +136,42 @@ public static class ServiceCommands
 
         Console.WriteLine("Service removed. Config and data folders were left in place.");
         return CliApp.Ok;
+    }
+
+    /// <summary>
+    /// <c>systemctl start</c> does nothing for an active unit, so replacing the binary in place and then running
+    /// <c>service start</c> (what install.sh does when it is re-run to upgrade) left the old version serving: seen
+    /// upgrading a running 0.5.4 install. When the running server reports a different version than this binary,
+    /// restart it so the new binary takes over. launchd's start already restarts (kickstart -k), and Windows cannot
+    /// replace a running binary.
+    /// </summary>
+    private static async Task<int> StartAsync(CliContext context)
+    {
+        if (OperatingSystem.IsLinux() && await RunningVersionAsync(context) is { } running && running != BuildInfo.Version)
+        {
+            Console.WriteLine($"sbox-ns {running} is still running from the replaced binary; restarting so {BuildInfo.Version} takes over.");
+            return await RestartAsync(context);
+        }
+
+        return await WaitUntilServingAsync(context, await ControlAsync("start"));
+    }
+
+    /// <summary>The version the running server reports on <c>/health</c>; null when nothing answers.</summary>
+    private static async Task<string?> RunningVersionAsync(CliContext context)
+    {
+        var config = context.LoadConfig();
+        if (!config.IsValid) return null;
+        var url = new SboxNetworkStorage.Server.Updates.ServerInstance(SboxNetworkStorage.Server.Updates.ServerInstance.DefaultName,
+            ServiceName, config).HealthUrl;
+        using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(3) };
+        try
+        {
+            return JsonNode.Parse(await http.GetStringAsync(url))?["version"]?.GetValue<string>();
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or InvalidOperationException)
+        {
+            return null;
+        }
     }
 
     private static async Task<int> RestartAsync(CliContext context)

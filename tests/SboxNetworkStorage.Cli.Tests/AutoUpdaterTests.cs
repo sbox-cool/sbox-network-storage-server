@@ -6,6 +6,7 @@ using SboxNetworkStorage.Server.Configuration;
 using SboxNetworkStorage.Server.Hosting;
 using SboxNetworkStorage.Server.Operations;
 using SboxNetworkStorage.Server.Updates;
+using SboxNetworkStorage.Storage;
 using SboxNetworkStorage.Storage.Relational;
 
 namespace SboxNetworkStorage.Cli.Tests;
@@ -368,6 +369,10 @@ public sealed class AutoUpdaterTests : IDisposable
         public bool FailLayoutRevert { get; set; }
 
         private bool _migrationAttempted;
+
+        public Task<PostUpdateVerdict?> ReadUpdateVerdictAsync(string binary, ServerInstance instance, int hours, CancellationToken ct) => throw new NotSupportedException();
+
+        public Task<IReadOnlyList<ObservedLibrary>?> ReadObservedLibrariesAsync(string binary, ServerInstance instance, CancellationToken ct) => throw new NotSupportedException();
 
         public Task<bool> IsActiveAsync(string unit, CancellationToken ct) => Task.FromResult(true);
 

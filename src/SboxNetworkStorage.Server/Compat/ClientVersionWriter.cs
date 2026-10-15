@@ -5,12 +5,12 @@ using SboxNetworkStorage.Storage;
 namespace SboxNetworkStorage.Server.Compat;
 
 /// <summary>
-/// Flushes the in-memory client-version batches into the store once a minute (and at shutdown),
-/// purges rows older than 90 days, and notifies through the existing error-alert sink when a
-/// project's configured affected-traffic share is reached. Telemetry only; never refuses a request.
+/// Flushes the in-memory client-version and outcome batches into the store once a minute (and at shutdown),
+/// purges rows past their retention (90 days of versions, 14 days of outcomes), and notifies through the existing
+/// error-alert sink when a project's configured affected-traffic share is reached. Telemetry only; never refuses a request.
 /// </summary>
-public sealed class ClientVersionWriter(ClientVersionTracker tracker, IClientVersionStore store, LibraryCompatProvider compat,
-    IServiceScopeFactory scopes, TimeProvider time, ILogger<ClientVersionWriter> logger) : BackgroundService
+public sealed class ClientVersionWriter(ClientVersionTracker tracker, ClientOutcomeTracker outcomes, IClientVersionStore store,
+    LibraryCompatProvider compat, IServiceScopeFactory scopes, TimeProvider time, ILogger<ClientVersionWriter> logger) : BackgroundService
 {
     private readonly SemaphoreSlim _gate = new(1);
     public async Task FlushAsync(CancellationToken ct)
@@ -18,6 +18,8 @@ public sealed class ClientVersionWriter(ClientVersionTracker tracker, IClientVer
         await _gate.WaitAsync(ct);
         try
         {
+            var outcomeBatch = outcomes.Drain();
+            if (outcomeBatch.Count > 0) await store.WriteClientOutcomesAsync(outcomeBatch, ct);
             var batch = tracker.Drain();
             if (batch.Count > 0) await store.WriteClientVersionsAsync(batch, ct);
             // Aggregate alert threshold is per-project; not a per-request network call.
@@ -61,16 +63,18 @@ public sealed class ClientVersionWriter(ClientVersionTracker tracker, IClientVer
                 try
                 {
                     await FlushAsync(stoppingToken);
-                    var day = DateOnly.FromDateTime(time.GetUtcNow().UtcDateTime).DayNumber;
+                    var now = time.GetUtcNow();
+                    var day = DateOnly.FromDateTime(now.UtcDateTime).DayNumber;
                     if (day != lastPurgeDay)
                     {
                         await store.PurgeClientVersionsAsync(day - 89, stoppingToken);
+                        await store.PurgeClientOutcomesAsync(ClientOutcomeTracker.HourOf(now) - ClientOutcomeTracker.RetentionHours, stoppingToken);
                         lastPurgeDay = day;
                     }
-                    var dropped = tracker.Dropped;
+                    var dropped = tracker.Dropped + outcomes.Dropped;
                     if (dropped > reportedDrops)
                     {
-                        logger.LogWarning("Client version analytics dropped {Count} additional requests at the daily cardinality bound", dropped - reportedDrops);
+                        logger.LogWarning("Client analytics dropped {Count} additional requests at the bounded group limit", dropped - reportedDrops);
                         reportedDrops = dropped;
                     }
                 }
@@ -79,6 +83,7 @@ public sealed class ClientVersionWriter(ClientVersionTracker tracker, IClientVer
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { }
     }
+
     public override async Task StopAsync(CancellationToken cancellationToken)
     {
         await base.StopAsync(cancellationToken);

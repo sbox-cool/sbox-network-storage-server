@@ -1,5 +1,5 @@
 name: Install matrix
-# Real install, upgrade from the previous release, update and rollback on disposable machines.
+# Real install, upgrade from earlier releases, update and rollback on disposable machines.
 # Releases are built from this commit, signed with a throwaway key pinned for this run only, and
 # served by a local fixture (scripts/ci/). See scripts/ci/install-matrix.sh for what is checked.
 on:
@@ -24,15 +24,20 @@ env:
   DOTNET_CLI_TELEMETRY_OPTOUT: "true"
   CANDIDATE: 90.0.0
   NEXT: 90.0.1
-  PREVIOUS: 0.4.0
+# Upgrades start from two real releases: the newest one (bump it after every release,
+# docs/releasing.md) and the oldest one owners may still run, which predates the state layout.
 jobs:
   linux:
-    name: Linux (${{ matrix.os }}, ${{ matrix.scenario }})
+    name: Linux (${{ matrix.os }}, ${{ matrix.scenario }}${{ matrix.scenario == 'upgrade' && format(' from {0}', matrix.previous) || '' }})
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-22.04, ubuntu-24.04, ubuntu-24.04-arm]
         scenario: [fresh, upgrade]
+        previous: ["0.5.4", "0.4.0"]
+        exclude:
+          - scenario: fresh
+            previous: "0.4.0"
     runs-on: ${{ matrix.os }}
     timeout-minutes: 40
     steps:
@@ -45,11 +50,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           rid=linux-x64; [[ "$(uname -m)" == aarch64 ]] && rid=linux-arm64
-          previous=(); [[ "${{ matrix.scenario }}" == upgrade ]] && previous=(--previous "$PREVIOUS")
+          previous=(); [[ "${{ matrix.scenario }}" == upgrade ]] && previous=(--previous "${{ matrix.previous }}")
           scripts/ci/build-release-fixture.sh --rid "$rid" --out "$RUNNER_TEMP/fixture" "${previous[@]}" "$CANDIDATE" "$NEXT"
       - name: Install, update and roll back
         run: |
-          previous=(); [[ "${{ matrix.scenario }}" == upgrade ]] && previous=(--previous "$PREVIOUS")
+          previous=(); [[ "${{ matrix.scenario }}" == upgrade ]] && previous=(--previous "${{ matrix.previous }}")
           sudo scripts/ci/install-matrix.sh --fixture "$RUNNER_TEMP/fixture" --scenario "${{ matrix.scenario }}" \
             --candidate "$CANDIDATE" --next "$NEXT" "${previous[@]}"
       - name: Collect logs
@@ -62,18 +67,22 @@ jobs:
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: failure()
         with:
-          name: install-matrix-${{ matrix.os }}-${{ matrix.scenario }}
+          name: install-matrix-${{ matrix.os }}-${{ matrix.scenario }}-${{ matrix.previous }}
           path: ${{ runner.temp }}/logs
 
   debian:
     # No hosted Debian runner: Debian 12 boots systemd as PID 1 in a privileged container on an
     # Ubuntu VM. Units, users, the installer and the updater run for real; the kernel and cgroups
     # are the host's, so sandbox (journal) checks here are weaker than on the VM jobs.
-    name: Debian 12 (${{ matrix.scenario }}, systemd container)
+    name: Debian 12 (${{ matrix.scenario }}${{ matrix.scenario == 'upgrade' && format(' from {0}', matrix.previous) || '' }}, systemd container)
     strategy:
       fail-fast: false
       matrix:
         scenario: [fresh, upgrade]
+        previous: ["0.5.4", "0.4.0"]
+        exclude:
+          - scenario: fresh
+            previous: "0.4.0"
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
@@ -85,7 +94,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          previous=(); [[ "${{ matrix.scenario }}" == upgrade ]] && previous=(--previous "$PREVIOUS")
+          previous=(); [[ "${{ matrix.scenario }}" == upgrade ]] && previous=(--previous "${{ matrix.previous }}")
           scripts/ci/build-release-fixture.sh --rid linux-x64 --out "$RUNNER_TEMP/fixture" "${previous[@]}" "$CANDIDATE" "$NEXT"
       - name: Boot Debian 12 with systemd
         run: |
@@ -102,7 +111,7 @@ jobs:
           docker exec debian12 systemctl is-system-running || true
       - name: Install, update and roll back
         run: |
-          previous=(); [[ "${{ matrix.scenario }}" == upgrade ]] && previous=(--previous "$PREVIOUS")
+          previous=(); [[ "${{ matrix.scenario }}" == upgrade ]] && previous=(--previous "${{ matrix.previous }}")
           docker exec debian12 /src/scripts/ci/install-matrix.sh --fixture /fixture --scenario "${{ matrix.scenario }}" \
             --candidate "$CANDIDATE" --next "$NEXT" "${previous[@]}"
       - name: Collect logs
@@ -114,7 +123,7 @@ jobs:
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: failure()
         with:
-          name: install-matrix-debian12-${{ matrix.scenario }}
+          name: install-matrix-debian12-${{ matrix.scenario }}-${{ matrix.previous }}
           path: ${{ runner.temp }}/logs
 
   windows:

@@ -20,12 +20,12 @@ namespace SboxNetworkStorage.Server.Owner;
 /// </summary>
 [Authorize(AuthenticationSchemes = OwnerHostingExtensions.Scheme)]
 public sealed class OwnerExportController(INetworkStorageStore store, INetworkStorageStoreAdmin admin, EffectiveConfig config,
-    IWorkspaceStore workspace, IAuditLogger audit, OwnerAccountService accounts, ILogger<OwnerExportController> logger) : Controller
+    IWorkspaceStore workspace, IAuditLogger audit, OwnerAccountService accounts, OwnerExportGate exportGate,
+    ILogger<OwnerExportController> logger) : Controller
 {
     private const long Owner = NetworkStorageServices.LocalOwnerUserId;
 
-    /// <summary>One export at a time: each one stages a full dump on disk.</summary>
-    private static readonly SemaphoreSlim Gate = new(1, 1);
+    private SemaphoreSlim Gate => exportGate.Semaphore;
 
     [HttpPost("/dashboard/export")]
     [EnableRateLimiting(OwnerLoginLimits.Policy)]
@@ -161,4 +161,13 @@ public sealed class OwnerExportController(INetworkStorageStore store, INetworkSt
         return View("~/Views/Owner/Dashboard.cshtml", new OwnerDashboardModel(cards,
             OwnerDashboardModel.SshHostFor(config, Request), error, null, openDialog, null, null, cards.Count));
     }
+}
+
+/// <summary>
+/// One export or import at a time per server: each one stages a full dump on disk. A host-scoped
+/// singleton rather than a static, so two servers in one process (tests) do not share it.
+/// </summary>
+public sealed class OwnerExportGate
+{
+    public SemaphoreSlim Semaphore { get; } = new(1, 1);
 }
