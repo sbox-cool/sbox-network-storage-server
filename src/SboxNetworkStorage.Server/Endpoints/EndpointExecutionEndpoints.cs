@@ -173,14 +173,12 @@ public static class EndpointExecutionEndpoints
             body = default;
         }
 
-        // If the slug is not on the route, read it from the JSON body.
+        // If the slug is not on the route, read it from the JSON body. Library builds published until
+        // May 2026 (for example sbox.game r238672) POST /v3/endpoints/{projectId} with the slug only in
+        // "_endpointSlug"; the newer library also sends it but puts the slug in the path too.
         if (string.IsNullOrEmpty(endpointSlug) && body.ValueKind == JsonValueKind.Object)
         {
-            endpointSlug = body.TryGetProperty("endpoint", out var epProp) && epProp.ValueKind == JsonValueKind.String
-                ? epProp.GetString() ?? ""
-                : body.TryGetProperty("slug", out var slugProp) && slugProp.ValueKind == JsonValueKind.String
-                    ? slugProp.GetString() ?? ""
-                    : "";
+            endpointSlug = BodyString(body, "endpoint") ?? BodyString(body, "slug") ?? BodyString(body, "_endpointSlug") ?? "";
         }
 
         if (string.IsNullOrEmpty(endpointSlug))
@@ -723,6 +721,9 @@ public static class EndpointExecutionEndpoints
         }
         return dict;
     }
+
+    private static string? BodyString(JsonElement body, string name)
+        => body.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
 
     private static object? JsonToObject(JsonElement element)
     {

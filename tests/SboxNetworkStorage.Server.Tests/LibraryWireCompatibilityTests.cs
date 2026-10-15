@@ -177,6 +177,47 @@ public abstract class LibraryWireCompatibilityTests<TFactory> : IDisposable wher
         Assert.Equal(JsonValueKind.Object, (await JsonAsync(values)).ValueKind);
     }
 
+    // Library builds published until May 2026 (sbox.game r238672, commit 5c33cb5):
+    // Code/Endpoints/NetworkStorageEndpointSecurity.cs posts to /endpoints/{ProjectId} with the slug
+    // only in "_endpointSlug". Games built with it cannot be republished by the server owner.
+    [SkippableFact]
+    public async Task EndpointCall_SlugOnlyInBody_FromOlderPublishedLibraries()
+    {
+        var project = await factory.CreateProjectAsync("Library body slug");
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var store = scope.ServiceProvider.GetRequiredService<INetworkStorageStore>();
+            await store.UpsertEndpointAsync(project.ProjectId, "ping", "ping", "POST", true,
+                JsonSerializer.SerializeToElement(new
+                {
+                    id = "ping", name = "Ping", slug = "ping", method = "POST", enabled = true,
+                    response = new { pong = true },
+                }), null, 1, CancellationToken.None);
+        }
+        using var client = Client(factory);
+        async Task<(HttpStatusCode Status, string Body)> CallAsync(string path)
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Post, $"{path}?apiKey={project.PublicKey}")
+            {
+                Content = JsonContent.Create(new
+                {
+                    hello = "world",
+                    security = new { configVersion = "", clientMode = "legacy", authSessions = "disabled", encryptedRequests = "disabled", revisionId = 0, revisionOutdated = false },
+                    _endpointSlug = "ping",
+                }),
+            };
+            request.Headers.Add("x-public-key", project.PublicKey);
+            using var response = await client.SendAsync(request);
+            return (response.StatusCode, await response.Content.ReadAsStringAsync());
+        }
+
+        var bodySlug = await CallAsync($"/v3/endpoints/{project.ProjectId}");
+        var pathSlug = await CallAsync($"/v3/endpoints/{project.ProjectId}/ping");
+
+        Assert.Equal(HttpStatusCode.OK, bodySlug.Status);
+        Assert.Equal(pathSlug, bodySlug);
+    }
+
     // Code/Storage/NetworkStorageQueries.cs and Code/Core/NetworkStorageRevisionInit.cs.
     [SkippableFact]
     public async Task QueryRunAndRevisionInit_HandshakeShapes()
