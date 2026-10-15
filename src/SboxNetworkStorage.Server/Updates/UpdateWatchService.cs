@@ -30,8 +30,20 @@ public sealed class UpdateWatchService(
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        // Stamp the build's start now (a file write), but leave the database alone until the first tick:
+        // a regression needs minutes of traffic on the new build anyway, and short-lived hosts (CLI-hosted
+        // servers, tests) then open no extra database connections.
+        try
+        {
+            EnsureMarker(time.GetUtcNow());
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            logger.LogWarning(ex, "Could not record the update watch marker; the next check retries.");
+        }
+
         using var timer = new PeriodicTimer(Interval, time);
-        do
+        while (await timer.WaitForNextTickAsync(stoppingToken))
         {
             try
             {
@@ -46,12 +58,11 @@ public sealed class UpdateWatchService(
                 logger.LogWarning(ex, "Update regression check failed; it will retry on the next tick.");
             }
         }
-        while (await timer.WaitForNextTickAsync(stoppingToken));
     }
 
-    internal async Task CheckAsync(CancellationToken ct)
+    /// <summary>The marker for the running build, created (with the build's start time) when this build has none yet.</summary>
+    private WatchMarker EnsureMarker(DateTimeOffset now)
     {
-        var now = time.GetUtcNow();
         var version = BuildInfo.Version;
         var marker = ReadMarker();
         if (marker is null || marker.Version != version)
@@ -59,6 +70,15 @@ public sealed class UpdateWatchService(
             marker = new WatchMarker(version, now.ToUnixTimeMilliseconds(), null);
             WriteMarker(marker);
         }
+
+        return marker;
+    }
+
+    internal async Task CheckAsync(CancellationToken ct)
+    {
+        var now = time.GetUtcNow();
+        var version = BuildInfo.Version;
+        var marker = EnsureMarker(now);
 
         if (marker.AlertedAtUnixMs is not null)
         {

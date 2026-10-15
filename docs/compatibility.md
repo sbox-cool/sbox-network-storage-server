@@ -26,13 +26,17 @@ start the s&box editor); they hold changes back, they do not certify a pairing.
 | Server PR and `main` | **Compat gate** ([`compat-matrix.yml`](../.github/workflows/compat-matrix.yml)): the parity corpus on the change, diffed against the approved stable reference **and against the latest release**; library version headers; the real library inside s&box (newest Facepunch/sbox-public, `-mcp` dedicated server) for every library in [`compat/library-targets.json`](../compat/library-targets.json) | Any unlisted wire difference. Any library that passes on the latest release and fails on the change (**regression**). A library failing on both is reported as an engine/library problem, not blamed on the change. |
 | Server release | The same gate inside `release.yml`, before anything is built or signed | Publishing. Passing libraries go into the signed `release.json` `testedLibraries`. |
 | Server nightly | The same gate on `main` with the newest engine | Nothing; opens or updates a `compat` issue on a regression, a contract failure, or a library that now fails on the released server too (an s&box update broke it). |
-| Library PR | Its own **Compat gate**: public API diff, the PR's library inside s&box against the latest server release and server `main`, and an editor-evidence hold for `Code/`/`Editor/` changes | See the library repo's `docs/`. |
+| Library PR | Its own required **Compat gate**: public API diff (held without `compat: breaking-approved`), the PR's library inside s&box against the latest server release, the oldest supported one (the library's `MinServerVersion`) and server `main`, and an editor-evidence hold for `Code/`/`Editor/` changes (`editor-tested`) | See the library's [docs/compat-gate.md](https://github.com/sbox-cool/sbox-network-storage/blob/main/docs/compat-gate.md). |
+| Library publish | The revision sync tags each published sbox.game revision `r<revision>`; the newest three are picked up by `latest:3` here and by the library's nightly published-revision leg | Nothing on sbox.game itself; a break shows up as a nightly `compat` issue in either repo. |
+
+`main` requires **Compat gate** plus the build, test, smoke and secret-scan checks. Administrators
+can still merge past a red check for an urgent fix; say why in the PR.
 
 An intentional wire change is not a failure to work around: add the difference to
 [`tests/parity/intentional-differences.json`](../tests/parity/intentional-differences.json) with a
-reason in the same PR, so review sees exactly what older games will receive. When a new library
-revision is published on sbox.game, add it to `compat/library-targets.json` so every later server
-change is run against it too; keep the revisions players still run there.
+reason in the same PR, so review sees exactly what older games will receive. The newest three
+published revisions are tested automatically; pin an older revision that players still run in
+`compat/library-targets.json` (as `git:<sha>`) when it drops out of that window.
 
 ## Certification: certify once, re-test on fundamental change
 

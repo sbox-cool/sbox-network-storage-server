@@ -178,6 +178,10 @@ actionlint
 - Update `docs/` when you change configuration keys, CLI commands or defaults.
 - Never commit secrets, connection strings with real passwords or database files.
   CI runs gitleaks on every push.
+- `main` is protected: **Compat gate** (the parity corpus against the stable reference and the
+  latest release, and the real library inside s&box; see
+  [docs/compatibility.md](docs/compatibility.md#automated-gates)), the build and test matrix, the
+  HTTP smokes and the secret scan must pass. Classify the client-visible surface in the PR template.
 
 ## License
 

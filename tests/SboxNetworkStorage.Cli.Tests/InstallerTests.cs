@@ -233,12 +233,15 @@ public sealed class InstallerTests : IDisposable
         using var process = Process.Start(start)!;
         var stdout = process.StandardOutput.ReadToEndAsync();
         var stderr = process.StandardError.ReadToEndAsync();
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        // The first powershell.exe of a hosted Windows job can take over 30 s to start (cold Windows
+        // PowerShell 5.1 plus Defender scanning), which failed whichever case ran first. The installer
+        // itself answers these cases without network access, so a generous bound only absorbs startup.
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(120));
         try { await process.WaitForExitAsync(timeout.Token); }
         catch (OperationCanceledException)
         {
             process.Kill(entireProcessTree: true);
-            throw;
+            throw new TimeoutException($"{start.FileName} did not exit within 120 s.\nstdout: {await stdout}\nstderr: {await stderr}");
         }
         return (process.ExitCode, await stdout, await stderr);
     }
