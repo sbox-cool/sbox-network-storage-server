@@ -13,7 +13,7 @@ namespace SboxNetworkStorage.Storage.Relational;
 /// semantics, and counter arithmetic. Ordinary writes remain unconditional;
 /// portable project restoration additionally exposes a single atomic transaction.
 /// </summary>
-public abstract partial class RelationalNetworkStorageStore : INetworkStorageStore, IProjectImportStore, INetworkStorageStoreAdmin, IAsyncDisposable, IDisposable
+public abstract partial class RelationalNetworkStorageStore : INetworkStorageStore, IProjectImportStore, INetworkStorageStoreAdmin, ISerializableStoreTransactions, IAsyncDisposable, IDisposable
 {
     /// <summary><c>query_run_logs</c> rows expire after 90 days (production <c>default_time_to_live = 7776000</c>).</summary>
     public static readonly TimeSpan QueryRunLogRetention = TimeSpan.FromSeconds(7_776_000);
@@ -89,7 +89,13 @@ public abstract partial class RelationalNetworkStorageStore : INetworkStorageSto
     }
 
     /// <inheritdoc />
-    public async Task<IStoreTransaction> BeginTransactionAsync(CancellationToken ct)
+    public Task<IStoreTransaction> BeginTransactionAsync(CancellationToken ct) => OpenTransactionAsync(ct, null);
+
+    public Task<IStoreTransaction> BeginSerializableTransactionAsync(CancellationToken ct) => OpenTransactionAsync(ct, IsolationLevel.Serializable);
+
+    public abstract bool IsSerializationConflict(Exception exception);
+
+    private async Task<IStoreTransaction> OpenTransactionAsync(CancellationToken ct, IsolationLevel? isolation)
     {
         if (_transaction is not null)
             throw new InvalidOperationException("Transactions cannot be nested.");
@@ -97,7 +103,9 @@ public abstract partial class RelationalNetworkStorageStore : INetworkStorageSto
         var connection = await OpenConnectionAsync(ct);
         try
         {
-            var transaction = await connection.BeginTransactionAsync(ct);
+            var transaction = isolation is { } level
+                ? await connection.BeginTransactionAsync(level, ct)
+                : await connection.BeginTransactionAsync(ct);
             return new StoreTransaction(Bind(transaction), connection, transaction);
         }
         catch

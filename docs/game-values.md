@@ -28,20 +28,22 @@ Game code gets both in one response. The game cannot write game values.
 ## Authoring
 
 There are three ways to author game values. The owner console and the
-management API are the verified paths on release 0.5.4.
+management API are the verified paths on release 0.5.4. The current source
+also compiles Sync Tool YAML `game_values` collections; release 0.5.4 does
+not include that fix. See
+[#107](https://github.com/sbox-cool/sbox-network-storage-server/issues/107)
+for release tracking and the editor-test hold.
 
 ### In the game project with the Sync Tool
 
-The Sync Tool pushes and pulls YAML under your game's `Editor/Network Storage/`
-folder, including a `game_values` collection, and publishes package revisions
-(**Push Staged** or **Push Live**, below).
-
-> **Known gap (release 0.5.4):** a `game_values` collection pushed as YAML
-> source is stored uncompiled, so its `constants` and `tables` are not yet
-> returned by `GET /v3/values` or `{{values.*}}`. Until
-> [#107](https://github.com/sbox-cool/sbox-network-storage-server/issues/107)
-> is fixed, author game values in the owner console or with
-> `PUT /v3/manage/{projectId}/game-values` (secret key, `items` format below).
+The editor Sync Tool reads YAML source from the game project and publishes
+package revisions (**Push Staged** or **Push Live**, below). In the current
+server source, YAML `game_values` collections are compiled when read, without
+rewriting the stored source or pinned snapshots. On release 0.5.4 the source
+remains uncompiled and its values are not returned by `GET /v3/values` or
+`{{values.*}}`.
+On release 0.5.4, use the owner console or
+`PUT /v3/manage/{projectId}/game-values` (secret key, `items` format below).
 
 ### In the owner console
 
@@ -167,12 +169,13 @@ Game values belong to the revision they ship with.
   revisions. The default is 3 and the range is 0 to 20. A revision inside its
   support window is kept even past that count.
 - **Push Staged or Push Live.** **Push Staged** sends the publish target `next`.
-  Its changes are promoted when the next package revision is published, so
-  they ship with the next build. **Push Live** applies to every build right
-  away. See [client setup](client-setup.md#staged-pushes-and-editor-play-sessions).
+  Its changes are promoted when the next package revision is published.
+  **Push Live** changes the live target; retained revision snapshots continue
+  to resolve independently. See
+  [client setup](client-setup.md#staged-pushes-and-editor-play-sessions).
 
-Ship new items and rebalanced numbers with your next build. Players still on
-the old build keep the values they shipped with. Or push straight to live.
+Keep schemas backward-compatible across the support window. Player records are
+shared live data, not revision snapshots.
 
 Revision enforcement is optional and off by default. It can block outdated
 builds, but only when the owner turns it on
@@ -195,8 +198,14 @@ Game values used:
 - Table `weapons`: rusty pipe 8 damage every 600 ms, pistol 15 every 300 ms,
   shotgun 45 every 900 ms, crossbow 60 every 1200 ms.
 
-The `players` collection needs `combat` and `xp` fields. Two endpoints do the
-work.
+The `players` collection needs `combat` and `xp` fields. Two endpoints do the work.
+
+For the concurrency check, configure the `players` collection with
+`requireSaveVersion: true`. Protected endpoints validate the records they read
+again inside the write transaction; if another request changed that state,
+the stale call returns `409 CONFLICT` and persists no reward. This setting is
+opt-in. Without it, endpoint writes keep their existing behavior and are not
+safe against simultaneous requests that read and then overwrite the same record.
 
 ### start-combat
 
@@ -395,6 +404,12 @@ identity, which the server verifies.
 
 Each rejected request leaves the player's record unchanged, because every
 `write` step comes after the checks.
+
+Concurrent completion is a separate case: without `requireSaveVersion: true`,
+two requests can both pass the initial `in_combat` check. With it enabled,
+only one request can commit against a given player-record version; the other
+receives `409 CONFLICT`. Reload the player state before deciding whether to
+submit another action.
 
 ### What the checks do not prove
 

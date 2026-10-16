@@ -165,8 +165,7 @@ public sealed class GameValuesHandler : INetworkStorageHandler
                 ? cid.GetString() : null;
             var name = col.TryGetProperty("name", out var cn) && cn.ValueKind == JsonValueKind.String
                 ? cn.GetString() : null;
-            var visibility = col.TryGetProperty("visibility", out var cv) && cv.ValueKind == JsonValueKind.String
-                ? cv.GetString() : "private";
+            var hasDefinition = GameValueCollectionDefinition.TryRead(col, out var definition, out var visibility);
 
             var entry = new Dictionary<string, object?>
             {
@@ -175,24 +174,13 @@ public sealed class GameValuesHandler : INetworkStorageHandler
                 ["visibility"] = visibility,
             };
 
-            // Relational and store stores can return parsed JSON or JSON text.
-            if (col.TryGetProperty("definition_json", out var def))
+            if (hasDefinition)
             {
-                try
+                foreach (var prop in definition.EnumerateObject())
                 {
-                    var defElement = def.ValueKind == JsonValueKind.String
-                        ? JsonSerializer.Deserialize<JsonElement>(def.GetString()!)
-                        : def;
-                    if (defElement.ValueKind == JsonValueKind.Object)
-                    {
-                        foreach (var prop in defElement.EnumerateObject())
-                        {
-                            if (prop.Name is "id" or "name" or "visibility") continue;
-                            entry[prop.Name] = prop.Value.Clone();
-                        }
-                    }
+                    if (prop.Name is "id" or "name" or "visibility") continue;
+                    entry[prop.Name] = prop.Value.Clone();
                 }
-                catch (JsonException) { /* malformed definition — skip extra fields */ }
             }
 
             collectionsArray.Add(entry);

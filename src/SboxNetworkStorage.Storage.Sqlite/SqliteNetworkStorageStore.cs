@@ -46,6 +46,9 @@ public sealed class SqliteNetworkStorageStore : RelationalNetworkStorageStore
 
     public override string RedactedTarget => _databasePath;
 
+    public override bool IsSerializationConflict(Exception exception) =>
+        exception is SqliteException { SqliteErrorCode: 5 or 6 };
+
     /// <summary>Absolute path of the database file.</summary>
     public string DatabasePath => _databasePath;
 

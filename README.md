@@ -59,13 +59,14 @@ never ship in games.
 ## Game values
 
 Game values are the shared numbers your game and server both read: tuning
-constants, named groups and typed tables. Author them once; every published
-build keeps the values it shipped with.
+constants, named groups and typed tables. Author them once; published builds
+use retained snapshots according to the project's revision policy, while live
+player records remain shared.
 
 - **Author them in the owner console, over the API or with MCP.** Edit them on
   the **Game values** page, `PUT /v3/manage/{projectId}/game-values`, or let a
-  coding agent work on them through MCP. YAML `game_values` collections pushed
-  by the Sync Tool are not served yet on 0.5.4
+  coding agent work on them through MCP. Sync Tool YAML `game_values` support
+  is fixed in the current source; release 0.5.4 does not include the fix
   ([#107](https://github.com/sbox-cool/sbox-network-storage-server/issues/107)).
 - **Read them in one call.** `await NetworkStorage.GetGameValues();` loads every
   group and table when the game starts. Game code cannot write them.
@@ -73,8 +74,9 @@ build keeps the values it shipped with.
   `{{values.combat.zombie_hp_per_level}}`, and `lookup` steps with `source: values`
   read tables, so the client and the server agree.
 - **Version them with builds.** A publish writes a snapshot. **Push Staged**
-  ships changes with the next build. **Push Live** applies them to every build now.
-
+  stages changes for the next published revision. **Push Live** changes the
+  live target; it does not replace every retained snapshot. Check the project's
+  revision policy before changing values used by older builds.
 [Authoring, reading, revisions and a worked anti-exploit example](docs/game-values.md).
 
 ## Gallery

@@ -34,3 +34,11 @@ settings:
     type: integer
     default: "60"
     description: How long flag-and-block-writes blocks a player from mutating requests.
+  - key: response_mode
+    type: string
+    default: "off"
+    description: "Response model: off, or dry-run (records wouldApply evidence on flags only; never blocks, limits, or alerts)."
+  - key: response_lookback_hours
+    type: integer
+    default: "24"
+    description: "Hours of a player's flag history the dry-run response model counts (1 to 168)."

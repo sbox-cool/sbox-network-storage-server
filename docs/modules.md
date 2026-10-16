@@ -93,6 +93,28 @@ for `block_duration_minutes`. Flags record player, detector, severity, time, evi
 state (`open`, `dismissed`, `confirmed`); the review queue groups them by player and every
 decision is audited.
 
+Response model (`response_mode`, default `off`): `off` takes no response-model path. `dry-run`
+evaluates each eligible firing (identity not `anonymous` or blank) against the player's recent
+counted firings of the same detector and stores the result as `wouldApply` evidence on the flag:
+`stage` (`flag`, `rate-limit`, `shadow`, `block-writes`, `block-all`), `detector`, `hookSource`,
+`windowSeconds`, `priorCount`, `approximate` and `schemaVersion`, at most 1024 bytes. Any other
+`response_mode` value is treated as `off`. `response_lookback_hours` (default 24, accepted 1 to 168)
+bounds the history counted. Flags in state `dismissed` or `reviewed-legitimate` are not counted;
+a repeat within the detector's window of the previous flag is suppressed and not counted.
+
+Dry-run records `wouldApply` only: zero automated blocks, rate limits, overlays or alerts come from
+the response model, and request responses are unchanged. The existing `flag-and-block-writes`
+action still blocks identities that are not real players until that prerequisite lands. History is
+read per firing and is not coordinated across server processes, so concurrent firings may not see
+each other. Evidence is marked `approximate: true` when the 16-row read ends before the lookback
+boundary and before four counted firings; the stage is then a lower bound. The value-delta,
+revision and rejection-reason detectors are not live.
+
+Calibration gate for any future enforcement (not enabled by this change): 30 days of dry-run
+data, reviewed-decision rate at most 1%, at least 300 reviewed legitimate decisions, at least
+1000 players, and zero response-model blocks in that window. The latency figures below are not
+yet measured.
+
 Player blocks (writes or all, optional expiry and public reason) return `403 PLAYER_BLOCKED`.
 Unblocking takes effect immediately.
 

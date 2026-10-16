@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -68,6 +69,11 @@ public sealed class IntegrityModuleService(
             ["endpoint"] = hookEvent.EndpointSlug,
             ["revisionId"] = hookEvent.RevisionId,
         };
+        if (settings.ResponseMode == IntegrityResponseEvaluator.ModeDryRun)
+        {
+            var wouldApply = await WouldApplyAsync(hookEvent, settings, firing, at, ct);
+            if (wouldApply is not null) evidence["wouldApply"] = wouldApply;
+        }
         try
         {
             await modules.InsertFlagAsync(hookEvent.ProjectId, flagId, at.ToUnixTimeMilliseconds(),
@@ -123,6 +129,25 @@ public sealed class IntegrityModuleService(
         }
     }
 
+    /// <summary>Dry-run only: the typed response decision as evidence, or null when ineligible or unavailable.</summary>
+    private async Task<JsonObject?> WouldApplyAsync(ModuleHookEvent hookEvent, IntegritySettings settings,
+        DetectorFiring firing, DateTimeOffset at, CancellationToken ct)
+    {
+        try
+        {
+            var window = IntegrityResponseEvaluator.WindowFor(firing.Detector, settings.Thresholds.ConflictWindow);
+            var decision = await IntegrityResponseEvaluator.EvaluateAsync(modules, hookEvent.ProjectId,
+                hookEvent.SteamId ?? string.Empty, firing.Detector, window, settings.ResponseLookback, at, ct);
+            if (decision.Eligibility != ResponseEligibility.Eligible) return null;
+            return IntegrityResponseEvaluator.BuildWouldApply(decision, firing.Detector, hookEvent.Hook, window);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex, "Integrity response evaluation failed for project {ProjectId}", hookEvent.ProjectId);
+            return null;
+        }
+    }
+
     /// <summary>Effective integrity settings, or null when the module is not installed and enabled.</summary>
     public async Task<IntegritySettings?> SettingsForAsync(string projectId, CancellationToken ct)
     {
@@ -155,7 +180,9 @@ public sealed record IntegritySettings(
     string DefaultAutoAction,
     IReadOnlyDictionary<string, string> AutoActions,
     int BlockDurationMinutes,
-    IReadOnlySet<string> Permissions)
+    IReadOnlySet<string> Permissions,
+    string ResponseMode,
+    TimeSpan ResponseLookback)
 {
     public static IntegritySettings From(IReadOnlyDictionary<string, string> saved, IReadOnlyList<string> permissions)
     {
@@ -176,9 +203,16 @@ public sealed record IntegritySettings(
                 && per is ("flag-only" or "flag-and-alert" or "flag-and-block-writes"))
                 overrides[detector] = per;
         }
+        var responseMode = saved.TryGetValue("response_mode", out var mode) && mode == IntegrityResponseEvaluator.ModeDryRun
+            ? IntegrityResponseEvaluator.ModeDryRun
+            : IntegrityResponseEvaluator.ModeOff;
+        var lookbackHours = GetInt(saved, "response_lookback_hours", IntegrityResponseEvaluator.DefaultLookbackHours);
+        if (lookbackHours is < IntegrityResponseEvaluator.MinLookbackHours or > IntegrityResponseEvaluator.MaxLookbackHours)
+            lookbackHours = IntegrityResponseEvaluator.DefaultLookbackHours;
         return new IntegritySettings(thresholds, auto, overrides,
             Math.Clamp(GetInt(saved, "block_duration_minutes", 60), 1, 60 * 24 * 30),
-            new HashSet<string>(permissions, StringComparer.Ordinal));
+            new HashSet<string>(permissions, StringComparer.Ordinal),
+            responseMode, TimeSpan.FromHours(lookbackHours));
     }
 
     private static int GetInt(IReadOnlyDictionary<string, string> saved, string key, int fallback)

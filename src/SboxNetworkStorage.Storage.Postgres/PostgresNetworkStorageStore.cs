@@ -29,6 +29,9 @@ public sealed class PostgresNetworkStorageStore : RelationalNetworkStorageStore
 
     public override string RedactedTarget => _redactedTarget;
 
+    public override bool IsSerializationConflict(Exception exception) =>
+        exception is PostgresException { SqlState: PostgresErrorCodes.SerializationFailure or PostgresErrorCodes.DeadlockDetected };
+
     /// <summary>Schema holding every table.</summary>
     public string Schema => _schema;
 

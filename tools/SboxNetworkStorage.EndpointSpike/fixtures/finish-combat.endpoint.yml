@@ -1,0 +1,101 @@
+sourceVersion: 1
+kind: endpoint
+id: finish-combat
+name: Finish combat
+description: Checks a reported kill against the weapon stats in game values and the server clock before awarding xp.
+method: POST
+enabled: true
+input:
+  type: object
+  properties:
+    hits:
+      type: number
+    client_time_ms:
+      type: number
+  required:
+    - hits
+    - client_time_ms
+steps:
+  - id: player
+    type: read
+    collection: players
+    key: "{{steamId}}"
+  - id: in_combat
+    type: condition
+    check:
+      field: player.combat.started_ms
+      op: exists
+    onFail:
+      status: 409
+      error: NO_COMBAT
+      message: Start combat first.
+  - id: weapon
+    type: lookup
+    source: values
+    table: weapons
+    where:
+      field: weapon_id
+      op: "=="
+      value: "{{player.combat.weapon_id}}"
+    required: true
+    onMissing:
+      status: 404
+      errorCode: UNKNOWN_WEAPON
+  - id: fight
+    type: compute
+    values:
+      damage: "{{input.hits}} * {{weapon.damage}}"
+      elapsed_ms: "{{_unixMs}} - {{player.combat.started_ms}}"
+      max_hits: "floor({{fight.elapsed_ms}} / {{weapon.fire_interval_ms}}) + 1"
+      clock_skew_ms: "abs({{input.client_time_ms}} - {{_unixMs}})"
+      xp: "{{player.combat.zombie_level}} * {{values.combat.xp_per_zombie_level}}"
+  - id: zombie_dead
+    type: condition
+    check:
+      field: fight.damage
+      op: ">="
+      value: "{{player.combat.zombie_hp}}"
+    onFail:
+      status: 400
+      error: ZOMBIE_ALIVE
+      message: Not enough damage to kill this zombie.
+  - id: hits_possible
+    type: condition
+    check:
+      field: input.hits
+      op: "<="
+      value: "{{fight.max_hits}}"
+    onFail:
+      status: 400
+      error: TOO_MANY_HITS
+      message: More hits than this weapon can fire in the time since combat started.
+  - id: clock_ok
+    type: condition
+    check:
+      field: fight.clock_skew_ms
+      op: "<="
+      value: "{{values.combat.max_clock_skew_ms}}"
+    onFail:
+      status: 400
+      error: CLOCK_SKEW
+      message: Client clock is too far from the server clock.
+  - id: reward
+    type: write
+    collection: players
+    key: "{{steamId}}"
+    ops:
+      - op: inc
+        path: xp
+        value: "{{fight.xp}}"
+        source: combat
+        reason: "Killed a level {{player.combat.zombie_level}} zombie"
+      - op: set
+        path: combat
+        value:
+          ended_ms: "{{_unixMs}}"
+response:
+  status: 200
+  body:
+    success: true
+    xp: "{{fight.xp}}"
+    elapsed_ms: "{{fight.elapsed_ms}}"

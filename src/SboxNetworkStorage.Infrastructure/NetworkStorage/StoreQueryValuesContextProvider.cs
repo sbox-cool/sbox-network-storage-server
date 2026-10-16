@@ -65,12 +65,8 @@ public sealed class StoreQueryValuesContextProvider : IQueryValuesContextProvide
             {
                 if (col.ValueKind != JsonValueKind.Object) continue;
 
-                // Parse definition_json to get constants/tables.
-                if (col.TryGetProperty("definition_json", out var def))
+                if (GameValueCollectionDefinition.TryRead(col, out var defEl, out _))
                 {
-                    var defEl = def.ValueKind == JsonValueKind.String
-                        ? SafeParse(def.GetString()!)
-                        : def;
 
                     if (defEl.ValueKind == JsonValueKind.Object)
                     {

@@ -11,7 +11,7 @@ namespace SboxNetworkStorage.Infrastructure.NetworkStorage.Metadata;
 /// query results follow the data. Every other operation passes straight through. Identifiers the store would
 /// reject are passed through too, so callers see the store's own validation errors.
 /// </summary>
-public sealed class MetadataCachingNetworkStore : INetworkStorageStore, IProjectImportStore, IAuthoritativeProjectStore
+public sealed class MetadataCachingNetworkStore : INetworkStorageStore, IProjectImportStore, IAuthoritativeProjectStore, ISerializableStoreTransactions
 {
     private readonly INetworkStorageStore _inner;
     private readonly ProjectMetadataCache _cache;
@@ -76,6 +76,18 @@ public sealed class MetadataCachingNetworkStore : INetworkStorageStore, IProject
         var transaction = await _inner.BeginTransactionAsync(ct);
         return new CachingTransaction(transaction, new MetadataCachingNetworkStore(transaction.Store, _cache, _queries, pending), this, pending);
     }
+
+    public async Task<IStoreTransaction> BeginSerializableTransactionAsync(CancellationToken ct)
+    {
+        if (_inner is not ISerializableStoreTransactions serializable)
+            throw new NotSupportedException("The underlying store does not support serializable endpoint writes.");
+        var pending = new PendingChanges();
+        var transaction = await serializable.BeginSerializableTransactionAsync(ct);
+        return new CachingTransaction(transaction, new MetadataCachingNetworkStore(transaction.Store, _cache, _queries, pending), this, pending);
+    }
+
+    public bool IsSerializationConflict(Exception exception) =>
+        _inner is ISerializableStoreTransactions serializable && serializable.IsSerializationConflict(exception);
 
     private sealed class PendingChanges
     {

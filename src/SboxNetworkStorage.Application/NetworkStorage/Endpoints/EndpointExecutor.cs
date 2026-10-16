@@ -62,7 +62,8 @@ public sealed partial class EndpointExecutor
         string? playerKeyMode = null,
         bool enforcePublicAccessGates = false,
         EndpointDryRunTrace? trace = null,
-        Func<string, bool>? isModuleDisabled = null)
+        Func<string, bool>? isModuleDisabled = null,
+        DateTimeOffset? executionTime = null)
     {
         // 1. Load endpoint definition from the store.
         Dictionary<string, object?>? endpointDef;
@@ -103,7 +104,7 @@ public sealed partial class EndpointExecutor
         // which is exactly what a read-only parity comparison needs.)
         if (liveServe && _webhookSender is null && EndpointStepExecutor.RequiresLiveWebhookSender(endpointDef))
             return null;
-        var execTime = DateTimeOffset.UtcNow;
+        var execTime = executionTime ?? DateTimeOffset.UtcNow;
 
         // The built-in players/skills/kills/leaderboard_global repair and projection logic below is
         // game-specific. It runs only for projects that opted in (existing projects at migration time
@@ -156,6 +157,7 @@ public sealed partial class EndpointExecutor
         // must do the same or reads return null and writes go to non-existent
         // collection IDs. (tools/sbox/endpoint-runner.js:3038-3045)
         Dictionary<string, string> collectionNameToId;
+        HashSet<string>? versionCheckedCollections = null;
         try
         {
             var collections = await _dataSource.ListCollectionsAsync(projectId, ct);
@@ -167,6 +169,12 @@ public sealed partial class EndpointExecutor
                 if (!string.IsNullOrEmpty(id))
                 {
                     collectionNameToId[id] = id;
+                    if (col.GetValueOrDefault("definition_json") is Dictionary<string, object?> definition
+                        && definition.GetValueOrDefault("requireSaveVersion") is true)
+                    {
+                        versionCheckedCollections ??= new HashSet<string>(StringComparer.Ordinal);
+                        versionCheckedCollections.Add(id);
+                    }
                     if (!string.IsNullOrEmpty(name))
                         collectionNameToId[name] = id;
                 }
@@ -196,6 +204,14 @@ public sealed partial class EndpointExecutor
         {
             readTargets = Array.Empty<(string, string)>();
         }
+        var scanCollections = EndpointStepExecutor.DiscoverScanCollections(endpointDef);
+        var checkVersions = liveServe && versionCheckedCollections is not null
+            && (readTargets.Any(target => versionCheckedCollections.Contains(ResolveCollection(target.CollectionId)))
+                || scanCollections.Any(collection => versionCheckedCollections.Contains(ResolveCollection(collection))));
+        var checkedSource = _dataSource as IEndpointSnapshotDataSource;
+        if (checkVersions && checkedSource is null)
+            return Denied(500, "STORAGE_WRITE_FAILED", "This provider cannot protect endpoint record versions.");
+        var readSet = checkVersions ? new EndpointReadSet(versionCheckedCollections!) : null;
         var prefetched = new Dictionary<string, object?>();
         foreach (var (collection, key) in readTargets)
         {
@@ -205,11 +221,23 @@ public sealed partial class EndpointExecutor
             if (prefetched.ContainsKey(cacheKey)) continue;
             try
             {
-                prefetched[cacheKey] = await _dataSource.ReadRecordAsync(projectId, collectionId, resolvedKey, ct);
+                if (readSet is not null)
+                {
+                    var snapshot = await checkedSource!.ReadRecordSnapshotAsync(projectId, collectionId, resolvedKey, ct);
+                    readSet.Records[(collectionId, resolvedKey)] = snapshot;
+                    prefetched[cacheKey] = snapshot.Value;
+                }
+                else
+                    prefetched[cacheKey] = await _dataSource.ReadRecordAsync(projectId, collectionId, resolvedKey, ct);
             }
             catch
             {
                 prefetched[cacheKey] = null;
+                if (readSet is not null)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    return Denied(500, "STORAGE_WRITE_FAILED", "Protected endpoint state could not be read.");
+                }
             }
         }
 
@@ -229,7 +257,6 @@ public sealed partial class EndpointExecutor
             TrySelfHealLoad(prefetched, collectionNameToId, steamId);
         }
         // 4b. Pre-fetch collection scans for lookup/filter/lookup_many/random_select steps.
-        var scanCollections = EndpointStepExecutor.DiscoverScanCollections(endpointDef);
         var scannedCollections = new Dictionary<string, List<object?>>();
         foreach (var collection in scanCollections)
         {
@@ -237,7 +264,15 @@ public sealed partial class EndpointExecutor
             if (scannedCollections.ContainsKey(collectionId)) continue;
             try
             {
-                var records = await _dataSource.ScanCollectionAsync(projectId, collectionId, ct);
+                IReadOnlyList<object?> records;
+                if (readSet is not null)
+                {
+                    var snapshots = await checkedSource!.ScanCollectionSnapshotsAsync(projectId, collectionId, ct);
+                    readSet.Scans[collectionId] = snapshots;
+                    records = snapshots.Where(row => row.Snapshot.Value is not null).Select(row => row.Snapshot.Value!).ToList();
+                }
+                else
+                    records = await _dataSource.ScanCollectionAsync(projectId, collectionId, ct);
                 var list = records as List<object?> ?? new List<object?>(records);
                 if (list.Count > MaxScanRows)
                     return Denied(400, "SCAN_TOO_LARGE",
@@ -247,6 +282,11 @@ public sealed partial class EndpointExecutor
             catch
             {
                 scannedCollections[collectionId] = new List<object?>();
+                if (readSet is not null)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    return Denied(500, "STORAGE_WRITE_FAILED", "Protected endpoint state could not be scanned.");
+                }
             }
         }
 
@@ -405,6 +445,9 @@ public sealed partial class EndpointExecutor
         //    flush back and surfaces a 500 (fail-closed).
         if (durableWrites is { Count: > 0 })
         {
+            if (readSet is null && versionCheckedCollections is not null
+                && durableWrites.Any(write => versionCheckedCollections.Contains(write.Collection)))
+                return Denied(409, "CONFLICT", "A protected endpoint write has no observed record snapshot.");
             // 0. Per-record size gate: reject an over-limit persisted record as
             //    413 BEFORE anything is written (zero mutation). Each record is
             //    measured individually against the store's actual limit — the
@@ -430,7 +473,9 @@ public sealed partial class EndpointExecutor
 
             try
             {
-                await using var transaction = await _dataSource.BeginWriteTransactionAsync(ct);
+                await using var transaction = readSet is not null
+                    ? await checkedSource!.BeginCheckedWriteTransactionAsync(projectId, readSet, ct)
+                    : await _dataSource.BeginWriteTransactionAsync(ct);
                 foreach (var (collection, key, data, isDelete) in durableWrites)
                 {
                     if (isDelete)
@@ -439,6 +484,10 @@ public sealed partial class EndpointExecutor
                         await transaction.WriteRecordAsync(projectId, collection, key, data!, ct);
                 }
                 await transaction.CommitAsync(ct);
+            }
+            catch (EndpointWriteConflictException)
+            {
+                return Denied(409, "CONFLICT", "Endpoint state changed during execution. Reload before retrying.");
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {

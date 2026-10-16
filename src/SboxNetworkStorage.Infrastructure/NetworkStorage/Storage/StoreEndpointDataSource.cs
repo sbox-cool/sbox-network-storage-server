@@ -24,7 +24,7 @@ namespace SboxNetworkStorage.Infrastructure.NetworkStorage.Storage;
 /// workspace record while the dashboard shows the current store record is
 /// impossible.
 /// </summary>
-public sealed class StoreEndpointDataSource : IEndpointDataSource, IEndpointRecordSizeLimit
+public sealed partial class StoreEndpointDataSource : IEndpointDataSource, IEndpointRecordSizeLimit, IEndpointSnapshotDataSource
 {
     private readonly INetworkStorageStore _store;
     private readonly ILogger<StoreEndpointDataSource> _logger;
@@ -155,7 +155,8 @@ public sealed class StoreEndpointDataSource : IEndpointDataSource, IEndpointReco
                 if (row.TryGetProperty("visibility", out var visProp) && visProp.ValueKind == JsonValueKind.String)
                     dict["visibility"] = visProp.GetString();
                 if (row.TryGetProperty("definition_json", out var defProp))
-                    dict["definition_json"] = EndpointExpression.FromJson(defProp);
+                    dict["definition_json"] = EndpointExpression.FromJson(
+                        GameValueCollectionDefinition.TryRead(row, out var compiled, out _) ? compiled : defProp);
                 result.Add(dict);
             }
             return result;
@@ -288,7 +289,8 @@ public sealed class StoreEndpointDataSource : IEndpointDataSource, IEndpointReco
     public async Task<IEndpointWriteTransaction> BeginWriteTransactionAsync(CancellationToken ct)
         => new WriteTransaction(this, await _store.BeginTransactionAsync(ct));
 
-    private sealed class WriteTransaction(StoreEndpointDataSource owner, IStoreTransaction transaction) : IEndpointWriteTransaction
+    private sealed class WriteTransaction(StoreEndpointDataSource owner, IStoreTransaction transaction,
+        EndpointReadSet? readSet = null, ISerializableStoreTransactions? serializable = null) : IEndpointWriteTransaction
     {
         public async Task WriteRecordAsync(
             string projectId, string collectionId, string key,
@@ -296,6 +298,11 @@ public sealed class StoreEndpointDataSource : IEndpointDataSource, IEndpointReco
         {
             try
             {
+                if (readSet is not null && readSet.ProtectedCollections.Contains(collectionId))
+                {
+                    await owner.WriteCheckedAsync(transaction.Store, projectId, collectionId, key, payload, delete: false, readSet, ct);
+                    return;
+                }
                 // Serialize the executor's JS-value-model payload to JSON and persist it
                 // via the SAME store primitive the record-CRUD data plane uses, so an
                 // endpoint-driven write is byte-identical to a direct client record write.
@@ -312,6 +319,10 @@ public sealed class StoreEndpointDataSource : IEndpointDataSource, IEndpointReco
                     await transaction.Store.UpsertRecordAsync(projectId, collectionId, key, element, deleted: false, version: 1, ct);
                 }
             }
+            catch (Exception ex) when (serializable?.IsSerializationConflict(ex) == true)
+            {
+                throw new EndpointWriteConflictException(ex);
+            }
             catch (Exception ex)
             {
                 // Fail-closed: log the underlying store error and rethrow so the live-serve
@@ -326,6 +337,11 @@ public sealed class StoreEndpointDataSource : IEndpointDataSource, IEndpointReco
         {
             try
             {
+                if (readSet is not null && readSet.ProtectedCollections.Contains(collectionId))
+                {
+                    await owner.WriteCheckedAsync(transaction.Store, projectId, collectionId, key, null, delete: true, readSet, ct);
+                    return;
+                }
                 // Route by collection type: global collections delete from global_records,
                 // per-player collections soft-delete (tombstone) in records. Matches the
                 // read/write routing and NetworkStorageController.
@@ -340,6 +356,10 @@ public sealed class StoreEndpointDataSource : IEndpointDataSource, IEndpointReco
                         JsonSerializer.SerializeToElement<object?>(null), deleted: true, version: 1, ct);
                 }
             }
+            catch (Exception ex) when (serializable?.IsSerializationConflict(ex) == true)
+            {
+                throw new EndpointWriteConflictException(ex);
+            }
             catch (Exception ex)
             {
                 owner._logger.LogWarning(ex, "Durable endpoint delete failed {ProjectId}/{CollectionId}/{Key}", projectId, collectionId, key);
@@ -347,7 +367,14 @@ public sealed class StoreEndpointDataSource : IEndpointDataSource, IEndpointReco
             }
         }
 
-        public Task CommitAsync(CancellationToken ct) => transaction.CommitAsync(ct);
+        public async Task CommitAsync(CancellationToken ct)
+        {
+            try { await transaction.CommitAsync(ct); }
+            catch (Exception ex) when (serializable?.IsSerializationConflict(ex) == true)
+            {
+                throw new EndpointWriteConflictException(ex);
+            }
+        }
 
         public ValueTask DisposeAsync() => transaction.DisposeAsync();
     }

@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>sbox-ns-endpoint-spike</AssemblyName>
+    <RootNamespace>SboxNetworkStorage.EndpointSpike</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Spike tests live in a sibling sub-project; keep their sources out of this executable. -->
+    <Compile Remove="spike-tests/**" />
+    <None Remove="spike-tests/**" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Acornima 1.8.0, BSD-3-Clause (nuspec-verified). Parser only; source is never executed. -->
+    <PackageReference Include="Acornima" Version="1.8.0" />
+    <PackageReference Include="YamlDotNet" Version="18.1.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/SboxNetworkStorage.Application/SboxNetworkStorage.Application.csproj" />
+    <ProjectReference Include="../../src/SboxNetworkStorage.Infrastructure/SboxNetworkStorage.Infrastructure.csproj" />
+    <ProjectReference Include="../../src/SboxNetworkStorage.Storage/SboxNetworkStorage.Storage.csproj" />
+    <ProjectReference Include="../../src/SboxNetworkStorage.Storage.Sqlite/SboxNetworkStorage.Storage.Sqlite.csproj" />
+    <ProjectReference Include="../../src/SboxNetworkStorage.Storage.Postgres/SboxNetworkStorage.Storage.Postgres.csproj" />
+    <ProjectReference Include="../../src/SboxNetworkStorage.Contracts/SboxNetworkStorage.Contracts.csproj" />
+    <ProjectReference Include="../../src/SboxNetworkStorage.Domain/SboxNetworkStorage.Domain.csproj" />
+  </ItemGroup>
+</Project>
