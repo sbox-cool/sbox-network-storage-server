@@ -51,6 +51,33 @@ public abstract class EndpointCombatConcurrencyTests<TFactory>(TFactory factory)
         Assert.Equal(2, saved.Value.GetProperty("version").GetInt64());
     }
 
+    [SkippableFact]
+    public async Task ProtectedEndpointTreatsInvalidInputRecordKeyAsMissing()
+    {
+        Skip.IfNot(factory.IsAvailable, factory.SkipReason);
+        var store = await factory.NewStoreAsync();
+        using var collection = JsonDocument.Parse("""{"collectionType":"per-steamid","requireSaveVersion":true}""");
+        using var endpoint = JsonDocument.Parse("""
+        {
+          "steps":[
+            {"id":"player","type":"read","collection":"players","key":"{{input.key}}"},
+            {"id":"exists","type":"condition","check":{"field":"player.xp","op":"exists"},"onFail":{"status":404,"error":"PLAYER_NOT_FOUND","message":"Player not found."}}
+          ],
+          "response":{"status":200,"body":{"ok":true}}
+        }
+        """);
+        await store.UpsertCollectionAsync("combat", "players", "Players", "public", collection.RootElement, 1, default);
+        await store.UpsertEndpointAsync("combat", "read-player", "read-player", "POST", true, endpoint.RootElement, null, 1, default);
+
+        var executor = new EndpointExecutor(new StoreEndpointDataSource(store, NullLogger<StoreEndpointDataSource>.Instance));
+        var result = await executor.TryExecuteAsync(
+            "combat", "read-player", new Dictionary<string, object?> { ["key"] = "invalid.key" },
+            "76561198000000001", "owner", new Dictionary<string, object?>(),
+            hasSecretKey: true, isDedicatedServer: false, ct: default, liveServe: true);
+
+        Assert.NotNull(result);
+        Assert.Equal(404, result!.Status);
+    }
     private sealed class TwoReaderBarrierSource(StoreEndpointDataSource inner) : IEndpointDataSource, IEndpointSnapshotDataSource
     {
         private readonly TaskCompletionSource _bothRead = new(TaskCreationOptions.RunContinuationsAsynchronously);

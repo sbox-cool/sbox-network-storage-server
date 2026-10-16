@@ -19,12 +19,17 @@ internal static class GameValueCollectionDefinition
             if (definition.TryGetProperty("sourceText", out var source) && source.ValueKind == JsonValueKind.String)
             {
                 // Raw PUT collections from older Sync Tools were stored without compiling.
-                // An explicitly private source stays private, even with accessMode: public.
+                // Compiled source carries constants/tables; do not parse its sourceText on each read.
+                var hasCompiledValues = HasValueSection(definition, "constants") || HasValueSection(definition, "tables");
                 var declaredVisibility = Text(definition, "visibility");
-                if (!NetworkStorageSourceResourceCompiler.TryCompile(definition, "collection", out var compiled, out _)) return false;
-                definition = compiled;
-                visibility = declaredVisibility ?? Text(compiled, "visibility")
-                    ?? (Text(compiled, "accessMode") == "public" ? "public" : visibility);
+                if (!hasCompiledValues)
+                {
+                    // An explicitly private source stays private, even with accessMode: public.
+                    if (!NetworkStorageSourceResourceCompiler.TryCompile(definition, "collection", out var compiled, out _)) return false;
+                    definition = compiled;
+                }
+                visibility = declaredVisibility ?? Text(definition, "visibility")
+                    ?? (Text(definition, "accessMode") == "public" ? "public" : visibility);
             }
             definition = Normalize(definition);
             return true;
@@ -35,6 +40,10 @@ internal static class GameValueCollectionDefinition
             return false;
         }
     }
+
+    private static bool HasValueSection(JsonElement definition, string name)
+        => definition.TryGetProperty(name, out var value)
+            && value.ValueKind is JsonValueKind.Object or JsonValueKind.Array;
 
     private static JsonElement Normalize(JsonElement definition)
     {

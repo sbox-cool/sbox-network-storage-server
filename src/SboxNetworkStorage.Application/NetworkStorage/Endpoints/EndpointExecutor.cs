@@ -230,6 +230,13 @@ public sealed partial class EndpointExecutor
                 else
                     prefetched[cacheKey] = await _dataSource.ReadRecordAsync(projectId, collectionId, resolvedKey, ct);
             }
+            catch (ArgumentException) when (readSet is not null)
+            {
+                // Store reads reject malformed record keys. The legacy endpoint read path
+                // treated that validation failure as a missing record; preserve it here.
+                readSet.Records[(collectionId, resolvedKey)] = new EndpointRecordSnapshot(null, null, InvalidTarget: true);
+                prefetched[cacheKey] = null;
+            }
             catch
             {
                 prefetched[cacheKey] = null;

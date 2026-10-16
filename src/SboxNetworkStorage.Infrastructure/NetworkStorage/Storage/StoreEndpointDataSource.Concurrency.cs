@@ -22,6 +22,7 @@ public sealed partial class StoreEndpointDataSource
             transaction = await serializable.BeginSerializableTransactionAsync(ct);
             foreach (var (target, expected) in readSet.Records)
             {
+                if (expected.InvalidTarget) continue;
                 var current = Snapshot(await ReadRowAsync(transaction.Store, projectId, target.Collection, target.Key, ct));
                 if (!SameSnapshot(expected, current)) throw new EndpointWriteConflictException();
             }

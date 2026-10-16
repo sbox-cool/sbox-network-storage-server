@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using SboxNetworkStorage.Application.NetworkStorage;
+using SboxNetworkStorage.Infrastructure.NetworkStorage;
 using SboxNetworkStorage.Server.Tests.Hosting;
 
 namespace SboxNetworkStorage.Server.Tests;
@@ -180,3 +181,27 @@ public abstract class GameValuesSourceHttpTests<TFactory>(TFactory factory) : IC
 
 public sealed class SqliteGameValuesSourceHttpTests(SqliteHostFactory factory) : GameValuesSourceHttpTests<SqliteHostFactory>(factory);
 public sealed class PostgresGameValuesSourceHttpTests(PostgresHostFactory factory) : GameValuesSourceHttpTests<PostgresHostFactory>(factory);
+public sealed class GameValuesSourceDefinitionTests
+{
+    [Fact]
+    public void CompiledSourceValuesAreUsedWithoutRecompilingSourceText()
+    {
+        using var row = JsonDocument.Parse("""
+        {
+          "collection_id":"game_values",
+          "visibility":"public",
+          "definition_json":{
+            "sourceText":"not valid yaml: [",
+            "sourceFormat":"yaml",
+            "constants":[{"id":"economy","entries":{"startingGold":7}}],
+            "tables":[]
+          }
+        }
+        """);
+
+        var response = GameValuesHandler.ToClientFormatFromStoreRows(null, [row.RootElement], includePrivate: false);
+        var values = JsonSerializer.SerializeToElement(response);
+
+        Assert.Equal(7, values.GetProperty("groups").GetProperty("economy").GetProperty("values").GetProperty("startingGold").GetInt32());
+    }
+}

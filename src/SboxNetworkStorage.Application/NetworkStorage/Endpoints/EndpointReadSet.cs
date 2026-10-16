@@ -10,7 +10,7 @@ public sealed class EndpointReadSet(IReadOnlySet<string> protectedCollections)
     public Dictionary<string, IReadOnlyList<EndpointRecordRead>> Scans { get; } = new(StringComparer.Ordinal);
 }
 
-public sealed record EndpointRecordSnapshot(object? Value, JsonElement? Row);
+public sealed record EndpointRecordSnapshot(object? Value, JsonElement? Row, bool InvalidTarget = false);
 public sealed record EndpointRecordRead(string Key, EndpointRecordSnapshot Snapshot);
 
 /// <summary>Optional provider capability for validating a complete read set in the commit transaction.</summary>
