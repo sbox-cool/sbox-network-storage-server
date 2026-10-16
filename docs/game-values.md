@@ -153,18 +153,22 @@ uses both forms.
 
 ## Versions and publishing
 
-Game values belong to the revision they ship with.
+Game values are captured in a published revision snapshot, but older builds
+read that snapshot only when the project has an explicit revision policy and
+the revision is retained and within its support window.
 
 - **Publish writes a snapshot.** When the Sync Tool publishes a package
   revision (`POST /v3/manage/{projectId}/package-sync`), the server writes an
   immutable snapshot of that revision's endpoints, workflows, collections,
   queries and game values. See [version policy](version-policy.md).
-- **Old builds keep their values.** A published build sends
-  `x-ns-revision-id`. While its revision is kept and inside its support window,
+- **Old builds keep their values conditionally.** A published build sends
+  `x-ns-revision-id`; with an explicit policy and retained supported revision,
   the server resolves game values and collection definitions from that
-  revision's snapshot. A request with no header, an unknown revision or an
-  expired one runs against live values
-  ([pinned execution](version-policy.md#pinned-execution)).
+  revision's snapshot. Without an explicit policy, or with no header, an
+  unknown revision or an expired one, reads use live values (expired ones are
+  rejected when server enforcement is on). A resource missing from a snapshot
+  may also resolve from live definitions; pinning is not a closed-world cutoff.
+  See [pinned execution](version-policy.md#pinned-execution).
 - **Retention.** The server keeps the live values plus the most recent earlier
   revisions. The default is 3 and the range is 0 to 20. A revision inside its
   support window is kept even past that count.

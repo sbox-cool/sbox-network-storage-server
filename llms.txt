@@ -9,7 +9,7 @@
 - [Client setup](docs/client-setup.md): Connect the s&box editor and game to a self-hosted Base URL; distinguish syncing definitions from moving runtime player records.
 - [Hosting models](docs/hosting-models.md): Player-hosted, dedicated and hybrid games; where authority lives and which key each caller uses.
 - [Game-client protocol](docs/game-client.md): Startup handshakes performed by the library.
-- [Game values](docs/game-values.md): Shared tuning numbers the game and server both read; authoring in the owner console, the management API or MCP (Sync Tool YAML game values are not served yet, issue #107); one-call reads; revisions and publishing; worked server-side anti-exploit example.
+- [Game values](docs/game-values.md): Shared tuning numbers; owner/API/MCP authoring and Sync Tool YAML source compilation in current source (release 0.5.4 lacks the fix); one-call reads; snapshots require explicit revision policy, retained support, and may fall back to live for missing resources; worked anti-exploit example.
 
 ## Operators and coding agents
 

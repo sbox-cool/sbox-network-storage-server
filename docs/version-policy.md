@@ -61,13 +61,17 @@ set). The handshake stays read-only and never fails because of policy.
 
 ## Pinned execution
 
-A data-plane request carrying `x-ns-revision-id` for a retained revision
-inside its support window runs endpoints, workflows and queries — and
-resolves game values and collection definitions — from that revision's
-snapshot. The staged overlay (`x-ns-publish-target: next`) still wins when
-targeted. Requests without a revision, with an unknown one, or with an
-expired one run against live (expired ones are rejected instead when
-server enforcement is on).
+A data-plane request carrying `x-ns-revision-id` uses a retained revision's
+snapshot only when the project has an explicit revision policy and that
+revision is within its support window. Without an explicit policy, requests
+use live definitions even when they carry a revision header. The staged
+overlay (`x-ns-publish-target: next`) still wins when targeted. Requests without
+a revision, with an unknown one, or with an expired one use live definitions
+(expired ones are rejected instead when server enforcement is on).
+
+Snapshots are not closed-world: a resource absent from the snapshot may resolve
+from live definitions. For example, an endpoint added after an older revision
+can still run for that revision. Pinning does not hide every newer resource.
 
 ## Shared records caveat
 

@@ -78,6 +78,7 @@ public abstract class EndpointCombatConcurrencyTests<TFactory>(TFactory factory)
         Assert.NotNull(result);
         Assert.Equal(404, result!.Status);
     }
+
     private sealed class TwoReaderBarrierSource(StoreEndpointDataSource inner) : IEndpointDataSource, IEndpointSnapshotDataSource
     {
         private readonly TaskCompletionSource _bothRead = new(TaskCreationOptions.RunContinuationsAsynchronously);

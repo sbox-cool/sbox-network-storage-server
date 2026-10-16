@@ -59,9 +59,9 @@ never ship in games.
 ## Game values
 
 Game values are the shared numbers your game and server both read: tuning
-constants, named groups and typed tables. Author them once; published builds
-use retained snapshots according to the project's revision policy, while live
-player records remain shared.
+constants, named groups and typed tables. Published builds use retained
+snapshots only when the project has an explicit revision policy and their
+revision remains retained and supported; otherwise reads use live values.
 
 - **Author them in the owner console, over the API or with MCP.** Edit them on
   the **Game values** page, `PUT /v3/manage/{projectId}/game-values`, or let a
