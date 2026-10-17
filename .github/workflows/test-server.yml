@@ -1,9 +1,16 @@
 name: Live test server
 
-# Deploys the commit to a disposable Vultr VPS (SQLite, plain HTTP on :8080) and replays the HTTP
-# parity corpus against it over the real network. The box is throwaway: nothing on it is precious,
-# and `reset` wipes its config and data before the deploy.
+# Exercises a disposable Vultr VPS (SQLite, plain HTTP on :8080) over the real network and replays
+# the HTTP parity corpus against it. The box is throwaway: nothing on it is precious.
 #
+# Modes (workflow_dispatch input; pushes to main run `deploy`):
+#   deploy     build this commit and swap it in, keeping the existing data
+#   reinstall  wipe config and data, then install this commit from scratch
+#   upgrade    wipe, install the latest published release with install/install.sh, then update it in
+#              place to this commit; the version must change and the release's projects must survive
+#   installer  wipe, install the latest published release with install/install.sh, and test that
+#
+# Runs are serialised (one at a time) by the concurrency group; the VPS is shared state.
 # Secrets: TEST_SERVER_HOST (public IPv4), TEST_SERVER_SSH_KEY (private deploy key, root),
 # TEST_SERVER_KNOWN_HOSTS (pinned `ssh-keyscan -t ed25519` line for the host).
 # Runs on main and by hand only, so pull requests from forks never reach the secrets.
@@ -13,10 +20,11 @@ on:
     branches: [main]
   workflow_dispatch:
     inputs:
-      reset:
-        description: Wipe the server's config and data before deploying
-        type: boolean
-        default: false
+      mode:
+        description: What to exercise on the VPS
+        type: choice
+        options: [deploy, reinstall, upgrade, installer]
+        default: deploy
 
 permissions:
   contents: read
@@ -30,12 +38,13 @@ env:
   DOTNET_CLI_TELEMETRY_OPTOUT: "true"
   SERVER_PROJECT: src/SboxNetworkStorage.Server/SboxNetworkStorage.Server.csproj
   PARITY: tools/SboxNetworkStorage.Parity/bin/Release/net10.0/sbox-ns-parity.dll
+  MODE: ${{ inputs.mode || 'deploy' }}
 
 jobs:
-  deploy:
-    name: Deploy and replay corpus
+  live:
+    name: ${{ inputs.mode || 'deploy' }} on the VPS, then replay the corpus
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
@@ -67,26 +76,50 @@ jobs:
             ServerAliveInterval 15
           EOF
 
-      - name: Publish linux-x64
+      - name: Publish linux-x64 and build the parity tool
         shell: bash
         run: |
           set -euo pipefail
-          dotnet publish "$SERVER_PROJECT" -c Release -r linux-x64 --self-contained true \
-            -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true \
-            -p:EnableCompressionInSingleFile=true -p:Version="0.0.0-live.${GITHUB_RUN_NUMBER}" \
-            -o publish/linux-x64
-          tar -C publish/linux-x64 -czf sbox-ns-live.tar.gz .
+          if [ "$MODE" != installer ]; then
+            dotnet publish "$SERVER_PROJECT" -c Release -r linux-x64 --self-contained true \
+              -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true \
+              -p:EnableCompressionInSingleFile=true -p:Version="0.0.0-live.${GITHUB_RUN_NUMBER}" \
+              -o publish/linux-x64
+            tar -C publish/linux-x64 -czf sbox-ns-live.tar.gz .
+          fi
           dotnet build tools/SboxNetworkStorage.Parity -c Release
 
-      - name: Deploy to the VPS
+      - name: Install the latest published release (baseline)
+        if: env.MODE == 'upgrade' || env.MODE == 'installer'
         shell: bash
         env:
           HOST: ${{ secrets.TEST_SERVER_HOST }}
-          RESET: ${{ inputs.reset && '--reset' || '' }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          scp sbox-ns-live.tar.gz scripts/ci/deploy-test-server.sh test-server:/tmp/
-          ssh test-server "bash /tmp/deploy-test-server.sh $RESET /tmp/sbox-ns-live.tar.gz http://$HOST:8080"
+          version="$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName -q .tagName)"
+          echo "::notice::Baseline release $version"
+          scp install/install.sh scripts/ci/live-baseline-install.sh test-server:/tmp/
+          ssh test-server "bash /tmp/live-baseline-install.sh http://$HOST:8080 ${version#v}"
+
+      - name: Install this build on the VPS
+        shell: bash
+        env:
+          HOST: ${{ secrets.TEST_SERVER_HOST }}
+        run: |
+          set -euo pipefail
+          scp scripts/ci/deploy-test-server.sh test-server:/tmp/
+          case "$MODE" in
+            deploy|upgrade)
+              scp sbox-ns-live.tar.gz test-server:/tmp/
+              ssh test-server "bash /tmp/deploy-test-server.sh /tmp/sbox-ns-live.tar.gz http://$HOST:8080" ;;
+            reinstall)
+              scp sbox-ns-live.tar.gz test-server:/tmp/
+              ssh test-server "bash /tmp/deploy-test-server.sh --reset /tmp/sbox-ns-live.tar.gz http://$HOST:8080" ;;
+            installer)
+              ssh test-server "bash /tmp/deploy-test-server.sh --no-install http://$HOST:8080" ;;
+            *) echo "::error::Unknown mode $MODE"; exit 1 ;;
+          esac
 
       - name: Replay the parity corpus against the live server
         shell: bash
@@ -104,11 +137,11 @@ jobs:
           mkdir -p TestResults
           dotnet "$PARITY" check --target "http://$HOST:8080" --project-id "$project" \
             --public-key "$public" --secret-key "$secret" --corpus tests/parity/corpus \
-            --out TestResults/live.json
+            --out "TestResults/live-$MODE.json"
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
-          name: live-test-server
+          name: live-test-server-${{ inputs.mode || 'deploy' }}
           path: TestResults/*.json
           if-no-files-found: ignore
