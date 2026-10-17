@@ -67,13 +67,19 @@
     if (!strip) return;
     var sessionHidden = {};
     try { sessionHidden = JSON.parse(sessionStorage.getItem("sbox-ns-alerts") || "{}"); } catch (_) {}
-    strip.querySelectorAll("[data-alert]").forEach(function (item) {
+    // Security warnings about plain HTTP stay dismissed for a week, across sessions, then return.
+    var snoozeMs = { "http": 7 * 864e5, "http-enabled": 7 * 864e5 };
+    var snoozed = {};
+    try { snoozed = JSON.parse(localStorage.getItem("sbox-ns-alerts-until") || "{}"); } catch (_) {}
+    function isHidden(item) {
       var key = item.getAttribute("data-alert");
-      var hidden = key === "update"
-        ? (function () { try { return localStorage.getItem("sbox-ns-update-seen") === item.getAttribute("data-version"); } catch (_) { return false; } })()
-        : !!sessionHidden[key];
-      if (hidden) item.remove();
-    });
+      if (key === "update") {
+        try { return localStorage.getItem("sbox-ns-update-seen") === item.getAttribute("data-version"); } catch (_) { return false; }
+      }
+      if (snoozeMs[key]) return typeof snoozed[key] === "number" && snoozed[key] > Date.now();
+      return !!sessionHidden[key];
+    }
+    strip.querySelectorAll("[data-alert]").forEach(function (item) { if (isHidden(item)) item.remove(); });
     if (!strip.querySelector("[data-alert]")) { strip.remove(); return; }
     strip.querySelectorAll("[data-alert-close]").forEach(function (button) {
       button.addEventListener("click", function () {
@@ -82,6 +88,7 @@
         var key = item.getAttribute("data-alert");
         try {
           if (key === "update") localStorage.setItem("sbox-ns-update-seen", item.getAttribute("data-version") || "");
+          else if (snoozeMs[key]) { snoozed[key] = Date.now() + snoozeMs[key]; localStorage.setItem("sbox-ns-alerts-until", JSON.stringify(snoozed)); }
           else { sessionHidden[key] = true; sessionStorage.setItem("sbox-ns-alerts", JSON.stringify(sessionHidden)); }
         } catch (_) {}
         item.remove();

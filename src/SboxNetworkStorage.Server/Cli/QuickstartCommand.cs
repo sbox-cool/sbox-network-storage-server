@@ -169,6 +169,7 @@ public static class QuickstartCommand
                 args.Add(value);
             }
         }
+        if (context.Args.Flag("allow-http")) args.Add("--allow-http");
 
         // Setup's own progress and "next steps" would contradict quickstart's
         // summary (and break --json), so buffer it and replay it only on failure.

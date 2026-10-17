@@ -74,10 +74,19 @@ setup form over plain HTTP, because anyone on the network path could read them.
 The refusal page lists the ways in: an SSH port forward
 (`ssh -L 8080:127.0.0.1:8080 you@your-server`, then open
 `http://localhost:8080/login`), `sbox-ns tunnel enable`, or HTTPS. Loopback
-connections are always accepted. On a network you trust you can turn the check
-off with `sbox-ns config set adminpanel.allow_insecure_http true`; the panel then
-shows a warning banner, and your password and session cookie travel
-unencrypted. To use HTTPS, pick one of these:
+connections are always accepted.
+
+Plain HTTP is an opt-in, meant for operators with no domain (or sboxns.com name)
+and no SSH access. `sbox-ns setup` asks whether you have a domain or will use the
+sboxns.com DNS service, whether you can use an SSH tunnel, and only then whether
+to allow plain HTTP; `sbox-ns setup --allow-http` answers yes without asking, and
+`sbox-ns config set adminpanel.allow_insecure_http true|false` changes it later.
+HTTP is fine for development and early game publishing, but your password, login
+links and session cookie travel unencrypted, so we recommend switching to HTTPS
+as soon as you can. While it is on, the panel shows a dismissable warning (it
+returns after seven days in the same browser), a milder reminder on secure
+connections, and `sbox-ns doctor` reports a warning. To use HTTPS, pick one of
+these:
 
 - **Built-in Let's Encrypt:** `sbox-ns config set tls.mode acme`, then set
   `tls.acme_domain`, `tls.acme_email` and `tls.acme_accept_terms = true`

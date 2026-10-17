@@ -69,6 +69,41 @@ public sealed class OwnerTransportSecurityTests : IDisposable
         Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/dashboard")).StatusCode);
     }
 
+    [Fact]
+    public async Task OptedInRemotePlainHttpShowsADismissableWarning()
+    {
+        await CreateOwnerAsync(factory);
+        var config = Override(factory.Config, ("adminpanel.allow_insecure_http", true));
+        using var host = factory.WithWebHostBuilder(builder => builder.ConfigureServices(services => services.AddSingleton(config)));
+        using var client = Client(host);
+        client.DefaultRequestHeaders.Add(SelfHostFactory.PeerHeader, Remote);
+        var page = await client.GetStringAsync("/login");
+        Assert.Contains("data-alert=\"http\"", page);
+        Assert.Contains("fine for development and early publishing", page);
+        Assert.Contains("data-alert-close", page);
+    }
+
+    [Fact]
+    public async Task OptedInOwnerOnASecureConnectionGetsAMilderDismissableReminder()
+    {
+        await CreateOwnerAsync(factory);
+        var config = Override(factory.Config, ("adminpanel.allow_insecure_http", true));
+        using var host = factory.WithWebHostBuilder(builder => builder.ConfigureServices(services => services.AddSingleton(config)));
+        using var client = Client(host);
+        var page = await client.GetStringAsync("/login");
+        using var login = await client.PostAsync("/login", Form(("username", Username), ("password", Password), ("__RequestVerificationToken", Csrf(page))));
+        Assert.Equal(HttpStatusCode.Redirect, login.StatusCode);
+        var dashboard = await client.GetStringAsync("/dashboard");
+        Assert.Contains("data-alert=\"http-enabled\"", dashboard);
+        Assert.DoesNotContain("data-alert=\"http\"", dashboard);
+
+        // Without the opt-in a secure connection shows no HTTP notice at all.
+        using var plain = Client(factory);
+        var plainPage = await plain.GetStringAsync("/login");
+        using var plainLogin = await plain.PostAsync("/login", Form(("username", Username), ("password", Password), ("__RequestVerificationToken", Csrf(plainPage))));
+        Assert.DoesNotContain("data-alert=\"http", await plain.GetStringAsync("/dashboard"));
+    }
+
     [Theory]
     [InlineData("https", true)]
     [InlineData("http", false)]
