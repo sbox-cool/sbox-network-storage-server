@@ -19,7 +19,10 @@ Link the parent server/client issues, counterpart PR, dependency and priority (`
 ## Automated gates
 
 These run without anyone remembering to. All of them are `ci-only` evidence (hosted runners cannot
-start the s&box editor); they hold changes back, they do not certify a pairing.
+start the s&box editor GUI). The contract leg holds changes back; the engine leg additionally
+certifies every non-GUI pattern it exercises (see
+[Certification](#certification-certify-once-re-test-on-fundamental-change)). Editor-GUI surfaces
+still need a native editor run.
 
 | Where | Check | Blocks |
 | --- | --- | --- |
@@ -49,11 +52,22 @@ not extend a certification to a pairing that was not exercised.
 A certification is one `tested` row: exact server version and source commit,
 library version and package revision (or null when genuinely unassigned),
 library source, s&box engine build, operating system, backend kind, database
-providers actually exercised, a `pass` result, and evidence URLs (run
-logs/artifacts, both-repo PRs/issues). `ci-only` (HTTP parity without the real
-s&box editor/game run) never certifies a pairing. A certified request pattern
-(for example legacy revision-init shape, save/load round trip, endpoint
-success/error path) covers that pattern only; new patterns need new rows.
+providers actually exercised, a result, and evidence URLs (run
+logs/artifacts, both-repo PRs/issues). There are two tracks:
+
+- **Code track (GH Actions).** The Compat engine leg runs the real library inside the real
+  s&box engine (newest Facepunch/sbox-public built from source, `-mcp` dedicated server, no
+  editor GUI) against the change and the latest release. A green engine leg certifies every
+  non-GUI pattern it exercises (for example legacy revision-init shape, save/load round trip,
+  endpoint success/error path, game values, secret-key gate). These rows are recorded with
+  result `ci-only` (no native editor GUI ran) and the run URL as evidence.
+- **GUI track (native editor).** Editor-GUI surfaces — the Setup and Sync Tool windows, Library
+  Manager install/update, Play-in-editor panels, media-capture UX, anything else a human or the
+  editor GUI does that the dedicated harness does not script — need a native Windows s&box editor
+  run on a non-GH-Actions runner (Steam-interactive `sbox-dev.exe`), recorded with result `pass`.
+
+HTTP-parity-only runs (no s&box code at all) never certify a pairing. A certified request pattern
+covers that pattern only; new patterns need new rows.
 
 Fundamental changes invalidate affected certifications and MUST be re-tested
 before release. Treat these as fundamental on either side:
@@ -77,18 +91,25 @@ old form and add side-by-side.
 
 ## When an s&box editor test is required
 
-An editor or game run is the most expensive evidence there is, and it only proves something when the
-change can alter what the library sends or how it interprets a reply. So the rule is about the **wire and
-the library**, not about how big or risky a server change feels.
+Native editor runs are the most expensive evidence there is, so they are reserved for what only
+the editor GUI can exercise. Everything else rides the GH-Actions Compat gate, which runs the
+real library inside the real s&box engine headless. The rule is about the **surface**, not about
+how big or risky a change feels.
+
+**GUI surface** means anything the dedicated harness (`tools/sbox-cli-e2e`, `-mcp` dedicated
+server) does not script: the Setup and Sync Tool windows, Library Manager install/update,
+Play-in-editor panels and logs, media-capture UX, and any `Editor/` GUI code. A change has GUI
+surface when it alters what those windows show or do, or when its acceptance can only be
+observed through them.
 
 **Classify every PR's client-visible surface** (the PR template asks for it):
 
-| Class | Meaning | Editor test |
+| Class | Meaning | Evidence |
 | --- | --- | --- |
-| **None** | Request and response bytes, headers, status codes, error codes and defaults the library sees are identical to the previous release for every request it can send. Owner console, CLI, installers, updater, DNS/tunnel, monitoring and alerting, demo, storage internals, additive migrations whose reads and writes return the same results, performance, docs. | **Not required.** Required evidence is that the claim is true (below). |
-| **Additive, off by default** | New fields, headers, endpoints, capabilities or behaviors that appear **only** when the owner turns something on. The default-off path is byte-identical. | **Not required for the default-off path.** The new client-visible behavior needs an editor test once, before it is documented as supported to game developers. Until then label the issue/PR `pending-sbox-editor-test` and describe the feature as server-side only. |
-| **Changed** | Any difference for a request the library can already send: shapes, field meanings, error codes or envelopes, auth/session/encryption handling, save/endpoint/query/value semantics, rate-limit or revision behavior, defaults, status-header or capability values the library reads. | **Required** (a `pass` row in [`compat/library-matrix.json`](../compat/library-matrix.json)) before release, plus the old-client replay in [Every compatibility-affecting PR](#every-compatibility-affecting-pr). Label `pending-sbox-editor-test` until then. |
-| **Library code** | Any change in the library repo's `Code/` or `Editor/` (runtime, Sync Tool, Setup). | **Required** for the paths changed. Pure logic is covered by library unit tests, but only an editor run covers the engine APIs (`Http`, `Package`, windows). |
+| **None** | Request and response bytes, headers, status codes, error codes and defaults the library sees are identical to the previous release for every request it can send. Owner console, CLI, installers, updater, DNS/tunnel, monitoring and alerting, demo, storage internals, additive migrations whose reads and writes return the same results, performance, docs. | **No s&box run.** Required evidence is that the claim is true (below). |
+| **Additive, off by default** | New fields, headers, endpoints, capabilities or behaviors that appear **only** when the owner turns something on. The default-off path is byte-identical. | **No native run for the default-off path.** New non-GUI behavior needs a green Compat gate (contract + engine leg) on the commit before it is documented as supported to game developers. New GUI behavior needs one native GUI run first; until then label the issue/PR `pending-sbox-editor-test` and describe the feature as server-side only. |
+| **Changed** | Any difference for a request the library can already send: shapes, field meanings, error codes or envelopes, auth/session/encryption handling, save/endpoint/query/value semantics, rate-limit or revision behavior, defaults, status-header or capability values the library reads. | **GH Actions**, unless the change has GUI surface. Green Compat gate (contract + engine leg) on the commit, plus the old-client replay in [Every compatibility-affecting PR](#every-compatibility-affecting-pr). No native-editor wait. GUI-surface changes need a native `pass` row before release; label `pending-sbox-editor-test` until then. |
+| **Library code** | Any change in the library repo's `Code/` or `Editor/` (runtime, Sync Tool, Setup). | **GH Actions** for the paths the dedicated harness exercises (both repos' Compat gates). **Native run** for GUI-surface paths. Pure logic is covered by library unit tests, but only a real s&box run covers the engine APIs (`Http`, `Package`, windows). |
 
 **"Identical" must be shown, not asserted.** For a **None** or default-off claim attach:
 
@@ -106,14 +127,17 @@ If any of these cannot be produced, the change is not **None**; classify it hone
 Unknown clients and older libraries are always in scope: "the current library behaves the same" is not
 enough when an older published game could see a difference.
 
-**Do not substitute a server-only run for the editor when the class says editor.** HTTP tests, the
-parity corpus and fake-handler tests are `ci-only`. A `ci-only` row can release a **None** or
-**Additive, off by default** change (`--allow-ci-only`); it can never certify a **Changed** or **Library
-code** change.
+**Server-only runs never certify.** HTTP tests, the parity corpus and fake-handler tests exercise
+no s&box code and can never certify a **Changed** or **Library code** change. The Compat engine
+leg is not server-only: it is the real library inside the real s&box engine, so a green engine
+leg certifies every non-GUI pattern it exercises. Only editor-GUI surfaces need the native run.
 
-**Blocked on an editor run?** Add the label `pending-sbox-editor-test` to the issue and the PR at the time
-you know. Do not close the issue as done and do not describe the behavior as certified; say exactly which
-rows are missing. Remove the label only when the `tested` row exists.
+**Blocked on a native GUI run?** Add the label `pending-sbox-editor-test` to the issue and the PR
+at the time you know. The label tracks the GUI track only: it can only be resolved by a native
+Windows s&box editor run on a non-GH-Actions runner, never by a GH-Actions result. Do not close
+the issue as done and do not describe GUI behavior as supported until the `pass` row exists; say
+exactly which rows are missing. Remove the label when the `pass` row exists, or when the change
+is reclassified to the code track with the green gate run cited.
 
 ## Client identity and response contract
 

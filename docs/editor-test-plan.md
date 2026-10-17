@@ -17,6 +17,15 @@ Each run ends with one `tested` row in [`compat/library-matrix.json`](../compat/
 (see [Recording the result](#recording-the-result)). Tick the boxes in the PR that
 records the run, and link that PR from the row's `evidence`.
 
+**Two tracks.** This plan is the GUI track: the sections below need a native Windows editor run
+(Steam-interactive `sbox-dev.exe`) on a non-GH-Actions runner, and only such a run clears
+`pending-sbox-editor-test`. The code track — the same runtime patterns in C, D, E and G exercised
+headless — is covered by the GH-Actions Compat engine leg (real library, source-built engine,
+`-mcp` dedicated server); a green gate run certifies those patterns with no native wait.
+Sections A, B and F always need the native run (Library Manager, Sync Tool windows, and the
+owner-approved hosted name). The scripted run below covers the code-track subset
+and can drive either a dedicated server headless (CI) or the real editor where Steam is available.
+
 **Scripted run.** [`tools/sbox-cli-e2e`](../tools/sbox-cli-e2e/README.md) drives the real editor and
 a dedicated server through sbox-cli (s&box 26.10.13+, Windows with Steam running for the editor) and
 records the five facts below itself. It covers B (Push All with post-push verification, Test Live), C

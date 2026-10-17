@@ -37,7 +37,10 @@ project is only the value for local builds.
    and wait for it to pass. It replaces the manual VM checklist; see below.
 5. Confirm the compatibility evidence, then tag. `compat/library-matrix.json` must have a `pass`
    row for this server version (or release commit) and the matrix's `recommended` library, or the
-   release must be marked `ci-only`. See [Release evidence](#release-evidence).
+   release must be marked `ci-only`. See [Release evidence](#release-evidence). Releases with no
+   editor-GUI surface take the code track: the green Compat gate on the release commit plus the
+   recorded `ci-only` row (via explicit `--allow-ci-only`) is the certification, still called out
+   as ci-only in the notes.
 6. Tag the commit on `main` and push the tag: `git tag v0.x.z && git push origin v0.x.z`.
 7. The release workflow runs the tests, the HTTP smoke gate, the stable-reference parity diff and
    the **Compat** gate (`.github/workflows/compat-matrix.yml`): the corpus diffed against the
