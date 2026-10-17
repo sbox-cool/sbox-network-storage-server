@@ -16,12 +16,14 @@ public static class AuthorityCheckService
 {
     public sealed record AuthorityCheckResult(string Profile, IReadOnlyList<AuthorityFinding> Findings);
 
+    // Request-log rows keep the original path, so both roots are listed. One root definition
+    // lives in NetworkStorageRoots; these families are the game-shaped subset of it.
     private static readonly string[] GameRoutePrefixes =
     [
-        "/v3/endpoints/", "/v1/endpoints/",
+        "/v3/endpoints/", "/v1/endpoints/", "/api/endpoints/",
         "/v3/storage/", "/v1/storage/", "/api/storage/",
-        "/v3/queries/", "/v1/queries/",
-        "/v3/values/", "/v1/values/",
+        "/v3/queries/", "/v1/queries/", "/api/queries/",
+        "/v3/values/", "/v1/values/", "/api/values/",
     ];
 
     public static async Task<AuthorityCheckResult?> RunAsync(

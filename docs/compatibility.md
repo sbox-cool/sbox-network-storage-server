@@ -139,6 +139,25 @@ the issue as done and do not describe GUI behavior as supported until the `pass`
 exactly which rows are missing. Remove the label when the `pass` row exists, or when the change
 is reclassified to the code track with the green gate run cited.
 
+
+## Route root: `/api` documented, `/v3` a permanent alias
+
+Since server 0.5.5 the documented route root is `/api`: libraries 1.2.0 and newer
+call `/api/{path}` by default, and `GET /api/server-info` advertises
+`"api": { "root": "/api", "aliases": ["/v3"], "since": "0.5.5" }` plus the
+`api-root` capability. Every `/api/{path}` route is also served at `/v3/{path}`
+with identical status, headers and body (same handler, auth, limits, metering,
+policy and error capture); usage and analytics stay keyed by the canonical path
+while the request log keeps the original one.
+Older libraries keep calling `/v3/...`, which stays supported indefinitely: those
+clients can never be updated, so `/v3` is not deprecated, only no longer the
+documented default. `/v1` keeps its existing deprecated status. `/api` itself is
+additive-only like `/v3` was: a future breaking change ships side by side under
+new resource names, or under an explicit generation segment (`/api/v4/...`), and
+never changes an existing `/api/{path}` in place. Reserved `/api` families keep
+their own meaning and are never rewritten: `/api/storage`, `/api/pages`,
+`/api/network-storage` and `/api/v3` (unrouted).
+
 ## Client identity and response contract
 
 The wire headers are described in [game-client.md](game-client.md#library-compatibility):
@@ -152,7 +171,7 @@ handlers can supply the library version (`networkStorageVersion`,
 body fallback enriches telemetry, not authentication or a pre-handler
 enforcement decision. No additional body buffering/parsing is needed. Existing
 response bodies are unchanged except the additive `compat` object in
-`/v3/server-info`.
+`/api/server-info` (also `/v3/server-info`).
 
 The project's Errors tab captures the same request identity (library/context,
 package revision and game revision). Errors raised outside an HTTP request have
@@ -160,7 +179,7 @@ legacy/unknown context and no revision; no player IDs or API keys are added.
 
 Responses include `x-ns-server-version` and `x-ns-library-status`: `unknown`, `supported`, `outdated`, `deprecated`, `unsupported` or `blocked`. A known latest version and deprecation sunset are advertised in `x-ns-library-latest` and `x-ns-library-sunset` when relevant. The explicit project minimum can override the status of a refused request to `unsupported`.
 
-`GET /v3/server-info` adds `compat.library` with nullable `minimum`, `recommended`, `latest`, supported `legacy`, `deprecated`, `blocked`, `knownBroken` and `tested`, plus `compat.matrixUrl`. Null means no released/tested version has been established; it does not mean an invented `1.0.0`. Recommendations and sunsets do not expire working games automatically.
+`GET /api/server-info` (also `/v3/server-info`) adds `compat.library` with nullable `minimum`, `recommended`, `latest`, supported `legacy`, `deprecated`, `blocked`, `knownBroken` and `tested`, plus `compat.matrixUrl`. Null means no released/tested version has been established; it does not mean an invented `1.0.0`. Recommendations and sunsets do not expire working games automatically.
 
 The shipped matrix is immutable and offline: no unsigned remote source can impose a library minimum or a remote kill switch. The release feed may carry a `libraryCompat` overlay, but the overlay only ever tightens the *reported* status on servers that have not been updated (for example to flag a library with a security problem). It never refuses a request: enforcement reads the embedded matrix only, and requests without a parseable library version are never refused by any rule. Header identities and player counts are self-reported, not a security boundary; a hostile caller can spoof versions. Keep all real authentication/authorization checks.
 

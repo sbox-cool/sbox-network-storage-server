@@ -13,19 +13,21 @@ Library page: `sbox.game/sboxcool/network-storage`. API and library docs:
 
 ## Base URL rule
 
-The client appends the API version itself (`/v3/...`), so the base URL is
+The client appends the API root itself (`/api/...` on library 1.2.0 and newer,
+`/v3/...` on older libraries), so the base URL is
 only scheme, host and port with no path and no trailing slash, for example
-`http://your-server:8080`. Verify the server answers from the machine
+`http://your-server:8080`. Every `/api/{path}` route is also served at
+`/v3/{path}` as a permanent alias. Verify the server answers from the machine
 running s&box:
 
 ```sh
 curl -i http://your-server:8080/health
-curl http://your-server:8080/v3/server-info
+curl http://your-server:8080/api/server-info
 ```
 
 ## Server info handshake
 
-`GET /v3/server-info` is public and returns server identity, answered
+`GET /api/server-info` (also `/v3/server-info`) is public and returns server identity, answered
 natively without a database write:
 
 ```json
@@ -34,8 +36,9 @@ natively without a database write:
   "product": "sbox-network-storage-server",
   "version": "0.0.0-dev",
   "apiVersions": ["v3"],
+  "api": { "root": "/api", "aliases": ["/v3"], "since": "0.5.5" },
   "database": "sqlite",
-  "capabilities": ["records", "global-records", "endpoints", "workflows", "queries", "game-values", "rate-limits", "auth-sessions", "analytics", "package-sync", "https-tunnel"],
+  "capabilities": ["records", "global-records", "endpoints", "workflows", "queries", "game-values", "rate-limits", "auth-sessions", "analytics", "package-sync", "https-tunnel", "api-root"],
   "tunnel": { "enabled": false, "name": "", "hostname": "", "registry": "", "connectorState": "disabled", "connectorVersion": "", "processId": null, "updatedAt": "2026-10-10T00:00:00+00:00" },
   "compat": { "library": { "minimum": "1.1.0", "recommended": "1.1.0", "latest": "1.1.0", "legacy": "supported", "deprecated": [], "blocked": [], "knownBroken": [{ "version": "1.0.165702", "revision": 165702, "engine": ">=26.10", "reason": "Stale library breaks editor startup on s&box engine 26.10 or later.", "issue": "sbox-cool/sbox-network-storage#4" }], "tested": [] }, "matrixUrl": "https://github.com/sbox-cool/sbox-network-storage-server/blob/main/compat/library-matrix.json" },
   "update": null
@@ -116,7 +119,7 @@ When several rules match, the strictest status wins. The server only reports
 status. Runtime requests are served whatever the status; the editor and the
 dashboard are where developers are pushed to update.
 
-### `compat` block of `/v3/server-info`
+### `compat` block of `/api/server-info`
 
 ```json
 "compat": {
@@ -163,14 +166,14 @@ are ignored, as is an overlay whose optional `schemaVersion` is newer than the m
 schema this server reads (1). A feed response without `libraryCompat` keeps the current
 overlay, but only for a while: after 3 consecutive checks with no overlay (or failed
 checks) the overlay expires and the embedded matrix applies again. An empty `{}` removes
-it immediately. `/v3/server-info` reports whether one is in effect in the `compat` block
+it immediately. `/api/server-info` reports whether one is in effect in the `compat` block
 (`"overlay": {"applied": true}`). Nothing needs network access:
 without the feed, the embedded matrix applies.
 
 ## Revision init handshake
 
 At game startup the client sends a one-time handshake with its running
-revision: `POST /v3/manage/{projectId}/revision-init`. The server compares
+revision: `POST /api/manage/{projectId}/revision-init`. The server compares
 it against the synced game package and reports whether the client is
 outdated. The route is read-only and never mutates the store.
 
@@ -231,15 +234,15 @@ too. Without a policy it is absent. With server-side enforcement switched
 on, expired known revisions get HTTP 403 `REVISION_BLOCKED` (secret keys
 exempt). Details: [version-policy.md](version-policy.md).
 The game package the server compares against is synced from the editor Sync
-Tool (`POST /v3/manage/{projectId}/package-sync`), exactly as with the
+Tool (`POST /api/manage/{projectId}/package-sync`), exactly as with the
 managed service. Sync your `Editor/Network Storage/` sources after pointing
 the editor at your server (see [client-setup.md](client-setup.md)), then
 publish a new build so players run against the synced revision.
 
 ## Query results
 
-`GET /v3/queries/{projectId}/{queryId}` (also `/v1/queries/...` and
-`/api/storage/{projectId}/queries/...`) runs a query over whole collections,
+`GET /api/queries/{projectId}/{queryId}` (also `/v1/queries/...`,
+`/v3/queries/...` and `/api/storage/{projectId}/queries/...`) runs a query over whole collections,
 so the server keeps each query's latest result and shares it between
 callers:
 

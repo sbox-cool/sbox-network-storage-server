@@ -220,7 +220,7 @@ definition are not scanned.
 ### Auth sessions
 
 With **Enable auth sessions**, the game can trade its s&box token for a signed
-session token (`/v3/auth-sessions/{projectId}/create`). Later calls send the
+session token (`/api/auth-sessions/{projectId}/create`, also `/v3/...`). Later calls send the
 session token and skip the s&box check until it expires after **Session TTL**
 seconds. Off by default.
 
@@ -497,15 +497,15 @@ base URL (`server.public_url`, otherwise the dashboard address), and a
 
 ### Request log and errors
 
-**Logs** lists recent data-plane requests (`/v3`, `/v1`, `/api/storage`,
-`/api/network-storage`, `/pages`, `/api/pages`) with time, method, path,
+**Logs** lists recent data-plane requests (`/api`, `/v3`, `/v1`,
+`/pages`, `/api/pages`) with time, method, path,
 status and duration:
 
 - Authenticated requests are listed under their project.
 - Rejected requests that never authenticated (status 400 or more, such as a
   wrong API key or failed s&box authentication) are listed under the project
   ID in the URL, but only when that project exists.
-- Successful unauthenticated requests (for example `/v3/server-info`) and
+- Successful unauthenticated requests (for example `/api/server-info`) and
   OPTIONS preflights are not listed.
 
 **Errors** lists errors the server reported for the project: unhandled

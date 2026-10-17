@@ -254,7 +254,7 @@ hsts = true
 
 [logging]
 # Trace, Debug, Information, Warning, Error.
-# The per-request timing line (`HTTP POST /v3/... status=200 latencyMs=...`) is
+# The per-request timing line (`HTTP POST /api/... status=200 latencyMs=...`) is
 # written at Debug only; at Information and above it never appears. The
 # dashboard request log is separate and always records requests.
 level = "Information"
@@ -290,12 +290,12 @@ are in KiB; rate keys count requests. The limits apply per client address, taken
 from the connection. `X-Forwarded-For` is honoured only from a proxy on the same
 machine, and `CF-Connecting-IP` only from the local tunnel connector while
 `tunnel.enabled` is true; any other client-supplied forwarding header is ignored.
-
-| Key | Default | Meaning |
+| `server.limits.data_plane` | `256` | Largest body on game routes (`/v1`, `/v3` and `/api`) and auth-session routes |
+| `server.limits.management` | `8192` | Largest body on secret-key management and sync routes (`/v3/manage` and `/api/manage`) |
 | --- | --- | --- |
 | `server.limits.default` | `1024` | Largest body on routes without a limit of their own |
-| `server.limits.data_plane` | `256` | Largest body on game routes (`/v1`, `/v3`, `/api/storage`) and auth-session routes |
-| `server.limits.management` | `8192` | Largest body on secret-key management and sync routes (`/v3/manage`) |
+| `server.limits.data_plane` | `256` | Largest body on game routes (`/v1`, `/v3` and `/api`) and auth-session routes |
+| `server.limits.management` | `8192` | Largest body on secret-key management and sync routes (`/v3/manage` and `/api/manage`) |
 | `server.limits.game_burst` | `600` | Requests a client address may send to game routes at once |
 | `server.limits.game_per_second` | `200` | Sustained requests per second on game routes |
 | `server.limits.management_burst` | `120` | Requests a client address may send to management routes at once |

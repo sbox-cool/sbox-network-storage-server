@@ -87,6 +87,8 @@ public static class ServerHost
 
         configureBuilder?.Invoke(builder);
         var app = builder.Build();
+        // Dual /api + /v3 ingress: rewrite to the canonical path before anything else reads it.
+        app.UseMiddleware<ApiRootRewriteMiddleware>();
         app.UseMiddleware<CompatHeadersMiddleware>();
         app.UseMiddleware<ClientAddressMiddleware>();
         app.UseForwardedHeaders();

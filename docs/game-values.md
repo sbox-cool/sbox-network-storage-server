@@ -98,7 +98,7 @@ var weapons = gv.GetProperty( "tables" ).GetProperty( "weapons" )
     .ReadList( "rows", r => (Id: r.Str( "weapon_id" ), Damage: r.Int( "damage" ), Model: r.Str( "model" )) );
 ```
 
-`GetGameValues()` calls `GET /v3/values/{projectId}` and returns `null` when the
+`GetGameValues()` calls `GET /api/values/{projectId}` (also `/v3/values/...`) and returns `null` when the
 request fails (`NetworkStorageGameValues.cs:14`). The response has this shape:
 
 ```json
@@ -158,7 +158,7 @@ read that snapshot only when the project has an explicit revision policy and
 the revision is retained and within its support window.
 
 - **Publish writes a snapshot.** When the Sync Tool publishes a package
-  revision (`POST /v3/manage/{projectId}/package-sync`), the server writes an
+  revision (`POST /api/manage/{projectId}/package-sync`), the server writes an
   immutable snapshot of that revision's endpoints, workflows, collections,
   queries and game values. See [version policy](version-policy.md).
 - **Old builds keep their values conditionally.** A published build sends

@@ -69,5 +69,7 @@
     { "scenario": "manage-tests-and-tools", "step": "auto-test-all", "path": "body:$.results[0].result.body.error.code", "reason": "Managed auto-test runs endpoints without game values, so values lookups fail with ENDPOINT_ERROR.LOOKUP; this server resolves {{values.*}} like test-endpoint and live calls and returns the endpoint's own error (#65)." },
     { "scenario": "manage-tests-and-tools", "step": "auto-test-all", "path": "body:$.results[0].result.body.error.message", "reason": "Managed auto-test runs endpoints without game values, so values lookups fail with ENDPOINT_ERROR.LOOKUP; this server resolves {{values.*}} like test-endpoint and live calls and returns the endpoint's own error (#65)." },
     { "scenario": "manage-tests-and-tools", "step": "auto-test-all", "path": "body:$.results[0].result.body.error.step.errorCode", "reason": "Managed auto-test runs endpoints without game values, so values lookups fail with ENDPOINT_ERROR.LOOKUP; this server resolves {{values.*}} like test-endpoint and live calls and returns the endpoint's own error (#65)." }
+    ,
+    { "scenario": "global-append-list", "step": "list-api-alias", "path": "*", "reason": "Intended /api-root change (#112): /api/storage/{projectId}/{collectionId}/list is now served as a twin of the /v3 route (200 with records) instead of 404." }
   ]
 }

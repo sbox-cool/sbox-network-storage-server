@@ -51,7 +51,7 @@ plan stays manual.
 |---|---|---|
 |s&box engine build, the full string (for example `26.10.02`)|The editor's About dialog, or the `.version` file next to the editor|`engine`|
 |Library version|A library from git: the tag it was built from or, if untagged, `git:<sha>` (`git rev-parse --short HEAD` in the library checkout). A library installed through the editor: the version Library Manager shows, or the `LibraryVersion` constant (`NetworkStorage.LibraryVersion`). Also note the package revision from the library's `.version` (`1.0.<revision>`) when you have it|`library`, `librarySource` (`git:<sha>`, `library-manager` or `release:<tag>`), `revision`|
-|Server build|`GET /v3/server-info`: `version`, `kind` (`self-hosted` or `hosted`) and `database`. Hosted runs record `kind: hosted`; for a self-hosted server also record the commit if it is not a release build|`server`, `kind`, `database`, `commit`|
+|Server build|`GET /api/server-info` (or `/v3/server-info`): `version`, `kind` (`self-hosted` or `hosted`) and `database`. Hosted runs record `kind: hosted`; for a self-hosted server also record the commit if it is not a release build|`server`, `kind`, `database`, `commit`|
 |Operating system|The machine the editor ran on, e.g. `Windows 11 23H2`|`os`|
 |Result|`pass` only when every box in the sections you ran is ticked on this setup; otherwise `fail`. No editor run: `ci-only`|`result`|
 
@@ -102,7 +102,7 @@ operating system and database combination you ran, in the PR that records the ru
 
 ## B. Sync Tool against the server
 
-- [ ] Handshake: `POST /v3/manage/{id}/package-sync` and `GET .../game-package` return
+- [ ] Handshake: `POST /api/manage/{id}/package-sync` and `GET .../game-package` return
       200 and the window shows "Last synced".
 - [ ] Scaffold: the Sync window's sample-project scaffold writes endpoints using the documented
       `check` / `onFail` condition shape (library PR #5), not `field` / `operator`.
@@ -125,7 +125,7 @@ operating system and database combination you ran, in the PR that records the ru
       `TryGetLastEndpointError`.
 - [ ] `inc` / `set` ops through an endpoint change the stored document (v0.4.0
       stored `{ops:[...]}` instead; confirm the build under test applies them).
-- [ ] Game values load (`GET /v3/values/{id}`) and `{{values.*}}` resolves in an endpoint.
+- [ ] Game values load (`GET /api/values/{id}`) and `{{values.*}}` resolves in an endpoint.
 - [ ] Query and leaderboard through `RunQuery`.
 - [ ] Rate-limit behavior: collection `savesPerDay` returns the error the library shows.
 - [ ] Heartbeat (`/storage/{id}/stats/heartbeat`) and analytics events

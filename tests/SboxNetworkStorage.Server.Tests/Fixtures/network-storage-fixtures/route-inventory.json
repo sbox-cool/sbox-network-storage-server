@@ -1057,4 +1057,41 @@
       "dotnet-native"
     ]
   }
+  ,
+  {
+    "method": "GET",
+    "template": "/api/storage/:projectId/rate-limits",
+    "sources": [
+      "dotnet-native"
+    ]
+  },
+  {
+    "method": "GET",
+    "template": "/api/storage/:projectId/:collectionId/:steamId/ledger",
+    "sources": [
+      "dotnet-native"
+    ]
+  },
+  {
+    "method": "GET",
+    "template": "/api/storage/:projectId/:collectionId/list",
+    "sources": [
+      "dotnet-native"
+    ]
+  },
+  {
+    "method": "GET",
+    "template": "/api/storage/:projectId/:collectionId/record/:recordId",
+    "sources": [
+      "dotnet-native"
+    ]
+  }
+  ,
+  {
+    "method": "POST",
+    "template": "/api/storage/:projectId/:collectionId/append",
+    "sources": [
+      "dotnet-native"
+    ]
+  }
 ]

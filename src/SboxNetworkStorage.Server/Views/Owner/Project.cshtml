@@ -62,7 +62,7 @@
         <tr><td>A collection or endpoint is defined</td><td><span class="badge @(hasDefinitions ? "positive" : "")">@(hasDefinitions ? "Done" : "Not yet")</span></td><td>Define them under <a href="@url/resources/collection">Collections</a> and <a href="@url/resources/endpoint">Endpoints</a>, or push them with <strong>Editor &gt; Network Storage &gt; Sync Tool</strong>.</td></tr>
         <tr><td>The game reached this server</td><td><span class="badge @(Model.LastRequest is null ? "" : "positive")">@(Model.LastRequest is null ? "Not yet" : "Done")</span></td><td>
         @if (Model.LastRequest is { } last) { <span>Last request @When(last.At): @last.Method <code>@last.Path</code> (status @last.Status). <a href="@url/activity/logs">Request log</a></span> }
-        else { <span>No requests in the last @SboxNetworkStorage.Server.Activity.RuntimeActivityLog.Retention.Days days. From the game machine run <code>curl @connect.BaseUrl/health</code> and <code>curl @connect.BaseUrl/v3/server-info</code>. If they fail, check the firewall or port forward.</span> }
+        else { <span>No requests in the last @SboxNetworkStorage.Server.Activity.RuntimeActivityLog.Retention.Days days. From the game machine run <code>curl @connect.BaseUrl/health</code> and <code>curl @connect.BaseUrl/api/server-info</code>. If they fail, check the firewall or port forward.</span> }
         </td></tr>
         <tr><td>Rejected requests in the last 24 hours</td><td><span class="badge">@(Model.RecentRejected.Count == 0 ? "None" : Model.RecentRejected.Count.ToString(CultureInfo.InvariantCulture))</span></td><td>
         @if (Model.RecentRejected.Count == 0) { <span>No 401 or 403 responses in the recent request log.</span> }

@@ -8,8 +8,10 @@ client library works without changes: you only change its base URL.
 - Client source: <https://github.com/sbox-cool/sbox-network-storage>
 - API and library docs: <https://sbox.cool/wiki/network-storage-v3>
 
-The client appends the API version itself (`/v3/...`), so the base URL is just
-the scheme, host and port of your server, with no path and no trailing slash.
+The client appends the API root itself (`/api/...` on library 1.2.0 and newer),
+so the base URL is just the scheme, host and port of your server, with no path
+and no trailing slash. Older libraries call `/v3/...`; every `/api/{path}` route
+is also served at `/v3/{path}` as a permanent alias.
 
 ## 1. Find your server URL
 
@@ -28,7 +30,7 @@ Check the server responds from the machine running s&box:
 
 ```sh
 curl -i http://your-server:8080/health
-curl http://your-server:8080/v3/server-info
+curl http://your-server:8080/api/server-info
 ```
 
 Make sure the port is open in your firewall and forwarded on your router if the
@@ -102,8 +104,8 @@ belongs in the editor only.
 ## Collection access from game clients
 
 The public key ships inside every game build, so anyone can extract it. The
-direct document API (`GET`, `POST` and `DELETE /v3/storage/{projectId}/{collection}/{key}`,
-the `/api/storage` alias and `/probe`) therefore treats public-key calls as
+direct document API (`GET`, `POST` and `DELETE /api/storage/{projectId}/{collection}/{key}`,
+also served at `/v3/storage/...`, plus `/probe`) therefore treats public-key calls as
 untrusted:
 
 - The collection must declare `accessMode: public`. Any other value, or no

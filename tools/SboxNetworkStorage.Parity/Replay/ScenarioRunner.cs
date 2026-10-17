@@ -9,7 +9,8 @@ using SboxNetworkStorage.Parity.Results;
 namespace SboxNetworkStorage.Parity.Replay;
 
 /// <summary>Replays the corpus in order against one server and records normalized responses.</summary>
-public sealed class ScenarioRunner(HttpClient http, Uri target, TemplateContext context, TextWriter log)
+/// <param name="root">Request root for the wire path (<c>/v3</c> or <c>/api</c>); the recorded request keeps the authored path.</param>
+public sealed class ScenarioRunner(HttpClient http, Uri target, TemplateContext context, TextWriter log, string root = "/v3")
 {
     public async Task<RunResults> RunAsync(IReadOnlyList<CorpusFile> corpus, CancellationToken ct)
     {
@@ -103,7 +104,8 @@ public sealed class ScenarioRunner(HttpClient http, Uri target, TemplateContext 
 
     private HttpRequestMessage BuildRequest(Step step)
     {
-        var url = new StringBuilder(target.GetLeftPart(UriPartial.Authority)).Append(context.Expand(step.Path));
+        var path = RewriteRoot(context.Expand(step.Path));
+        var url = new StringBuilder(target.GetLeftPart(UriPartial.Authority)).Append(path);
         if (step.Query is { Count: > 0 })
         {
             url.Append('?').AppendJoin('&', step.Query.Select(q =>
@@ -139,6 +141,13 @@ public sealed class ScenarioRunner(HttpClient http, Uri target, TemplateContext 
 
         return request;
     }
+
+    /// <summary>Mirror run: send the step at the requested root. Only the leading /v3 segment moves.</summary>
+    private string RewriteRoot(string path)
+        => root == "/v3" || !path.StartsWith("/v3", StringComparison.Ordinal)
+            || (path.Length > "/v3".Length && path["/v3".Length] != '/')
+            ? path
+            : root + path.Substring("/v3".Length);
 
     private static string GenerateBody(GeneratedBody generated)
     {

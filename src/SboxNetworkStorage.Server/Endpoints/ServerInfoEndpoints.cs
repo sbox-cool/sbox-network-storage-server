@@ -1,3 +1,4 @@
+using SboxNetworkStorage.Application.NetworkStorage;
 using SboxNetworkStorage.Server.Hosting;
 using SboxNetworkStorage.Server.Compat;
 using SboxNetworkStorage.Server.Updates;
@@ -11,6 +12,11 @@ public static class ServerInfoEndpoints
     /// <summary>API versions this server answers on.</summary>
     public static readonly string[] ApiVersions = ["v3"];
 
+    /// <summary>Capabilities this server answers on.</summary>
+    public static readonly string[] Capabilities =
+        ["records", "global-records", "endpoints", "workflows", "queries", "game-values",
+            "rate-limits", "auth-sessions", "analytics", "package-sync", "https-tunnel", "api-root"];
+
     public static IEndpointRouteBuilder MapServerInfo(this IEndpointRouteBuilder endpoints)
     {
         endpoints.MapGet("/v3/server-info", (UpdateNoticeState updates, INetworkStorageStoreAdmin store, TunnelConnectorState tunnel, LibraryCompatProvider compat) =>
@@ -23,7 +29,8 @@ public static class ServerInfoEndpoints
                     version = BuildInfo.Version,
                     apiVersions = ApiVersions,
                     database = store.ProviderName,
-                    capabilities = new[] { "records", "global-records", "endpoints", "workflows", "queries", "game-values", "rate-limits", "auth-sessions", "analytics", "package-sync", "https-tunnel" },
+                    capabilities = Capabilities,
+                    api = new { root = NetworkStorageRoots.Api, aliases = new[] { NetworkStorageRoots.V3 }, since = NetworkStorageRoots.ApiSince },
                     tunnel = tunnel.Current,
                     compat = compat.Current.ToServerInfo(),
                     update = notice is null

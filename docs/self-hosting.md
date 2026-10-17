@@ -646,7 +646,7 @@ reduce isolation and are not the shipped baseline.
 
 - `GET /health` returns 200 when the server and database are up; use it for
   load balancers, uptime monitors and container health checks.
-- `GET /v3/server-info` returns the server version and basic information.
+- `GET /api/server-info` (also `/v3/server-info`) returns the server version and basic information.
 
 ## Config and state folders
 

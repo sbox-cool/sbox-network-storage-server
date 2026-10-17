@@ -1,17 +1,15 @@
 using System.Diagnostics;
+using SboxNetworkStorage.Application.NetworkStorage;
 using SboxNetworkStorage.Infrastructure.NetworkStorage.Usage;
 using SboxNetworkStorage.Server.Activity;
 using SboxNetworkStorage.Server.Compat;
 
 namespace SboxNetworkStorage.Server.Middleware;
 
-/// <summary>
-/// Meters Network Storage data-plane requests (<c>/v3</c>, <c>/v1</c>,
-/// <c>/api/storage</c>, <c>/api/network-storage</c>, and published
-/// <c>/pages</c>/<c>/api/pages</c> responses) into
+/// Meters Network Storage data-plane requests (<c>/v3</c>, <c>/v1</c>, <c>/api</c> and published
+/// <c>/pages</c> responses) into
 /// <see cref="NetworkStorageUsageTracker"/>: duration, bytes in/out (counting
 /// passthrough response stream with no buffering), status, and semantic annotations
-/// set via <see cref="NetworkStorageUsageContext"/>.
 ///
 /// <para>Skips: non-data-plane paths (zero overhead), OPTIONS preflight, 401
 /// responses, and every request whose handler did not annotate it after
@@ -32,12 +30,9 @@ public sealed class NetworkStorageUsageMiddleware(
     ClientVersionTracker clients,
     ClientOutcomeTracker outcomes)
 {
-    // Segment-boundary prefixes: "/api/storage" does NOT match "/api/storage-browse".
+    // One definition lives in NetworkStorageRoots; "/api" covers the reserved families too.
     private static readonly PathString[] s_prefixes =
-    [
-        new("/v3"), new("/v1"), new("/api/storage"), new("/api/network-storage"),
-        new("/pages"), new("/api/pages"),
-    ];
+        NetworkStorageRoots.DataPlanePrefixes.Select(p => new PathString(p)).ToArray();
 
     public async Task InvokeAsync(HttpContext context)
     {
@@ -90,7 +85,7 @@ public sealed class NetworkStorageUsageMiddleware(
             var logProjectId = annotation?.ProjectId
                 ?? (status >= StatusCodes.Status400BadRequest ? context.GetRouteValue("projectId") as string : null);
             if (logProjectId is not null)
-                activity.RecordRequest(logProjectId, context.Request.Method, context.Request.Path.Value ?? "/", status, durationMs,
+                activity.RecordRequest(logProjectId, context.Request.Method, NetworkStorageRequestRoot.OriginalPath(context), status, durationMs,
                     ClientIdentityContext.Get(context));
 
             if (annotation is null || status == StatusCodes.Status401Unauthorized) return;

@@ -25,8 +25,8 @@ public sealed class LibraryPolicyMiddleware(RequestDelegate next, LibraryCompatP
             await next(context);
             return;
         }
-        var path = context.Request.Path.Value ?? "";
-        var management = path.StartsWith("/v3/manage/", StringComparison.Ordinal);
+        var path = NetworkStorageRequestRoot.OriginalPath(context);
+        var management = NetworkStorageRoots.IsManagementPath(path);
         var push = management && (HttpMethods.IsPut(context.Request.Method) && path.EndsWith("/sync", StringComparison.Ordinal)
             || HttpMethods.IsPost(context.Request.Method) && (path.EndsWith("/sync/preflight", StringComparison.Ordinal)
                 || path.EndsWith("/package-sync", StringComparison.Ordinal)));

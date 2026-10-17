@@ -22,6 +22,8 @@ public static class NetworkStorageGatewayEndpoints
     {
         endpoints.MapMethods("/v3/storage/deploy-canary/{**path}", Methods, DeployCanaryProbeAsync)
             .WithDisplayName("Network Storage deploy canary probe");
+        endpoints.MapMethods("/api/storage/deploy-canary/{**path}", Methods, DeployCanaryProbeAsync)
+            .WithDisplayName("Network Storage deploy canary probe (api/storage alias)");
 
         // Native storage API roots. `/v3/storage` and `/api/storage` without a
         // project id are not valid Network Storage surfaces, but they are hit by
@@ -54,6 +56,8 @@ public static class NetworkStorageGatewayEndpoints
             .WithDisplayName("Network Storage rate limits");
         endpoints.MapGet("/v1/storage/{projectId}/rate-limits", ServeRateLimitsAsync)
             .WithDisplayName("Network Storage rate limits (v1 alias)");
+        endpoints.MapGet("/api/storage/{projectId}/rate-limits", ServeRateLimitsAsync)
+            .WithDisplayName("Network Storage rate limits (api/storage alias)");
 
         // Native published-page reads. A native handler already exists, so
         // avoid proxying `/pages/*` and `/api/pages/*` through legacy server for the
@@ -66,6 +70,8 @@ public static class NetworkStorageGatewayEndpoints
         // Native read-only storage surfaces backed by existing handlers.
         endpoints.MapGet("/v3/storage/{projectId}/stats/{steamId}", ServeStatsReadAsync)
             .WithDisplayName("Network Storage stats read");
+        endpoints.MapGet("/api/storage/{projectId}/stats/{steamId}", ServeStatsReadAsync)
+            .WithDisplayName("Network Storage stats read (api/storage alias)");
 
         // Native heartbeat write. Writes player-stats directly to workspace CDN,
         // bypassing legacy server entirely. Critical for game clients.
@@ -74,11 +80,17 @@ public static class NetworkStorageGatewayEndpoints
         endpoints.MapPost("/api/storage/{projectId}/stats/heartbeat", ServeHeartbeatAsync)
             .WithDisplayName("Network Storage stats heartbeat (api alias)");
         endpoints.MapGet("/v3/storage/{projectId}/{collectionId}/{key}/probe", ServeProbeAsync);
+        endpoints.MapGet("/api/storage/{projectId}/{collectionId}/{key}/probe", ServeProbeAsync);
         endpoints.MapGet("/v3/storage/{projectId}/{collectionId}/{steamId}/ledger", ServeLedgerReadAsync);
+        endpoints.MapGet("/api/storage/{projectId}/{collectionId}/{steamId}/ledger", ServeLedgerReadAsync);
         endpoints.MapGet("/v3/storage/{projectId}/{collectionId}/list", ServeGlobalReadAsync)
             .WithDisplayName("Network Storage global list read");
+        endpoints.MapGet("/api/storage/{projectId}/{collectionId}/list", ServeGlobalReadAsync)
+            .WithDisplayName("Network Storage global list read (api/storage alias)");
         endpoints.MapGet("/v3/storage/{projectId}/{collectionId}/record/{recordId}", ServeGlobalReadAsync)
             .WithDisplayName("Network Storage global record read");
+        endpoints.MapGet("/api/storage/{projectId}/{collectionId}/record/{recordId}", ServeGlobalReadAsync)
+            .WithDisplayName("Network Storage global record read (api/storage alias)");
 
         // Native endpoint slug read. A native handler reads the
         // endpoints list from workspace and returns the matching slug, avoiding

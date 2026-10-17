@@ -142,7 +142,7 @@ public sealed class OwnerConnectAndActivityTests : IDisposable
             Assert.Contains(WebUtility.HtmlEncode($"NetworkStorage.Configure( \"{projectId}\", \"{key.Key}\", \"http://localhost\" );"), overview);
             Assert.Equal("Done", ChecklistStatus(overview, "A public key exists"));
             Assert.Equal("Not yet", ChecklistStatus(overview, "The game reached this server"));
-            Assert.Contains("curl http://localhost/v3/server-info", overview);
+            Assert.Contains("curl http://localhost/api/server-info", overview);
             // Opened from localhost without server.public_url: the owner is told players cannot use this address.
             Assert.Contains("This base URL only works on this machine.", overview);
         }

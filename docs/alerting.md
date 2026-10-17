@@ -158,6 +158,13 @@ addresses. Mail is plain text with a one-line subject (for errors
 `[sbox-ns] FIRING <rule>` or `[sbox-ns] RESOLVED <rule>`) and a field-list
 body; delivery uses a 10-second timeout and STARTTLS when TLS is on.
 
+### Resend (no code changes needed)
+
+Resend's free tier (3,000 emails/month, 100/day) works through the SMTP channel
+above with no provider integration: host `smtp.resend.com`, port `587` with TLS
+on, username `resend`, password a Resend API key, and a verified sender domain
+as `from`. GitHub offers no transactional email API, so it is not an option.
+
 ## Providers (optional, one-click)
 
 Providers are optional adapters behind the same channels above. The server is

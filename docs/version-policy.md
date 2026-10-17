@@ -8,7 +8,7 @@ client what to do and can enforce it server-side (opt-in, off by default).
 ## Publishing flow
 
 1. The editor Sync Tool pushes definitions, then `POST
-   /v3/manage/{projectId}/package-sync` with the new `currentRevisionId`.
+   /api/manage/{projectId}/package-sync` with the new `currentRevisionId`.
 2. When the revision actually changes, the server promotes staged
    overrides, resets `revisionPublishedAt` to now (the grace anchor), and
    writes `revisions/{revisionId}.json`: the full merged endpoints,
@@ -52,7 +52,7 @@ audited as `revision.grace.end` / `revision.grace.extend`).
 
 ## revision-init
 
-`POST /v3/manage/{projectId}/revision-init` keeps every current field and
+`POST /api/manage/{projectId}/revision-init` (also `/v3/...`) keeps every current field and
 additively returns `action` (`none`, `notify`, `rejoin`, `block_writes`,
 `block_all`; omitted without an explicit policy), the owner's message for
 outdated clients (replacing the generic outdated text), `graceEndsAt`

@@ -24,6 +24,8 @@ public enum NetworkStorageAlias
     /// <summary><c>/api/pages/...</c> client pages alias.</summary>
     ApiPages,
 
+    /// <summary>Documented <c>/api/...</c> root; normalizes to canonical <c>/v3/...</c>.</summary>
+    Api,
     /// <summary>Localhost-only <c>/_internal/...</c> storage-api endpoints; never public ingress.</summary>
     Internal,
 
@@ -42,6 +44,7 @@ public static class NetworkStorageAliasExtensions
         NetworkStorageAlias.ApiStorage => "api-storage",
         NetworkStorageAlias.Pages => "pages",
         NetworkStorageAlias.ApiPages => "api-pages",
+        NetworkStorageAlias.Api => "api",
         NetworkStorageAlias.Internal => "internal",
         _ => "unknown"
     };
@@ -55,6 +58,7 @@ public static class NetworkStorageAliasExtensions
         NetworkStorageAlias.ApiStorage => true,
         NetworkStorageAlias.Pages => true,
         NetworkStorageAlias.ApiPages => true,
+        NetworkStorageAlias.Api => true,
         _ => false
     };
 
@@ -75,8 +79,9 @@ public sealed record NetworkStorageNormalizedRoute(
 
 /// <summary>
 /// Canonical alias normalization for the Network Storage ingress prefixes
-/// (<c>/v3</c>, <c>/api/v3</c>, <c>/v1</c>, <c>/api/storage</c>, <c>/pages</c>, <c>/api/pages</c>).
-/// Only the pure ASP.NET ingress alias <c>/api/v3/...</c> is rewritten to canonical <c>/v3/...</c>;
+/// (<c>/v3</c>, <c>/api</c>, <c>/api/v3</c>, <c>/v1</c>, <c>/api/storage</c>, <c>/pages</c>, <c>/api/pages</c>).
+/// The documented root <c>/api/{family}</c> (except the reserved families above) is rewritten to
+/// canonical <c>/v3/{family}</c>, as is the pure ASP.NET ingress alias <c>/api/v3/...</c>;
 /// the other legacy aliases keep their declared paths because the catalog holds explicit entries for them.
 /// </summary>
 public static class NetworkStorageAliasNormalizer
@@ -110,6 +115,13 @@ public static class NetworkStorageAliasNormalizer
         if (StartsWithSegment(path, "/api/pages"))
         {
             return new NetworkStorageNormalizedRoute(path, path, NetworkStorageAlias.ApiPages);
+        }
+
+        // Documented root: every other /api/{family} mirrors /v3/{family}. Reserved families
+        // returned above; bare /api is not a route.
+        if (path.Length > "/api".Length && StartsWithSegment(path, "/api"))
+        {
+            return new NetworkStorageNormalizedRoute(path, "/v3" + path.Substring("/api".Length), NetworkStorageAlias.Api);
         }
 
         if (StartsWithSegment(path, "/pages"))
@@ -148,12 +160,5 @@ public static class NetworkStorageAliasNormalizer
     }
 
     private static bool StartsWithSegment(string path, string prefix)
-    {
-        if (!path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-        {
-            return false;
-        }
-
-        return path.Length == prefix.Length || path[prefix.Length] == '/';
-    }
+        => NetworkStorageRoots.HasSegmentPrefix(path, prefix);
 }
