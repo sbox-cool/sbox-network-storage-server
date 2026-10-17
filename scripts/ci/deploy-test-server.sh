@@ -48,7 +48,7 @@ install -d -o "$user" -g "$user" -m 0750 "$data_dir" \
 ns() { runuser -u "$user" -- env "DOTNET_BUNDLE_EXTRACT_BASE_DIR=$data_dir/.net" "$bin" "$@"; }
 
 if [ ! -f "$config_dir/server.toml" ]; then
-    "$bin" setup --non-interactive --database sqlite --listen "0.0.0.0:$port" --public-url "$public_url" "${dirs[@]}"
+    "$bin" setup --non-interactive --database sqlite --listen "[::]:$port" --public-url "$public_url" "${dirs[@]}"
     find "$config_dir" -type d -exec chown "root:$user" {} + -exec chmod 0750 {} +
     find "$config_dir" -type f -exec chown "root:$user" {} + -exec chmod 0640 {} +
 fi

@@ -13,6 +13,10 @@ there. That script mirrors the Linux layout of `install/install.sh` (`/etc/sbox-
 keys, and the workflow replays `tests/parity/corpus` against `http://<host>:8080` with
 `sbox-ns-parity check`.
 
+The server listens on `[::]:8080` (dual-stack), so it is also reachable over IPv6 at
+`http://[2001:19f0:5400:243f:5400:6ff:fedf:6b1a]:8080`. GitHub runners and many home networks
+have no IPv6 route, so CI uses the IPv4 address.
+
 Repository secrets: `TEST_SERVER_HOST` (public IPv4), `TEST_SERVER_SSH_KEY` (private deploy key for
 root), `TEST_SERVER_KNOWN_HOSTS` (pinned `ssh-keyscan -t ed25519` line). Point a game at it with
 `NetworkStorage.Configure(projectId, publicKey, "http://<host>:8080")`; read the fixture keys from
