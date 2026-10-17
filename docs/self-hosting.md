@@ -298,6 +298,20 @@ sbox-ns setup --non-interactive --database sqlite --listen 0.0.0.0:8080 --public
 sbox-ns setup --non-interactive --database postgres --pg-host db.internal --listen 0.0.0.0:8080
 ```
 
+On an IPv6-only machine listen on `[::]` and open the dashboard with the address in
+square brackets (without them the URL does not parse):
+
+```sh
+sbox-ns setup --non-interactive --database sqlite --listen '[::]:8080'
+# dashboard: http://[2001:db8::1]:8080/login — brackets required
+curl -g http://[2001:db8::1]:8080/health
+```
+
+`sbox-ns login-link` and the dashboard Connect card print the detected address
+already bracketed. Game clients still need a domain name (an IP literal, v4 or
+v6, is refused by s&box game code); use `sbox-ns tunnel enable` or
+`sbox-ns dns enable` for that.
+
 Afterwards:
 
 ```sh

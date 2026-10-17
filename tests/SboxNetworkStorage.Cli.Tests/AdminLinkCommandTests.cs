@@ -24,6 +24,11 @@ public sealed class AdminLinkCommandTests : IDisposable
             Load(new() { ["server.listen"] = "0.0.0.0:8080" }), () => "203.0.113.7"));
 
     [Fact]
+    public void Wildcard_ipv6_listener_uses_the_bracketed_detected_address()
+        => Assert.Equal("http://[2001:db8::1]:8080", ServerBaseUrl.FromConfig(
+            Load(new() { ["server.listen"] = "[::]:8080" }), () => "[2001:db8::1]"));
+
+    [Fact]
     public void Explicit_listen_address_is_used_verbatim()
         => Assert.Equal("http://198.51.100.4:9000", ServerBaseUrl.FromConfig(
             Load(new() { ["server.listen"] = "198.51.100.4:9000" }), () => throw new InvalidOperationException("not needed")));
@@ -46,6 +51,7 @@ public sealed class AdminLinkCommandTests : IDisposable
     [InlineData("http://127.0.0.1:8090", true)]
     [InlineData("http://[::1]:8081", true)]
     [InlineData("http://203.0.113.7:8080", true)]
+    [InlineData("http://[2001:db8::1]:8080", true)]
     [InlineData("https://203.0.113.7", true)]
     [InlineData("http://ns.example.com:3000", false)]
     [InlineData("https://ns.example.com", false)]

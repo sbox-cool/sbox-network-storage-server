@@ -39,7 +39,9 @@ How the link works:
 - **Base URL.** The link uses `server.public_url` when it is set. Otherwise it
   is built from the active listener: HTTPS with the ACME domain when TLS is on,
   or the bound address. For wildcard binds like `0.0.0.0` it uses the first
-  routable IPv4 address of the machine. Set `server.public_url` if that guess
+  routable IPv4 address of the machine, or on IPv6-only machines the first
+  global IPv6 address, already wrapped in the brackets URLs require
+  (`http://[2001:db8::1]:8080`). Set `server.public_url` if that guess
   is wrong, for example behind NAT or a proxy. `sbox-ns setup` and
   `sbox-ns quickstart` use the same rule, but print `<this-host>` for wildcard
   binds instead of guessing.

@@ -171,6 +171,7 @@ URL can sync fine while game requests to it fail with
 | HTTPS domain | `https://ns.example.com` | allowed (any port) |
 | HTTP domain | `http://ns.example.com:8080` | allowed (any port) |
 | IP address | `http://203.0.113.10:8080`, `https://203.0.113.10` | **refused**, public or private |
+| IPv6 literal | `http://[2001:db8::1]:8080` (brackets required; without them the URL does not parse) | **refused** — dashboard and `curl -g` only, never game code |
 | localhost / `127.0.0.1` / `[::1]` | `http://localhost:8080` | allowed on ports 80, 443, 8080 and 8443 only |
 
 A domain that does not resolve was also refused, so create the DNS record

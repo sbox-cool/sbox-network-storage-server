@@ -70,18 +70,26 @@ public static class ServerBaseUrl
             : null;
     }
 
-    /// <summary>First routable IPv4 address of an up interface (a VPS's public address), else the host name.</summary>
+    /// <summary>First routable address of an up interface (a VPS's public address), else the host name.
+    /// IPv4 first; on IPv6-only machines the first global IPv6 address, URL-ready in brackets.
+    /// Without brackets a URL like <c>http://2001:db8::1:8080</c> does not parse, so callers must
+    /// never strip them.</summary>
     public static string DetectHostAddress()
     {
         try
         {
-            var address = NetworkInterface.GetAllNetworkInterfaces()
+            var unicasts = NetworkInterface.GetAllNetworkInterfaces()
                 .Where(nic => nic.OperationalStatus == OperationalStatus.Up && nic.NetworkInterfaceType != NetworkInterfaceType.Loopback)
                 .SelectMany(nic => nic.GetIPProperties().UnicastAddresses)
                 .Select(unicast => unicast.Address)
-                .FirstOrDefault(ip => ip.AddressFamily == AddressFamily.InterNetwork && !IPAddress.IsLoopback(ip)
-                    && !ip.ToString().StartsWith("169.254.", StringComparison.Ordinal));
-            if (address is not null) return address.ToString();
+                .ToList();
+            var v4 = unicasts.FirstOrDefault(ip => ip.AddressFamily == AddressFamily.InterNetwork && !IPAddress.IsLoopback(ip)
+                && !ip.ToString().StartsWith("169.254.", StringComparison.Ordinal));
+            if (v4 is not null) return v4.ToString();
+            var v6 = unicasts.Where(ip => ip.AddressFamily == AddressFamily.InterNetworkV6 && !IPAddress.IsLoopback(ip)
+                && !ip.IsIPv6LinkLocal && !ip.IsIPv6Multicast).ToList();
+            var global = v6.FirstOrDefault(ip => ip.GetAddressBytes()[0] is >= 0x20 and <= 0x3F);
+            if ((global ?? v6.FirstOrDefault()) is { } v6pick) return $"[{v6pick}]";
         }
         catch (NetworkInformationException)
         {
