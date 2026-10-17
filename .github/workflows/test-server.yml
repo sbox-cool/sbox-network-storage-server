@@ -10,7 +10,7 @@ name: Live test server
 
 on:
   push:
-    branches: [main, ci/live-test-server]
+    branches: [main]
   workflow_dispatch:
     inputs:
       reset:
