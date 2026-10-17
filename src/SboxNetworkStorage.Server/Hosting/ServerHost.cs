@@ -87,7 +87,7 @@ public static class ServerHost
 
         configureBuilder?.Invoke(builder);
         var app = builder.Build();
-        // Dual /api + /v3 ingress: rewrite to the canonical path before anything else reads it.
+        // Explicit v3 aliases and version-aware legacy storage dispatch run before routing.
         app.UseMiddleware<ApiRootRewriteMiddleware>();
         app.UseMiddleware<CompatHeadersMiddleware>();
         app.UseMiddleware<ClientAddressMiddleware>();
@@ -111,6 +111,7 @@ public static class ServerHost
         app.MapRecords();
         app.MapNetworkStorageGateway();
         app.MapStorageApi();
+        app.MapApiRootAliases();
 
         return app;
     }

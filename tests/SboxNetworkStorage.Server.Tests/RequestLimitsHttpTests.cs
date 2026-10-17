@@ -254,6 +254,22 @@ public abstract class RequestLimitsHttpTests<TFactory> : IClassFixture<TFactory>
     }
 
     [SkippableFact]
+    public async Task RootAliasesShareTheSameRateLimitBucket()
+    {
+        using var limited = Limited(o => o.Game = Bucket(burst: 2));
+        using var client = limited.CreateClient();
+        using var first = await client.SendAsync(Get("/v3/values/missing", peer: "203.0.113.77"));
+        using var second = await client.SendAsync(Get("/api/values/missing", peer: "203.0.113.77"));
+        Assert.NotEqual(HttpStatusCode.TooManyRequests, first.StatusCode);
+        Assert.Equal(first.StatusCode, second.StatusCode);
+        using var third = await client.SendAsync(Get("/api/v3/values/missing", peer: "203.0.113.77"));
+        Assert.Equal(HttpStatusCode.TooManyRequests, third.StatusCode);
+        Assert.True(third.Headers.RetryAfter?.Delta?.TotalSeconds > 0);
+        using var other = await client.SendAsync(Get("/api/v3/values/missing", peer: "203.0.113.78"));
+        Assert.Equal(first.StatusCode, other.StatusCode);
+    }
+
+    [SkippableFact]
     public async Task ManagementRoutes_HaveTheirOwnBucket()
     {
         using var limited = Limited(o => o.Management = Bucket(burst: 2));

@@ -49,7 +49,7 @@ public sealed record ClientIdentity(
     // Strict SemVer 2.0.0 core, optional pre-release and build metadata. The shared SemanticVersion parser is
     // lenient (leading "v", missing parts), which would let garbage count as a real version.
     private static readonly Regex StrictSemVer = new(
-        @"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$",
+        @"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(\.(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$",
         RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
     private static readonly Regex EngineChars = new(@"^[0-9A-Za-z._+-]+$", RegexOptions.CultureInvariant | RegexOptions.Compiled);

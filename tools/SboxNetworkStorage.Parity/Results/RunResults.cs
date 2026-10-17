@@ -68,9 +68,6 @@ public sealed class StepResult
 
     public string? Error { get; set; }
 
-    /// <summary>Set when the step was skipped (e.g. the server lacks a required capability): never a failure, and never compared.</summary>
-    public string? Skipped { get; set; }
-
     public List<string>? ExpectationFailures { get; set; }
 }
 

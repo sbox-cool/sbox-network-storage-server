@@ -6,17 +6,20 @@ const string Help = """
 
     Modes:
       run      --target URL --project-id ID --public-key K --secret-key S
-               [--corpus tests/parity/corpus] [--steam-id ID] [--steam-id-2 ID] [--root /api] [--out results.json]
+               [--corpus tests/parity/corpus] [--steam-id ID] [--steam-id-2 ID] [--out results.json]
+               [--root /v3|/api|/api/v3]
                Replays every corpus scenario in order against one server and records normalized responses.
-               --root replays with the /v3 path prefix rewritten (mirror run); the recorded request keeps
-               the authored path, so a v3 run and an /api run diff empty when responses are identical.
+               --root sends /v3 steps under another root (default /v3). Under /api the storage, pages,
+               network-storage and v3 families go to /api/v3/... and the rest to /api/...; /api/v3 sends
+               every /v3 step to /api/v3/.... Recorded requests keep the authored /v3 path.
 
       diff     --stable results-a.json --candidate results-b.json [--allow tests/parity/intentional-differences.json]
                Compares two runs; prints request, both normalized responses and a JSON diff for each
                mismatch. Exits 1 on any difference not listed in --allow.
 
       check    --target URL --project-id ID --public-key K --secret-key S [--expect tests/parity/expectations]
-               [--corpus ...] [--allow ...] [--root /api] [--out results.json]
+               [--corpus ...] [--allow ...] [--root /v3|/api|/api/v3] [--out results.json]
+               Replays and asserts corpus status codes, required fields and values. If --expect is supplied,
                also compares reviewed golden normalized responses. Exits 1 on any failure or 5xx.
 
       snapshot --from results.json --out tests/parity/expectations

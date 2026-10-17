@@ -93,15 +93,12 @@ an editor `pass`.
    matching-commit `pass` for the `recommended` library (or an explicit `--allow-ci-only`
    with a matching `ci-only` row, called out in the notes). A failing gate stops the release.
 3. Changing the matrix itself (`minimum`, `recommended`, `deprecated`, `blocked`) is a server
-   change like any other. Support a replaced library version (or API form) for **at least six
-   calendar months after its successor ships**, with **at least 90 days of published removal
-   notice**. The later date wins. Announced sunsets cannot be shortened. Moving `minimum`
+   change like any other. Public library methods and endpoints are preserved indefinitely by
+   default: a deprecation sets no removal date, and a warning never authorizes removal (see
+   [Non-breaking release rules](compatibility.md#non-breaking-release-rules)). Moving `minimum`
    additionally needs a **minor** server version bump and usage numbers showing how much
    live traffic it affects. `blocked` is the only immediate path and is for security or data-loss
-   problems. The gate enforces the window: a deprecated library entry superseded by a newer
-   supported entry must sunset no earlier than six months after the successor's recorded
-   `released` date, and, when the entry records an `announced` date, no earlier than 90 days
-   after it.
+   problems. The gate enforces sunset floors on deprecated library entries that have a later supported successor: at least six months after that successor's `released` date, and at least 90 days after `announced` when recorded. Announced sunsets cannot be shortened. A recorded sunset is informational and never authorizes removal; the indefinite-preservation rule above still governs. Moving `minimum` also requires a completed `deprecated` entry for `<minimum` (sunset on or before the change date).
 4. A library release adds its row to `libraries` (with `minServer`) in the same PR as, or right
    after, the library's own GitHub Release.
 

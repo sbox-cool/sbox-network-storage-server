@@ -290,8 +290,8 @@ are in KiB; rate keys count requests. The limits apply per client address, taken
 from the connection. `X-Forwarded-For` is honoured only from a proxy on the same
 machine, and `CF-Connecting-IP` only from the local tunnel connector while
 `tunnel.enabled` is true; any other client-supplied forwarding header is ignored.
-| `server.limits.data_plane` | `256` | Largest body on game routes (`/v1`, `/v3` and `/api`) and auth-session routes |
-| `server.limits.management` | `8192` | Largest body on secret-key management and sync routes (`/v3/manage` and `/api/manage`) |
+
+| Key | Default | Meaning |
 | --- | --- | --- |
 | `server.limits.default` | `1024` | Largest body on routes without a limit of their own |
 | `server.limits.data_plane` | `256` | Largest body on game routes (`/v1`, `/v3` and `/api`) and auth-session routes |

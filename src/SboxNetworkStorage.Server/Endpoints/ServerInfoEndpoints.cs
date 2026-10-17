@@ -30,7 +30,7 @@ public static class ServerInfoEndpoints
                     apiVersions = ApiVersions,
                     database = store.ProviderName,
                     capabilities = Capabilities,
-                    api = new { root = NetworkStorageRoots.Api, aliases = new[] { NetworkStorageRoots.V3 }, since = NetworkStorageRoots.ApiSince },
+                    api = new { root = NetworkStorageRoots.Api, aliases = new[] { NetworkStorageRoots.ApiV3, NetworkStorageRoots.V3 }, since = NetworkStorageRoots.ApiSince },
                     tunnel = tunnel.Current,
                     compat = compat.Current.ToServerInfo(),
                     update = notice is null

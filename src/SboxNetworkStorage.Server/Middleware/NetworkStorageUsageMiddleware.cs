@@ -6,6 +6,7 @@ using SboxNetworkStorage.Server.Compat;
 
 namespace SboxNetworkStorage.Server.Middleware;
 
+/// <summary>
 /// Meters Network Storage data-plane requests (<c>/v3</c>, <c>/v1</c>, <c>/api</c> and published
 /// <c>/pages</c> responses) into
 /// <see cref="NetworkStorageUsageTracker"/>: duration, bytes in/out (counting

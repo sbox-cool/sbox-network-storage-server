@@ -1,61 +1,73 @@
+using Microsoft.AspNetCore.Routing.Patterns;
 using SboxNetworkStorage.Application.NetworkStorage;
+using SboxNetworkStorage.Server.Compat;
 
 namespace SboxNetworkStorage.Server.Middleware;
 
-/// <summary>
-/// Request-root facts for the dual <c>/api</c> + <c>/v3</c> ingress. The rewrite middleware runs first
-/// in the pipeline, so routing, limits, metering, policy and logging all see the canonical
-/// <c>/v3</c> path while the original stays available here.
-/// </summary>
 public static class NetworkStorageRequestRoot
 {
     public const string OriginalPathItemKey = "sbox-ns.api-root.original-path";
 
-    /// <summary>The path as the client sent it; the canonical <c>/v3</c> path after the rewrite.</summary>
     public static string OriginalPath(HttpContext context)
         => context.Items.TryGetValue(OriginalPathItemKey, out var value) && value is string original
-            ? original
-            : context.Request.Path.Value ?? "/";
+            ? original : context.Request.Path.Value ?? "/";
+}
 
-    /// <summary>The root the caller used (<c>/api</c>), defaulting to <c>/v3</c> for every other path.</summary>
-    public static string Root(HttpContext context)
-        => NetworkStorageRoots.HasSegmentPrefix(OriginalPath(context), NetworkStorageRoots.Api)
-            ? NetworkStorageRoots.Api
-            : NetworkStorageRoots.V3;
+internal sealed record CanonicalApiEndpoint(RouteEndpoint Endpoint);
 
+public static class ApiRootEndpoints
+{
     /// <summary>
-    /// Maps a canonical <c>/v3/...</c> path to the root the caller used, so server-generated URLs never
-    /// hand a <c>/v3</c> client an <c>/api</c> URL it might not expect (and vice versa).
+    /// Copy existing v3 endpoint delegates and metadata at startup, not future api endpoints.
+    /// Reserved legacy families keep their original registrations. No request-time route discovery.
     /// </summary>
-    public static string ForRequest(HttpContext context, string canonicalPath)
+    public static void MapApiRootAliases(this IEndpointRouteBuilder routes)
     {
-        var root = Root(context);
-        if ((root == NetworkStorageRoots.Api || root == NetworkStorageRoots.V3)
-            && NetworkStorageRoots.HasSegmentPrefix(canonicalPath, NetworkStorageRoots.V3))
+        var aliases = new List<Endpoint>();
+        foreach (var endpoint in routes.DataSources.SelectMany(source => source.Endpoints).OfType<RouteEndpoint>())
         {
-            return root + canonicalPath.Substring(NetworkStorageRoots.V3.Length);
+            var path = endpoint.RoutePattern.RawText;
+            if (path is null || !NetworkStorageRoots.HasSegmentPrefix(path, NetworkStorageRoots.V3)) continue;
+            var alias = NetworkStorageRoots.Api + path[NetworkStorageRoots.V3.Length..];
+            if (!NetworkStorageRoots.TryRewriteApiRoot(alias, out _)) continue;
+            var builder = new RouteEndpointBuilder(endpoint.RequestDelegate!, RoutePatternFactory.Parse(alias), endpoint.Order)
+            {
+                DisplayName = endpoint.DisplayName + " (api alias)"
+            };
+            foreach (var metadata in endpoint.Metadata)
+            {
+                // Names identify the original endpoint; duplicating them breaks link generation.
+                if (metadata is not IEndpointNameMetadata && metadata is not IRouteNameMetadata)
+                    builder.Metadata.Add(metadata);
+            }
+            builder.Metadata.Add(new CanonicalApiEndpoint(endpoint));
+            aliases.Add(builder.Build());
         }
-
-        return canonicalPath;
+        routes.DataSources.Add(new DefaultEndpointDataSource(aliases));
     }
 }
 
 /// <summary>
-/// Serves every <c>/v3/{path}</c> route at <c>/api/{path}</c> with the same handler, auth, limits,
-/// metering, policy and error capture by rewriting to the canonical path before routing. Reserved
-/// <c>/api</c> families (<c>storage</c>, <c>pages</c>, <c>network-storage</c>, <c>v3</c>) keep their
-/// own routes and are never rewritten. Must run before <c>UseRouting</c>.
+/// /api/v3 explicitly selects the existing v3 API. /api/storage selects it only for identified
+/// libraries from 1.2.0 onward; older and unidentified clients retain legacy document semantics.
+/// Version metadata selects syntax, never authentication or authorization.
 /// </summary>
 public sealed class ApiRootRewriteMiddleware(RequestDelegate next)
 {
+    public const string UniformApiLibrarySince = "1.2.0";
+    private static readonly Updates.SemanticVersion UniformApiLibrary = new(1, 2, 0, null);
+
     public Task InvokeAsync(HttpContext context)
     {
-        if (NetworkStorageRoots.TryRewriteApiRoot(context.Request.Path.Value, out var rewritten))
+        var path = context.Request.Path.Value;
+        var explicitV3 = NetworkStorageRoots.HasSegmentPrefix(path, NetworkStorageRoots.ApiV3);
+        var modernStorage = NetworkStorageRoots.HasSegmentPrefix(path, NetworkStorageRoots.Api + "/storage")
+            && ClientIdentityContext.Get(context).Library is { } version && version.CompareTo(UniformApiLibrary) >= 0;
+        if (explicitV3 || modernStorage)
         {
-            context.Items[NetworkStorageRequestRoot.OriginalPathItemKey] = context.Request.Path.Value ?? "/";
-            context.Request.Path = new PathString(rewritten);
+            context.Items[NetworkStorageRequestRoot.OriginalPathItemKey] = path ?? "/";
+            context.Request.Path = NetworkStorageRoots.V3 + path![(explicitV3 ? NetworkStorageRoots.ApiV3.Length : NetworkStorageRoots.Api.Length)..];
         }
-
         return next(context);
     }
 }

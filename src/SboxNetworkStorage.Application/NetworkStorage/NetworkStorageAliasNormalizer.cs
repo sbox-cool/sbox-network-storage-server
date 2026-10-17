@@ -24,13 +24,13 @@ public enum NetworkStorageAlias
     /// <summary><c>/api/pages/...</c> client pages alias.</summary>
     ApiPages,
 
-    /// <summary>Documented <c>/api/...</c> root; normalizes to canonical <c>/v3/...</c>.</summary>
-    Api,
     /// <summary>Localhost-only <c>/_internal/...</c> storage-api endpoints; never public ingress.</summary>
     Internal,
 
     /// <summary>Not a recognized Network Storage route prefix.</summary>
-    Unknown
+    Unknown,
+    /// <summary>Documented <c>/api/...</c> root; normalizes to canonical <c>/v3/...</c>.</summary>
+    Api,
 }
 
 public static class NetworkStorageAliasExtensions
@@ -119,9 +119,9 @@ public static class NetworkStorageAliasNormalizer
 
         // Documented root: every other /api/{family} mirrors /v3/{family}. Reserved families
         // returned above; bare /api is not a route.
-        if (path.Length > "/api".Length && StartsWithSegment(path, "/api"))
+        if (NetworkStorageRoots.TryRewriteApiRoot(path, out var apiCanonical))
         {
-            return new NetworkStorageNormalizedRoute(path, "/v3" + path.Substring("/api".Length), NetworkStorageAlias.Api);
+            return new NetworkStorageNormalizedRoute(path, apiCanonical, NetworkStorageAlias.Api);
         }
 
         if (StartsWithSegment(path, "/pages"))

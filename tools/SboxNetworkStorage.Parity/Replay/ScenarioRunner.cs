@@ -9,16 +9,17 @@ using SboxNetworkStorage.Parity.Results;
 namespace SboxNetworkStorage.Parity.Replay;
 
 /// <summary>Replays the corpus in order against one server and records normalized responses.</summary>
-/// <param name="root">Request root for the wire path (<c>/v3</c> or <c>/api</c>); the recorded request keeps the authored path.</param>
-public sealed class ScenarioRunner(HttpClient http, Uri target, TemplateContext context, TextWriter log, string root = "/v3")
+public sealed class ScenarioRunner(HttpClient http, Uri target, TemplateContext context, TextWriter log, string requestRoot)
 {
+    /// <summary>Reserved <c>/api</c> families (same set as the server) keep their own meaning, so mirror runs send them under <c>/api/v3</c>.</summary>
+    private static readonly HashSet<string> ReservedApiFamilies = new(StringComparer.OrdinalIgnoreCase) { "storage", "pages", "network-storage", "v3" };
+
     public async Task<RunResults> RunAsync(IReadOnlyList<CorpusFile> corpus, CancellationToken ct)
     {
-        var (serverVersion, capabilities) = await TryReadServerInfoAsync(ct);
         var results = new RunResults
         {
             Target = target.ToString(),
-            ServerVersion = serverVersion,
+            ServerVersion = await TryReadServerVersionAsync(ct),
         };
 
         foreach (var file in corpus)
@@ -29,19 +30,6 @@ public sealed class ScenarioRunner(HttpClient http, Uri target, TemplateContext 
                 var scenarioResult = new ScenarioResult { Name = scenario.Name, File = file.FileName };
                 foreach (var step in scenario.Steps)
                 {
-                    var missing = (step.RequiresCapabilities ?? []).Where(c => !capabilities.Contains(c)).ToList();
-                    if (missing.Count > 0)
-                    {
-                        scenarioResult.Steps.Add(new StepResult
-                        {
-                            Id = step.Id,
-                            Request = new RecordedRequest { Method = step.Method.ToUpperInvariant(), Path = step.Path },
-                            Skipped = $"requires capability {string.Join(", ", missing)}",
-                        });
-                        log.WriteLine($"  [SKIP] {step.Id}  {step.Method} {step.Path} (requires {string.Join(", ", missing)})");
-                        continue;
-                    }
-
                     var stepResult = await RunStepAsync(step, ct);
                     scenarioResult.Steps.Add(stepResult);
                     var status = stepResult.Response?.Status.ToString() ?? "ERR";
@@ -63,7 +51,6 @@ public sealed class ScenarioRunner(HttpClient http, Uri target, TemplateContext 
 
         return results;
     }
-
 
     private async Task<StepResult> RunStepAsync(Step step, CancellationToken ct)
     {
@@ -119,8 +106,7 @@ public sealed class ScenarioRunner(HttpClient http, Uri target, TemplateContext 
 
     private HttpRequestMessage BuildRequest(Step step)
     {
-        var path = RewriteRoot(context.Expand(step.Path));
-        var url = new StringBuilder(target.GetLeftPart(UriPartial.Authority)).Append(path);
+        var url = new StringBuilder(target.GetLeftPart(UriPartial.Authority)).Append(WirePath(context.Expand(step.Path)));
         if (step.Query is { Count: > 0 })
         {
             url.Append('?').AppendJoin('&', step.Query.Select(q =>
@@ -157,12 +143,26 @@ public sealed class ScenarioRunner(HttpClient http, Uri target, TemplateContext 
         return request;
     }
 
-    /// <summary>Mirror run: send the step at the requested root. Only the leading /v3 segment moves.</summary>
-    private string RewriteRoot(string path)
-        => root == "/v3" || !path.StartsWith("/v3", StringComparison.Ordinal)
-            || (path.Length > "/v3".Length && path["/v3".Length] != '/')
-            ? path
-            : root + path.Substring("/v3".Length);
+    /// <summary>
+    /// Maps an authored <c>/v3</c> path to the path sent for the requested root. Under <c>/api</c>, reserved
+    /// families are sent as <c>/api/v3</c> because their <c>/api</c> paths keep legacy meaning; other families use <c>/api</c>.
+    /// </summary>
+    private string WirePath(string path)
+    {
+        if (requestRoot == "/v3" || (path != "/v3" && !path.StartsWith("/v3/", StringComparison.Ordinal)))
+        {
+            return path;
+        }
+
+        var rest = path.Substring("/v3".Length);
+        if (requestRoot == "/api/v3")
+        {
+            return "/api/v3" + rest;
+        }
+
+        var family = rest.Split('/', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "";
+        return (ReservedApiFamilies.Contains(family) ? "/api/v3" : "/api") + rest;
+    }
 
     private static string GenerateBody(GeneratedBody generated)
     {
@@ -210,28 +210,15 @@ public sealed class ScenarioRunner(HttpClient http, Uri target, TemplateContext 
         return replacements;
     }
 
-    private async Task<(string? Version, HashSet<string> Capabilities)> TryReadServerInfoAsync(CancellationToken ct)
+    private async Task<string?> TryReadServerVersionAsync(CancellationToken ct)
     {
         try
         {
             using var response = await http.GetAsync(new Uri(target, "/v3/server-info"), ct);
             var info = TryParse(await response.Content.ReadAsStringAsync(ct));
-            if (info is not { ValueKind: JsonValueKind.Object } root)
-            {
-                return (null, []);
-            }
-
-            var version = root.TryGetProperty("version", out var v) ? v.ToString() : null;
-            var capabilities = new HashSet<string>(StringComparer.Ordinal);
-            if (root.TryGetProperty("capabilities", out var caps) && caps.ValueKind == JsonValueKind.Array)
-            {
-                foreach (var cap in caps.EnumerateArray())
-                {
-                    if (cap.ValueKind == JsonValueKind.String && cap.GetString() is { } name) capabilities.Add(name);
-                }
-            }
-
-            return (version, capabilities);
+            return info is { ValueKind: JsonValueKind.Object } root && root.TryGetProperty("version", out var version)
+                ? version.ToString()
+                : null;
         }
         catch (HttpRequestException ex)
         {

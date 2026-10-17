@@ -190,35 +190,30 @@ public static class NetworkStorageRouteCatalog
         new("GET", "/api/storage/:projectId/queries/:queryId", NetworkStorageAlias.ApiStorage, NetworkStorageRouteFamily.Query, NetworkStoragePlane.DataPlaneRead, false, NetworkStorageRouteDisposition.Mirror, null),
         new("GET", "/v1/queries/:projectId/:queryId", NetworkStorageAlias.V1, NetworkStorageRouteFamily.Query, NetworkStoragePlane.DataPlaneRead, false, NetworkStorageRouteDisposition.Mirror, null),
         new("GET", "/v3/queries/:projectId/:queryId", NetworkStorageAlias.V3, NetworkStorageRouteFamily.Query, NetworkStoragePlane.DataPlaneRead, false, NetworkStorageRouteDisposition.Mirror, null),
-        // StorageRateLimits (3)
+        // StorageRateLimits (2)
         new("GET", "/v1/storage/:projectId/rate-limits", NetworkStorageAlias.V1, NetworkStorageRouteFamily.StorageRateLimits, NetworkStoragePlane.ControlPlaneRead, false, NetworkStorageRouteDisposition.Mirror, null),
         new("GET", "/v3/storage/:projectId/rate-limits", NetworkStorageAlias.V3, NetworkStorageRouteFamily.StorageRateLimits, NetworkStoragePlane.ControlPlaneRead, false, NetworkStorageRouteDisposition.Mirror, null),
-        new("GET", "/api/storage/:projectId/rate-limits", NetworkStorageAlias.ApiStorage, NetworkStorageRouteFamily.StorageRateLimits, NetworkStoragePlane.ControlPlaneRead, false, NetworkStorageRouteDisposition.Mirror, null),
         // Stats (6)
+        new("GET", "/api/storage/:projectId/stats/:steamId", NetworkStorageAlias.ApiStorage, NetworkStorageRouteFamily.Stats, NetworkStoragePlane.DataPlaneRead, false, NetworkStorageRouteDisposition.Mirror, null),
         new("POST", "/api/storage/:projectId/stats/heartbeat", NetworkStorageAlias.ApiStorage, NetworkStorageRouteFamily.Stats, NetworkStoragePlane.DataPlaneMutation, true, NetworkStorageRouteDisposition.Mirror, null),
         new("GET", "/v1/storage/:projectId/stats/:steamId", NetworkStorageAlias.V1, NetworkStorageRouteFamily.Stats, NetworkStoragePlane.DataPlaneRead, false, NetworkStorageRouteDisposition.Mirror, null),
         new("POST", "/v1/storage/:projectId/stats/heartbeat", NetworkStorageAlias.V1, NetworkStorageRouteFamily.Stats, NetworkStoragePlane.DataPlaneMutation, true, NetworkStorageRouteDisposition.Mirror, null),
         new("GET", "/v3/storage/:projectId/stats/:steamId", NetworkStorageAlias.V3, NetworkStorageRouteFamily.Stats, NetworkStoragePlane.DataPlaneRead, false, NetworkStorageRouteDisposition.Mirror, null),
-        new("GET", "/api/storage/:projectId/stats/:steamId", NetworkStorageAlias.ApiStorage, NetworkStorageRouteFamily.Stats, NetworkStoragePlane.DataPlaneRead, false, NetworkStorageRouteDisposition.Mirror, null),
         new("POST", "/v3/storage/:projectId/stats/heartbeat", NetworkStorageAlias.V3, NetworkStorageRouteFamily.Stats, NetworkStoragePlane.DataPlaneMutation, true, NetworkStorageRouteDisposition.Mirror, null),
         // Analytics (3)
         new("POST", "/api/storage/:projectId/analytics/events", NetworkStorageAlias.ApiStorage, NetworkStorageRouteFamily.Analytics, NetworkStoragePlane.DataPlaneMutation, true, NetworkStorageRouteDisposition.Mirror, null),
         new("POST", "/v1/storage/:projectId/analytics/events", NetworkStorageAlias.V1, NetworkStorageRouteFamily.Analytics, NetworkStoragePlane.DataPlaneMutation, true, NetworkStorageRouteDisposition.Mirror, null),
         new("POST", "/v3/storage/:projectId/analytics/events", NetworkStorageAlias.V3, NetworkStorageRouteFamily.Analytics, NetworkStoragePlane.DataPlaneMutation, true, NetworkStorageRouteDisposition.Mirror, null),
-        // StorageLedger (3)
+        // StorageLedger (2)
         new("GET", "/v1/storage/:projectId/:collectionId/:steamId/ledger", NetworkStorageAlias.V1, NetworkStorageRouteFamily.StorageLedger, NetworkStoragePlane.DataPlaneRead, false, NetworkStorageRouteDisposition.Mirror, null),
         new("GET", "/v3/storage/:projectId/:collectionId/:steamId/ledger", NetworkStorageAlias.V3, NetworkStorageRouteFamily.StorageLedger, NetworkStoragePlane.DataPlaneRead, false, NetworkStorageRouteDisposition.Mirror, null),
-        new("GET", "/api/storage/:projectId/:collectionId/:steamId/ledger", NetworkStorageAlias.ApiStorage, NetworkStorageRouteFamily.StorageLedger, NetworkStoragePlane.DataPlaneRead, false, NetworkStorageRouteDisposition.Mirror, null),
-        // StorageGlobal (9)
+        // StorageGlobal (6)
         new("POST", "/v1/storage/:projectId/:collectionId/append", NetworkStorageAlias.V1, NetworkStorageRouteFamily.StorageGlobal, NetworkStoragePlane.DataPlaneMutation, true, NetworkStorageRouteDisposition.Mirror, null),
         new("GET", "/v1/storage/:projectId/:collectionId/list", NetworkStorageAlias.V1, NetworkStorageRouteFamily.StorageGlobal, NetworkStoragePlane.DataPlaneRead, false, NetworkStorageRouteDisposition.Mirror, null),
         new("GET", "/v1/storage/:projectId/:collectionId/record/:recordId", NetworkStorageAlias.V1, NetworkStorageRouteFamily.StorageGlobal, NetworkStoragePlane.DataPlaneRead, false, NetworkStorageRouteDisposition.Mirror, null),
         new("POST", "/v3/storage/:projectId/:collectionId/append", NetworkStorageAlias.V3, NetworkStorageRouteFamily.StorageGlobal, NetworkStoragePlane.DataPlaneMutation, true, NetworkStorageRouteDisposition.Mirror, null),
         new("GET", "/v3/storage/:projectId/:collectionId/list", NetworkStorageAlias.V3, NetworkStorageRouteFamily.StorageGlobal, NetworkStoragePlane.DataPlaneRead, false, NetworkStorageRouteDisposition.Mirror, null),
         new("GET", "/v3/storage/:projectId/:collectionId/record/:recordId", NetworkStorageAlias.V3, NetworkStorageRouteFamily.StorageGlobal, NetworkStoragePlane.DataPlaneRead, false, NetworkStorageRouteDisposition.Mirror, null),
-        new("POST", "/api/storage/:projectId/:collectionId/append", NetworkStorageAlias.ApiStorage, NetworkStorageRouteFamily.StorageGlobal, NetworkStoragePlane.DataPlaneMutation, true, NetworkStorageRouteDisposition.Mirror, null),
-        new("GET", "/api/storage/:projectId/:collectionId/list", NetworkStorageAlias.ApiStorage, NetworkStorageRouteFamily.StorageGlobal, NetworkStoragePlane.DataPlaneRead, false, NetworkStorageRouteDisposition.Mirror, null),
-        new("GET", "/api/storage/:projectId/:collectionId/record/:recordId", NetworkStorageAlias.ApiStorage, NetworkStorageRouteFamily.StorageGlobal, NetworkStoragePlane.DataPlaneRead, false, NetworkStorageRouteDisposition.Mirror, null),
         // StorageRecord (21)
         new("DELETE", "/api/storage/:projectId/:collectionId/:key", NetworkStorageAlias.ApiStorage, NetworkStorageRouteFamily.StorageRecord, NetworkStoragePlane.DataPlaneMutation, true, NetworkStorageRouteDisposition.Mirror, null),
         new("GET", "/api/storage/:projectId/:collectionId/:key", NetworkStorageAlias.ApiStorage, NetworkStorageRouteFamily.StorageRecord, NetworkStoragePlane.DataPlaneRead, false, NetworkStorageRouteDisposition.Mirror, null),

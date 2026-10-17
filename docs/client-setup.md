@@ -8,10 +8,7 @@ client library works without changes: you only change its base URL.
 - Client source: <https://github.com/sbox-cool/sbox-network-storage>
 - API and library docs: <https://sbox.cool/wiki/network-storage-v3>
 
-The client appends the API root itself (`/api/...` on library 1.2.0 and newer),
-so the base URL is just the scheme, host and port of your server, with no path
-and no trailing slash. Older libraries call `/v3/...`; every `/api/{path}` route
-is also served at `/v3/{path}` as a permanent alias.
+The client appends the API root itself: released libraries call `/v3/...`, and the library default is planned to change to `/api/...` (counterpart #36, not shipped). The root is configurable. Servers that do not serve `/api` need the root set to `v3` explicitly; the library does not switch roots at runtime. The base URL is just the scheme, host and port of your server, with no path and no trailing slash. See [route root and storage versions](compatibility.md#route-root-and-storage-versions) for the surface rules.
 
 ## 1. Find your server URL
 
@@ -104,8 +101,8 @@ belongs in the editor only.
 ## Collection access from game clients
 
 The public key ships inside every game build, so anyone can extract it. The
-direct document API (`GET`, `POST` and `DELETE /api/storage/{projectId}/{collection}/{key}`,
-also served at `/v3/storage/...`, plus `/probe`) therefore treats public-key calls as
+direct document API (`GET`, `POST` and `DELETE /v3/storage/{projectId}/{collection}/{key}`, plus `/probe`;
+`/api/storage/...` reaches the same handlers from clients that send `x-ns-library-version: 1.2.0` or newer) therefore treats public-key calls as
 untrusted:
 
 - The collection must declare `accessMode: public`. Any other value, or no

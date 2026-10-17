@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Http.Metadata;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Options;
 using SboxNetworkStorage.Server.Configuration;
+using SboxNetworkStorage.Server.Middleware;
 
 namespace SboxNetworkStorage.Server.Hosting;
 
@@ -93,6 +94,7 @@ public static class RouteGroups
 
     public static RouteGroup Of(Endpoint? endpoint)
     {
+        endpoint = endpoint?.Metadata.GetMetadata<CanonicalApiEndpoint>()?.Endpoint ?? endpoint;
         if (endpoint is not RouteEndpoint { RoutePattern.RawText: { } template }) return RouteGroup.None;
 
         foreach (var prefix in AuthSessionPrefixes)

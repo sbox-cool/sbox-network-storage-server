@@ -152,7 +152,7 @@ NetworkStorage.Configure( projectId, publicKey, "https://<name>.sboxns.com" );
 
 Replace `<name>` with your assigned name. The base URL is the scheme and
 hostname (and port if needed), with no path or trailing slash; the library
-adds `/api/...` itself (older libraries add `/v3/...`, which stays supported). **Never put the secret key in published game code.**
+adds its route root itself (`/v3/...` in released libraries; the planned `/api/...` default, counterpart #36, is not shipped yet, and the root is configurable). **Never put the secret key in published game code.**
 
 For editor setup, open **Editor > Network Storage > Setup**, enter your
 server's **Project ID**, **Public API Key** and **Secret Key**, and set
@@ -293,8 +293,9 @@ and update your server base URL.
 > self-hosted project portability; editor source sync remains supported.
 
 Backend and library releases are independent: older and unidentified game libraries
-remain accepted by default. [Compatibility rules](docs/compatibility.md) require
-six months' replacement support and 90 days' removal notice; **Project → Clients**
+remain accepted by default. [Compatibility rules](docs/compatibility.md) preserve public library
+methods and endpoints indefinitely by default; any removal needs a separate, explicit owner-approved
+multi-year migration decision. **Project → Clients**
 shows observed library-version traffic and opt-in minimum impact.
 
 
