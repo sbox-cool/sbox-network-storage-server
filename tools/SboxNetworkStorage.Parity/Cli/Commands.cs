@@ -123,7 +123,7 @@ public static class Commands
         var failures = steps.Where(s => s.Step.ExpectationFailures is { Count: > 0 }).ToList();
 
         Console.WriteLine();
-        Console.WriteLine($"{results.Scenarios.Count} scenario(s), {steps.Count} step(s); {serverErrors.Count} 5xx response(s); {failures.Count} step(s) failed expectations");
+        Console.WriteLine($"{results.Scenarios.Count} scenario(s), {steps.Count} step(s); {serverErrors.Count} 5xx response(s); {failures.Count} step(s) failed expectations" + (steps.Any(s => s.Step.Skipped is not null) ? $"; {steps.Count(s => s.Step.Skipped is not null)} step(s) skipped (server lacks a required capability)" : ""));
         foreach (var (scenario, step) in serverErrors)
         {
             Console.WriteLine($"  5xx {scenario}/{step.Id}: {ResultComparer.DescribeRequest(step.Request)}");

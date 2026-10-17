@@ -64,6 +64,13 @@ public sealed class Step
     /// <summary>Response values captured for later steps: name → JSON path. Use as <c>${capture.name}</c>.</summary>
     public Dictionary<string, string>? Capture { get; set; }
 
+    /// <summary>
+    /// Server <c>server-info</c> capabilities the step needs (e.g. <c>api-root</c>). The step is
+    /// skipped without failing when the server does not advertise every one of them, so the same
+    /// corpus replays against older releases: keep gated steps free of captures later steps need.
+    /// </summary>
+    public List<string>? RequiresCapabilities { get; set; }
+
     public Expectation? Expect { get; set; }
 
     public string? Note { get; set; }

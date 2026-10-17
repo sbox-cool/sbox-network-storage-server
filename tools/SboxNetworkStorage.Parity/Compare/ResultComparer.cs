@@ -58,8 +58,10 @@ public static class ResultComparer
         return mismatches;
     }
 
+    /// <summary>Steps skipped on either side (missing capabilities) are never compared.</summary>
     public static List<Difference> CompareSteps(StepResult stable, StepResult candidate)
     {
+        if (stable.Skipped is not null || candidate.Skipped is not null) return [];
         var differences = CompareResponses(stable.Response, candidate.Response, stable.Error, candidate.Error);
         JsonDiff.Compare(
             System.Text.Json.JsonSerializer.SerializeToNode(stable.Request, Json.Options),
@@ -67,7 +69,6 @@ public static class ResultComparer
             "request:$", differences);
         return differences;
     }
-
     public static List<Difference> CompareResponses(NormalizedResponse? stable, NormalizedResponse? candidate, string? stableError = null, string? candidateError = null)
     {
         var differences = new List<Difference>();

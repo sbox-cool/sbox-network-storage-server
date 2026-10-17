@@ -14,10 +14,11 @@ public sealed class ScenarioRunner(HttpClient http, Uri target, TemplateContext 
 {
     public async Task<RunResults> RunAsync(IReadOnlyList<CorpusFile> corpus, CancellationToken ct)
     {
+        var (serverVersion, capabilities) = await TryReadServerInfoAsync(ct);
         var results = new RunResults
         {
             Target = target.ToString(),
-            ServerVersion = await TryReadServerVersionAsync(ct),
+            ServerVersion = serverVersion,
         };
 
         foreach (var file in corpus)
@@ -28,6 +29,19 @@ public sealed class ScenarioRunner(HttpClient http, Uri target, TemplateContext 
                 var scenarioResult = new ScenarioResult { Name = scenario.Name, File = file.FileName };
                 foreach (var step in scenario.Steps)
                 {
+                    var missing = (step.RequiresCapabilities ?? []).Where(c => !capabilities.Contains(c)).ToList();
+                    if (missing.Count > 0)
+                    {
+                        scenarioResult.Steps.Add(new StepResult
+                        {
+                            Id = step.Id,
+                            Request = new RecordedRequest { Method = step.Method.ToUpperInvariant(), Path = step.Path },
+                            Skipped = $"requires capability {string.Join(", ", missing)}",
+                        });
+                        log.WriteLine($"  [SKIP] {step.Id}  {step.Method} {step.Path} (requires {string.Join(", ", missing)})");
+                        continue;
+                    }
+
                     var stepResult = await RunStepAsync(step, ct);
                     scenarioResult.Steps.Add(stepResult);
                     var status = stepResult.Response?.Status.ToString() ?? "ERR";
@@ -49,6 +63,7 @@ public sealed class ScenarioRunner(HttpClient http, Uri target, TemplateContext 
 
         return results;
     }
+
 
     private async Task<StepResult> RunStepAsync(Step step, CancellationToken ct)
     {
@@ -195,15 +210,28 @@ public sealed class ScenarioRunner(HttpClient http, Uri target, TemplateContext 
         return replacements;
     }
 
-    private async Task<string?> TryReadServerVersionAsync(CancellationToken ct)
+    private async Task<(string? Version, HashSet<string> Capabilities)> TryReadServerInfoAsync(CancellationToken ct)
     {
         try
         {
             using var response = await http.GetAsync(new Uri(target, "/v3/server-info"), ct);
             var info = TryParse(await response.Content.ReadAsStringAsync(ct));
-            return info is { ValueKind: JsonValueKind.Object } root && root.TryGetProperty("version", out var version)
-                ? version.ToString()
-                : null;
+            if (info is not { ValueKind: JsonValueKind.Object } root)
+            {
+                return (null, []);
+            }
+
+            var version = root.TryGetProperty("version", out var v) ? v.ToString() : null;
+            var capabilities = new HashSet<string>(StringComparer.Ordinal);
+            if (root.TryGetProperty("capabilities", out var caps) && caps.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var cap in caps.EnumerateArray())
+                {
+                    if (cap.ValueKind == JsonValueKind.String && cap.GetString() is { } name) capabilities.Add(name);
+                }
+            }
+
+            return (version, capabilities);
         }
         catch (HttpRequestException ex)
         {

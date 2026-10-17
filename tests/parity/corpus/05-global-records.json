@@ -209,6 +209,7 @@
           "id": "list-api-alias",
           "method": "GET",
           "path": "/api/storage/${projectId}/leaderboard_global/list",
+          "requiresCapabilities": ["api-root"],
           "query": {
             "apiKey": "${publicKey}"
           },
