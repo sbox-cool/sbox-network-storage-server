@@ -87,6 +87,16 @@ public static class SetupCommand
             v => ListenAddress.TryParse(v, out _) ? null : "use host:port, e.g. 0.0.0.0:8080");
         values["server.public_url"] = Ask(context, interactive, "public-url", "Public URL players will use (optional, e.g. https://ns.example.com)", current.GetString("server.public_url"));
 
+        var publicUrl = values["server.public_url"];
+        var httpsConfigured = publicUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
+            || current.GetString("tls.mode") != "off"
+            || current.GetBoolean("tunnel.enabled")
+            || current.GetBoolean("dns.enabled");
+        _ = ListenAddress.TryParse(values["server.listen"], out var listenAddress);
+        var allowHttp = HttpOptIn.Decide(current.GetBoolean(HttpOptIn.Key), context.Args.Flag("allow-http"), httpsConfigured, interactive,
+            listenAddress?.Port ?? 8080, Console.Out, AskYesNo);
+        values[HttpOptIn.Key] = allowHttp ? "true" : "false";
+
         var candidate = ConfigLoader.Load(context.Args.Option("config-dir"), context.Args.Option("data-dir"), values);
         if (!candidate.IsValid)
         {
@@ -234,6 +244,21 @@ public static class SetupCommand
             }
 
             Console.WriteLine($"  {error}");
+        }
+    }
+
+    private static bool AskYesNo(string prompt, bool defaultValue)
+    {
+        while (true)
+        {
+            Console.Write($"{prompt} [{(defaultValue ? "Y/n" : "y/N")}]: ");
+            switch (Console.ReadLine()?.Trim().ToLowerInvariant())
+            {
+                case null or "": return defaultValue;
+                case "y" or "yes": return true;
+                case "n" or "no": return false;
+                default: Console.WriteLine("  Answer y or n."); break;
+            }
         }
     }
 

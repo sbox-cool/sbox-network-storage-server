@@ -34,9 +34,13 @@ server refuses owner passwords, login links and the setup form when they arrive
 over plain HTTP from another machine, and shows a page that explains the safe
 ways in: an SSH port forward, `sbox-ns tunnel enable`, or TLS. Loopback
 requests and HTTPS (including a TLS proxy on loopback that sends
-`X-Forwarded-Proto: https`) are not affected. Set it to true only on a network
-you trust: your password, login links and session cookie then travel
-unencrypted.
+`X-Forwarded-Proto: https`) are not affected. Plain HTTP is an explicit opt-in for
+operators with no domain (or sboxns.com name) and no SSH access: `sbox-ns setup`
+asks the questions and `sbox-ns setup --allow-http` (also accepted by `quickstart`)
+answers yes. It is fine for development and early game publishing, but your
+password, login links and session cookie then travel unencrypted, so switch to
+HTTPS when you can. While the option is true the panel shows a dismissable
+warning (hidden for seven days per browser) and `sbox-ns doctor` warns.
 
 Owners may enroll an authenticator at `/dashboard/security` after signing in.
 Enter the displayed secret manually in an authenticator app using SHA-1,

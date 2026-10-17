@@ -109,6 +109,10 @@ public static class DoctorCommand
                 Report(Outcome.Pass, "tls", $"acme for {config.GetString("tls.acme_domain")}");
             }
         }
+        if (config.GetBoolean("adminpanel.allow_insecure_http"))
+        {
+            Report(Outcome.Warn, "panel http", "owner sign-in over plain HTTP is enabled (adminpanel.allow_insecure_http). Fine for development; switch to HTTPS for long-term security, then run: sbox-ns config set adminpanel.allow_insecure_http false");
+        }
 
         Directory.CreateDirectory(config.DataDirectory);
         var drive = new DriveInfo(Path.GetPathRoot(Path.GetFullPath(config.DataDirectory))!);

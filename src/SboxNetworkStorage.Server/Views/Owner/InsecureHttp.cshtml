@@ -12,6 +12,6 @@
         <li><strong>Hosted HTTPS address.</strong> On the server run <code>sbox-ns tunnel enable</code>, restart the server, and open the printed HTTPS address.</li>
         <li><strong>TLS.</strong> Turn on Let's Encrypt or your own certificate (<code>tls.mode</code>), or put a TLS reverse proxy on the same machine.</li>
     </ul>
-    <p>If you accept the risk, for example on a private network you trust, run <code>sbox-ns config set adminpanel.allow_insecure_http true</code> on the server and restart. Your password, login links and session cookie then travel unencrypted.</p>
+    <p><strong>No domain and no SSH access?</strong> Plain HTTP is an explicit opt-in. Run <code>sbox-ns config set adminpanel.allow_insecure_http true</code> on the server and restart (or answer yes in <code>sbox-ns setup</code>). Your password, login links and session cookie then travel unencrypted, which is fine for development and early game publishing; we recommend switching to HTTPS as soon as you can. The panel shows a dismissable warning while HTTP is on.</p>
     <p><a href="@OwnerTransport.HttpsDocsUrl" rel="noreferrer">How to enable HTTPS</a></p>
 </section>

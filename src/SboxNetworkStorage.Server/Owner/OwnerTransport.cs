@@ -21,6 +21,9 @@ public static class OwnerTransport
     /// sends <c>X-Forwarded-Proto: https</c> counts as HTTPS.
     /// </summary>
     public static bool RefusesCredentials(HttpContext context)
-        => IsInsecureRemote(context)
-            && !context.RequestServices.GetRequiredService<EffectiveConfig>().GetBoolean("adminpanel.allow_insecure_http");
+        => IsInsecureRemote(context) && !AllowsInsecureHttp(context);
+
+    /// <summary>True when the operator opted in to owner sign-in over plain HTTP (<c>adminpanel.allow_insecure_http</c>).</summary>
+    public static bool AllowsInsecureHttp(HttpContext context)
+        => context.RequestServices.GetRequiredService<EffectiveConfig>().GetBoolean("adminpanel.allow_insecure_http");
 }

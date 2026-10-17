@@ -86,12 +86,18 @@
 </head>
 <body data-open-dialog="@(ViewData["OpenDialog"] as string ?? "")">
 <a class="skip-link" href="#main-content">Skip to content</a>
-@{ UpdateNotice? stripUpdate = authenticated && Updates.Current is { UpdateAvailable: true } u ? u : null; }
-@if (demo || OwnerTransport.IsInsecureRemote(Context) || stripUpdate is not null)
+@{
+    UpdateNotice? stripUpdate = authenticated && Updates.Current is { UpdateAvailable: true } u ? u : null;
+    var httpInUse = OwnerTransport.IsInsecureRemote(Context);
+    var httpEnabled = OwnerTransport.AllowsInsecureHttp(Context);
+    var httpEnabledNotice = authenticated && httpEnabled && !httpInUse;
+}
+@if (demo || httpInUse || httpEnabledNotice || stripUpdate is not null)
 {
     <div class="alert-strip" role="region" aria-label="Server notices">
     @if (demo) { <p class="alert-item alert-demo" data-alert="demo"><strong>Read-only demo.</strong><span>Generated sample data. Changes cannot be saved.</span><button type="button" data-alert-close aria-label="Dismiss demo notice">×</button></p> }
-    @if (OwnerTransport.IsInsecureRemote(Context)) { <p class="alert-item alert-security" data-alert="http"><strong>Served over plain HTTP.</strong><span>Passwords and the session cookie travel unencrypted.</span><a href="@OwnerTransport.HttpsDocsUrl" rel="noreferrer">Enable HTTPS</a><button type="button" data-alert-close aria-label="Dismiss plain HTTP warning">×</button></p> }
+    @if (httpInUse) { <p class="alert-item alert-security" data-alert="http"><strong>This panel is served over plain HTTP.</strong>@if (httpEnabled) { <span>Passwords and the session cookie travel unencrypted. That is fine for development and early publishing; switch to HTTPS before you rely on this server long term.</span> } else { <span>Passwords and the session cookie travel unencrypted.</span> }<a href="@OwnerTransport.HttpsDocsUrl" rel="noreferrer">Enable HTTPS</a><button type="button" data-alert-close aria-label="Dismiss plain HTTP warning">×</button></p> }
+    @if (httpEnabledNotice) { <p class="alert-item alert-security" data-alert="http-enabled"><strong>Plain-HTTP sign-in is enabled.</strong><span>This connection is secure. Once HTTPS works for you, turn the option off with <code>sbox-ns config set adminpanel.allow_insecure_http false</code>.</span><a href="@OwnerTransport.HttpsDocsUrl" rel="noreferrer">HTTPS guide</a><button type="button" data-alert-close aria-label="Dismiss plain HTTP notice">×</button></p> }
     @if (authenticated && stripUpdate is not null) { <p class="alert-item" data-alert="update" data-version="@stripUpdate.Latest.Version"><strong>@(stripUpdate.Latest.Security ? "Security update available" : "Update available"): @stripUpdate.Latest.Version.</strong><span>Running @stripUpdate.CurrentVersion.</span><span>Run <code>sbox-ns update</code> for a manual update.</span>@if (Uri.TryCreate(stripUpdate.Latest.ChangelogUrl, UriKind.Absolute, out var stripLog) && stripLog.Scheme == "https") { <a href="@stripLog.AbsoluteUri" rel="noreferrer">Changelog</a> }<button type="button" data-alert-close aria-label="Dismiss update notice">×</button></p> }
     </div>
 }
@@ -168,10 +174,6 @@
             <div class="toast" data-kind="@flash.Kind" data-dismiss-after="6000"><output role="status">@flash.Text</output><button type="button" class="secondary" data-toast-close aria-label="Dismiss notification">Dismiss</button></div>
         }
         </div>
-    }
-    @if (OwnerTransport.IsInsecureRemote(Context))
-    {
-        <aside class="notice security" role="alert"><strong>This panel is served over plain HTTP</strong><p>Passwords, login links and the session cookie travel unencrypted. Enable ACME TLS, a TLS reverse proxy, or connect through an SSH tunnel.</p><a href="@OwnerTransport.HttpsDocsUrl" rel="noreferrer">How to enable HTTPS</a></aside>
     }
     @if (!authenticated)
     {

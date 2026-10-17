@@ -31,6 +31,7 @@ public static class CliApp
           setup                         Create or update the config folder interactively
                                         (--non-interactive with --database, --listen, --public-url, --pg-* flags)
                                         (--admin-username with --admin-password-file FILE or NS_ADMIN_PASSWORD)
+                                        (--allow-http to opt in to owner sign-in over plain HTTP; HTTPS is recommended)
           doctor [--project ID] [--json]
                                         Check config, database, port, TLS, disk and updates;
                                         with --project, the authority check for that project instead
