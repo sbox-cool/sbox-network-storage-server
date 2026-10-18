@@ -9,9 +9,12 @@
     pass        the candidate (this build) passes.
     regression  the candidate fails and the baseline passes: this change breaks games that embed it.
     upstream    both fail: the engine or the library itself broke, not this change.
+    known       both fail, and only on checks the target lists in `knownFailures`: a documented defect
+                of that immutable library build (it never worked on any server), reported but not
+                counted as upstream. Any other failing check keeps the normal verdict.
     fail        the candidate fails and no baseline was given to tell the two apart.
   Writes compat-results.json, tested-libraries.json (the release.json `testedLibraries` field) and
-  summary.md under -Out. Exits 1 on any regression or fail; upstream failures are reported only.
+  summary.md under -Out. Exits 1 on any regression or fail; upstream and known failures are reported only.
   The server must already be built (dotnet build src/SboxNetworkStorage.Server -c Release).
 #>
 param(
@@ -60,6 +63,21 @@ $configured = if ($Only) {
   (Get-Content $Targets -Raw | ConvertFrom-Json).targets
 }
 
+# knownFailures: check ids (the part of an evidence failure before ':') that a pinned build is documented
+# to fail on every server. Keyed by commit as well as ref, so the note applies whichever target entry
+# (a pin or a latest:N expansion of the same commit) is the one that runs.
+$knownFailures = @{}
+foreach ($target in @($configured)) {
+  if (-not $target.knownFailures) { continue }
+  $ids = @($target.knownFailures | ForEach-Object { [string]$_ })
+  $knownFailures[$target.ref] = $ids
+  if ($target.ref -match '^git:([0-9a-f]{40})$') { $knownFailures[$Matches[1]] = $ids }
+}
+function Get-FailureIds($Run) {
+  if (-not $Run -or -not $Run.Evidence) { return $null }
+  , @($Run.Evidence.failures | ForEach-Object { ([string]$_ -split ':', 2)[0].Trim() })
+}
+
 # latest / latest:N expand to the newest N published revisions.
 $list = foreach ($target in $configured) {
   if ($target.ref -match '^latest(?::(\d+))?$') {
@@ -97,6 +115,15 @@ foreach ($target in $list) {
     Write-Host '::endgroup::'
   }
   $verdict = if ($thisRun.Pass) { 'pass' } elseif ($null -eq $releaseRun) { 'fail' } elseif ($releaseRun.Pass) { 'regression' } else { 'upstream' }
+  $known = @(if ($target.commit -and $knownFailures.ContainsKey($target.commit)) { $knownFailures[$target.commit] } elseif ($knownFailures.ContainsKey($ref)) { $knownFailures[$ref] })
+  if ($verdict -eq 'upstream' -and $known.Count -gt 0) {
+    $candidateIds = Get-FailureIds $thisRun
+    $baselineIds = Get-FailureIds $releaseRun
+    if ($null -ne $candidateIds -and $null -ne $baselineIds -and $candidateIds.Count -gt 0 -and
+        @(@($candidateIds) + @($baselineIds) | Where-Object { $_ -notin $known }).Count -eq 0) {
+      $verdict = 'known'
+    }
+  }
   $library = $thisRun.Evidence.identity.library
   $version = if ($library.version) { $library.version } elseif ($target.version) { $target.version } else { 'legacy' }
   $revision = if ($library.revision) { [long]$library.revision } elseif ($target.revision) { [long]$target.revision } else { $null }
@@ -117,12 +144,13 @@ foreach ($target in $list) {
   switch ($verdict) {
     'regression' { Write-Host "::error::$($target.label) ($ref) passes on the baseline but fails on this build: this change breaks games that embed it." }
     'upstream' { Write-Host "::warning::$($target.label) ($ref) fails on this build and on the baseline: an engine or library problem, not this change." }
+    'known' { Write-Host "::notice::$($target.label) ($ref) fails only its documented knownFailures, on this build and on the baseline." }
     'fail' { Write-Host "::error::$($target.label) ($ref) fails on this build (no baseline to compare)." }
   }
 }
 
-# testedLibraries for release.json: upstream failures say nothing about this server, so they are left out.
-$tested = @($results | Where-Object { $_.verdict -ne 'upstream' } | ForEach-Object {
+# testedLibraries for release.json: upstream and known failures say nothing about this server, so they are left out.
+$tested = @($results | Where-Object { $_.verdict -notin 'upstream', 'known' } | ForEach-Object {
     [ordered]@{
       library  = $_.library
       revision = $_.revision

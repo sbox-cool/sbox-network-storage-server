@@ -39,7 +39,11 @@ An intentional wire change is not a failure to work around: add the difference t
 [`tests/parity/intentional-differences.json`](../tests/parity/intentional-differences.json) with a
 reason in the same PR, so review sees exactly what older games will receive. The newest three
 published revisions are tested automatically; pin an older revision that players still run in
-`compat/library-targets.json` (as `git:<sha>`) when it drops out of that window.
+`compat/library-targets.json` (as `git:<sha>`) when it drops out of that window. A pinned build with
+a documented defect that never worked on any server lists those check ids in `knownFailures` with a
+link to the library issue: when its only failures, on the change and on the latest release, are those
+ids, the verdict is `known` (reported, not counted as upstream). Any other failing check still gets
+the normal verdict, so the pin keeps guarding everything else.
 
 ## Certification: certify once, re-test on fundamental change
 
