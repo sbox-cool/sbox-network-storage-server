@@ -113,6 +113,8 @@ public abstract class EndpointCombatConcurrencyTests<TFactory>(TFactory factory)
             => inner.WriteGlobalRecordAsync(projectId, collectionId, recordId, payload, ct);
         public Task<bool> IsLegacyPlayerProjectionsEnabledAsync(string projectId, CancellationToken ct)
             => inner.IsLegacyPlayerProjectionsEnabledAsync(projectId, ct);
+        public Task<bool> IsWebhookOutboxEnabledAsync(string projectId, CancellationToken ct)
+            => inner.IsWebhookOutboxEnabledAsync(projectId, ct);
     }
 }
 

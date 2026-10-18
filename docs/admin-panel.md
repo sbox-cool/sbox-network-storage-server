@@ -504,6 +504,28 @@ base URL (`server.public_url`, otherwise the dashboard address), and a
 **Fetch it from the game** example. The response is JSON with `title`,
 `updatedAt` and `markdown` (markdown pages) or `data` (key/value pages).
 
+### Webhooks
+
+**Webhooks** keeps Discord profiles that endpoint `webhook` steps can send to.
+Each profile shows its YAML step with a **Copy** button. Untick **Offer this profile in the endpoint builder**
+to hide a profile from the builder without deleting it.
+
+**Delivery** chooses how endpoint webhook steps send. By default (off) the
+endpoint waits for Discord and the step result shows the HTTP status, as before.
+With **Deliver webhooks in the background** on, the step returns at once with
+`queued`, and a server worker sends the message from a durable outbox:
+
+- Discord `429` waits for `retry_after`; other failures retry with exponential
+  backoff and jitter, up to 8 attempts.
+- A `401` or `404` disables that profile. The profile shows
+  **Delivery disabled since** and why, and **Re-enable delivery** turns it back
+  on. Deliveries queued while it was disabled are not resent.
+- Repeated failures show **Failing since** with the consecutive-failure count.
+- A message can be repeated if a send succeeds at Discord but the server stops
+  before it records the result. Discord has no idempotency key for webhooks.
+
+Turning background delivery off applies to later calls only.
+
 ### Request log and errors
 
 **Logs** lists recent data-plane requests (`/api`, `/v3`, `/v1`,

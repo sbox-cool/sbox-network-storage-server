@@ -423,6 +423,15 @@ public sealed partial class StoreEndpointDataSource : IEndpointDataSource, IEndp
             && flag.ValueKind == JsonValueKind.True;
     }
 
+    /// <inheritdoc />
+    public async Task<bool> IsWebhookOutboxEnabledAsync(string projectId, CancellationToken ct)
+    {
+        var project = await _store.ReadProjectAsync(projectId, ct);
+        return project is { ValueKind: JsonValueKind.Object } payload
+            && payload.TryGetProperty("webhookOutbox", out var flag)
+            && flag.ValueKind == JsonValueKind.True;
+    }
+
     /// <summary>
     /// Unwrap a <c>records</c> row (<c>{record_key, payload_json, deleted, version, …}</c>)
     /// to the stored payload the executor's read/scan steps operate on. Returns null

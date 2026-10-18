@@ -83,6 +83,12 @@ public interface IEndpointDataSource
     /// repair and projection logic (project metadata <c>legacyPlayerProjections: true</c>). Off by default.
     /// </summary>
     Task<bool> IsLegacyPlayerProjectionsEnabledAsync(string projectId, CancellationToken ct);
+
+    /// <summary>
+    /// Whether the project opted in to the durable webhook outbox (project metadata <c>webhookOutbox: true</c>):
+    /// endpoint webhook steps enqueue and report <c>queued</c> instead of sending inline. Off by default.
+    /// </summary>
+    Task<bool> IsWebhookOutboxEnabledAsync(string projectId, CancellationToken ct);
 }
 
 /// <summary>The writes of one endpoint call, applied atomically.</summary>

@@ -22,6 +22,7 @@ public static class SqliteMigrations
         new(5, "Daily client-version aggregates; errors record the caller's library identity", SchemaChange.Additive, V5),
         new(6, "Integrity flags, player blocks and player action log for the integrity and insights modules", SchemaChange.Additive, V6),
         new(7, "Hourly per-library request outcomes by server version for post-update regression checks", SchemaChange.Additive, V7),
+        new(8, "Durable Discord webhook outbox and per-target delivery state for endpoint webhook steps", SchemaChange.Additive, V8),
     ];
 
     // Additive: three new tables plus two indexes. No existing table is touched, so the
@@ -32,6 +33,22 @@ public static class SqliteMigrations
         CREATE TABLE {p}player_blocks (project_id TEXT NOT NULL, steam_id TEXT NOT NULL, scope TEXT NOT NULL, reason TEXT, created_at_unix_ms INTEGER NOT NULL, expires_at_unix_ms INTEGER, created_by TEXT, PRIMARY KEY (project_id, steam_id)) STRICT, WITHOUT ROWID;
         CREATE TABLE {p}player_action_log (project_id TEXT NOT NULL, steam_id TEXT NOT NULL, created_at_unix_ms INTEGER NOT NULL, entry_id TEXT NOT NULL, endpoint_slug TEXT, revision_id INTEGER, outcome TEXT, changed_fields_json TEXT, body_json TEXT, PRIMARY KEY (project_id, steam_id, created_at_unix_ms DESC, entry_id)) STRICT, WITHOUT ROWID;
         CREATE INDEX ix_player_action_log_project_time ON {p}player_action_log (project_id, created_at_unix_ms DESC);
+        """;
+
+    // Additive: two new tables. Only binaries with the outbox write them; the previous binary never reads them.
+    private static string V8(string p) => $"""
+        CREATE TABLE {p}webhook_outbox (
+            project_id TEXT NOT NULL, outbox_id TEXT NOT NULL, target_url TEXT NOT NULL, payload_json TEXT NOT NULL,
+            status TEXT NOT NULL, attempts INTEGER NOT NULL, next_attempt_at_unix_ms INTEGER NOT NULL,
+            lease_until_unix_ms INTEGER, last_status INTEGER, last_error TEXT,
+            created_at_unix_ms INTEGER NOT NULL, updated_at_unix_ms INTEGER NOT NULL,
+            PRIMARY KEY (project_id, outbox_id)) STRICT, WITHOUT ROWID;
+        CREATE INDEX ix_webhook_outbox_due ON {p}webhook_outbox (status, next_attempt_at_unix_ms);
+        CREATE TABLE {p}webhook_targets (
+            project_id TEXT NOT NULL, target_url TEXT NOT NULL, consecutive_failures INTEGER NOT NULL,
+            failing_since_unix_ms INTEGER, last_status INTEGER, last_error TEXT,
+            disabled_at_unix_ms INTEGER, disabled_reason TEXT, updated_at_unix_ms INTEGER NOT NULL,
+            PRIMARY KEY (project_id, target_url)) STRICT, WITHOUT ROWID;
         """;
 
     // Additive: one new table. Older binaries never read or write it, so they keep working on the result.

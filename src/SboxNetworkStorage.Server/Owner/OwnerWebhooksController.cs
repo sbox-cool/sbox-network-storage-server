@@ -6,22 +6,25 @@ using SboxNetworkStorage.Application.Common;
 using SboxNetworkStorage.Application.NetworkStorage;
 using SboxNetworkStorage.Application.Workspace;
 using SboxNetworkStorage.Domain.Workspace;
+using SboxNetworkStorage.Storage;
 
 namespace SboxNetworkStorage.Server.Owner;
 
-public sealed record OwnerWebhookProfile(string Id, string Name, string Url, string Color, bool Enabled);
+/// <summary><paramref name="Delivery"/> is the outbox health of the profile URL (null until a delivery was attempted).</summary>
+public sealed record OwnerWebhookProfile(string Id, string Name, string Url, string Color, bool Enabled, WebhookTargetState? Delivery = null);
 
 public sealed record OwnerWebhooksModel(string ProjectId, string ProjectName, string DefaultUrl, IReadOnlyList<OwnerWebhookProfile> Profiles,
-    OwnerWebhookProfile? Editing, string? Error = null);
+    OwnerWebhookProfile? Editing, string? Error = null, bool OutboxEnabled = false);
 
 /// <summary>
 /// Discord webhook profiles stored on the project (<c>webhooks.defaultUrl</c>, <c>webhooks.profiles</c>, the hosted
 /// layout). Webhook steps reference a profile by its URL; this page renders the step YAML for each profile and
-/// <c>profiles.json</c> feeds the resource builder's webhook step picker.
+/// <c>profiles.json</c> feeds the resource builder's webhook step picker. The delivery outbox switch and the
+/// per-profile delivery health (failing since, disabled reason, re-enable) live here too.
 /// </summary>
 [Authorize(AuthenticationSchemes = OwnerHostingExtensions.Scheme)]
 public sealed partial class OwnerWebhooksController(INetworkStorageProjectService projects, IWorkspaceStore workspace,
-    IAuditLogger audit) : Controller
+    IWebhookOutboxStore outbox, IAuditLogger audit, TimeProvider time) : Controller
 {
     private const string Route = "/dashboard/projects/{projectId}/webhooks";
 
@@ -77,6 +80,18 @@ public sealed partial class OwnerWebhooksController(INetworkStorageProjectServic
         return Redirect($"{OwnerProjectScope.ProjectUrl(projectId)}/webhooks");
     }
 
+    /// <summary>Turns the durable delivery outbox on or off. Off (the default) leaves the project's step behavior unchanged.</summary>
+    [HttpPost(Route + "/outbox")]
+    public async Task<IActionResult> SaveOutbox(string projectId, [FromForm] bool enabled, CancellationToken ct)
+    {
+        var model = await LoadAsync(projectId, ct);
+        if (model is null) return NotFound();
+        await UpdateProjectAsync(projectId, project => project with { WebhookOutbox = enabled ? true : null, UpdatedAt = DateTimeOffset.UtcNow }, ct);
+        await OwnerProjectScope.AuditAsync(audit, projectId, "webhooks.outbox", new { enabled }, ct);
+        OwnerFlash.Success(this, enabled ? "Webhook deliveries are now queued in the background." : "Webhook deliveries are sent inline again.");
+        return Redirect($"{OwnerProjectScope.ProjectUrl(projectId)}/webhooks");
+    }
+
     [HttpPost(Route + "/profiles")]
     public async Task<IActionResult> SaveProfile(string projectId, [FromForm] string? id, [FromForm] string? originalId, [FromForm] string? name,
         [FromForm] string? url, [FromForm] string? color, [FromForm] bool enabled, CancellationToken ct)
@@ -111,6 +126,34 @@ public sealed partial class OwnerWebhooksController(INetworkStorageProjectServic
         return Redirect($"{OwnerProjectScope.ProjectUrl(projectId)}/webhooks");
     }
 
+    /// <summary>
+    /// Re-enables delivery to a profile that the outbox disabled (401/404). Queued rows suppressed while the
+    /// target was disabled are not resent; the next endpoint call enqueues new deliveries.
+    /// </summary>
+    [HttpPost(Route + "/profiles/reenable")]
+    public async Task<IActionResult> ReenableProfile(string projectId, [FromForm] string? id, CancellationToken ct)
+    {
+        var model = await LoadAsync(projectId, ct);
+        if (model is null) return NotFound();
+        var profile = model.Profiles.FirstOrDefault(existing => existing.Id == id);
+        if (profile is null) return NotFound();
+        var state = await outbox.ReadTargetAsync(projectId, profile.Url, ct);
+        if (state is not null)
+        {
+            await outbox.WriteTargetAsync(state with
+            {
+                ConsecutiveFailures = 0,
+                FailingSinceUnixMs = null,
+                DisabledAtUnixMs = null,
+                DisabledReason = null,
+                UpdatedAtUnixMs = time.GetUtcNow().ToUnixTimeMilliseconds(),
+            }, ct);
+        }
+        await OwnerProjectScope.AuditAsync(audit, projectId, "webhooks.reenable", new { id }, ct);
+        OwnerFlash.Success(this, "Webhook profile re-enabled.");
+        return Redirect($"{OwnerProjectScope.ProjectUrl(projectId)}/webhooks#profile-{profile.Id}");
+    }
+
     private IActionResult Invalid(OwnerWebhooksModel model, string error)
     {
         Response.StatusCode = StatusCodes.Status400BadRequest;
@@ -118,20 +161,26 @@ public sealed partial class OwnerWebhooksController(INetworkStorageProjectServic
     }
 
     /// <summary>Rewrites defaultUrl and profiles; other webhook settings on the project are preserved.</summary>
-    private async Task SaveAsync(string projectId, string defaultUrl, IReadOnlyList<OwnerWebhookProfile> profiles, CancellationToken ct)
+    private Task SaveAsync(string projectId, string defaultUrl, IReadOnlyList<OwnerWebhookProfile> profiles, CancellationToken ct)
+        => UpdateProjectAsync(projectId, project =>
+        {
+            var webhooks = new Dictionary<string, object>(project.Webhooks ?? new Dictionary<string, object>(), StringComparer.Ordinal)
+            {
+                ["defaultUrl"] = defaultUrl,
+                ["profiles"] = profiles.Select(profile => new Dictionary<string, object>
+                {
+                    ["id"] = profile.Id, ["name"] = profile.Name, ["url"] = profile.Url, ["color"] = profile.Color, ["enabled"] = profile.Enabled,
+                }).ToList(),
+            };
+            return project with { Webhooks = webhooks, DiscordWebhook = defaultUrl, UpdatedAt = DateTimeOffset.UtcNow };
+        }, ct);
+
+    private async Task UpdateProjectAsync(string projectId, Func<WorkspaceProject, WorkspaceProject> change, CancellationToken ct)
     {
         var list = (await workspace.GetUserProjectsAsync(OwnerProjectScope.Owner, ct)).ToList();
         var index = list.FindIndex(project => string.Equals(project.Id, projectId, StringComparison.Ordinal));
         if (index < 0) throw new InvalidOperationException($"Project '{projectId}' disappeared while saving webhooks.");
-        var webhooks = new Dictionary<string, object>(list[index].Webhooks ?? new Dictionary<string, object>(), StringComparer.Ordinal)
-        {
-            ["defaultUrl"] = defaultUrl,
-            ["profiles"] = profiles.Select(profile => new Dictionary<string, object>
-            {
-                ["id"] = profile.Id, ["name"] = profile.Name, ["url"] = profile.Url, ["color"] = profile.Color, ["enabled"] = profile.Enabled,
-            }).ToList(),
-        };
-        list[index] = list[index] with { Webhooks = webhooks, DiscordWebhook = defaultUrl, UpdatedAt = DateTimeOffset.UtcNow };
+        list[index] = change(list[index]);
         await workspace.SaveUserProjectsAsync(OwnerProjectScope.Owner, list, ct);
     }
 
@@ -139,6 +188,7 @@ public sealed partial class OwnerWebhooksController(INetworkStorageProjectServic
     {
         var project = await OwnerProjectScope.ResolveAsync(projects, projectId, ct);
         if (project is null) return null;
+        var targets = (await outbox.ListTargetsAsync(projectId, ct)).ToDictionary(target => target.TargetUrl, StringComparer.Ordinal);
         var webhooks = JsonSerializer.SerializeToElement(project.Webhooks ?? new Dictionary<string, object>());
         var defaultUrl = OwnerProjectScope.Text(webhooks, "defaultUrl") ?? project.DiscordWebhook ?? "";
         var profiles = new List<OwnerWebhookProfile>();
@@ -147,11 +197,13 @@ public sealed partial class OwnerWebhooksController(INetworkStorageProjectServic
             foreach (var item in list.EnumerateArray())
             {
                 if (OwnerProjectScope.Text(item, "id") is not { Length: > 0 } id) continue;
-                profiles.Add(new OwnerWebhookProfile(id, OwnerProjectScope.Text(item, "name") ?? id, OwnerProjectScope.Text(item, "url") ?? "",
+                var url = OwnerProjectScope.Text(item, "url") ?? "";
+                profiles.Add(new OwnerWebhookProfile(id, OwnerProjectScope.Text(item, "name") ?? id, url,
                     OwnerProjectScope.Text(item, "color") ?? "#5865f2",
-                    !item.TryGetProperty("enabled", out var enabled) || enabled.ValueKind != JsonValueKind.False));
+                    !item.TryGetProperty("enabled", out var enabled) || enabled.ValueKind != JsonValueKind.False,
+                    targets.GetValueOrDefault(url)));
             }
         }
-        return new OwnerWebhooksModel(projectId, project.Name, defaultUrl, profiles, null);
+        return new OwnerWebhooksModel(projectId, project.Name, defaultUrl, profiles, null, OutboxEnabled: project.WebhookOutbox == true);
     }
 }
