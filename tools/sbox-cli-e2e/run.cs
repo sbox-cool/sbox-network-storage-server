@@ -199,6 +199,10 @@ static class E2E
 		}
 
 		var engine = ev.Identity["engine"]?["version"]?.GetValue<string>();
+		// Source builds report 0000000, which identifies no build. Leave the row's engine out (optional for
+		// ci-only rows; a pass row without it fails the schema) and name the sbox-public commit in its notes.
+		if (engine is not null && engine.Trim('0').Length == 0)
+			engine = null;
 		ev.WriteRow(o, engine, lib);
 		var pass = ev.Passed;
 		Console.WriteLine(pass ? "SBOX-CLI E2E PASS" : "SBOX-CLI E2E FAIL");
@@ -758,7 +762,7 @@ sealed class Evidence(string dir)
 			["result"] = !editorRan ? "ci-only" : Passed ? "pass" : "fail",
 			["date"] = DateTime.UtcNow.ToString("yyyy-MM-dd"),
 			["evidence"] = new JsonArray(o.EvidenceRefs.Select(e => (JsonNode)e).ToArray()),
-			["notes"] = $"tools/sbox-cli-e2e ({o.Targets}{(editorRan ? "" : ", no editor run")}); sections exercised: {sections}; driver: {Identity["driver"] ?? Identity["dedicatedDriver"]}.",
+			["notes"] = $"tools/sbox-cli-e2e ({o.Targets}{(editorRan ? "" : ", no editor run")}); sections exercised: {sections}; driver: {Identity["driver"] ?? Identity["dedicatedDriver"]}{(engine is null && Identity["engine"]?["commit"] is JsonNode engineCommit ? $"; engine: source build of sbox-public {engineCommit}" : "")}.",
 		};
 		foreach (var key in row.Where(p => p.Value is null).Select(p => p.Key).ToList()) row.Remove(key);
 	}
