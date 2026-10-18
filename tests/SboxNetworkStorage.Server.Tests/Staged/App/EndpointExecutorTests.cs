@@ -392,17 +392,17 @@ public sealed class NativeEndpointExecutorTests
     }
 
     [Fact]
-    public async Task TryExecute_LiveServe_WebhookOutboxOff_SendsInlineAndReportsStatus()
+    public async Task TryExecute_LiveServe_WebhookOutboxOff_SendsInlineAndReportsRealStatus()
     {
-        // Default for existing projects: the step waits for the sender and reports its real status.
+        // Flag unset (default for existing projects): the step waits for the sender and the game sees its real status.
         var store = new Dictionary<string, object?>
         {
             ["proj:ep:notify"] = MakeEndpointDef(
                 steps: new List<object?> { MakeWebhookStep("notify") },
-                body: new Dictionary<string, object?> { ["ok"] = true }),
+                body: WebhookEndpointBody()),
         };
         var ds = new FakeDataSource(store, new Dictionary<string, object?>());
-        var sender = new FakeWebhookSender();
+        var sender = new FakeWebhookSender { Result = (true, 204, null) };
         var outbox = new FakeWebhookOutbox();
         var executor = new EndpointExecutor(ds, sender, webhookOutbox: outbox);
 
@@ -413,18 +413,53 @@ public sealed class NativeEndpointExecutorTests
             hasSecretKey: true, isDedicatedServer: true, CancellationToken.None, liveServe: true);
 
         Assert.NotNull(result);
+        Assert.True(result!.Ok);
+        Assert.Equal(200, result.Status);
         Assert.Single(sender.Sent);
         Assert.Empty(outbox.Enqueued);
+        Assert.Equal("""{"ok":true,"webhookOk":true,"webhookStatus":204,"webhookError":{},"webhookQueued":{}}""", BodyJson(result.Body));
+    }
+
+    [Theory]
+    [InlineData(404, "HTTP 404")]
+    [InlineData(503, "HTTP 503")]
+    public async Task TryExecute_LiveServe_WebhookOutboxOff_FailedSend_ReportsFailureInline(int status, string error)
+    {
+        // Same as main: a failed send is reported in the step result (EndpointStepExecutor.cs:613); the endpoint still succeeds.
+        var store = new Dictionary<string, object?>
+        {
+            ["proj:ep:notify"] = MakeEndpointDef(
+                steps: new List<object?> { MakeWebhookStep("notify") },
+                body: WebhookEndpointBody()),
+        };
+        var ds = new FakeDataSource(store, new Dictionary<string, object?>());
+        var sender = new FakeWebhookSender { Result = (false, status, error) };
+        var outbox = new FakeWebhookOutbox();
+        var executor = new EndpointExecutor(ds, sender, webhookOutbox: outbox);
+
+        var result = await executor.TryExecuteAsync(
+            "proj", "notify",
+            input: new Dictionary<string, object?>(), steamId: "steam1", userId: "u1",
+            gameValues: new Dictionary<string, object?>(),
+            hasSecretKey: true, isDedicatedServer: true, CancellationToken.None, liveServe: true);
+
+        Assert.NotNull(result);
+        Assert.True(result!.Ok);
+        Assert.Equal(200, result.Status);
+        Assert.Single(sender.Sent);
+        Assert.Empty(outbox.Enqueued);
+        var expected = "{\"ok\":true,\"webhookOk\":false,\"webhookStatus\":" + status + ",\"webhookError\":\"" + error + "\",\"webhookQueued\":{}}";
+        Assert.Equal(expected, BodyJson(result.Body));
     }
 
     [Fact]
-    public async Task TryExecute_LiveServe_WebhookOutboxOn_EnqueuesAndSkipsInlineSend()
+    public async Task TryExecute_LiveServe_WebhookOutboxOn_ReportsQueuedToGame()
     {
         var store = new Dictionary<string, object?>
         {
             ["proj:ep:notify"] = MakeEndpointDef(
                 steps: new List<object?> { MakeWebhookStep("notify") },
-                body: new Dictionary<string, object?> { ["ok"] = true }),
+                body: WebhookEndpointBody()),
         };
         var ds = new FakeDataSource(store, new Dictionary<string, object?>()) { WebhookOutboxEnabled = true };
         var sender = new FakeWebhookSender();
@@ -439,11 +474,24 @@ public sealed class NativeEndpointExecutorTests
 
         Assert.NotNull(result);
         Assert.True(result!.Ok);
+        Assert.Equal(200, result.Status);
         Assert.Empty(sender.Sent);
         var queued = Assert.Single(outbox.Enqueued);
         Assert.Equal("proj", queued.ProjectId);
         Assert.StartsWith("https://discord.com/api/webhooks/", queued.Url);
+        Assert.Equal("""{"ok":true,"webhookOk":true,"webhookStatus":202,"webhookError":{},"webhookQueued":true}""", BodyJson(result.Body));
     }
+
+    private static Dictionary<string, object?> WebhookEndpointBody() => new()
+    {
+        ["ok"] = true,
+        ["webhookOk"] = "{{notify.ok}}",
+        ["webhookStatus"] = "{{notify.status}}",
+        ["webhookError"] = "{{notify.error}}",
+        ["webhookQueued"] = "{{notify.queued}}",
+    };
+
+    private static string BodyJson(object? body) => System.Text.Json.JsonSerializer.Serialize(body);
 
     private sealed class FakeWebhookOutbox : IEndpointWebhookOutbox
     {
