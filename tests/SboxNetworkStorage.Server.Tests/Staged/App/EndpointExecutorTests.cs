@@ -392,6 +392,71 @@ public sealed class NativeEndpointExecutorTests
     }
 
     [Fact]
+    public async Task TryExecute_LiveServe_WebhookOutboxOff_SendsInlineAndReportsStatus()
+    {
+        // Default for existing projects: the step waits for the sender and reports its real status.
+        var store = new Dictionary<string, object?>
+        {
+            ["proj:ep:notify"] = MakeEndpointDef(
+                steps: new List<object?> { MakeWebhookStep("notify") },
+                body: new Dictionary<string, object?> { ["ok"] = true }),
+        };
+        var ds = new FakeDataSource(store, new Dictionary<string, object?>());
+        var sender = new FakeWebhookSender();
+        var outbox = new FakeWebhookOutbox();
+        var executor = new EndpointExecutor(ds, sender, webhookOutbox: outbox);
+
+        var result = await executor.TryExecuteAsync(
+            "proj", "notify",
+            input: new Dictionary<string, object?>(), steamId: "steam1", userId: "u1",
+            gameValues: new Dictionary<string, object?>(),
+            hasSecretKey: true, isDedicatedServer: true, CancellationToken.None, liveServe: true);
+
+        Assert.NotNull(result);
+        Assert.Single(sender.Sent);
+        Assert.Empty(outbox.Enqueued);
+    }
+
+    [Fact]
+    public async Task TryExecute_LiveServe_WebhookOutboxOn_EnqueuesAndSkipsInlineSend()
+    {
+        var store = new Dictionary<string, object?>
+        {
+            ["proj:ep:notify"] = MakeEndpointDef(
+                steps: new List<object?> { MakeWebhookStep("notify") },
+                body: new Dictionary<string, object?> { ["ok"] = true }),
+        };
+        var ds = new FakeDataSource(store, new Dictionary<string, object?>()) { WebhookOutboxEnabled = true };
+        var sender = new FakeWebhookSender();
+        var outbox = new FakeWebhookOutbox();
+        var executor = new EndpointExecutor(ds, sender, webhookOutbox: outbox);
+
+        var result = await executor.TryExecuteAsync(
+            "proj", "notify",
+            input: new Dictionary<string, object?>(), steamId: "steam1", userId: "u1",
+            gameValues: new Dictionary<string, object?>(),
+            hasSecretKey: true, isDedicatedServer: true, CancellationToken.None, liveServe: true);
+
+        Assert.NotNull(result);
+        Assert.True(result!.Ok);
+        Assert.Empty(sender.Sent);
+        var queued = Assert.Single(outbox.Enqueued);
+        Assert.Equal("proj", queued.ProjectId);
+        Assert.StartsWith("https://discord.com/api/webhooks/", queued.Url);
+    }
+
+    private sealed class FakeWebhookOutbox : IEndpointWebhookOutbox
+    {
+        public List<(string ProjectId, string Url, IReadOnlyDictionary<string, object?> Payload)> Enqueued { get; } = new();
+
+        public Task EnqueueAsync(string projectId, string webhookUrl, IReadOnlyDictionary<string, object?> payload, CancellationToken ct)
+        {
+            Enqueued.Add((projectId, webhookUrl, payload));
+            return Task.CompletedTask;
+        }
+    }
+
+    [Fact]
     public async Task TryExecute_ReadStep_ResolvesCollectionNameAndStripsDefaultKey()
     {
         // Endpoint YAML uses collection NAME ("players") and "{{steamId}}_default"
@@ -1284,7 +1349,9 @@ public sealed class NativeEndpointExecutorTests
 
         public Task<bool> IsLegacyPlayerProjectionsEnabledAsync(string projectId, CancellationToken ct) => Task.FromResult(LegacyPlayerProjections);
 
-        public Task<bool> IsWebhookOutboxEnabledAsync(string projectId, CancellationToken ct) => Task.FromResult(false);
+        public bool WebhookOutboxEnabled { get; set; }
+
+        public Task<bool> IsWebhookOutboxEnabledAsync(string projectId, CancellationToken ct) => Task.FromResult(WebhookOutboxEnabled);
 
         public Task WriteGlobalRecordAsync(string projectId, string collectionId, string recordId, IReadOnlyDictionary<string, object?> payload, CancellationToken ct)
             => Task.CompletedTask;
