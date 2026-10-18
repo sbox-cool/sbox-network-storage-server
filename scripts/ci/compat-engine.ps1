@@ -9,9 +9,10 @@
     pass        the candidate (this build) passes.
     regression  the candidate fails and the baseline passes: this change breaks games that embed it.
     upstream    both fail: the engine or the library itself broke, not this change.
-    known       both fail, and only on checks the target lists in `knownFailures`: a documented defect
-                of that immutable library build (it never worked on any server), reported but not
-                counted as upstream. Any other failing check keeps the normal verdict.
+    known       both fail, and this build fails only checks the target lists in `knownFailures`: a
+                documented defect of that immutable library build (it never worked on any server),
+                reported but not counted as upstream. Any other failing check on this build keeps the
+                normal verdict; extra failures on the older baseline only are not this build's problem.
     fail        the candidate fails and no baseline was given to tell the two apart.
   Writes compat-results.json, tested-libraries.json (the release.json `testedLibraries` field) and
   summary.md under -Out. Exits 1 on any regression or fail; upstream and known failures are reported only.
@@ -118,9 +119,8 @@ foreach ($target in $list) {
   $known = @(if ($target.commit -and $knownFailures.ContainsKey($target.commit)) { $knownFailures[$target.commit] } elseif ($knownFailures.ContainsKey($ref)) { $knownFailures[$ref] })
   if ($verdict -eq 'upstream' -and $known.Count -gt 0) {
     $candidateIds = Get-FailureIds $thisRun
-    $baselineIds = Get-FailureIds $releaseRun
-    if ($null -ne $candidateIds -and $null -ne $baselineIds -and $candidateIds.Count -gt 0 -and
-        @(@($candidateIds) + @($baselineIds) | Where-Object { $_ -notin $known }).Count -eq 0) {
+    if ($null -ne $candidateIds -and $candidateIds.Count -gt 0 -and
+        @($candidateIds | Where-Object { $_ -notin $known }).Count -eq 0) {
       $verdict = 'known'
     }
   }
