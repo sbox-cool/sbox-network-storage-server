@@ -195,6 +195,11 @@ Backups are same-provider restores, not cross-provider migration. To move
 between SQLite and PostgreSQL (either way) or to another machine, use
 `sbox-ns export` and `sbox-ns import`; see [export.md](export.md).
 
+Media uploads are not in the database backup. `sbox-ns db backup` and
+`sbox-ns export` cover the database only: media object rows are there, but the
+image bytes (local media folder or S3 bucket) are not. Back those up separately;
+see [media.md](media.md#backups-and-export).
+
 SQLite: the backup is a consistent file copy, safe while the server runs.
 Restore replaces the database file and keeps the replaced file as
 `.before-restore`; WAL sidecars are cleared.

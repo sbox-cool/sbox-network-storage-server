@@ -22,7 +22,24 @@ public static class SqliteMigrations
         new(5, "Daily client-version aggregates; errors record the caller's library identity", SchemaChange.Additive, V5),
         new(6, "Integrity flags, player blocks and player action log for the integrity and insights modules", SchemaChange.Additive, V6),
         new(7, "Hourly per-library request outcomes by server version for post-update regression checks", SchemaChange.Additive, V7),
+        new(8, "Media objects and single-use upload grant records for the media store", SchemaChange.Additive, V8),
     ];
+
+    // Additive: two new tables with indexes. Nothing existing is touched; older binaries never read them.
+    private static string V8(string p) => $"""
+        CREATE TABLE {p}media_objects (
+            project_id TEXT NOT NULL, media_id TEXT NOT NULL, purpose TEXT NOT NULL, sha256 TEXT NOT NULL,
+            content_type TEXT NOT NULL, size_bytes INTEGER NOT NULL, width INTEGER NOT NULL, height INTEGER NOT NULL,
+            owner_steam_id TEXT NOT NULL, visibility TEXT NOT NULL, created_at_unix_ms INTEGER NOT NULL,
+            expires_at_unix_ms INTEGER NOT NULL,
+            PRIMARY KEY (project_id, media_id)) STRICT, WITHOUT ROWID;
+        CREATE TABLE {p}media_grants (
+            project_id TEXT NOT NULL, grant_id TEXT NOT NULL, purpose TEXT NOT NULL, owner_steam_id TEXT NOT NULL,
+            issued_at_unix_ms INTEGER NOT NULL, expires_at_unix_ms INTEGER NOT NULL, used_at_unix_ms INTEGER,
+            PRIMARY KEY (project_id, grant_id)) STRICT, WITHOUT ROWID;
+        CREATE INDEX ix_media_grants_rate ON {p}media_grants (project_id, owner_steam_id, purpose, issued_at_unix_ms);
+        CREATE INDEX ix_media_grants_issued ON {p}media_grants (issued_at_unix_ms);
+        """;
 
     // Additive: three new tables plus two indexes. No existing table is touched, so the
     // previous binary's statements keep working and older binaries ignore the new tables.

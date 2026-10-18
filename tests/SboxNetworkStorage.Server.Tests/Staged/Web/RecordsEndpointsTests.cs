@@ -355,6 +355,9 @@ public abstract class RecordsEndpointsTests<TFactory> : IClassFixture<TFactory>
 
     private sealed class FakeProjectService(bool enabled, IReadOnlyList<CollectionResource> collections) : INetworkStorageProjectService
     {
+        public Task<WorkspaceProject?> FindProjectAsync(string projectId, CancellationToken cancellationToken)
+            => Task.FromResult<WorkspaceProject?>(null);
+
         public Task<NetworkStorageProjectAccessResult?> ResolveProjectAccessAsync(long userId, string projectId, CancellationToken ct)
             => Task.FromResult<NetworkStorageProjectAccessResult?>(new NetworkStorageProjectAccessResult(
                 new WorkspaceProject(projectId, "Test", null, Enabled: enabled, null, null, null),

@@ -6,10 +6,12 @@ using SboxNetworkStorage.Application.Errors;
 using SboxNetworkStorage.Application.NetworkStorage;
 using SboxNetworkStorage.Application.NetworkStorage.AuthSessions;
 using SboxNetworkStorage.Application.NetworkStorage.Endpoints;
+using SboxNetworkStorage.Application.NetworkStorage.Media;
 using SboxNetworkStorage.Application.Workspace;
 
 using SboxNetworkStorage.Infrastructure.NetworkStorage;
 using SboxNetworkStorage.Infrastructure.NetworkStorage.Analytics;
+using SboxNetworkStorage.Infrastructure.NetworkStorage.Media;
 using SboxNetworkStorage.Infrastructure.NetworkStorage.Metadata;
 using SboxNetworkStorage.Infrastructure.NetworkStorage.Modules;
 using SboxNetworkStorage.Infrastructure.NetworkStorage.Storage;
@@ -65,6 +67,24 @@ public static class NetworkStorageServices
             return admin is IClientVersionStore versions ? versions
                 : throw new InvalidOperationException($"The configured {nameof(INetworkStorageStoreAdmin)} ({admin.GetType().FullName}) does not implement {nameof(IClientVersionStore)}: client-version analytics need a relational store.");
         });
+        // Media (docs/media.md): grant and object metadata live in the relational store; bytes live in the
+        // configured blob backend. Both are inert until a project enables media.
+        services.AddSingleton<IMediaStore>(sp =>
+        {
+            var admin = sp.GetRequiredService<INetworkStorageStoreAdmin>();
+            return admin is IMediaStore media ? media
+                : throw new InvalidOperationException($"The configured {nameof(INetworkStorageStoreAdmin)} ({admin.GetType().FullName}) does not implement {nameof(IMediaStore)}: media needs a relational store.");
+        });
+        services.AddSingleton<IMediaBlobStore>(_ => config.GetString("media.backend") == "s3"
+            ? S3MediaBlobStore.Create(config.GetString("media.s3.endpoint"), config.GetString("media.s3.region"),
+                config.GetString("media.s3.bucket"), config.GetBoolean("media.s3.force_path_style"),
+                config.GetString("media.s3.access_key_id"), config.GetString("media.s3.secret_access_key"))
+            : new LocalDiskMediaBlobStore(string.IsNullOrWhiteSpace(config.GetString("media.local_dir"))
+                ? Path.Combine(config.DataDirectory, "media")
+                : config.GetPath("media.local_dir", config.DataDirectory)));
+        services.AddSingleton(new MediaServerOptions(Math.Max(1, config.GetInteger("media.max_object_bytes"))));
+        services.AddSingleton<MediaGrantTokens>();
+        services.AddSingleton<NetworkStorageMediaService>();
         services.AddSingleton<ClientOutcomeTracker>(sp => new ClientOutcomeTracker(sp.GetRequiredService<TimeProvider>(), BuildInfo.Version));
         services.AddSingleton<ClientVersionsQuery>();
         services.AddSingleton<ClientVersionWriter>();

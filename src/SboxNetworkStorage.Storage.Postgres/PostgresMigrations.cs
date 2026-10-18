@@ -23,7 +23,24 @@ public static class PostgresMigrations
         new(5, "Daily client-version aggregates; errors record the caller's library identity", SchemaChange.Additive, V5),
         new(6, "Integrity flags, player blocks and player action log for the integrity and insights modules", SchemaChange.Additive, V6),
         new(7, "Hourly per-library request outcomes by server version for post-update regression checks", SchemaChange.Additive, V7),
+        new(8, "Media objects and single-use upload grant records for the media store", SchemaChange.Additive, V8),
     ];
+
+    // Additive: two new tables with indexes. Nothing existing is touched; older binaries never read them.
+    private static string V8(string p) => $"""
+        CREATE TABLE {p}media_objects (
+            project_id {Key}, media_id {Key}, purpose text NOT NULL, sha256 text NOT NULL,
+            content_type text NOT NULL, size_bytes bigint NOT NULL, width bigint NOT NULL, height bigint NOT NULL,
+            owner_steam_id text NOT NULL, visibility text NOT NULL, created_at_unix_ms bigint NOT NULL,
+            expires_at_unix_ms bigint NOT NULL,
+            PRIMARY KEY (project_id, media_id));
+        CREATE TABLE {p}media_grants (
+            project_id {Key}, grant_id {Key}, purpose text NOT NULL, owner_steam_id text NOT NULL,
+            issued_at_unix_ms bigint NOT NULL, expires_at_unix_ms bigint NOT NULL, used_at_unix_ms bigint,
+            PRIMARY KEY (project_id, grant_id));
+        CREATE INDEX ix_media_grants_rate ON {p}media_grants (project_id, owner_steam_id, purpose, issued_at_unix_ms);
+        CREATE INDEX ix_media_grants_issued ON {p}media_grants (issued_at_unix_ms);
+        """;
 
     // Additive: three new tables plus two indexes. No existing table is touched, so the
     // previous binary's statements keep working and older binaries ignore the new tables.

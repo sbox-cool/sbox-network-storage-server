@@ -135,7 +135,7 @@ public sealed class OwnerDashboardController(INetworkStorageProjectService proje
     public async Task<IActionResult> Settings(string projectId, [FromForm] string? tab, CancellationToken ct)
     {
         if (await LoadProjectAsync(projectId, ct) is null) return NotFound();
-        if (tab is not ("project" or "security" or "player-keys" or "legacy-projections" or "revisions")) return BadRequest("Unknown settings tab.");
+        if (tab is not ("project" or "security" or "player-keys" or "legacy-projections" or "revisions" or "media")) return BadRequest("Unknown settings tab.");
         var form = await Request.ReadFormAsync(ct);
         var values = form.ToDictionary(pair => pair.Key, pair => pair.Value.ToString(), StringComparer.Ordinal);
         if (tab == "project" && (values.GetValueOrDefault("name")?.Trim().Length is not (>= 1 and <= 64)

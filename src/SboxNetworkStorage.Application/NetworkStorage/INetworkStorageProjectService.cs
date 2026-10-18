@@ -106,6 +106,9 @@ public interface INetworkStorageProjectService
         string projectId,
         CancellationToken cancellationToken);
 
+    /// <summary>Reads the stored project without any caller identity (used by media upload and read routes, which authenticate by grant or object id).</summary>
+    Task<WorkspaceProject?> FindProjectAsync(string projectId, CancellationToken cancellationToken);
+
     Task<NetworkStorageProjectResources?> GetProjectResourcesAsync(
         long userId,
         string projectId,

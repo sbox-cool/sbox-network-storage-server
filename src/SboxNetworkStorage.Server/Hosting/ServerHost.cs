@@ -111,6 +111,7 @@ public static class ServerHost
         app.MapRecords();
         app.MapNetworkStorageGateway();
         app.MapStorageApi();
+        app.MapMedia(Math.Max(1, config.GetInteger("media.max_object_bytes")));
         app.MapApiRootAliases();
 
         return app;

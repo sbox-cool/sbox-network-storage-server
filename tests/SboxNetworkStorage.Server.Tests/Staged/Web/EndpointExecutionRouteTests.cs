@@ -694,6 +694,9 @@ public abstract class EndpointExecutionRouteTests<TFactory> : IClassFixture<TFac
 
     private sealed class FakeProjectService : INetworkStorageProjectService
     {
+        public Task<WorkspaceProject?> FindProjectAsync(string projectId, CancellationToken cancellationToken)
+            => Task.FromResult<WorkspaceProject?>(null);
+
         public Task<NetworkStorageProjectAccessResult?> ResolveProjectAccessAsync(long userId, string projectId, CancellationToken cancellationToken)
             => Task.FromResult<NetworkStorageProjectAccessResult?>(new NetworkStorageProjectAccessResult(
                 new WorkspaceProject(projectId, "Test Project", null, Enabled: true, null, null, null),

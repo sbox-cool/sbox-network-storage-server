@@ -97,7 +97,9 @@ public sealed record WorkspaceProject(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? LegacyPlayerProjections = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? LibraryMinimum = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? LibraryAlertPercent = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Color = null
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Color = null,
+    // Media store policy (per project, off by default). Shape: { enabled, purposes: { <name>: {...} } }; parsed by MediaPolicyParser.
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] Dictionary<string, object>? Media = null
 );
 public static class WorkspaceProjectProfiles
 {

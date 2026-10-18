@@ -409,6 +409,9 @@ public abstract class QueryEndpointsTests<TFactory> : IClassFixture<TFactory>
 
     private sealed class FakeProjectService(bool enabled) : INetworkStorageProjectService
     {
+        public Task<WorkspaceProject?> FindProjectAsync(string projectId, CancellationToken cancellationToken)
+            => Task.FromResult<WorkspaceProject?>(null);
+
         public Task<NetworkStorageProjectAccessResult?> ResolveProjectAccessAsync(long userId, string projectId, CancellationToken cancellationToken)
             => Task.FromResult<NetworkStorageProjectAccessResult?>(new NetworkStorageProjectAccessResult(
                 new WorkspaceProject(projectId, "Test Project", null, Enabled: enabled, null, null, null, EnableAuthSessions: false, AuthSessionTtlSeconds: 3600),

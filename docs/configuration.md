@@ -268,6 +268,25 @@ level = "Information"
 # are purged once a day. 0 keeps them forever.
 retention_days = 90
 
+[media]
+# "local" (default): media bytes on local disk. "s3": an S3-compatible bucket.
+backend = "local"
+# Directory for local media bytes. Empty uses media/ under the data directory.
+local_dir = ""
+# Largest media object accepted, in bytes. Per-purpose limits cannot exceed it.
+max_object_bytes = 10485760
+
+[media.s3]
+# Used when backend = "s3". Empty endpoint uses the AWS endpoint for the region.
+endpoint = ""
+region = "us-east-1"
+bucket = ""
+# Most self-hosted S3-compatible stores need path-style addressing.
+force_path_style = false
+access_key_id = ""
+# Prefer the NS_MEDIA__S3__SECRET_ACCESS_KEY environment variable over this file.
+secret_access_key = ""
+
 [auth]
 # Secret files, relative to the state folder (<data dir>/state; the config folder on
 # installs that have not run `sbox-ns layout migrate`). Missing files are generated with
@@ -315,6 +334,14 @@ A client over its rate limit is answered with `429`, a `Retry-After` header and
 `{ "error": "RATE_LIMITED" }`. The dashboard import keeps its own limit. Owner
 login allows 10 attempts per minute per address, 60 per minute across all
 addresses, and checks at most 2 passwords at a time.
+
+### Media uploads
+
+The `[media]` table controls where uploaded media bytes are stored and the largest
+object the server accepts. Media is off by default for every project: enable it
+per project in the owner panel. Metadata always lives in the database. Full
+reference: [media.md](media.md). `media.backend` and the `media.s3.*` keys apply
+at startup, so restart the server after changing them.
 
 ### Analytics retention
 

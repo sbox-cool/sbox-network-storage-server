@@ -6,6 +6,7 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using System.Threading;
 using SboxNetworkStorage.Application.NetworkStorage;
+using SboxNetworkStorage.Application.NetworkStorage.Media;
 using SboxNetworkStorage.Contracts.NetworkStorage;
 using SboxNetworkStorage.Application.Workspace;
 using SboxNetworkStorage.Domain.Workspace;
@@ -66,6 +67,17 @@ public sealed class NetworkStorageProjectService(
         var updatedProjects = projects.Concat([project]).ToList();
         await workspaceStore.SaveUserProjectsAsync(userId, updatedProjects, cancellationToken);
         return new NetworkStorageProjectCreateResult(projectId);
+    }
+
+    public async Task<WorkspaceProject?> FindProjectAsync(string projectId, CancellationToken cancellationToken)
+    {
+        if (!StorageIdValidation.IsValidCollectionId(projectId))
+        {
+            return null;
+        }
+
+        var payload = await networkStore.ReadProjectAsync(projectId, cancellationToken);
+        return payload is not { } row ? null : StoreMetadataWorkspaceClient.ReconstructProject(row, projectId);
     }
 
     // Self-hosted servers have one owner and no organizations, so a stored project is the owner's project.
@@ -548,6 +560,11 @@ public sealed class NetworkStorageProjectService(
                     project = project with { Analytics = analytics };
                     break;
                 }
+            case "media":
+                {
+                    project = project with { Media = BuildMediaSettings(project.Media, formValues) };
+                    break;
+                }
             case "revisions":
                 {
                     var enforcementMode = formValues.GetValueOrDefault("revisionEnforcementMode");
@@ -685,6 +702,48 @@ public sealed class NetworkStorageProjectService(
         project = project with { UpdatedAt = DateTimeOffset.UtcNow };
         projects[idx] = project;
         await workspaceStore.SaveUserProjectsAsync(storageOwnerUserId, projects, cancellationToken);
+    }
+
+    /// <summary>
+    /// Builds the project's <c>media</c> object from the owner form. Only the purpose named by
+    /// <c>mediaPurpose</c> is rewritten; other configured purposes are carried forward unchanged.
+    /// The parser clamps every value at read time, so these defaults only shape the stored object.
+    /// </summary>
+    private static Dictionary<string, object> BuildMediaSettings(Dictionary<string, object>? current, Dictionary<string, string> formValues)
+    {
+        var purposes = new Dictionary<string, object>(StringComparer.Ordinal);
+        if (current is not null
+            && JsonSerializer.SerializeToElement(current) is { ValueKind: JsonValueKind.Object } root
+            && root.TryGetProperty("purposes", out var stored)
+            && stored.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var entry in stored.EnumerateObject())
+                purposes[entry.Name] = entry.Value.Clone();
+        }
+
+        var name = (formValues.GetValueOrDefault("mediaPurpose") ?? "").Trim();
+        if (MediaPolicyParser.IsValidPurposeName(name))
+        {
+            var visibility = formValues.GetValueOrDefault("mediaVisibility") == MediaPolicyParser.VisibilityPublic
+                ? MediaPolicyParser.VisibilityPublic
+                : MediaPolicyParser.VisibilityPrivate;
+            purposes[name] = new Dictionary<string, object>
+            {
+                ["enabled"] = IsChecked(formValues.GetValueOrDefault("mediaPurposeEnabled")),
+                ["allowClientSelfGrant"] = IsChecked(formValues.GetValueOrDefault("mediaAllowClientSelfGrant")),
+                ["visibility"] = visibility,
+                ["maxBytes"] = ParseIntOrDefault(formValues.GetValueOrDefault("mediaMaxBytes"), 1048576, 1, int.MaxValue),
+                ["perPlayerPerHour"] = ParseIntOrDefault(formValues.GetValueOrDefault("mediaPerPlayerPerHour"), MediaPolicyParser.DefaultPerPlayerPerHour, 1, 100000),
+                ["projectQuotaBytes"] = long.TryParse(formValues.GetValueOrDefault("mediaProjectQuotaBytes"), out var quota) ? Math.Max(0L, quota) : 0L,
+                ["retentionDays"] = ParseIntOrDefault(formValues.GetValueOrDefault("mediaRetentionDays"), MediaPolicyParser.DefaultRetentionDays, 1, MediaPolicyParser.MaxRetentionDays)
+            };
+        }
+
+        return new Dictionary<string, object>
+        {
+            ["enabled"] = IsChecked(formValues.GetValueOrDefault("mediaEnabled")),
+            ["purposes"] = purposes
+        };
     }
 
     // ── Usage ──
