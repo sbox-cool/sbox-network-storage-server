@@ -140,10 +140,9 @@ public sealed class ModuleInstaller(
             return await UpgradeAsync(userId, projectId, state, existing, module, compiled, settings, ct);
         }
         var conflicts = await FindConflictsAsync(projectId, module, compiled, excludeOwner: moduleId, ct);
-        if (conflicts.Count > 0)
-            return new ModuleInstallResult(false,
-                $"Conflicts with existing definitions: {string.Join(", ", conflicts.Select(conflict => $"{conflict.Kind} {conflict.Name}"))}. Resolve them before installing.", null);
-        var installed = await WriteDefinitionsAsync(userId, projectId, module, compiled, settings, ct);
+        if (conflicts.Count > 0) return ConflictFailure(conflicts);
+        var installed = await WriteDefinitionsAsync(userId, projectId, module, compiled,
+            ResolveSettings(module, null, settings), ct);
         await states.SaveAsync(userId, projectId, new ModuleProjectState([.. state.Modules, installed], state.PendingUpgrades), ct);
         await AuditAsync(userId, projectId, "module.install",
             new { module = moduleId, version = module.Version, definitions = installed.Endpoints.Count + installed.Collections.Count + installed.Workflows.Count + installed.Queries.Count }, ct);
@@ -248,11 +247,10 @@ public sealed class ModuleInstaller(
         if (!TryCompileModule(module, out var compiled, out var compileError))
             return new ModuleInstallResult(false, compileError, null);
         var conflicts = await FindConflictsAsync(projectId, module, compiled, excludeOwner: moduleId, ct);
-        if (conflicts.Count > 0)
-            return new ModuleInstallResult(false,
-                $"Conflicts with existing definitions: {string.Join(", ", conflicts.Select(conflict => $"{conflict.Kind} {conflict.Name}"))}.", null);
+        if (conflicts.Count > 0) return ConflictFailure(conflicts);
         await DeleteOwnedDefinitionsAsync(projectId, installed, keepValues: false, ct);
-        var upgraded = await WriteDefinitionsAsync(userId, projectId, module, compiled, settings: null, ct);
+        var upgraded = await WriteDefinitionsAsync(userId, projectId, module, compiled,
+            ResolveSettings(module, installed.Settings, explicitValues: null), ct);
         upgraded = installed.Enabled ? upgraded : upgraded with { Enabled = false };
         var modules = state.Modules.Select(candidate => candidate.Id == moduleId ? upgraded : candidate).ToList();
         var pending = state.PendingUpgrades.Where(candidate => candidate.Id != moduleId).ToList();
@@ -269,8 +267,11 @@ public sealed class ModuleInstaller(
         var newPermissions = NewPermissions(installed.Permissions, module.Permissions);
         if (newPermissions.Count == 0)
         {
+            var conflicts = await FindConflictsAsync(projectId, module, compiled, excludeOwner: module.Id, ct);
+            if (conflicts.Count > 0) return ConflictFailure(conflicts);
             await DeleteOwnedDefinitionsAsync(projectId, installed, keepValues: false, ct);
-            var upgraded = await WriteDefinitionsAsync(userId, projectId, module, compiled, settings, ct);
+            var upgraded = await WriteDefinitionsAsync(userId, projectId, module, compiled,
+                ResolveSettings(module, installed.Settings, settings), ct);
             upgraded = installed.Enabled ? upgraded : upgraded with { Enabled = false };
             var modules = state.Modules.Select(candidate => candidate.Id == module.Id ? upgraded : candidate).ToList();
             await states.SaveAsync(userId, projectId, new ModuleProjectState(modules, state.PendingUpgrades), ct);
@@ -366,7 +367,7 @@ public sealed class ModuleInstaller(
     }
 
     private async Task<InstalledModule> WriteDefinitionsAsync(long userId, string projectId, CatalogModule module,
-        IReadOnlyList<JsonElement> compiled, IReadOnlyDictionary<string, string>? settings, CancellationToken ct)
+        IReadOnlyList<JsonElement> compiled, Dictionary<string, string> settings, CancellationToken ct)
     {
         var collections = new List<string>();
         var endpoints = new List<string>();
@@ -410,7 +411,7 @@ public sealed class ModuleInstaller(
             }
         }
         return new InstalledModule(module.Id, module.Version, true,
-            OverlaySettings(module, settings), module.Permissions,
+            settings, module.Permissions,
             collections, endpoints, workflows, queries, valuesItems,
             time.GetUtcNow().ToString("o"));
     }
@@ -568,18 +569,27 @@ public sealed class ModuleInstaller(
         => element.ValueKind == JsonValueKind.Object && element.TryGetProperty(name, out var value)
             && value.ValueKind == JsonValueKind.False;
 
-    private static Dictionary<string, string> OverlaySettings(CatalogModule module, IReadOnlyDictionary<string, string>? saved)
+    /// <summary>
+    /// Settings for a module version: explicit operator values win, then values already installed,
+    /// then catalog defaults. Blank values count as absent, and keys the catalog no longer declares
+    /// are dropped. Other values are stored as entered; each consumer falls back to its own default
+    /// when a value does not parse.
+    /// </summary>
+    internal static Dictionary<string, string> ResolveSettings(CatalogModule module,
+        IReadOnlyDictionary<string, string>? installedValues, IReadOnlyDictionary<string, string>? explicitValues)
     {
         var settings = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (var schema in module.Settings) settings[schema.Key] = schema.Default;
-        if (saved is null) return settings;
         foreach (var schema in module.Settings)
-        {
-            if (saved.TryGetValue(schema.Key, out var value) && !string.IsNullOrWhiteSpace(value))
-                settings[schema.Key] = value.Trim();
-        }
+            settings[schema.Key] = Pick(explicitValues, schema.Key) ?? Pick(installedValues, schema.Key) ?? schema.Default;
         return settings;
     }
+
+    private static string? Pick(IReadOnlyDictionary<string, string>? values, string key)
+        => values is not null && values.TryGetValue(key, out var value) && !string.IsNullOrWhiteSpace(value) ? value.Trim() : null;
+
+    private static ModuleInstallResult ConflictFailure(IReadOnlyList<ModuleConflict> conflicts)
+        => new(false,
+            $"Conflicts with existing definitions: {string.Join(", ", conflicts.Select(conflict => $"{conflict.Kind} {conflict.Name}"))}. Resolve them and try again.", null);
 
     private long NextVersion() => time.GetUtcNow().ToUnixTimeMilliseconds();
 
