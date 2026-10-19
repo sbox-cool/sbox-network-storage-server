@@ -89,6 +89,13 @@ public sealed class EndpointErrorReporter(
         return CaptureAsync(projectId, endpointSlug, method, steamId, statusCode, $"EndpointScript.{errorCode}", message, ownerDetail, ct);
     }
 
+    /// <summary>Classification of an <c>ns.fetch</c> call the project's policy refused. The owner panel lists these.</summary>
+    public const string FetchBlockedClassification = "EndpointFetch.blocked";
+    /// <summary>Archive tag prefix carrying the refused host.</summary>
+    public const string FetchHostTagPrefix = "fetch-host:";
+    /// <summary>Archive tag prefix carrying the refusal reason.</summary>
+    public const string FetchReasonTagPrefix = "fetch-reason:";
+
     /// <summary>
     /// Capture an <c>ns.fetch</c> call that the project's allow-list or address rules refused. The owner sees the
     /// host and reason in the project's fetch panel and can allow the host from there. Repeats are throttled per
@@ -105,9 +112,9 @@ public sealed class EndpointErrorReporter(
                 host, reason, projectId, endpointSlug, EndpointConflictReportThrottle.Window.TotalMinutes);
             return Task.CompletedTask;
         }
-        return CaptureAsync(projectId, endpointSlug, method, steamId, 502, "EndpointFetch.blocked",
+        return CaptureAsync(projectId, endpointSlug, method, steamId, 502, FetchBlockedClassification,
             $"ns.fetch blocked host {host} ({reason})", stackTrace: null, ct,
-            tags: [.. ErrorTags, $"fetch-host:{host}", $"fetch-reason:{reason}"]);
+            tags: [.. ErrorTags, $"{FetchHostTagPrefix}{host}", $"{FetchReasonTagPrefix}{reason}"]);
     }
 
     private async Task CaptureAsync(

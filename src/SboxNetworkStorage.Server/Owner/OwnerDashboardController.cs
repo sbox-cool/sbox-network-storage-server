@@ -5,16 +5,19 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Caching.Memory;
 using SboxNetworkStorage.Application.Common;
+using SboxNetworkStorage.Application.Errors;
 using SboxNetworkStorage.Application.NetworkStorage;
 using SboxNetworkStorage.Application.NetworkStorage.GameLogs;
 using SboxNetworkStorage.Infrastructure.NetworkStorage.GameLogs;
 using SboxNetworkStorage.Application.NetworkStorage.Media;
 using SboxNetworkStorage.Application.NetworkStorage.Endpoints.Scripting;
 using SboxNetworkStorage.Application.Workspace;
+using SboxNetworkStorage.Contracts.Errors;
 using SboxNetworkStorage.Domain.Workspace;
 using SboxNetworkStorage.Server.Authority;
 using SboxNetworkStorage.Server.Configuration;
 using SboxNetworkStorage.Server.Hosting;
+using SboxNetworkStorage.Server.Infrastructure;
 using SboxNetworkStorage.Server.Updates.ReleaseStatus;
 
 namespace SboxNetworkStorage.Server.Owner;
@@ -63,6 +66,8 @@ public sealed record OwnerConnectInfo(string BaseUrl, bool FromPublicUrl, string
 
 public sealed record OwnerRequestSummary(DateTimeOffset At, string Method, string Path, int Status);
 
+public sealed record OwnerFetchBlockedHost(string Host, string Reason, string Endpoint, DateTimeOffset LastSeen);
+
 public sealed record OwnerProjectModel(WorkspaceProject Project, NetworkStorageProjectResources? Resources,
     IReadOnlyList<ApiKeyInfo> Keys, OwnerConnectInfo Connect, OwnerRequestSummary? LastRequest,
     IReadOnlyList<OwnerRequestSummary> RecentRejected, AuthorityCheckService.AuthorityCheckResult? Authority = null, string? RawKey = null, string? Error = null);
@@ -71,7 +76,7 @@ public sealed record OwnerProjectModel(WorkspaceProject Project, NetworkStorageP
 [Authorize(AuthenticationSchemes = OwnerHostingExtensions.Scheme)]
 public sealed class OwnerDashboardController(INetworkStorageProjectService projects, IWorkspaceStore workspace,
     IAuditLogger audit, INetworkStorageStore store, EffectiveConfig config, IMemoryCache cache, TimeProvider time, GameLogQueue gameLogs,
-    ReleaseStatusService releaseStatus) : Controller
+    ReleaseStatusService releaseStatus, IErrorArchive errorArchive) : Controller
 {
     private const long Owner = NetworkStorageServices.LocalOwnerUserId;
     private const int RecentRequests = 200;
@@ -137,8 +142,36 @@ public sealed class OwnerDashboardController(INetworkStorageProjectService proje
             model = model with { RawKey = stored.Raw };
         }
         ViewData["GameLogCounters"] = gameLogs.Snapshot(projectId);
+        ViewData["FetchBlocked"] = await FetchBlockedHostsAsync(model.Project, ct);
         return View("~/Views/Owner/Project.cshtml", model);
     }
+
+    /// <summary>
+    /// Recently refused <c>ns.fetch</c> calls for this project, newest first, one row per host and reason. A host the
+    /// project allows now drops out, so a row stays only while the call would still be refused.
+    /// </summary>
+    private async Task<IReadOnlyList<OwnerFetchBlockedHost>> FetchBlockedHostsAsync(WorkspaceProject project, CancellationToken ct)
+    {
+        var archived = await errorArchive.ListAsync(new InternalErrorArchiveQuery(ProjectId: project.Id, Limit: 200), ct);
+        var rows = new List<OwnerFetchBlockedHost>();
+        foreach (var error in archived.Errors)
+        {
+            if (error.Classification != EndpointErrorReporter.FetchBlockedClassification || error.Tags is null)
+                continue;
+            var host = TagValue(error.Tags, EndpointErrorReporter.FetchHostTagPrefix);
+            var reason = TagValue(error.Tags, EndpointErrorReporter.FetchReasonTagPrefix);
+            if (host is null || reason is null)
+                continue;
+            if (reason == "host_not_allowed" && (project.FetchAllowAllPublic == true || FetchHostRules.IsAllowed(host, project.FetchAllowedHosts ?? [])))
+                continue;
+            var endpoint = error.Path.Split('/', StringSplitOptions.RemoveEmptyEntries).LastOrDefault() ?? string.Empty;
+            rows.Add(new OwnerFetchBlockedHost(host, reason, endpoint, error.Timestamp));
+        }
+        return rows.DistinctBy(row => (row.Host, row.Reason)).ToList();
+    }
+
+    private static string? TagValue(IReadOnlyList<string> tags, string prefix) =>
+        tags.FirstOrDefault(tag => tag.StartsWith(prefix, StringComparison.Ordinal))?[prefix.Length..];
 
     private static bool GameLogFormValid(Dictionary<string, string> values)
     {

@@ -264,6 +264,53 @@
             <button type="submit">Save media settings</button>
         </form>
     </details>
+    @{
+        var fetchBlocked = (IReadOnlyList<OwnerFetchBlockedHost>?)ViewData["FetchBlocked"] ?? [];
+    }
+    <details class="card settings-advanced">
+        <summary>Script fetch (ns.fetch)</summary>
+        <p class="muted">Lets script endpoints call outside hosts with <code>ns.fetch</code>. Nothing is allowed until you list a host here. Enter exact hosts (<code>api.example.com</code>) or subdomain patterns (<code>*.example.com</code>, which does not match <code>example.com</code> itself), one per line. Metadata and reserved addresses always stay blocked. Private addresses stay blocked unless the operator enables <code>endpoints.fetch_private_networks</code>. <a href="@OwnerDocs.Url("endpoints-javascript.md")" rel="noreferrer">ns.fetch</a></p>
+        <form method="post" action="@url/settings">
+            @Html.AntiForgeryToken()<input type="hidden" name="tab" value="fetch" />
+            <label>Allowed hosts (one per line)
+                <textarea name="fetchAllowedHosts" rows="4">@string.Join("\n", project.FetchAllowedHosts ?? new List<string>())</textarea></label>
+            <label class="check"><input type="checkbox" name="fetchAllowAllPublic" value="true" checked="@(project.FetchAllowAllPublic == true)" /> Allow every public host (the list is then ignored; private, loopback, link-local, reserved and metadata addresses stay blocked)</label>
+            <button type="submit">Save fetch settings</button>
+        </form>
+        @if (fetchBlocked.Count > 0)
+        {
+            <h4>Recently blocked calls</h4>
+            <p class="muted">Calls the policy refused in the recent window (the server keeps a bounded in-memory history). Allow a host only if your game should reach it.</p>
+            <table>
+                <thead><tr><th>Host</th><th>Reason</th><th>Endpoint</th><th>Last seen (UTC)</th><th></th></tr></thead>
+                <tbody>
+                @foreach (var blocked in fetchBlocked)
+                {
+                    <tr>
+                        <td><code>@blocked.Host</code></td>
+                        <td>@blocked.Reason</td>
+                        <td><code>@blocked.Endpoint</code></td>
+                        <td>@blocked.LastSeen.UtcDateTime.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture)</td>
+                        <td>
+                            @if (blocked.Reason == "host_not_allowed")
+                            {
+                                <form method="post" action="@url/settings">
+                                    @Html.AntiForgeryToken()<input type="hidden" name="tab" value="fetch-allow-host" />
+                                    <input type="hidden" name="host" value="@blocked.Host" />
+                                    <button type="submit">Allow this host</button>
+                                </form>
+                            }
+                        </td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        }
+        else
+        {
+            <p class="muted">No blocked calls in the recent window.</p>
+        }
+    </details>
     <details class="card settings-advanced">
         <summary>Revision policy (game versions)</summary>
         <p class="muted">Published revisions are retained so older game builds keep working: an old build inside its support window runs its own revision's definitions and values, while player data stays shared. The client library learns the policy from endpoint responses and revision-init. Server-side blocking is off unless you switch it on below. <a href="@OwnerDocs.Url("admin-panel.md#revision-policy")" rel="noreferrer">Revision policy</a></p>
