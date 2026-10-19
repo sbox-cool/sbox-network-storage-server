@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.Extensions.Logging.Abstractions;
+using SboxNetworkStorage.Application.NetworkStorage.Endpoints.Scripting;
 using SboxNetworkStorage.Application.NetworkStorage.Endpoints;
 using SboxNetworkStorage.Infrastructure.NetworkStorage.Storage;
 using SboxNetworkStorage.Server.Tests.Hosting;
@@ -119,6 +120,9 @@ public abstract class EndpointCombatConcurrencyTests<TFactory>(TFactory factory)
             => inner.IsLegacyPlayerProjectionsEnabledAsync(projectId, ct);
         public Task<bool> IsWebhookOutboxEnabledAsync(string projectId, CancellationToken ct)
             => inner.IsWebhookOutboxEnabledAsync(projectId, ct);
+
+        public Task<EndpointFetchPolicy> GetEndpointFetchPolicyAsync(string projectId, CancellationToken ct)
+            => inner.GetEndpointFetchPolicyAsync(projectId, ct);
     }
 }
 

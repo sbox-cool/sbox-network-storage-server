@@ -275,7 +275,7 @@ public sealed class JavaScriptEndpointRuntime : IEndpointScriptRuntime
         builder.Append("  var freeze = Object.freeze;\n");
         builder.Append("  function call(name, args) {\n");
         builder.Append("    var reply = parse(hostCall(name, stringify(args)));\n");
-        builder.Append("    if (!reply.ok) throw new Error(reply.error);\n");
+        builder.Append("    if (!reply.ok) { var failure = new Error(reply.error); if (reply.code) failure.code = reply.code; throw failure; }\n");
         builder.Append("    return reply.value;\n");
         builder.Append("  }\n");
         builder.Append("  function api(name) {\n");

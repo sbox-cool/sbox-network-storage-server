@@ -187,6 +187,8 @@ public static class NetworkStorageServices
         services.AddSingleton<IReadOnlyList<IEndpointScriptRuntime>>(sp => EndpointExecutor.CreateScriptRuntimes(config.GetBoolean("endpoints.scripts"), sp.GetRequiredService<ILogger<JavaScriptEndpointRuntime>>()));
         // One gate for the process: the executor is scoped, so a per-request gate would bound nothing.
         services.AddSingleton<ScriptConcurrencyGate>();
+        // ns.fetch network transport. endpoints.fetch_private_networks is read once at startup (restart to change).
+        services.AddSingleton<IScriptFetchTransport>(_ => new HttpScriptFetchTransport(config.GetBoolean("endpoints.fetch_private_networks")));
         services.AddScoped<EndpointExecutor>();
         services.AddScoped<IEndpointWebhookSender, HttpEndpointWebhookSender>();
         // Webhook delivery outbox (docs/alerting.md, "Endpoint webhook outbox"). Only projects that set

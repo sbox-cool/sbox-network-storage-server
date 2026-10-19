@@ -61,10 +61,13 @@ public sealed partial class EndpointExecutor
         string? Revision);
 
     /// <summary>Store state loaded so far, shared by every round of one request.</summary>
-    private sealed class ScriptState(EndpointReadSet? readSet)
+    private sealed class ScriptState(EndpointReadSet? readSet, ScriptFetchSession fetch)
     {
         /// <summary>Protected-collection snapshots. Null when no read needs a version check.</summary>
         public EndpointReadSet? ReadSet { get; } = readSet;
+
+        /// <summary>The outbound HTTP calls this request has made or queued. Shared by every round.</summary>
+        public ScriptFetchSession Fetch { get; } = fetch;
 
         /// <summary>Loaded records keyed <c>collectionId:key</c>. A missing record is stored as null.</summary>
         public Dictionary<string, object?> Records { get; } = new(StringComparer.Ordinal);
@@ -108,7 +111,10 @@ public sealed partial class EndpointExecutor
 
         public HashSet<string> MissedGlobals { get; } = new(StringComparer.Ordinal);
 
-        public int Misses => MissedRecords.Count + MissedScans.Count + MissedWorkflows.Count + MissedGlobals.Count;
+        /// <summary>Fetch calls this round queued that still need a network result. They are loaded, then the round re-runs.</summary>
+        public int MissedFetches { get; set; }
+
+        public int Misses => MissedRecords.Count + MissedScans.Count + MissedWorkflows.Count + MissedGlobals.Count + MissedFetches;
     }
 
     private sealed record ScriptRun(EndpointScriptHost Host, EndpointScriptOutcome Outcome);
@@ -140,7 +146,11 @@ public sealed partial class EndpointExecutor
         // One budget for the whole request: every round shares its time, statement and workflow limits.
         using var budget = new ScriptRunBudget(runtime.Limits, ct);
 
-        var state = new ScriptState(protectedCollections is null ? null : new EndpointReadSet(protectedCollections));
+        // The allow-list is read once per request, so every round of one execution sees the same policy.
+        var fetchPolicy = await _dataSource.GetEndpointFetchPolicyAsync(inv.ProjectId, ct);
+        var state = new ScriptState(
+            protectedCollections is null ? null : new EndpointReadSet(protectedCollections),
+            new ScriptFetchSession(fetchPolicy, _fetchTransport));
         // Catalogs are loaded whole, once per request. A failed load propagates: a script must not run against a
         // silently shorter catalog.
         state.WorkflowIds = await _dataSource.ListWorkflowIdsAsync(inv.ProjectId, ct);
@@ -155,7 +165,7 @@ public sealed partial class EndpointExecutor
             if (round >= MaxScriptRounds)
                 return ScriptFailure(500, "SCRIPT_LIMIT_EXCEEDED", "The endpoint needs more reads than one request may make.", null);
 
-            var loadDenial = await LoadScriptMissesAsync(inv, state, attempt, ct);
+            var loadDenial = await LoadScriptMissesAsync(inv, state, attempt, budget, ct);
             if (loadDenial is not null) return loadDenial;
         }
     }
@@ -170,6 +180,7 @@ public sealed partial class EndpointExecutor
         ScriptRunBudget budget,
         CancellationToken ct)
     {
+        state.Fetch.BeginRound();
         string Cid(string collection) => inv.ResolveCollection(collection);
 
         object? ReadRecord(string collection, string key)
@@ -266,7 +277,8 @@ public sealed partial class EndpointExecutor
             RunWorkflow: RunWorkflow,
             WorkflowIds: () => state.WorkflowIds,
             EndpointIds: () => state.GlobalIds,
-            GlobalSource: GlobalSource);
+            GlobalSource: GlobalSource,
+            Fetch: state.Fetch);
 
         var host = new EndpointScriptHost(bindings, runtime.Limits.MaxLogBytes, _logger);
         var scriptRequest = new EndpointScriptRequest(
@@ -275,7 +287,9 @@ public sealed partial class EndpointExecutor
             inv.Method,
             inv.EndpointSlug,
             inv.Revision);
-        return new ScriptRun(host, runtime.Execute(source, scriptRequest, host, budget));
+        var outcome = runtime.Execute(source, scriptRequest, host, budget);
+        round.MissedFetches = state.Fetch.PendingCount;
+        return new ScriptRun(host, outcome);
     }
 
     /// <summary>Loads the records, scans, workflows and globals one run missed. Returns a denial when a load fails closed.</summary>
@@ -283,6 +297,7 @@ public sealed partial class EndpointExecutor
         ScriptInvocation inv,
         ScriptState state,
         ScriptRound round,
+        ScriptRunBudget budget,
         CancellationToken ct)
     {
         var projectId = inv.ProjectId;
@@ -350,6 +365,19 @@ public sealed partial class EndpointExecutor
             state.Globals[id] = await ReadGlobalModuleSourceAsync(projectId, id, ct);
         }
 
+        if (state.Fetch.PendingCount > 0)
+        {
+            budget.Suspend();
+            try
+            {
+                await state.Fetch.LoadPendingAsync(ct);
+            }
+            finally
+            {
+                budget.Resume();
+            }
+        }
+
         return null;
     }
 
@@ -405,8 +433,25 @@ public sealed partial class EndpointExecutor
         return runtime.ToJavaScript(source);
     }
 
-    /// <summary>Maps a finished run to the response, committing its writes when it succeeded.</summary>
+    /// <summary>Maps a finished run to the response. Carries the refused fetch calls for the owner's diagnostics.</summary>
     private async Task<EndpointExecutionResult> FinishScriptRunAsync(
+        ScriptInvocation inv,
+        ScriptState state,
+        ScriptRound round,
+        ScriptRun run,
+        CancellationToken ct) =>
+        (await FinishScriptRunCoreAsync(inv, state, round, run, ct)) with { FetchBlocked = state.Fetch.Blocked };
+
+    /// <summary>One trace step per fetch call, for the try-it trace and the owner's per-call view.</summary>
+    private static IEnumerable<EndpointStepTrace> FetchTraceSteps(ScriptFetchSession fetch) =>
+        fetch.Trace.Select(entry => new EndpointStepTrace(
+            $"fetch#{entry.Ordinal}",
+            "fetch",
+            new { host = entry.Host, method = entry.Method, status = entry.Status, error = entry.ErrorCode, reason = entry.Reason },
+            Passed: entry.ErrorCode is null));
+
+    /// <summary>Maps a finished run to the response, committing its writes when it succeeded.</summary>
+    private async Task<EndpointExecutionResult> FinishScriptRunCoreAsync(
         ScriptInvocation inv,
         ScriptState state,
         ScriptRound round,
@@ -416,6 +461,7 @@ public sealed partial class EndpointExecutor
         if (inv.Trace is not null)
         {
             inv.Trace.Steps.AddRange(round.TraceSteps);
+            inv.Trace.Steps.AddRange(FetchTraceSteps(state.Fetch));
             inv.Trace.PendingWrites.AddRange(round.TraceWrites);
             inv.Trace.ScriptLogs.AddRange(run.Host.Logs);
         }
@@ -430,6 +476,8 @@ public sealed partial class EndpointExecutor
             case EndpointScriptOutcomeKind.LimitExceeded:
                 return ScriptFailure(500, "SCRIPT_LIMIT_EXCEEDED", "The endpoint exceeded a limit.", ScriptOwnerDetail(outcome.OwnerDetail, logs));
             case EndpointScriptOutcomeKind.ScriptError:
+                if (state.Fetch.LastErrorCode is { } fetchCode)
+                    return ScriptFailure(502, fetchCode, "An outbound request failed.", ScriptOwnerDetail(outcome.OwnerDetail, logs));
                 return ScriptFailure(500, "SCRIPT_ERROR", "The endpoint script failed.", ScriptOwnerDetail(outcome.OwnerDetail, logs));
         }
 

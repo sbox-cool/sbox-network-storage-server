@@ -1,3 +1,5 @@
+using SboxNetworkStorage.Application.NetworkStorage.Endpoints.Scripting;
+
 namespace SboxNetworkStorage.Application.NetworkStorage.Endpoints;
 
 /// <summary>
@@ -101,6 +103,12 @@ public interface IEndpointDataSource
     /// endpoint webhook steps enqueue and report <c>queued</c> instead of sending inline. Off by default.
     /// </summary>
     Task<bool> IsWebhookOutboxEnabledAsync(string projectId, CancellationToken ct);
+
+    /// <summary>
+    /// The project's <c>ns.fetch</c> allow-list and allow-all-public setting. A project that never set them gets
+    /// <see cref="EndpointFetchPolicy.Closed"/>, so every outbound call is refused.
+    /// </summary>
+    Task<EndpointFetchPolicy> GetEndpointFetchPolicyAsync(string projectId, CancellationToken ct);
 }
 
 /// <summary>The writes of one endpoint call, applied atomically.</summary>

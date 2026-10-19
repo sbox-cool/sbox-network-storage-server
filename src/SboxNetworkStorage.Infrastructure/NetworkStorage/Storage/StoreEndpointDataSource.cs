@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using SboxNetworkStorage.Application.NetworkStorage.Endpoints;
+using SboxNetworkStorage.Application.NetworkStorage.Endpoints.Scripting;
 using SboxNetworkStorage.Storage;
 using SboxNetworkStorage.Infrastructure.NetworkStorage.Metadata;
 
@@ -490,6 +491,26 @@ public sealed partial class StoreEndpointDataSource : IEndpointDataSource, IEndp
         return project is { ValueKind: JsonValueKind.Object } payload
             && payload.TryGetProperty("webhookOutbox", out var flag)
             && flag.ValueKind == JsonValueKind.True;
+    }
+
+    /// <inheritdoc />
+    public async Task<EndpointFetchPolicy> GetEndpointFetchPolicyAsync(string projectId, CancellationToken ct)
+    {
+        var project = await _store.ReadProjectAsync(projectId, ct);
+        if (project is not { ValueKind: JsonValueKind.Object } payload)
+            return EndpointFetchPolicy.Closed;
+
+        var hosts = new List<string>();
+        if (payload.TryGetProperty("fetchAllowedHosts", out var list) && list.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in list.EnumerateArray())
+            {
+                if (item.ValueKind == JsonValueKind.String && FetchHostRules.TryNormalizeEntry(item.GetString(), out var entry))
+                    hosts.Add(entry);
+            }
+        }
+        var allowAllPublic = payload.TryGetProperty("fetchAllowAllPublic", out var flag) && flag.ValueKind == JsonValueKind.True;
+        return new EndpointFetchPolicy(hosts, allowAllPublic);
     }
 
     /// <summary>

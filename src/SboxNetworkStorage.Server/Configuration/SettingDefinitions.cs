@@ -130,6 +130,7 @@ public static class SettingDefinitions
         new(ServerFile, "adminpanel.release_status", SettingType.Boolean, true, "Show library and server release status on the owner dashboard. Needs updates.check = true; the server fetches release_status_url in the background."),
         new(ServerFile, "adminpanel.release_status_url", SettingType.String, "https://raw.githubusercontent.com/sbox-cool/sbox-network-storage/release-status/release-status.json", "Where the library publishes release-status.json. HTTPS required except loopback testing."),
         new(ServerFile, "endpoints.scripts", SettingType.Boolean, true, "Run JavaScript and TypeScript endpoints (runtime: javascript or typescript). Off makes scripted endpoints answer 503 SCRIPTS_DISABLED; YAML endpoints are unaffected. Restart after changing."),
+        new(ServerFile, "endpoints.fetch_private_networks", SettingType.Boolean, false, "Let ns.fetch reach private, loopback and link-local addresses. Off by default. Metadata and reserved addresses stay blocked either way. Restart after changing."),
 
         new(ServerFile, "tunnel.enabled", SettingType.Boolean, false, "Run the supervised cloudflared connector. Managed by tunnel enable/disable."),
         new(ServerFile, "tunnel.registry", SettingType.String, "https://sboxcool.com/api/network-storage/tunnels", "Signed tunnel registry endpoint. HTTPS required except loopback testing."),

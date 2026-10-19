@@ -1545,8 +1545,16 @@ public sealed partial class EndpointStepExecutor
     }
 }
 
-/// <summary>Endpoint execution result: HTTP status + JS-value-model body.</summary>
-public sealed record EndpointExecutionResult(bool Ok, int Status, object? Body, string? OwnerDetail = null);
+/// <summary>
+/// Endpoint execution result: HTTP status + JS-value-model body. <see cref="FetchBlocked"/> lists the outbound calls
+/// a script made that the allow-list or address rules refused, for the owner's diagnostics.
+/// </summary>
+public sealed record EndpointExecutionResult(
+    bool Ok,
+    int Status,
+    object? Body,
+    string? OwnerDetail = null,
+    IReadOnlyList<EndpointFetchBlockedCall>? FetchBlocked = null);
 
 /// <summary>Inputs for a single endpoint execution.</summary>
 public sealed record EndpointExecutionRequest(
