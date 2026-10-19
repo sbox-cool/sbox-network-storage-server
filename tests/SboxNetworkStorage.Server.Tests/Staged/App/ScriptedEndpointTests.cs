@@ -81,6 +81,134 @@ public sealed class ScriptedEndpointExecutorTests
         Assert.Contains("SCRIPT_LIMIT_EXCEEDED", JsonSerializer.Serialize(result.Body));
     }
 
+    [Fact]
+    public void Engine_Guards_AreSetOnEveryEngine()
+    {
+        var options = new Jint.Options();
+        ScriptEngineGuards.Configure(options, TimeSpan.FromSeconds(1));
+
+        Assert.False(options.AgentCanSuspend);
+        Assert.True(options.Constraints.StackOverflowGuard);
+        Assert.Equal(ScriptEngineGuards.MaxArrayLength, options.Constraints.MaxArraySize);
+        Assert.Equal(TimeSpan.FromSeconds(1), options.Constraints.RegexTimeout);
+        Assert.Equal(TimeSpan.FromSeconds(1), options.Constraints.PromiseTimeout);
+    }
+
+    [Fact]
+    public async Task Script_AtomicsWait_FailsFastWithTypedError()
+    {
+        // Atomics.wait would park the host thread for the full 5 s; the global is removed, so it fails at once.
+        var executor = Executor("""
+            export default function handle() {
+              const cell = new Int32Array(new SharedArrayBuffer(4));
+              return { ok: Atomics.wait(cell, 0, 0, 5000) };
+            }
+            """);
+
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        var result = await Run(executor);
+        clock.Stop();
+
+        Assert.False(result.Ok);
+        Assert.Contains("SCRIPT_ERROR", JsonSerializer.Serialize(result.Body));
+        Assert.True(clock.Elapsed < TimeSpan.FromSeconds(2), $"Took {clock.Elapsed}.");
+    }
+
+    [Fact]
+    public async Task Script_DeepNestedResult_YieldsTypedErrorAndProcessSurvives()
+    {
+        // Prove the guard is on for the engine the runtime will build, before running anything. Without it, the deep
+        // array below ends the test host instead of producing an error.
+        var runtimeOptions = new JavaScriptEndpointRuntime(enabled: true, EndpointScriptLimits.Defaults)
+            .CreateOptions(CancellationToken.None, loader: null);
+        Assert.True(runtimeOptions.Constraints.StackOverflowGuard);
+
+        var executor = Executor("""
+            export default function handle() {
+              const deep = new Array(300000).fill(0).reduce(acc => [acc], []);
+              return { ok: true, deep };
+            }
+            """);
+
+        var result = await Run(executor);
+
+        Assert.False(result.Ok);
+        var json = JsonSerializer.Serialize(result.Body);
+        Assert.True(json.Contains("SCRIPT_ERROR", StringComparison.Ordinal) || json.Contains("SCRIPT_LIMIT_EXCEEDED", StringComparison.Ordinal), json);
+    }
+
+    [Fact]
+    public async Task Script_CatastrophicRegex_GivesUpWithinTheScriptTimeout()
+    {
+        var executor = Executor("""
+            export default function handle(req) {
+              return { ok: /^(a+)+$/.test(req.input.text) };
+            }
+            """);
+        var input = new Dictionary<string, object?> { ["text"] = new string('a', 40) + "!" };
+
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        var result = await Run(executor, input: input);
+        clock.Stop();
+
+        Assert.False(result.Ok);
+        Assert.Contains("SCRIPT_LIMIT_EXCEEDED", JsonSerializer.Serialize(result.Body));
+        Assert.True(clock.Elapsed < TimeSpan.FromSeconds(3), $"Took {clock.Elapsed}.");
+    }
+
+    [Fact]
+    public async Task Script_RequestInput_IsBuiltWithJsonParse_KeepsProtoAsOwnProperty()
+    {
+        var executor = Executor("""
+            export default function handle(req) {
+              return {
+                ownProto: Object.prototype.hasOwnProperty.call(req.input, "__proto__"),
+                inheritedAdmin: req.input.admin === true,
+              };
+            }
+            """);
+        var input = new Dictionary<string, object?> { ["__proto__"] = new Dictionary<string, object?> { ["admin"] = true } };
+
+        var result = await Run(executor, input: input);
+
+        Assert.True(result.Ok, result.OwnerDetail);
+        var json = JsonSerializer.Serialize(result.Body);
+        Assert.Contains("\"ownProto\":true", json);
+        Assert.Contains("\"inheritedAdmin\":false", json);
+    }
+
+    [Theory]
+    [InlineData("'x'.repeat(2000000)")]
+    [InlineData("'x'.padStart(2000000, 'y')")]
+    [InlineData("'x'.padEnd(2000000, 'y')")]
+    [InlineData("Array.from({ length: 2000000 })")]
+    [InlineData("new Array(2000000).fill(0)")]
+    [InlineData("new Array(2000000).join('ab')")]
+    public async Task Script_SingleCallAllocators_AreCapped(string expression)
+    {
+        var executor = Executor($"export default function handle() {{ return {{ ok: {expression}.length > 0 }}; }}");
+
+        var result = await Run(executor);
+
+        Assert.False(result.Ok);
+        Assert.Contains("SCRIPT_", JsonSerializer.Serialize(result.Body));
+    }
+
+    [Fact]
+    public async Task Script_CappedAllocators_StillAllowNormalSizes()
+    {
+        var executor = Executor("""
+            export default function handle() {
+              return { ok: true, text: 'x'.repeat(1000).padStart(1200, '-').length, items: Array.from({ length: 1000 }).length };
+            }
+            """);
+
+        var result = await Run(executor);
+
+        Assert.True(result.Ok, result.OwnerDetail);
+        Assert.Contains("\"text\":1200", JsonSerializer.Serialize(result.Body));
+    }
+
     private const string BankScript = """
         export function coinsOf() { return ns.records.get("players", req.player.steamId).coins; }
         export function whoAmI() { return req.player.steamId; }

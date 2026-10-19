@@ -79,7 +79,7 @@ public sealed class JavaScriptEndpointRuntime : IEndpointScriptRuntime
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(host);
-        var engine = CreateEngine(ct, new GlobalModuleLoader(host.GlobalModuleSource));
+        using var engine = CreateEngine(ct, new GlobalModuleLoader(host.GlobalModuleSource));
         try
         {
             var prepared = Prepare(source, engine);
@@ -94,14 +94,16 @@ public sealed class JavaScriptEndpointRuntime : IEndpointScriptRuntime
             var ns = environment.Get("ns");
             var serialize = environment.Get("serialize");
 
-            var reqValue = engine.Evaluate("(" + JsonSerializer.Serialize(new
+            var requestJson = JsonSerializer.Serialize(new
             {
                 input = request.Input,
                 player = request.PlayerSteamId is null ? null : new { steamId = request.PlayerSteamId },
                 method = request.Method,
                 endpoint = request.Endpoint,
                 revision = request.Revision,
-            }) + ")");
+            });
+            // The prelude's saved JSON.parse builds req, so a key such as "__proto__" stays an own property.
+            var reqValue = engine.Call(environment.Get("parseRequest"), JsValue.Undefined, new JsValue[] { requestJson });
 
             engine.SetValue("ns", ns);
             engine.SetValue("req", reqValue);
@@ -133,7 +135,8 @@ public sealed class JavaScriptEndpointRuntime : IEndpointScriptRuntime
         }
     }
 
-    private Engine CreateEngine(CancellationToken ct, IModuleLoader? loader)
+    /// <summary>Engine options for an endpoint run. Internal so tests can assert the guards are on before running anything.</summary>
+    internal Options CreateOptions(CancellationToken ct, IModuleLoader? loader)
     {
         var options = new Options
         {
@@ -145,10 +148,17 @@ public sealed class JavaScriptEndpointRuntime : IEndpointScriptRuntime
             .LimitRecursion(Limits.MaxRecursionDepth)
             .DisableStringCompilation(true)
             .CancellationToken(ct);
-        options.Constraints.RegexTimeout = Limits.Timeout;
+        ScriptEngineGuards.Configure(options, Limits.Timeout);
         if (loader is not null)
             options.EnableModules(loader);
-        return new Engine(options);
+        return options;
+    }
+
+    private Engine CreateEngine(CancellationToken ct, IModuleLoader? loader)
+    {
+        var engine = new Engine(CreateOptions(ct, loader));
+        ScriptEngineGuards.Apply(engine, keepBinaryBuffers: false);
+        return engine;
     }
 
     private Prepared<Acornima.Ast.Module> Prepare(string source, Engine engine)
@@ -156,7 +166,7 @@ public sealed class JavaScriptEndpointRuntime : IEndpointScriptRuntime
         var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(source)));
         if (_prepared.TryGetValue(key, out var cached))
             return cached;
-        var prepared = Engine.PrepareModule(source, ModuleSpecifier, new ModulePreparationOptions());
+        var prepared = Engine.PrepareModule(source, ModuleSpecifier, ScriptEngineGuards.ModulePreparation(Limits.Timeout));
         if (_prepared.Count >= PreparedCacheLimit)
             _prepared.Clear();
         _prepared[key] = prepared;
@@ -205,7 +215,20 @@ public sealed class JavaScriptEndpointRuntime : IEndpointScriptRuntime
         if (name.Contains("Memory", StringComparison.Ordinal))
             return new EndpointScriptOutcome(EndpointScriptOutcomeKind.LimitExceeded, null, "Memory limit exceeded.");
 
+        if (RegexTimeout(error))
+            return new EndpointScriptOutcome(EndpointScriptOutcomeKind.LimitExceeded, null, "Regular expression time limit exceeded.");
+
         return new EndpointScriptOutcome(EndpointScriptOutcomeKind.ScriptError, null, error.ToString());
+    }
+
+    private static bool RegexTimeout(Exception error)
+    {
+        for (Exception? current = error; current is not null; current = current.InnerException)
+        {
+            if (current is RegexMatchTimeoutException)
+                return true;
+        }
+        return false;
     }
 
     private static string LocationPrefix(Exception error) =>
@@ -271,6 +294,7 @@ public sealed class JavaScriptEndpointRuntime : IEndpointScriptRuntime
         builder.Append("    ns: freeze(ns),\n");
         builder.Append("    workflows: freeze(workflows),\n");
         builder.Append("    globals: freeze(globals),\n");
+        builder.Append("    parseRequest: function (text) { return parse(text); },\n");
         builder.Append("    serialize: function (value) { return stringify(value); }\n");
         builder.Append("  };\n");
         builder.Append("})");

@@ -107,12 +107,15 @@ public sealed partial class TypeScriptEndpointRuntime : IEndpointScriptRuntime
 
     private static StripResult StripWithSucrase(string source)
     {
-        var engine = new Engine(new Options { Strict = true }
+        var options = new Options { Strict = true }
             .TimeoutInterval(StripLimits.Timeout)
             .MaxStatements(StripLimits.MaxStatements)
             .LimitMemory(StripLimits.MemoryBytes)
             .LimitRecursion(StripLimits.MaxRecursionDepth)
-            .DisableStringCompilation(true));
+            .DisableStringCompilation(true);
+        ScriptEngineGuards.Configure(options, StripLimits.Timeout);
+        using var engine = new Engine(options);
+        ScriptEngineGuards.Apply(engine, keepBinaryBuffers: true);
         try
         {
             engine.Execute(StripperScript.Value);
@@ -140,7 +143,7 @@ public sealed partial class TypeScriptEndpointRuntime : IEndpointScriptRuntime
         using var stream = typeof(TypeScriptEndpointRuntime).Assembly.GetManifestResourceStream(StripResourceName)
             ?? throw new InvalidOperationException($"Embedded resource '{StripResourceName}' is missing.");
         using var reader = new StreamReader(stream, Encoding.UTF8);
-        return Engine.PrepareScript(reader.ReadToEnd(), "sucrase-strip.js");
+        return Engine.PrepareScript(reader.ReadToEnd(), "sucrase-strip.js", strict: false, ScriptEngineGuards.ScriptPreparation(StripLimits.Timeout));
     }
 
     // `namespace X {` or `module X {` that is not an ambient declaration. Such blocks have runtime semantics that
