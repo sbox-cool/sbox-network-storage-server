@@ -141,7 +141,7 @@ public sealed class ManagementReadHandler : INetworkStorageHandler
             "settings" or "config" => await HandleSettingsAsync(project, ownerUserId, projectId, auth.KeyType),
             "validate"         => await HandleValidateAsync(request, apiKey, auth, projectId, ownerUserId),
             "sync-jobs"        => HandleSyncJob(request, ownerUserId, projectId, auth.KeyType),
-            "agent-manifest"   => NotImplementedResult("agent-manifest"),
+            "agent-manifest"   => await HandleAgentManifestAsync(request, ownerUserId, project, auth.KeyType),
             _                  => NotImplementedResult(resourceName),
         };
     }
@@ -295,6 +295,71 @@ public sealed class ManagementReadHandler : INetworkStorageHandler
             storagePathsRead: new[] { resourcePath },
             authDecision: authDecision);
     }
+
+    // Reference: routeManageGetAgentManifest (manage-api-controller.js L1118-1252). Reads the live
+    // definitions only, never staged revisions. A missing game package only drops revision fields.
+    private async Task<NetworkStorageResult> HandleAgentManifestAsync(
+        NetworkStorageRequest request, long userId, WorkspaceProject project, string authDecision)
+    {
+        var ct = request.CancellationToken;
+        var projectId = project.Id;
+        var storagePaths = new[] { "endpoints.json", "game-package.json", "collections.json", "workflows.json" }
+            .Select(file => $"network-storage/users/{userId}/{projectId}/{file}")
+            .ToArray();
+
+        JsonElement? endpoints;
+        JsonElement? collections;
+        JsonElement? workflows;
+        try
+        {
+            endpoints = await ReadProjectFileAsync(userId, projectId, "endpoints.json", ct);
+            collections = await ReadProjectFileAsync(userId, projectId, "collections.json", ct);
+            workflows = await ReadProjectFileAsync(userId, projectId, "workflows.json", ct);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception)
+        {
+            return NetworkStorageResult.Error(
+                500,
+                "MANAGEMENT_READ_ERROR",
+                new { ok = false, error = new { code = "MANAGEMENT_READ_ERROR", message = "Failed to read the agent manifest sources." } },
+                storagePathsRead: storagePaths,
+                authDecision: authDecision);
+        }
+
+        JsonElement? gamePackage;
+        try
+        {
+            gamePackage = await ReadProjectFileAsync(userId, projectId, "game-package.json", ct);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception)
+        {
+            gamePackage = null;
+        }
+
+        var manifest = ManagementAgentManifest.Build(
+            project,
+            projectId,
+            request.ApiBaseUrl ?? string.Empty,
+            endpoints.GetValueOrDefault(),
+            gamePackage.GetValueOrDefault(),
+            collections.GetValueOrDefault(),
+            workflows.GetValueOrDefault(),
+            request.Query);
+        manifest.Insert(0, "ok", true);
+
+        return NetworkStorageResult.Ok(manifest, storagePathsRead: storagePaths, authDecision: authDecision);
+    }
+
+    private async Task<JsonElement?> ReadProjectFileAsync(long userId, string projectId, string fileName, CancellationToken ct)
+        => await _workspaceClient.GetProjectResourceAsync<JsonElement>(userId, projectId, fileName, ct);
 
     private static long? TryParseUnixTimestamp(JsonElement root, string propertyName)
     {
@@ -482,7 +547,8 @@ public sealed class ManagementReadHandler : INetworkStorageHandler
         "settings" or "config" => ["settings"],
         // Jobs are created by endpoint sync and carry endpoint results, so they need the endpoints read scope.
         "sync-jobs" => ["endpoints"],
-        "tests" or "game-package" or "agent-manifest" =>
+        "agent-manifest" => ["endpoints"],
+        "tests" or "game-package" =>
             ["endpoints", "queries", "collections", "workflows", "game_values", "rate_limits", "settings"],
         // Validation reports credential validity, not resource definitions.
         _ => [],

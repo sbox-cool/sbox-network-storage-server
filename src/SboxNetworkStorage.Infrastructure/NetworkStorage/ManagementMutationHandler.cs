@@ -329,7 +329,7 @@ public sealed partial class ManagementMutationHandler : INetworkStorageHandler
             if (IsFalsy(slugValue))
             {
                 return NetworkStorageResult.Error(400, "MISSING_SLUG",
-                    new { ok = false, error = new { code = "MISSING_SLUG", message = "Provide 'slug'." } },
+                    new { ok = false, error = "MISSING_SLUG", message = "Provide 'slug'." },
                     authDecision: authDecision);
             }
 
@@ -346,7 +346,7 @@ public sealed partial class ManagementMutationHandler : INetworkStorageHandler
             {
                 var label = slug ?? slugValue.GetRawText();
                 return NetworkStorageResult.Error(400, "ENDPOINT_NOT_FOUND",
-                    new { ok = false, error = new { code = "ENDPOINT_NOT_FOUND", message = $"Endpoint \"{label}\" not found." } },
+                    new { ok = false, error = "ENDPOINT_NOT_FOUND", message = $"Endpoint \"{label}\" not found." },
                     authDecision: authDecision);
             }
 

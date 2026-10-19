@@ -218,6 +218,43 @@ public abstract class LibraryWireCompatibilityTests<TFactory> : IDisposable wher
         Assert.Equal(pathSlug, bodySlug);
     }
 
+    // Older published libraries send the slug only in the body. The slug is transport metadata: the
+    // reference strips it from script input when it came from the body (execution-routes.js), so a script
+    // reading input must not see it.
+    [SkippableFact]
+    public async Task EndpointCall_SlugOnlyInBody_IsNotVisibleToScriptInput()
+    {
+        var project = await factory.CreateProjectAsync("Library body slug input");
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var store = scope.ServiceProvider.GetRequiredService<INetworkStorageStore>();
+            await store.UpsertEndpointAsync(project.ProjectId, "echo_slug", "echo_slug", "POST", true,
+                JsonSerializer.SerializeToElement(new
+                {
+                    id = "echo_slug", name = "Echo", slug = "echo_slug", method = "POST", enabled = true,
+                    response = new { status = 200, body = new { keep = "{{input.hello}}", leak = "{{input._endpointSlug}}" } },
+                }), null, 1, CancellationToken.None);
+        }
+        using var client = Client(factory);
+        using var request = new HttpRequestMessage(HttpMethod.Post, $"/v3/endpoints/{project.ProjectId}?apiKey={project.PublicKey}")
+        {
+            Content = JsonContent.Create(new
+            {
+                hello = "world",
+                security = new { configVersion = "", clientMode = "legacy", authSessions = "disabled", encryptedRequests = "disabled", revisionId = 0, revisionOutdated = false },
+                _endpointSlug = "echo_slug",
+            }),
+        };
+        request.Headers.Add("x-public-key", project.PublicKey);
+        using var response = await client.SendAsync(request);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var raw = await response.Content.ReadAsStringAsync();
+        var body = JsonSerializer.Deserialize<JsonElement>(raw);
+        Assert.Equal("world", body.GetProperty("keep").GetString());
+        // The slug must not reach script input in any form, so it cannot appear anywhere in the rendered body.
+        Assert.DoesNotContain("echo_slug", raw);
+    }
+
     // Code/Storage/NetworkStorageQueries.cs and Code/Core/NetworkStorageRevisionInit.cs.
     [SkippableFact]
     public async Task QueryRunAndRevisionInit_HandshakeShapes()

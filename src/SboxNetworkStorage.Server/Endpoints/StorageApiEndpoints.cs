@@ -14,6 +14,7 @@ using SboxNetworkStorage.Infrastructure.NetworkStorage.Storage;
 using SboxNetworkStorage.Infrastructure.Observability;
 using SboxNetworkStorage.Server.Compat;
 using SboxNetworkStorage.Server.Infrastructure.NetworkStorage;
+using SboxNetworkStorage.Server.Owner;
  using SboxNetworkStorage.Server.Middleware;
 using System.Text.RegularExpressions;
 using System.Linq;
@@ -524,9 +525,18 @@ public static partial class StorageApiEndpoints
             return;
         }
 
-        // [KNOWN GAP] JSON-schema validation against collection.Schema is not yet
-        // implemented in the .NET runtime. The record is still type-validated
-        // above and all other access/integrity rules are enforced.
+        // Collection JSON-schema. Reference routeV3GlobalAppend validates before the rate
+        // limit; collections without a schema skip the check.
+        if (collection.Schema is not null)
+        {
+            var schema = JsonSerializer.SerializeToElement(collection.Schema, JsonOptions);
+            if (OwnerRecordValidation.ValidateAgainstSchema(schema, body) is { } schemaError)
+            {
+                context.Response.StatusCode = StatusCodes.Status400BadRequest;
+                await context.Response.WriteAsJsonAsync(new { error = "SCHEMA_VALIDATION_FAILED", detail = $"Schema validation failed: {schemaError}" }, JsonOptions);
+                return;
+            }
+        }
 
         // Writer identity. Use the on-behalf-of header when present, then the
         // steam-id header/query, defaulting to "anonymous".

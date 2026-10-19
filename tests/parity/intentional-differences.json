@@ -48,6 +48,7 @@
     { "scenario": "documents-player-crud", "step": "get-after-update", "path": "body:$.*", "reason": "Live bug: managed service stores the ops of a document update verbatim instead of applying them; this server applies the ops." },
 
     { "scenario": "manage-tests-and-tools", "step": "sync-job-unknown", "path": "body:$.message", "reason": "Legacy-infrastructure wording removed from the message (hygiene: no Bun/Scylla/Bunny names in shipped strings)." },
+    { "scenario": "manage-tests-and-tools", "step": "sync-job-unknown", "path": "*", "reason": "Reference routeManageGetSyncJob (manage-api-controller.js L1604-1606) answers 404 JOB_NOT_FOUND for an unknown job id; this server matches it. The corpus expectation of 200 $.ok predates the async endpoint sync job route." },
     { "scenario": "errors-invalid-input", "step": "unknown-v3-route", "path": "body:$.detail", "reason": "Legacy-infrastructure wording removed from the message (ScyllaDB named as Store)." },
     { "scenario": "runtime-security-config", "step": "security-config", "path": "header:x-security-config-source", "reason": "Informational source label 'scylladb' replaced by 'store'; the client library does not read it." },
     { "scenario": "runtime-security-config", "step": "security-config", "path": "body:$.source", "reason": "Informational source label 'scylladb' replaced by 'store'; the client library does not read it." },

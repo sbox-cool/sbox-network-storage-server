@@ -727,6 +727,7 @@ public static class NetworkStorageGatewayEndpoints
         {
             TargetsNext = TargetsNext(context, query),
             PublicKey = PublicKeyHeader(context),
+            ApiBaseUrl = RequestBaseUrl(context),
         };
 
         var result = await handler.ExecuteAsync(request);
@@ -741,6 +742,9 @@ public static class NetworkStorageGatewayEndpoints
         context.Request.Headers.TryGetValue("x-public-key", out var publicKeyHeader) && !string.IsNullOrWhiteSpace(publicKeyHeader)
             ? publicKeyHeader.ToString().Trim()
             : null;
+
+    private static string RequestBaseUrl(HttpContext context) =>
+        ServerBaseUrl.ForRequest(context.RequestServices.GetRequiredService<EffectiveConfig>(), context.Request);
 
     private static bool TargetsNext(HttpContext context, IReadOnlyDictionary<string, string> query)
         => NetworkStoragePublishTarget.IsNext(
@@ -786,6 +790,7 @@ public static class NetworkStorageGatewayEndpoints
         {
             TargetsNext = TargetsNext(context, query),
             PublicKey = PublicKeyHeader(context),
+            ApiBaseUrl = RequestBaseUrl(context),
         };
 
         // Authenticate from headers before reading any request body.

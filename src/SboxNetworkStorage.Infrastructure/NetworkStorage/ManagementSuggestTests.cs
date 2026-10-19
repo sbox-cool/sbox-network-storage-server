@@ -15,9 +15,9 @@ namespace SboxNetworkStorage.Infrastructure.NetworkStorage;
 /// </summary>
 internal static class ManagementSuggestTests
 {
-    // Reference name separator, byte-for-byte. The reference source holds the UTF-8 bytes
-    // C3 83 C2 A2 C3 A2 E2 80 9A C2 AC C3 A2 E2 82 AC C2 9D here (not U+2014). Ported verbatim.
-    private const string NameSeparator = "\u00C3\u00A2\u00E2\u201A\u00AC\u00E2\u20AC\u009D";
+    // Reference name separator is U+2014 (em dash). The reference source stores it double-encoded;
+    // the port emits the correct character.
+    private const string NameSeparator = "\u2014";
 
     private const string WrongValue = "__WRONG_VALUE__";
 
