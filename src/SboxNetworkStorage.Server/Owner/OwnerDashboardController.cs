@@ -14,6 +14,7 @@ using SboxNetworkStorage.Domain.Workspace;
 using SboxNetworkStorage.Server.Authority;
 using SboxNetworkStorage.Server.Configuration;
 using SboxNetworkStorage.Server.Hosting;
+using SboxNetworkStorage.Server.Updates.ReleaseStatus;
 
 namespace SboxNetworkStorage.Server.Owner;
 
@@ -27,8 +28,10 @@ public sealed record OwnerProjectCard(WorkspaceProject Project, long? LiveRevisi
 /// <param name="OpenDialog">Dialog id (<c>create-project</c>, <c>import</c>, <c>export</c>) to render open: the no-JS target or the re-opened dialog after a validation error.</param>
 /// <param name="CreateName">The create-project name to preserve when re-rendering after a validation error.</param>
 /// <param name="CreateDescription">The create-project description to preserve when re-rendering after a validation error.</param>
+/// <param name="ReleaseStatus">Library and server release status, or null when the status card is off.</param>
 public sealed record OwnerDashboardModel(IReadOnlyList<OwnerProjectCard> Cards, string SshHost, string? Error = null,
-    string? Query = null, string? OpenDialog = null, string? CreateName = null, string? CreateDescription = null, int TotalProjects = 0)
+    string? Query = null, string? OpenDialog = null, string? CreateName = null, string? CreateDescription = null, int TotalProjects = 0,
+    OwnerReleaseStatusCard? ReleaseStatus = null)
 {
     public IReadOnlyList<WorkspaceProject> Projects => Cards.Select(card => card.Project).ToList();
 
@@ -66,7 +69,8 @@ public sealed record OwnerProjectModel(WorkspaceProject Project, NetworkStorageP
 /// <summary>Standalone adaptation of the Network Storage project/settings/key management surface.</summary>
 [Authorize(AuthenticationSchemes = OwnerHostingExtensions.Scheme)]
 public sealed class OwnerDashboardController(INetworkStorageProjectService projects, IWorkspaceStore workspace,
-    IAuditLogger audit, INetworkStorageStore store, EffectiveConfig config, IMemoryCache cache, TimeProvider time, GameLogQueue gameLogs) : Controller
+    IAuditLogger audit, INetworkStorageStore store, EffectiveConfig config, IMemoryCache cache, TimeProvider time, GameLogQueue gameLogs,
+    ReleaseStatusService releaseStatus) : Controller
 {
     private const long Owner = NetworkStorageServices.LocalOwnerUserId;
     private const int RecentRequests = 200;
@@ -268,8 +272,10 @@ public sealed class OwnerDashboardController(INetworkStorageProjectService proje
         var cards = await OwnerProjectCards.LoadAsync(workspace, store, Owner, ct);
         var total = cards.Count;
         if (query.Length > 0) cards.RemoveAll(card => !OwnerDashboardModel.Matches(card, query));
+        var releaseCard = releaseStatus.Enabled ? OwnerReleaseStatusCard.From(releaseStatus, time.GetUtcNow()) : null;
+        releaseStatus.RequestRefresh();
         return new OwnerDashboardModel(cards, OwnerDashboardModel.SshHostFor(config, Request), error,
-            query.Length == 0 ? null : query, openDialog, createName, createDescription, total);
+            query.Length == 0 ? null : query, openDialog, createName, createDescription, total, releaseCard);
     }
 
     private async Task<OwnerProjectModel?> LoadProjectAsync(string projectId, CancellationToken ct)

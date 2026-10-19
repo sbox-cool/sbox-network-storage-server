@@ -30,6 +30,7 @@
 <noscript><a class="button secondary" href="/dashboard?dialog=export">Export server</a></noscript>
 </div></div>
 @if (Model.Error is not null) { <p class="notice error" role="alert">@Model.Error</p> }
+@if (Model.ReleaseStatus is { } releaseStatus) { @await Html.PartialAsync("~/Views/Owner/_ReleaseStatusCard.cshtml", releaseStatus) }
 @if (empty)
 {
     <section class="card empty-state"><h2>No projects yet</h2><p>A project holds everything one game needs on this server: collections, endpoints, API keys and player data. Create your first project, or restore one from a portable archive.</p><div class="page-actions"><button type="button" data-dialog="create-project">Create project</button><button type="button" class="secondary" data-dialog="import">Import</button></div></section>
@@ -104,13 +105,13 @@ response:
     <p>Coding agents such as Claude Code can create projects, write and dry-run endpoints, and read request logs, errors and records through <code>sbox-ns mcp</code>. <a href="@OwnerDocs.Url("mcp.md")" rel="noreferrer">Coding agents (MCP)</a></p>
     <h3>Server over SSH</h3>
     <p>Run this on your computer. SSH must log in with a key, and <code>sudo sbox-ns mcp</code> must not ask for a password, because the agent cannot type one.</p>
-    <div class="copy-row"><pre>@sshCommand</pre><button type="button" class="secondary" data-copy-previous>Copy</button></div>
+    <div class="copy-row"><pre data-language="shell">@sshCommand</pre><button type="button" class="secondary" data-copy-previous>Copy</button></div>
     <h3>Server on the same computer</h3>
     <p>Save this as <code>.mcp.json</code> in your game folder.</p>
     <div class="copy-row"><pre data-language="json">@localConfig</pre><button type="button" class="secondary" data-copy-previous>Copy</button></div>
     <h3>Claude Code plugin</h3>
     <p>Adds the MCP server for this computer and skills for setup, design, debugging, operations and in-editor playtests. For a server over SSH, also run the command above.</p>
-    <div class="copy-row"><pre>@pluginCommands</pre><button type="button" class="secondary" data-copy-previous>Copy</button></div>
+    <div class="copy-row"><pre data-language="shell">@pluginCommands</pre><button type="button" class="secondary" data-copy-previous>Copy</button></div>
     <h3>Allowing changes</h3>
     <p>Agents can always read. Each kind of change is off until you turn it on with one of these commands on the server.</p>
     <div class="table-scroll"><table>

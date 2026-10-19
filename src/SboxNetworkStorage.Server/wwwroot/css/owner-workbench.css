@@ -38,11 +38,20 @@ th[aria-sort="ascending"] .table-sort, th[aria-sort="descending"] .table-sort { 
 .source-editor pre.source-highlight { position: absolute; inset: 0; color: var(--text); pointer-events: none; overflow: hidden; max-height: none; background: transparent; }
 .source-editor.raw-source textarea.code-editor { color: var(--text); -webkit-text-fill-color: var(--text); }
 .source-editor.raw-source .source-highlight { visibility: hidden; }
-.syntax-key, .syntax-keyword { color: var(--info); font-weight: 600; }
-.syntax-string { color: var(--accent-fg); }
-.syntax-number, .syntax-literal { color: var(--warning); }
-.syntax-comment { color: var(--muted); font-style: italic; }
-.syntax-expression { color: var(--accent-fg); }
+.syntax-keyword { color: var(--syn-keyword); }
+.syntax-string { color: var(--syn-string); }
+.syntax-number { color: var(--syn-number); }
+.syntax-boolean { color: var(--syn-boolean); }
+.syntax-comment { color: var(--syn-comment); font-style: italic; }
+.syntax-property { color: var(--syn-property); }
+.syntax-function { color: var(--syn-function); }
+.syntax-type { color: var(--syn-type); }
+.syntax-variable { color: var(--syn-variable); }
+.syntax-operator { color: var(--syn-operator); }
+.syntax-punctuation { color: var(--syn-punctuation); }
+.syntax-template { color: var(--syn-template); }
+.syntax-regex { color: var(--syn-regex); }
+.syntax-builtin { color: var(--syn-builtin); }
 .integration-guide .copy-row { position: relative; display: flex; align-items: flex-start; gap: 8px; }
 .integration-guide .copy-row pre { flex: 1; min-width: 0; max-height: 420px; margin: 0; padding: .6rem 4.25rem .6rem .75rem; font-size: 12.5px; line-height: 1.6; }
 .integration-guide .copy-row button { position: absolute; top: .4rem; right: .4rem; flex-shrink: 0; }

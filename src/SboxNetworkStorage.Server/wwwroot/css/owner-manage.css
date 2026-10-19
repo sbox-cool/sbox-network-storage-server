@@ -67,3 +67,29 @@ details.card.settings-advanced > summary { font-size: 1.1rem; }
 .project-title { display: flex; align-items: center; gap: .75rem; min-width: 0; }
 /* Settings colour control: native picker at control height. */
 #project-settings input[type="color"] { width: 3rem; height: 2rem; padding: .15rem; }
+/* Library and release status card on the dashboard. */
+.release-status .release-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: 1rem; align-items: start; margin-top: .75rem; }
+.release-panel { min-width: 0; border: 1px solid var(--line); border-radius: var(--radius-sm); padding: .85rem; background: var(--fill); }
+.release-panel h3 { margin: 0 0 .5rem; font-size: .95rem; }
+.release-panel h4 { margin: 0 0 .35rem; font-size: .85rem; color: var(--muted); }
+.release-facts { margin: 0; display: grid; gap: .5rem; }
+.release-facts > div { display: grid; grid-template-columns: minmax(0, 9rem) minmax(0, 1fr); gap: .5rem; }
+.release-facts dt { color: var(--muted); font-size: .85rem; }
+.release-facts dd { margin: 0; overflow-wrap: anywhere; font-size: .9rem; display: flex; flex-wrap: wrap; align-items: center; gap: .35rem .6rem; }
+.release-facts .muted { font-size: .8rem; }
+.release-pending-block, .release-install, .release-engine { margin-top: .85rem; }
+.release-engine p { margin: 0 0 .5rem; font-size: .9rem; }
+.release-engine .notice { margin: 0; }
+.release-pending { list-style: none; padding: 0; margin: 0; display: grid; gap: .35rem; }
+.release-pending li { display: flex; flex-wrap: wrap; gap: .25rem .5rem; align-items: baseline; font-size: .88rem; overflow-wrap: anywhere; }
+.release-number { color: var(--muted); font-variant-numeric: tabular-nums; }
+.release-more { margin-top: .4rem; }
+.release-more summary { cursor: pointer; color: var(--accent-fg); }
+.release-install ul { margin: 0; padding-left: 1.1rem; display: grid; gap: .35rem; font-size: .88rem; }
+.release-install a, .release-status a { color: var(--accent-fg); }
+.release-footer { margin: .85rem 0 0; font-size: .8rem; }
+.badge.attention { color: var(--warning); border-color: var(--warning); }
+.badge.failed { color: var(--danger); border-color: var(--danger); background: var(--danger-bg); }
+@media (max-width: 760px) {
+  .release-facts > div { grid-template-columns: 1fr; gap: .1rem; }
+}

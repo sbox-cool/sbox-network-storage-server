@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using SboxNetworkStorage.Server.Cli;
+using SboxNetworkStorage.Server.Hosting;
 using SboxNetworkStorage.Server.Updates;
 
 namespace SboxNetworkStorage.Cli.Tests;
@@ -14,7 +15,7 @@ public sealed class UpdateLogicTests
     [InlineData("1.0.0", "1.0.0-rc.9", false)]
     [InlineData("1.0.0-rc.2", "1.0.0-rc.10", true)]
     [InlineData("1.0.0-alpha", "1.0.0-alpha.1", true)]
-    [InlineData("0.1.0-dev", "0.1.0", true)]
+    [InlineData("0.1.0-devx", "0.1.0", true)]
     [InlineData("2.0.0", "1.99.99", false)]
     public void Update_available_follows_semver_precedence(string current, string latest, bool expected)
     {
@@ -22,6 +23,30 @@ public sealed class UpdateLogicTests
 
         Assert.Equal(expected, notice.UpdateAvailable);
     }
+
+    // Regression: a development build (0.1.0-dev) was offered an older release (0.5.4) as an update.
+    [Theory]
+    [InlineData("0.1.0-dev", "0.5.4")]
+    [InlineData("0.1.0-dev", "0.1.0")]
+    [InlineData("0.5.5-dev.2", "0.5.4")]
+    [InlineData("0.1.0-dev+abc1234", "0.5.4")]
+    public void Development_builds_are_never_offered_an_update(string current, string latest)
+    {
+        var notice = UpdateCheckService.Evaluate(current, new ReleaseInfo(latest, null, false, false, null, null), DateTimeOffset.UnixEpoch);
+
+        Assert.False(notice.UpdateAvailable);
+    }
+
+    [Theory]
+    [InlineData("0.1.0-dev", true)]
+    [InlineData("0.1.0-DEV", true)]
+    [InlineData("0.1.0-dev.3", true)]
+    [InlineData("0.1.0-devx", false)]
+    [InlineData("0.1.0-rc.1", false)]
+    [InlineData("0.1.0", false)]
+    [InlineData("0.1.0+dev", false)]
+    public void Development_versions_are_identified_by_the_dev_identifier(string version, bool expected)
+        => Assert.Equal(expected, BuildInfo.IsDevelopmentVersion(version));
 
     [Theory]
     [InlineData("v1.2.3", true)]

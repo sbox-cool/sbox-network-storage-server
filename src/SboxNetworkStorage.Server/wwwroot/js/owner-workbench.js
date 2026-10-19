@@ -12,27 +12,9 @@
     if (!navigator.clipboard || !window.isSecureContext) { fallback(); feedback("Press Ctrl / ⌘ + C"); return; }
     navigator.clipboard.writeText(text).then(function () { feedback("Copied"); }, function () { fallback(); feedback("Press Ctrl / ⌘ + C"); });
   }
-  // Tokenize plain text into DOM nodes. Resource content is never interpreted as HTML.
+  // Syntax colouring lives in owner-highlight.js (dependency-free, textContent only).
   function highlight(target, text, language) {
-    var fragment = document.createDocumentFragment();
-    var tokens = language === "csharp"
-      ? /\/\/[^\n]*|\/\*[\s\S]*?\*\/|\$?"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\b(?:await|var|new|if|else|return|out|using|public|private|static|class|void|bool|string|int|float|double|async|Task|Dictionary)\b|\b(?:true|false|null)\b|\b\d+(?:\.\d+)?\b/g
-      : /"(?:\\.|[^"\\])*"|'(?:''|[^'])*'|#[^\n]*|\{\{[^\n]*?\}\}|\b(?:true|false|null)\b|-?\b\d+(?:\.\d+)?\b|[\w.-]+(?=\s*:)/g;
-    var match, end = 0;
-    while ((match = tokens.exec(text))) {
-      fragment.appendChild(document.createTextNode(text.slice(end, match.index)));
-      var token = match[0], kind = "string";
-      if (/^(#|\/\/|\/\*)/.test(token)) kind = "comment";
-      else if (/^\{\{/.test(token)) kind = "expression";
-      else if (/^(true|false|null)$/.test(token)) kind = "literal";
-      else if (/^-?\d/.test(token)) kind = "number";
-      else if (!/^["'$]/.test(token)) kind = language === "csharp" ? "keyword" : "key";
-      else if (language === "json" && /^\s*:/.test(text.slice(tokens.lastIndex))) kind = "key";
-      fragment.appendChild(node("span", token, "syntax-" + kind));
-      end = tokens.lastIndex;
-    }
-    fragment.appendChild(document.createTextNode(text.slice(end)));
-    target.replaceChildren(fragment);
+    window.OwnerHighlight.render(target, text, language);
   }
   function keyboardTabs(buttons, activate) {
     buttons.forEach(function (button, index) {
@@ -58,8 +40,12 @@
     keyboardTabs(buttons, activate);
     if (buttons.length) activate(buttons[0]);
   });
-  document.querySelectorAll("pre[data-language], pre.json").forEach(function (pre) { highlight(pre, pre.textContent, pre.dataset.language || "json"); });
-  document.addEventListener("owner:highlight", function (event) { var pre = event.detail; highlight(pre, pre.textContent, pre.dataset.language || "yaml"); });
+  window.OwnerHighlight.highlightAll(document);
+  document.addEventListener("owner:highlight", function (event) {
+    var pre = event.detail;
+    var target = (pre.tagName === "PRE" && pre.querySelector(":scope > code")) || pre;
+    highlight(target, target.textContent, pre.dataset.language || "yaml");
+  });
   // Keep the native textarea authoritative for selection, IME, undo, form posts and raw mode.
   document.querySelectorAll("textarea.code-editor").forEach(function (textarea) {
     var shell = node("div", undefined, "source-editor");
