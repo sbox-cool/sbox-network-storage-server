@@ -34,7 +34,7 @@ public abstract class GameLogStoreTests : IAsyncLifetime
 
     private static GameLogRow Row(string id, long ts, string stream, string? actor, string? target, string message, string attrsJson)
         => new(Project, id, ts, stream, "info", "game.event", actor, target, null, null, null, message, attrsJson, null,
-            string.Join(' ', message.Split(' ', StringSplitOptions.RemoveEmptyEntries)));
+            string.Join(' ', message.Split(' ', StringSplitOptions.RemoveEmptyEntries)), "server");
 
     /// <summary>Seeds five rows. Expected results below are derived from this table alone.</summary>
     private async Task SeedAsync()
@@ -52,7 +52,7 @@ public abstract class GameLogStoreTests : IAsyncLifetime
     private static GameLogQuery Query(
         IReadOnlyList<string>? streams = null, long? from = null, long? to = null, string? player = null,
         IReadOnlyList<GameLogAttrFilter>? attrs = null, IReadOnlyList<string>? tokens = null, GameLogCursor? cursor = null, int limit = 100)
-        => new(Project, streams ?? ["default"], from, to, null, null, player, attrs ?? [], tokens ?? [], cursor, limit);
+        => new(Project, (streams ?? ["default"]).ToDictionary(s => s, _ => 0L, StringComparer.Ordinal), from, to, null, null, player, attrs ?? [], tokens ?? [], cursor, limit);
 
     private async Task<string[]> SearchIdsAsync(GameLogQuery query)
         => (await Logs.SearchGameLogsAsync(query, CancellationToken.None)).Select(r => r.EntryId).ToArray();
