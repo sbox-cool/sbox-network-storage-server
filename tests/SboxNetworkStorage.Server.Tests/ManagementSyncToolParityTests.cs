@@ -272,4 +272,75 @@ public sealed class ManagementSyncToolParityTests
         Assert.Equal(HttpStatusCode.OK, (await SendAsync(client, SyncTool(HttpMethod.Delete, p, "rate-limit-rules", project, "{}"))).Status);
         Assert.Empty((await SendAsync(client, SyncTool(HttpMethod.Get, p, "rate-limit-rules", project))).Body.GetProperty("rules").EnumerateArray());
     }
+
+    // ── DELETE keys: reference routeManageDestroyKeys + destroyApiKeyPair ──
+
+    private static HttpRequestMessage PublicOnlyEndpointCall(SelfHostProject project)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Post, $"/v3/endpoints/{project.ProjectId}/grant_coins");
+        request.Headers.Add("x-public-key", project.PublicKey);
+        request.Content = JsonContent.Create(new { steamId = SteamId, input = new { } });
+        return request;
+    }
+
+    [Fact]
+    public async Task DestroyKeysRevokesTheKeyPairOnEveryAuthPath()
+    {
+        using var factory = new SqliteHostFactory();
+        var project = await factory.CreateProjectAsync("Revocation parity");
+        using var client = factory.CreateClient();
+        var p = project.ProjectId;
+        Assert.Equal(HttpStatusCode.OK, (await SendAsync(client, SyncTool(HttpMethod.Patch, p, "collections", project,
+            """{"collection":{"name":"players","collectionType":"per-steamid","schema":{"coins":{"type":"number"}}}}"""))).Status);
+        Assert.Equal(HttpStatusCode.OK, (await SendAsync(client, SyncTool(HttpMethod.Patch, p, "endpoints", project, GrantCoins))).Status);
+        await SeedPlayerAsync(client, project, 10);
+
+        // Precondition: the pair works on the management, public endpoint and secret storage paths.
+        Assert.Equal(HttpStatusCode.OK, (await SendAsync(client, SyncTool(HttpMethod.Get, p, "endpoints", project))).Status);
+        Assert.Equal(HttpStatusCode.OK, (await SendAsync(client, PublicOnlyEndpointCall(project))).Status);
+        Assert.Equal(15, await StoredCoinsAsync(client, project)); // 10 seeded, +5 from the public endpoint call above
+
+        var destroyed = await SendAsync(client, SyncTool(HttpMethod.Delete, p, "keys", project));
+        Assert.Equal(HttpStatusCode.OK, destroyed.Status);
+        Assert.True(destroyed.Body.GetProperty("ok").GetBoolean());
+        Assert.Equal("Key pair destroyed.", destroyed.Body.GetProperty("message").GetString());
+
+        // The revoked pair stops working on every path.
+        Assert.Equal(HttpStatusCode.Unauthorized, (await SendAsync(client, SyncTool(HttpMethod.Get, p, "endpoints", project))).Status);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await SendAsync(client, SyncTool(HttpMethod.Delete, p, "keys", project))).Status);
+        Assert.NotEqual(HttpStatusCode.OK, (await SendAsync(client, PublicOnlyEndpointCall(project))).Status);
+
+        var secretStorageRequest = new HttpRequestMessage(HttpMethod.Get, $"/v3/storage/{p}/players/{SteamId}");
+        secretStorageRequest.Headers.Add("x-api-key", project.SecretKey);
+        Assert.NotEqual(HttpStatusCode.OK, (await SendAsync(client, secretStorageRequest)).Status);
+    }
+
+    [Fact]
+    public async Task DestroyKeysRejectsMalformedOrForeignKeysWithoutRevoking()
+    {
+        using var factory = new SqliteHostFactory();
+        var project = await factory.CreateProjectAsync("Revocation guards");
+        var other = await factory.CreateProjectAsync("Revocation other");
+        using var client = factory.CreateClient();
+        var p = project.ProjectId;
+
+        // x-public-key that is not a public key is refused before anything is revoked.
+        var secretAsPublic = SyncTool(HttpMethod.Delete, p, "keys", project);
+        secretAsPublic.Headers.Remove("x-public-key");
+        secretAsPublic.Headers.Add("x-public-key", project.SecretKey);
+        var malformed = await SendAsync(client, secretAsPublic);
+        Assert.Equal(HttpStatusCode.BadRequest, malformed.Status);
+        Assert.Equal("INVALID_PUBLIC_KEY", malformed.Body.GetProperty("error").GetString());
+
+        // A public key from another project does not authorise destroying this project's pair.
+        var foreign = SyncTool(HttpMethod.Delete, p, "keys", project);
+        foreign.Headers.Remove("x-public-key");
+        foreign.Headers.Add("x-public-key", other.PublicKey);
+        var foreignResult = await SendAsync(client, foreign);
+        Assert.Equal(HttpStatusCode.Unauthorized, foreignResult.Status);
+        Assert.Equal("Invalid public key for this project.", foreignResult.Body.GetProperty("message").GetString());
+
+        // Both refusals left the pair intact.
+        Assert.Equal(HttpStatusCode.OK, (await SendAsync(client, SyncTool(HttpMethod.Get, p, "endpoints", project))).Status);
+    }
 }

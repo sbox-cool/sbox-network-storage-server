@@ -726,9 +726,7 @@ public static class NetworkStorageGatewayEndpoints
             context.RequestAborted)
         {
             TargetsNext = TargetsNext(context, query),
-            PublicKey = context.Request.Headers.TryGetValue("x-public-key", out var publicKeyHeader) && !string.IsNullOrWhiteSpace(publicKeyHeader)
-                ? publicKeyHeader.ToString().Trim()
-                : null,
+            PublicKey = PublicKeyHeader(context),
         };
 
         var result = await handler.ExecuteAsync(request);
@@ -738,6 +736,11 @@ public static class NetworkStorageGatewayEndpoints
         context.Response.ContentType = "application/json; charset=utf-8";
         await context.Response.WriteAsJsonAsync(result.Body, context.RequestAborted);
     }
+
+    private static string? PublicKeyHeader(HttpContext context) =>
+        context.Request.Headers.TryGetValue("x-public-key", out var publicKeyHeader) && !string.IsNullOrWhiteSpace(publicKeyHeader)
+            ? publicKeyHeader.ToString().Trim()
+            : null;
 
     private static bool TargetsNext(HttpContext context, IReadOnlyDictionary<string, string> query)
         => NetworkStoragePublishTarget.IsNext(
@@ -782,6 +785,7 @@ public static class NetworkStorageGatewayEndpoints
         context.RequestAborted)
         {
             TargetsNext = TargetsNext(context, query),
+            PublicKey = PublicKeyHeader(context),
         };
 
         // Authenticate from headers before reading any request body.

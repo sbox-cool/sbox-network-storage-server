@@ -37,6 +37,7 @@ public sealed partial class ManagementMutationHandler : INetworkStorageHandler
     private readonly TimeProvider _time;
     private readonly EndpointExecutor? _endpointExecutor;
     private readonly IQueryValuesContextProvider? _valuesProvider;
+    private readonly INetworkStorageProjectService? _keyRevocation;
 
     public ManagementMutationHandler(
         IStorageApiKeyResolver apiKeyResolver,
@@ -53,7 +54,8 @@ public sealed partial class ManagementMutationHandler : INetworkStorageHandler
         INetworkStorageStore store,
         TimeProvider time,
         EndpointExecutor? endpointExecutor,
-        IQueryValuesContextProvider? valuesProvider = null)
+        IQueryValuesContextProvider? valuesProvider = null,
+        INetworkStorageProjectService? keyRevocation = null)
     {
         _apiKeyResolver = apiKeyResolver;
         _workspaceClient = workspaceClient;
@@ -61,6 +63,7 @@ public sealed partial class ManagementMutationHandler : INetworkStorageHandler
         _time = time;
         _endpointExecutor = endpointExecutor;
         _valuesProvider = valuesProvider;
+        _keyRevocation = keyRevocation;
     }
 
     public NetworkStorageRouteFamily Family => NetworkStorageRouteFamily.Management;
@@ -240,11 +243,7 @@ public sealed partial class ManagementMutationHandler : INetworkStorageHandler
 
             "PUT:tests" => await PutTestsAsync(request, projectId, ownerUserId),
 
-            "DELETE:keys" => DryRunResult(ownerUserId, projectId, auth.KeyType,
-                $"{ManagementMutationConstants.UserStoragePrefix}/{ownerUserId}/{projectId}/key-index.json",
-                $"{ManagementMutationConstants.UserStoragePrefix}/{ownerUserId}/{projectId}/keys/__{ExtractPublicKeyFromRequest(request)}.json",
-                action: "destroy_key_pair", route: $"DELETE /v3/manage/{projectId}/keys",
-                resourceKind: "api-keys"),
+            "DELETE:keys" => await DestroyKeyPairAsync(request, projectId, ownerUserId),
 
             "PUT:sync" => await PutSyncAsync(request, projectId, ownerUserId, "sync"),
 
@@ -1336,52 +1335,6 @@ public sealed partial class ManagementMutationHandler : INetworkStorageHandler
         }
 
         return resource;
-    }
-
-    /// <summary>
-    /// Extracts the public key value from the request body or credentials for the DELETE keys route.
-    /// Falls back to a placeholder if not available.
-    /// </summary>
-    private static string ExtractPublicKeyFromRequest(NetworkStorageRequest request)
-    {
-        if (!string.IsNullOrEmpty(request.Body))
-        {
-            try
-            {
-                using var doc = JsonDocument.Parse(request.Body);
-                if (doc.RootElement.TryGetProperty("publicKey", out var pkEl))
-                {
-                    var pk = pkEl.GetString();
-                    if (!string.IsNullOrEmpty(pk))
-                        return SanitizeKeyName(pk);
-                }
-            }
-            catch
-            {
-                // Fall through
-            }
-        }
-
-        if (request.Query.TryGetValue("publicKey", out var queryPk) && !string.IsNullOrEmpty(queryPk))
-        {
-            return SanitizeKeyName(queryPk);
-        }
-
-        return "(public-key-placeholder)";
-    }
-
-    private static string SanitizeKeyName(string key)
-    {
-        var safe = new System.Text.StringBuilder(key.Length);
-        foreach (var c in key)
-        {
-            if (char.IsLetterOrDigit(c) || c == '_' || c == '-')
-                safe.Append(c);
-            else
-                safe.Append('_');
-        }
-
-        return safe.ToString();
     }
 
     private static bool IsMutationMethod(string method) =>
