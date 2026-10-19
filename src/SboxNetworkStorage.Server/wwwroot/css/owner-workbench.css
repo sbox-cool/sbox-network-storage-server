@@ -34,9 +34,11 @@ th[aria-sort="ascending"] .table-sort, th[aria-sort="descending"] .table-sort { 
 .source-editor textarea.code-editor { position: relative; display: block; width: 100%; min-height: 360px; resize: vertical; background: transparent; color: transparent; caret-color: var(--text); -webkit-text-fill-color: transparent; outline: none; box-shadow: none; }
 .source-editor textarea.record-editor { min-height: 260px; }
 .source-editor textarea.manage-input { min-height: 180px; }
-.source-editor textarea::selection { background: var(--surface-2); -webkit-text-fill-color: var(--text); }
+/* The textarea text is transparent, so the highlighted tokens underneath show through the tint. */
+.source-editor textarea.code-editor::selection { background: var(--selection-bg); -webkit-text-fill-color: transparent; }
 .source-editor pre.source-highlight { position: absolute; inset: 0; color: var(--text); pointer-events: none; overflow: hidden; max-height: none; background: transparent; }
 .source-editor.raw-source textarea.code-editor { color: var(--text); -webkit-text-fill-color: var(--text); }
+.source-editor.raw-source textarea.code-editor::selection { background: var(--selection-bg); -webkit-text-fill-color: var(--text); }
 .source-editor.raw-source .source-highlight { visibility: hidden; }
 .syntax-keyword { color: var(--syn-keyword); }
 .syntax-string { color: var(--syn-string); }
