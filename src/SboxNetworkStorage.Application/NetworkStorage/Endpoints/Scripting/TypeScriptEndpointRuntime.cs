@@ -5,7 +5,6 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Jint;
-using Jint.Native;
 
 namespace SboxNetworkStorage.Application.NetworkStorage.Endpoints.Scripting;
 
@@ -117,8 +116,9 @@ public sealed partial class TypeScriptEndpointRuntime : IEndpointScriptRuntime
         try
         {
             engine.Execute(StripperScript.Value);
-            var stripper = engine.Evaluate("__nsTypeScript.strip");
-            var envelope = engine.Call(stripper, engine.Evaluate("__nsTypeScript"), new JsString(source)).AsString();
+            // Pass the source as a global. A .NET-constructed JsString argument makes the bundle's charCodeAt calls fail.
+            engine.SetValue("__nsSource", source);
+            var envelope = engine.Evaluate("__nsTypeScript.strip(__nsSource)").AsString();
 
             using var document = JsonDocument.Parse(envelope);
             var root = document.RootElement;

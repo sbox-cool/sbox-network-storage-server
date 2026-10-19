@@ -306,6 +306,9 @@ public sealed class ScriptedEndpointExecutorTests
     private static Dictionary<string, object?> Scripted(string script) =>
         new() { ["runtime"] = "javascript", ["script"] = script };
 
+    private static Dictionary<string, object?> TypeScript(string script) =>
+        new() { ["runtime"] = "typescript", ["script"] = script };
+
     private static Task<EndpointExecutionResult?> TryPublic(EndpointExecutor executor, string endpoint) =>
         executor.TryExecuteAsync("proj", endpoint,
             input: new Dictionary<string, object?>(), steamId: "steam1", userId: "u1",
@@ -350,6 +353,44 @@ public sealed class ScriptedEndpointExecutorTests
         Assert.DoesNotContain("MachineName", json);
     }
 
+    [Fact]
+    public async Task TypeScript_EndpointRunsTheStrippedHandler()
+    {
+        var executor = TypeScriptExecutor("""
+            interface Reward { coins: number }
+            enum Tier { Bronze = "bronze", Gold = "gold" }
+            function twice<T extends number>(value: T): number { return value * 2; }
+            export default function handle(req: { input: { amount: number } }): { ok: boolean; tier: string; coins: number } {
+                const reward: Reward = { coins: twice<number>(req.input.amount) };
+                return { ok: true, tier: Tier.Gold, coins: reward.coins };
+            }
+            """);
+
+        var result = await Run(executor, input: new Dictionary<string, object?> { ["amount"] = 5d });
+
+        Assert.True(result.Ok, result.OwnerDetail);
+        var json = JsonSerializer.Serialize(result.Body);
+        Assert.Contains("\"tier\":\"gold\"", json);
+        Assert.Contains("\"coins\":10", json);
+    }
+
+    [Fact]
+    public async Task TypeScript_RuntimeError_ReportsTheTypeScriptLine()
+    {
+        var executor = TypeScriptExecutor("""
+            export default function handle(req: unknown): unknown {
+                const message: string = "boom";
+                throw new Error(message);
+            }
+            """);
+
+        var result = await Run(executor);
+
+        Assert.False(result.Ok);
+        Assert.Equal(500, result.Status);
+        Assert.Contains("line 3", result.OwnerDetail ?? "", StringComparison.OrdinalIgnoreCase);
+    }
+
     private static EndpointExecutor Executor(string script, Dictionary<string, object?>? records = null, bool scriptsEnabled = true)
     {
         var definitions = new Dictionary<string, object?>
@@ -359,6 +400,17 @@ public sealed class ScriptedEndpointExecutorTests
         return new EndpointExecutor(
             new FakeDataSource(definitions, records ?? new Dictionary<string, object?>()),
             scriptRuntimes: EndpointExecutor.CreateScriptRuntimes(scriptsEnabled));
+    }
+
+    private static EndpointExecutor TypeScriptExecutor(string script)
+    {
+        var definitions = new Dictionary<string, object?>
+        {
+            ["proj:ep:script"] = TypeScript(script),
+        };
+        return new EndpointExecutor(
+            new FakeDataSource(definitions, new Dictionary<string, object?>()),
+            scriptRuntimes: EndpointExecutor.CreateScriptRuntimes(scriptsEnabled: true));
     }
 
     private static async Task<EndpointExecutionResult> Run(
@@ -495,6 +547,20 @@ public sealed class ScriptedEndpointValidationTests
         var error = Assert.Single(diagnostics, d => d.Code == "SCRIPT_SYNTAX");
         Assert.True(error.IsError);
         Assert.StartsWith("Line 2, column", error.Message);
+    }
+
+    [Fact]
+    public void Validate_TypeScriptSyntaxError_ReportsTypeScriptLineAndColumn()
+    {
+        var diagnostics = Validate(new Dictionary<string, object?>
+        {
+            ["runtime"] = "typescript",
+            ["script"] = "export default function handle() {\n  const x: number = ;\n}",
+        });
+
+        var error = Assert.Single(diagnostics, d => d.Code == "SCRIPT_SYNTAX");
+        Assert.True(error.IsError);
+        Assert.StartsWith("Line 2, column 21", error.Message);
     }
 
     [Fact]
