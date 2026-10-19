@@ -100,14 +100,20 @@ public sealed class TestedWithScriptTests : IDisposable
     }
 
     [SkippableFact]
-    public void GateFailsWithoutAPassForTheRecommendedLibraryUnlessMarkedCiOnly()
+    public void GateAcceptsMatchingCiOnlyEvidenceAndFailsWithoutAnyEvidence()
     {
-        Assert.Equal(0, Run("-Version", "0.5.0", "-Gate", "-Matrix", matrixPath).ExitCode);
-        Assert.Equal(2, Run("-Version", "0.5.1", "-Gate", "-Matrix", matrixPath).ExitCode);
+        // A pass row for the recommended library: the gate passes without the CI-only banner.
+        var (passExit, passOutput) = Run("-Version", "0.5.0", "-Gate", "-Matrix", matrixPath);
+        Assert.Equal(0, passExit);
+        Assert.DoesNotContain("**CI-only release:**", passOutput);
 
-        var (exit, output) = Run("-Version", "0.5.1", "-Gate", "-CiOnly", "-Matrix", matrixPath);
-        Assert.Equal(0, exit);
-        Assert.Contains("**ci-only release:**", output);
+        // Only a matching-commit ci-only row for the recommended library: the gate passes and says so.
+        var (ciExit, ciOutput) = Run("-Version", "0.5.1", "-Gate", "-Matrix", matrixPath);
+        Assert.Equal(0, ciExit);
+        Assert.Contains("**CI-only release:**", ciOutput);
+
+        // No evidence at all for the release: the gate fails.
+        Assert.Equal(2, Run("-Version", "9.9.9", "-Gate", "-Matrix", matrixPath).ExitCode);
     }
 
     [SkippableFact]

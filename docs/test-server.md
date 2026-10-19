@@ -33,8 +33,8 @@ root), `TEST_SERVER_KNOWN_HOSTS` (pinned `ssh-keyscan -t ed25519` line). Point a
 `NetworkStorage.Configure(projectId, publicKey, "http://<host>:8080")`; read the fixture keys from
 `/root/live-fixture.env` on the box.
 
-This is an `ci-only` result in the sense of [AGENTS.md](../AGENTS.md): HTTP replays are never a
-substitute for a real s&box editor run.
+This is a `ci-only` result in the sense of [AGENTS.md](../AGENTS.md): HTTP replays are never a
+substitute for a green Compat engine leg.
 
 ## Rebuilding the VPS
 
