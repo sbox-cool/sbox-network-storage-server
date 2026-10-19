@@ -13,7 +13,7 @@ Classify per [docs/compatibility.md](../docs/compatibility.md#when-sbox-evidence
 
 <!-- Evidence for None / Additive: parity diff vs stable-reference (no unrecorded differences), SQLite + PostgreSQL green, scripts/smoke.sh clean, default-off regression test, additive migration tag + legacy-request replay. If you cannot attach it, the class is not None. -->
 
-**s&box evidence:** <!-- "Not required (None / Additive default-off), because ..." or "Changed / Library code: Compat engine legs green on <commit> (run URL)". A native editor run is optional; add it as a `tested` row if you do it. -->
+**s&box evidence:** <!-- "Not required (None / Additive default-off), because ..." or "Changed / Library code: Compat engine legs green on <commit> (run URL)". PRs and merges are tested on GitHub Actions only; no native editor run is needed. -->
 
 ## Checklist
 
