@@ -49,6 +49,12 @@ internal static class GameLogsEndpoints
         var projectId = (string?)context.GetRouteValue("projectId") ?? "";
         var caller = await AuthorizeAsync(context, projectId);
         if (caller is null) return;
+        if (caller.Trusted && !ApiKeyPermissionPolicy.HasPermission(caller.Auth, "logs", "w"))
+        {
+            await WriteErrorAsync(context, StatusCodes.Status403Forbidden, "FORBIDDEN",
+                "Writing game logs with a secret key requires logs:write.");
+            return;
+        }
 
         var request = context.Request;
         var services = context.RequestServices;
@@ -84,17 +90,10 @@ internal static class GameLogsEndpoints
 
         using var parsed = batch.Document;
         var entries = parsed.RootElement;
-        var entryCount = entries.GetArrayLength();
         var limiter = services.GetRequiredService<GameLogRateLimiter>();
         var queue = services.GetRequiredService<GameLogQueue>();
 
-        var projectLimit = limiter.TryConsume("project:" + projectId, caller.Policy.RateLimitPerMinute, entryCount);
-        if (!projectLimit.Allowed)
-        {
-            await WriteRateLimitedAsync(context, queue, projectId, entryCount, projectLimit.RetryAfterSeconds);
-            return;
-        }
-
+        // Identity comes first, so a request that fails identity consumes no budget at all.
         // Public keys identify the project, not a player: the actor is the verified player, never a body field.
         // Secret keys (dedicated servers) name the player, via x-on-behalf-of or the body's actor field.
         string? verifiedActor = caller.Trusted ? onBehalfOf : null;
@@ -111,12 +110,6 @@ internal static class GameLogsEndpoints
             }
 
             verifiedActor = identity.SteamId;
-            var actorLimit = limiter.TryConsume($"actor:{projectId}:{verifiedActor}", ActorRateLimitPerMinute, entryCount);
-            if (!actorLimit.Allowed)
-            {
-                await WriteRateLimitedAsync(context, queue, projectId, entryCount, actorLimit.RetryAfterSeconds);
-                return;
-            }
         }
 
         var now = services.GetRequiredService<TimeProvider>().GetUtcNow();
@@ -128,6 +121,27 @@ internal static class GameLogsEndpoints
             VerifiedActorSteamId: verifiedActor,
             IsSteamId: AuthSessionEndpoints.IsPlausibleSteamId,
             NextRandom: Random.Shared.NextDouble));
+
+        // Only entries that pass normalization are billed; rejected entries cost nothing. Sampled entries were
+        // accepted by validation, so they are billed too. The actor bucket is charged first, so an over-limit actor
+        // never drains the project budget.
+        var billable = outcome.Rows.Count + outcome.Sampled;
+        if (!caller.Trusted)
+        {
+            var actorLimit = limiter.TryConsume($"actor:{projectId}:{verifiedActor}", ActorRateLimitPerMinute, billable);
+            if (!actorLimit.Allowed)
+            {
+                await WriteRateLimitedAsync(context, queue, projectId, billable, actorLimit.RetryAfterSeconds);
+                return;
+            }
+        }
+
+        var projectLimit = limiter.TryConsume("project:" + projectId, caller.Policy.RateLimitPerMinute, billable);
+        if (!projectLimit.Allowed)
+        {
+            await WriteRateLimitedAsync(context, queue, projectId, billable, projectLimit.RetryAfterSeconds);
+            return;
+        }
 
         var rejected = outcome.Rejected.ToList();
         var accepted = 0;
@@ -169,7 +183,8 @@ internal static class GameLogsEndpoints
         var pairs = context.Request.Query
             .Select(q => new KeyValuePair<string, string>(q.Key, q.Value.FirstOrDefault() ?? ""))
             .ToList();
-        var parsed = GameLogSearchParser.Parse(projectId, pairs, caller.Policy, AuthSessionEndpoints.IsPlausibleSteamId);
+        var now = context.RequestServices.GetRequiredService<TimeProvider>().GetUtcNow();
+        var parsed = GameLogSearchParser.Parse(projectId, pairs, caller.Policy, AuthSessionEndpoints.IsPlausibleSteamId, now);
         if (!parsed.Ok)
         {
             await WriteErrorAsync(context, StatusCodes.Status400BadRequest, parsed.ErrorCode!, parsed.ErrorMessage!);
@@ -177,7 +192,7 @@ internal static class GameLogsEndpoints
         }
 
         var query = parsed.Query!;
-        if (query.Streams.Count == 0)
+        if (query.StreamFloorsUnixMs.Count == 0)
         {
             await WriteEntriesAsync(context, [], null);
             return;
@@ -208,6 +223,14 @@ internal static class GameLogsEndpoints
         var apiKey = StorageApiEndpoints.ExtractApiKey(context.Request);
         var resolver = services.GetRequiredService<IStorageApiKeyResolver>();
         var projects = services.GetRequiredService<INetworkStorageProjectService>();
+
+        // A key in the query string ends up in access logs and proxies. Refuse it before any key lookup.
+        if (context.Request.Query.ContainsKey("apiKey"))
+        {
+            await WriteErrorAsync(context, StatusCodes.Status400BadRequest, "API_KEY_IN_QUERY",
+                "Send the API key in the x-api-key header; ?apiKey= is not accepted on game-log routes.");
+            return null;
+        }
 
         var auth = string.IsNullOrEmpty(apiKey) ? null : await resolver.ResolveApiKeyAsync(apiKey, projectId, ct);
         var access = auth is null ? null : await projects.ResolveProjectAccessAsync(auth.UserId, projectId, ct);
@@ -351,6 +374,7 @@ internal static class GameLogsEndpoints
             message = row.Message,
             attrs = JsonSerializer.Deserialize<JsonElement>(row.AttrsJson),
             traceId = row.TraceId,
+            source = row.Source,
         });
         return context.Response.WriteAsJsonAsync(new { entries, nextCursor }, JsonOptions);
     }

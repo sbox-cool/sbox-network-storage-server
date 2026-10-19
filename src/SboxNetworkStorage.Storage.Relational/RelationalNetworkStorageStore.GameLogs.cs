@@ -1,5 +1,7 @@
 using System.Data;
 using System.Data.Common;
+using System.Text.Json;
+using System.Text.RegularExpressions;
 using V = SboxNetworkStorage.Storage.Relational.StoreValidation;
 
 namespace SboxNetworkStorage.Storage.Relational;
@@ -17,20 +19,21 @@ public abstract partial class RelationalNetworkStorageStore : IGameLogStore
     /// <summary>Predicate over <c>e</c> for ANDed free-text tokens. Binds <c>@fts</c> (FTS5 expression) and <c>@tok0..@tok{n-1}</c>.</summary>
     protected abstract string GameLogTextPredicateSql(int tokenCount);
 
-    /// <summary>Predicate over <c>e</c> for attribute filter <paramref name="index"/>. Binds <c>@attr_path{i}</c>, <c>@attr_key{i}</c>, <c>@attr_value{i}</c>.</summary>
+    /// <summary>Predicate over <c>e</c> for attribute filter <paramref name="index"/>. Binds <c>@attr_path{i}</c>, <c>@attr_key{i}</c>, <c>@attr_value{i}</c> (scalar form) and <c>@attr_json{i}</c>, <c>@attr_typed{i}</c> (JSON containment forms).</summary>
     protected abstract string GameLogAttrPredicateSql(int index);
 
     private string GameLogInsertSql => $"""
         INSERT INTO {TablePrefix}game_log_entries
             (project_id, entry_id, ts_unix_ms, stream, level, event, actor_steam_id, target_steam_id, revision_id,
-             client_type, library_version, message, attrs_json, trace_id, search_text)
+             client_type, library_version, message, attrs_json, trace_id, search_text, source)
         VALUES (@project, @entry, @ts, @stream, @level, @event, @actor, @target, @revision,
-                @client, @library, @message, {GameLogAttrsValueSql}, @trace, @search)
+                @client, @library, @message, {GameLogAttrsValueSql}, @trace, @search, @source)
         """;
 
     private string GameLogSelectColumns => """
         e.project_id, e.entry_id, e.ts_unix_ms, e.stream, e.level, e.event, e.actor_steam_id, e.target_steam_id,
-        e.revision_id, e.client_type, e.library_version, e.message, CAST(e.attrs_json AS TEXT), e.trace_id, e.search_text
+        e.revision_id, e.client_type, e.library_version, e.message, CAST(e.attrs_json AS TEXT), e.trace_id, e.search_text,
+        e.source
         """;
 
     public async Task<int> InsertGameLogsAsync(IReadOnlyList<GameLogRow> rows, CancellationToken ct)
@@ -43,6 +46,7 @@ public abstract partial class RelationalNetworkStorageStore : IGameLogStore
             Text("project", null), Text("entry", null), Int64("ts", null), Text("stream", null), Text("level", null),
             Text("event", null), Text("actor", null), Text("target", null), Int64("revision", null), Text("client", null),
             Text("library", null), Text("message", null), Text("attrs_json", null), Text("trace", null), Text("search", null),
+            Text("source", null),
         ], transaction);
         foreach (var row in rows)
         {
@@ -62,6 +66,7 @@ public abstract partial class RelationalNetworkStorageStore : IGameLogStore
             command.Parameters["@attrs_json"].Value = row.AttrsJson;
             command.Parameters["@trace"].Value = (object?)row.TraceId ?? DBNull.Value;
             command.Parameters["@search"].Value = row.SearchText;
+            command.Parameters["@source"].Value = row.Source;
             await command.ExecuteNonQueryAsync(ct);
         }
         await transaction.CommitAsync(ct);
@@ -71,19 +76,23 @@ public abstract partial class RelationalNetworkStorageStore : IGameLogStore
     public async Task<IReadOnlyList<GameLogRow>> SearchGameLogsAsync(GameLogQuery query, CancellationToken ct)
     {
         V.Id(query.ProjectId);
-        if (query.Streams.Count == 0) return [];
+        if (query.StreamFloorsUnixMs.Count == 0) return [];
         if (query.SearchTokens.Count > GameLogMaxSearchTokens) throw new ArgumentOutOfRangeException(nameof(query));
 
         var args = new List<Arg> { Text("project", query.ProjectId), Int32("limit", query.Limit) };
         var where = new List<string> { "e.project_id = @project" };
 
-        var streamParams = new List<string>();
-        for (var i = 0; i < query.Streams.Count; i++)
+        // One clause per enabled stream: a row is visible only inside its own stream's retention window.
+        var streamClauses = new List<string>();
+        var streamIndex = 0;
+        foreach (var (stream, floorUnixMs) in query.StreamFloorsUnixMs)
         {
-            args.Add(Text($"stream{i}", query.Streams[i]));
-            streamParams.Add($"@stream{i}");
+            args.Add(Text($"stream{streamIndex}", stream));
+            args.Add(Int64($"floor{streamIndex}", floorUnixMs));
+            streamClauses.Add($"(e.stream = @stream{streamIndex} AND e.ts_unix_ms >= @floor{streamIndex})");
+            streamIndex++;
         }
-        where.Add($"e.stream IN ({string.Join(", ", streamParams)})");
+        where.Add($"({string.Join(" OR ", streamClauses)})");
 
         if (query.FromUnixMs is { } from) { args.Add(Int64("from", from)); where.Add("e.ts_unix_ms >= @from"); }
         if (query.ToUnixMs is { } to) { args.Add(Int64("to", to)); where.Add("e.ts_unix_ms < @to"); }
@@ -101,6 +110,9 @@ public abstract partial class RelationalNetworkStorageStore : IGameLogStore
             args.Add(Text($"attr_path{i}", "$." + attr.Key));
             args.Add(Text($"attr_key{i}", attr.Key));
             args.Add(Text($"attr_value{i}", attr.Value));
+            var (containsText, containsTyped) = GameLogAttrContainment(attr);
+            args.Add(Text($"attr_json{i}", containsText));
+            args.Add(Text($"attr_typed{i}", containsTyped));
             where.Add(GameLogAttrPredicateSql(i));
         }
 
@@ -169,5 +181,17 @@ public abstract partial class RelationalNetworkStorageStore : IGameLogStore
         Message: reader.GetString(11),
         AttrsJson: reader.GetString(12),
         TraceId: reader.IsDBNull(13) ? null : reader.GetString(13),
-        SearchText: reader.GetString(14));
+        SearchText: reader.GetString(14),
+        Source: reader.GetString(15));
+
+    // Containment forms for the PostgreSQL @> predicate. A stored attribute is a JSON string or a JSON number/boolean,
+    // so a filter matches either: the string form always, the literal form when the value is a number or boolean.
+    private static (string Text, string Typed) GameLogAttrContainment(GameLogAttrFilter attr)
+    {
+        var asText = JsonSerializer.Serialize(new Dictionary<string, string>(StringComparer.Ordinal) { [attr.Key] = attr.Value });
+        var isLiteral = attr.Value is "true" or "false" || GameLogNumberLiteral.IsMatch(attr.Value);
+        return (asText, isLiteral ? "{\"" + attr.Key + "\":" + attr.Value + "}" : asText);
+    }
+
+    private static readonly Regex GameLogNumberLiteral = new(@"^-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?$", RegexOptions.CultureInvariant);
 }

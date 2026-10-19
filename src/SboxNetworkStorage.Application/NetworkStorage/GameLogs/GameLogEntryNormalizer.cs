@@ -46,6 +46,7 @@ public static class GameLogEntryNormalizer
 {
     private const int MaxEventLength = 128;
     private const int MaxClientFieldLength = GameLogPolicy.MaxClientFieldLength;
+    private const long ClientClockSkewMs = 5 * 60_000;
     private static readonly Regex EventPattern = new(@"^[a-z][a-z0-9_]*(\.[a-z0-9_]+)*$", RegexOptions.CultureInvariant);
     private static readonly HashSet<string> Levels = new(StringComparer.Ordinal) { "debug", "info", "warn", "error" };
 
@@ -90,13 +91,17 @@ public static class GameLogEntryNormalizer
         if (!TryString(entry, "event", out var eventName) || eventName.Length > MaxEventLength || !EventPattern.IsMatch(eventName))
             return Reject("INVALID_EVENT");
 
-        var stream = GameLogPolicy.DeriveStream(eventName);
+        var derived = GameLogPolicy.DeriveStream(eventName);
+        var stream = derived;
         if (entry.TryGetProperty("stream", out var streamProp) && streamProp.ValueKind != JsonValueKind.Null)
         {
             if (streamProp.ValueKind != JsonValueKind.String || !GameLogPolicy.IsKnownStream(streamProp.GetString()!))
                 return Reject("INVALID_STREAM");
             stream = streamProp.GetString()!;
         }
+
+        // Public keys cannot choose a stream: it follows the event, and audit is never open to them.
+        if (!context.Trusted && (stream != derived || derived == "audit")) return Reject("STREAM_NOT_PERMITTED");
 
         if (!context.Policy.IsStreamEnabled(stream)) return Reject("STREAM_DISABLED");
 
@@ -117,8 +122,18 @@ public static class GameLogEntryNormalizer
             tsMs = parsed.Value;
         }
 
+        // Client clocks are not trusted: a public-key timestamp is clamped to receive time +/- 5 minutes and the
+        // entry is reported as truncated. Secret-key timestamps keep the strict window below.
+        var tsClamped = false;
+        if (!context.Trusted)
+        {
+            var clamped = Math.Clamp(tsMs, nowMs - ClientClockSkewMs, nowMs + ClientClockSkewMs);
+            tsClamped = clamped != tsMs;
+            tsMs = clamped;
+        }
+
         var retentionMs = context.Policy.RetentionDaysFor(stream) * 86_400_000L;
-        if (tsMs > nowMs + GameLogPolicy.MaxFutureSkewMs || tsMs < nowMs - retentionMs)
+        if (context.Trusted && (tsMs > nowMs + GameLogPolicy.MaxFutureSkewMs || tsMs < nowMs - retentionMs))
             return Reject("TIMESTAMP_OUT_OF_WINDOW");
 
         if (!context.Trusted && !context.Policy.IsEventAllowedForClient(eventName)) return Reject("EVENT_NOT_ALLOWED");
@@ -147,7 +162,7 @@ public static class GameLogEntryNormalizer
             if (target is null || !context.IsSteamId(target)) return Reject("INVALID_TARGET");
         }
 
-        var truncated = false;
+        var truncated = tsClamped;
         var message = "";
         if (entry.TryGetProperty("message", out var messageProp) && messageProp.ValueKind != JsonValueKind.Null)
         {
@@ -204,7 +219,8 @@ public static class GameLogEntryNormalizer
             Message: message,
             AttrsJson: attrsJson,
             TraceId: traceId,
-            SearchText: GameLogTokenizer.SearchText(message));
+            SearchText: GameLogTokenizer.SearchText(message),
+            Source: context.Trusted ? "server" : "client");
         return new EntryResult(row, null, truncated, false);
     }
 

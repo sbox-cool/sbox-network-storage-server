@@ -23,6 +23,7 @@ public static class GameLogSearchParser
     public const int DefaultLimit = 100;
     public const int MaxLimit = 500;
     private const int MaxAttrValueLength = 256;
+    private const long MaxTextSearchSpanMs = 31L * 86_400_000L;
 
     private static readonly Regex AttrKeyPattern = new(@"^[A-Za-z0-9_]{1,64}$", RegexOptions.CultureInvariant);
     private static readonly Regex EventPattern = new(@"^[a-z][a-z0-9_]*(\.[a-z0-9_]+)*$", RegexOptions.CultureInvariant);
@@ -37,7 +38,8 @@ public static class GameLogSearchParser
         string projectId,
         IEnumerable<KeyValuePair<string, string>> parameters,
         GameLogPolicy policy,
-        Func<string, bool> isSteamId)
+        Func<string, bool> isSteamId,
+        DateTimeOffset now)
     {
         var scalars = new Dictionary<string, string>(StringComparer.Ordinal);
         var streams = new List<string>();
@@ -128,13 +130,24 @@ public static class GameLogSearchParser
             if (cursor is null) return Fail("INVALID_CURSOR", "cursor is not valid");
         }
 
+        if (tokens.Length > 0 || attrs.Count > 0)
+        {
+            if (from is null || to is null) return Fail("TIME_RANGE_REQUIRED", "q and attr.* searches require from and to");
+            if (to - from > MaxTextSearchSpanMs) return Fail("TIME_RANGE_TOO_LARGE", "q and attr.* searches may span at most 31 days");
+        }
+
         var effectiveStreams = streams.Count > 0
             ? streams
             : policy.Streams.Where(s => s.Value.Enabled).Select(s => s.Key).ToList();
 
+        // Each stream is searchable only inside its retention window, so expired rows are never returned.
+        var nowMs = now.ToUnixTimeMilliseconds();
+        var floors = effectiveStreams.ToDictionary(
+            s => s, s => nowMs - policy.RetentionDaysFor(s) * 86_400_000L, StringComparer.Ordinal);
+
         var query = new GameLogQuery(
             ProjectId: projectId,
-            Streams: effectiveStreams,
+            StreamFloorsUnixMs: floors,
             FromUnixMs: from,
             ToUnixMs: to,
             Level: level,

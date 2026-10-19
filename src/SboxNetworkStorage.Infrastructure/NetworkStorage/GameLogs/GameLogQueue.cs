@@ -15,6 +15,8 @@ public sealed class GameLogCounters
     public long Sampled;
     public long Truncated;
     public long RateLimited;
+    /// <summary>Entries of this project buffered or being written; bounded by <see cref="GameLogQueue.PerProjectInFlightCap"/>.</summary>
+    public long InFlight;
 }
 
 /// <summary>Immutable copy of <see cref="GameLogCounters"/> for a project. <see cref="Buffered"/> counts all projects.</summary>
@@ -38,6 +40,9 @@ public sealed class GameLogQueue
 {
     public const int Capacity = 10_000;
 
+    /// <summary>Most entries one project may hold in the buffer or in a batch being written. Keeps one project from filling the shared buffer.</summary>
+    public const int PerProjectInFlightCap = Capacity / 4;
+
     private readonly Channel<GameLogRow> _channel = Channel.CreateBounded<GameLogRow>(
         new BoundedChannelOptions(Capacity)
         {
@@ -54,20 +59,26 @@ public sealed class GameLogQueue
     public int Buffered => _channel.Reader.Count;
 
     /// <summary>
-    /// Buffers an entry without waiting. Returns false, and counts a drop for the project, when the buffer is full
-    /// or the queue has stopped accepting entries during shutdown.
+    /// Buffers an entry without waiting. Returns false, and counts a drop for the project, when the project already holds
+    /// <see cref="PerProjectInFlightCap"/> entries, when the buffer is full, or when the queue has stopped accepting entries
+    /// during shutdown.
     /// </summary>
     public bool TryEnqueue(GameLogRow row)
     {
-        if (_channel.Writer.TryWrite(row))
+        var counters = Counters(row.ProjectId);
+        if (Interlocked.Increment(ref counters.InFlight) <= PerProjectInFlightCap && _channel.Writer.TryWrite(row))
         {
-            Interlocked.Increment(ref Counters(row.ProjectId).Accepted);
+            Interlocked.Increment(ref counters.Accepted);
             return true;
         }
 
-        Interlocked.Increment(ref Counters(row.ProjectId).DroppedQueueFull);
+        Interlocked.Decrement(ref counters.InFlight);
+        Interlocked.Increment(ref counters.DroppedQueueFull);
         return false;
     }
+
+    /// <summary>Frees in-flight slots once the writer has finished a project's rows, whether the write succeeded or not.</summary>
+    public void ReleaseInFlight(string projectId, int count) => Interlocked.Add(ref Counters(projectId).InFlight, -count);
 
     public void RecordRejected(string projectId, int count) => Interlocked.Add(ref Counters(projectId).Rejected, count);
 

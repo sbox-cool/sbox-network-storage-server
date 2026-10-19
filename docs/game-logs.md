@@ -19,7 +19,7 @@ Open the project in the owner dashboard and expand **Game logs**:
 | `audit` | on | 365 days | Admin and audit events. |
 | `chat` | off | 14 days | Chat messages. Opt-in: nothing is captured until the owner enables it. |
 
-Entries older than the stream's retention are purged once a day.
+Entries older than the stream's retention are purged once a day. Search never returns entries older than retention, even before the purge runs. Disabling a stream stops new writes; its stored rows are kept until they age out (purging on disable is not implemented yet). Rows of a deleted project are removed by the same daily purge, under the default retention.
 
 ## Sending entries
 
@@ -29,6 +29,8 @@ x-api-key: <public or secret key>
 x-auth-session: <player session token>      # public-key callers, for player identity
 Content-Type: application/json              # or application/x-ndjson
 ```
+
+A key in the query string (`?apiKey=`) is refused with `400 API_KEY_IN_QUERY` before any key lookup. Send the key in the `x-api-key` header.
 
 The body is a JSON array of entries, or one JSON object per line as NDJSON.
 
@@ -44,9 +46,9 @@ The body is a JSON array of entries, or one JSON object per line as NDJSON.
 | Field | Required | Meaning |
 | --- | --- | --- |
 | `event` | yes | Lower-case dotted name such as `match.end` or `client.join`. Up to 128 characters. |
-| `stream` | no | `default`, `chat` or `audit`. Defaults to `default`. The stream must be enabled. |
+| `stream` | no | `default`, `chat` or `audit`. Defaults to the stream the event implies: `chat.*` → `chat`, `admin.*` and `command.*` → `audit`, anything else → `default`. The stream must be enabled. Public keys may only send the implied stream, and never `audit` (`STREAM_NOT_PERMITTED`). |
 | `level` | no | `debug`, `info`, `warn` or `error`. Defaults to `info`. |
-| `ts` | no | Unix milliseconds. Defaults to the server time. Must be at most 60 seconds in the future and within the stream's retention. |
+| `ts` | no | Unix milliseconds. Defaults to the server time. Secret-key values must be at most 60 seconds in the future and within the stream's retention. Public-key values are clamped to within 5 minutes of server receive time; a clamped entry is counted in `truncated`. |
 | `actor` | secret key only | SteamID of the player the event is about. See [Identity](#identity-and-the-actor-field). |
 | `target` | no | SteamID of a second player involved, for example the victim. |
 | `message` | no | Free text, up to 2,048 characters. Longer messages are truncated and the response says so. |
@@ -57,8 +59,11 @@ The body is a JSON array of entries, or one JSON object per line as NDJSON.
 
 - **Public key** (the key the game client holds): the server takes the actor from the verified player session only. An entry that sends `actor` is rejected with `ACTOR_NOT_PERMITTED`, and a request that sends `x-on-behalf-of` gets `403 ACTOR_NOT_PERMITTED`. A client cannot write logs as another player.
 - **Secret key** (dedicated servers and trusted tools): the entry's `actor` is honoured when it is a valid SteamID. It is rejected with `INVALID_ACTOR` otherwise. If an entry has no `actor`, the `x-on-behalf-of` header is used when present.
+- **Secret key** ingest requires `logs:w` (the `logs` scope set to `w` or `rw`). A key whose permissions omit `logs` gets `403 FORBIDDEN`. Default secret keys have no `logs` grant, so the owner adds one in the key editor. Only a key with no permission map at all (full access) passes without it.
 - Client IP addresses are never stored.
 - Public-key callers may send `client.*` and `chat.*` events without restriction. Other events must match the project's allowed-events list.
+- Public-key callers cannot name a stream and cannot write `audit`. `client.*` entries go to `default`, and `chat.*` entries go to `chat` (which must be enabled). An entry that would land in `audit`, such as `admin.*`, is refused with `STREAM_NOT_PERMITTED` even if its event is in the allowed-events list. The stream check runs before the event check.
+- Each stored row records its `source`: `client` for public-key entries, `server` for secret-key entries. Search returns it.
 
 ### Response
 
@@ -76,13 +81,18 @@ Status `202 Accepted`. Entries are validated one by one: a bad entry is listed i
 | Bytes per batch | 256 KB | `413 BATCH_TOO_LARGE` |
 | Bytes per entry | 8 KB | `ENTRY_TOO_LARGE` (entry) |
 | Project rate limit | `gameLogsRateLimitPerMinute` (default 12,000 entries/min) | `429 LOG_RATE_LIMITED` with `Retry-After` |
-| Per-actor rate limit | 1,200 entries/min | `429 LOG_RATE_LIMITED` |
-| Future timestamp skew | 60 seconds | `TIMESTAMP_OUT_OF_WINDOW` (entry) |
+| Per-actor rate limit (public keys) | 1,200 entries/min per project and player | `429 LOG_RATE_LIMITED` |
+| Timestamp window | Secret keys: at most 60 seconds ahead and within retention. Public keys: clamped to 5 minutes either side of receive time. | `TIMESTAMP_OUT_OF_WINDOW` (entry, secret keys only) |
 | Queue full | 10,000 entries waiting in memory | `QUEUE_FULL` (entry, counted as dropped) |
+| Queued entries per project | 2,500 | `QUEUE_FULL` (entry, counted as dropped) |
 
-Other per-entry codes: `INVALID_JSON`, `INVALID_ENTRY`, `INVALID_EVENT`, `INVALID_STREAM`, `STREAM_DISABLED`, `INVALID_LEVEL`, `INVALID_TIMESTAMP`, `INVALID_STEAMID`, `INVALID_TARGET`, `INVALID_MESSAGE`, `INVALID_ATTRS`, `INVALID_ATTR_KEY`, `ATTR_KEY_TOO_LONG`, `ATTR_TOO_DEEP`, `ATTR_NUMBER_OUT_OF_RANGE`, `DUPLICATE_ATTR_KEY`, `TOO_MANY_ATTRS`, `INVALID_FIELD`, `INVALID_REVISION`, `EVENT_NOT_ALLOWED`.
+Budgets are charged in this order. Identity is resolved first, so a request that fails identity costs nothing. Then the entries are validated, and only entries that pass (sampled ones included) are counted. A public-key request charges the actor bucket next, then the project bucket, so an over-limit player is refused without draining the project's budget. A request refused by the project limit has already spent its actor tokens.
+
+Other per-entry codes: `INVALID_JSON`, `INVALID_ENTRY`, `INVALID_EVENT`, `INVALID_STREAM`, `STREAM_DISABLED`, `STREAM_NOT_PERMITTED`, `INVALID_LEVEL`, `INVALID_TIMESTAMP`, `INVALID_STEAMID`, `INVALID_ACTOR`, `ACTOR_NOT_PERMITTED`, `INVALID_TARGET`, `INVALID_MESSAGE`, `INVALID_ATTRS`, `INVALID_ATTR_KEY`, `ATTR_KEY_TOO_LONG`, `ATTR_TOO_DEEP`, `ATTR_NUMBER_OUT_OF_RANGE`, `DUPLICATE_ATTR_KEY`, `TOO_MANY_ATTRS`, `INVALID_FIELD`, `INVALID_REVISION`, `EVENT_NOT_ALLOWED`.
 
 Errors for a whole request use `{ "ok": false, "error": "<CODE>", "detail": "..." }`.
+
+Request-level codes also include `API_KEY_IN_QUERY` (400) and `FORBIDDEN` (403).
 
 ## Searching
 
@@ -91,11 +101,11 @@ GET /api/game-logs/{projectId}?player=7656...&event=match.end&attr.team=red&q=el
 x-api-key: <secret key with logs:r>
 ```
 
-Search needs a **secret key** with the `logs` scope set to `r`. Default secret keys do not have it; the owner adds it in the key editor. Public keys cannot search (`403 FORBIDDEN`).
+Search needs a **secret key** whose `logs` scope includes read (`r` or `rw`). Default secret keys do not have it; the owner adds it in the key editor. Public keys cannot search (`403 FORBIDDEN`).
 
 | Parameter | Meaning |
 | --- | --- |
-| `from`, `to` | Unix milliseconds or ISO-8601. `from` must be before `to`. |
+| `from`, `to` | Unix milliseconds or ISO-8601. `from` must be before `to`. Required when `q` or an `attr.<key>` is used, and at most 31 days apart in that case (`TIME_RANGE_REQUIRED`, `TIME_RANGE_TOO_LARGE`). |
 | `level` | `debug`, `info`, `warn` or `error`. |
 | `event` | Exact event name. |
 | `stream` | `default`, `chat` or `audit`. Repeatable. Defaults to every enabled stream. |
@@ -105,7 +115,7 @@ Search needs a **secret key** with the `logs` scope set to `r`. Default secret k
 | `limit` | 1-500, default 100. |
 | `cursor` | Opaque value from `nextCursor` of the previous page. |
 
-Response: `{ "entries": [ { "entryId", "tsUnixMs", "stream", "level", "event", "actor", "target", "revisionId", "clientType", "libraryVersion", "message", "attrs", "traceId" } ], "nextCursor": null }`. Results are newest first. `nextCursor` is `null` on the last page.
+Response: `{ "entries": [ { "entryId", "tsUnixMs", "stream", "level", "event", "actor", "target", "revisionId", "clientType", "libraryVersion", "message", "attrs", "traceId", "source" } ], "nextCursor": null }`. `source` is `client` or `server`. Results are newest first. `nextCursor` is `null` on the last page.
 
 Free-text matching uses SQLite FTS5 (unicode61) on SQLite and a token array on PostgreSQL. Ordinary words behave the same on both; tokenisation of rare Unicode scripts can differ.
 

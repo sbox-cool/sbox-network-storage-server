@@ -80,7 +80,7 @@ public sealed class GameLogIngestServiceTests
     [Fact]
     public void Public_key_callers_may_only_emit_client_chat_and_allow_listed_events()
     {
-        Assert.Equal("EVENT_NOT_ALLOWED", RejectCode("[{\"event\":\"admin.kick\"}]", Context()));
+        Assert.Equal("STREAM_NOT_PERMITTED", RejectCode("[{\"event\":\"admin.kick\"}]", Context()));
 
         var allowed = new GameLogSettings(Enabled: true, AllowedEvents: ["match.*"]);
         Assert.Single(Normalize("[{\"event\":\"match.start\"}]", Context(allowed)).Rows);
@@ -146,6 +146,36 @@ public sealed class GameLogIngestServiceTests
     }
 
     [Fact]
+    public void Public_key_callers_cannot_name_a_stream_and_audit_is_never_open_to_them()
+    {
+        var chatOn = new GameLogSettings(Enabled: true, Streams: new Dictionary<string, GameLogStreamSettings>
+        {
+            ["chat"] = new(Enabled: true),
+        });
+
+        Assert.Equal("STREAM_NOT_PERMITTED", RejectCode("[{\"event\":\"client.x\",\"stream\":\"audit\"}]", Context()));
+        Assert.Equal("STREAM_NOT_PERMITTED", RejectCode("[{\"event\":\"chat.say\",\"stream\":\"default\"}]", Context(chatOn)));
+        Assert.Equal("STREAM_NOT_PERMITTED", RejectCode("[{\"event\":\"admin.kick\"}]", Context(new GameLogSettings(Enabled: true, AllowedEvents: ["admin.*"]))));
+        Assert.Equal("chat", Assert.Single(Normalize("[{\"event\":\"chat.say\",\"message\":\"gg\"}]", Context(chatOn)).Rows).Row.Stream);
+        Assert.Equal("audit", Assert.Single(Normalize("[{\"event\":\"client.x\",\"stream\":\"audit\"}]", Context(trusted: true)).Rows).Row.Stream);
+    }
+
+    [Fact]
+    public void Public_key_timestamps_are_clamped_to_five_minutes_and_entries_are_marked_client_sourced()
+    {
+        var allowed = new GameLogSettings(Enabled: true, AllowedEvents: ["match.*"]);
+        var farFuture = NowMs + 60 * 60_000;
+
+        var outcome = Normalize($"[{{\"event\":\"match.end\",\"ts\":{farFuture}}}]", Context(allowed));
+        var row = Assert.Single(outcome.Rows).Row;
+        Assert.Equal(NowMs + 5 * 60_000, row.TsUnixMs);
+        Assert.Equal("client", row.Source);
+        Assert.Equal([0], outcome.Truncated);
+
+        Assert.Equal("server", Assert.Single(Normalize("[{\"event\":\"match.end\"}]", Context(trusted: true)).Rows).Row.Source);
+    }
+
+    [Fact]
     public void Entry_over_the_byte_budget_is_rejected_as_entry_too_large()
     {
         var big = new string('x', 1024);
@@ -189,7 +219,7 @@ public sealed class GameLogIngestServiceTests
             Context());
 
         Assert.Equal([0], outcome.Rows.Select(r => r.Index));
-        Assert.Equal([(1, "EVENT_NOT_ALLOWED"), (2, "ACTOR_NOT_PERMITTED")], outcome.Rejected.Select(r => (r.Index, r.Code)));
+        Assert.Equal([(1, "STREAM_NOT_PERMITTED"), (2, "ACTOR_NOT_PERMITTED")], outcome.Rejected.Select(r => (r.Index, r.Code)));
     }
 
     [Fact]
@@ -247,11 +277,12 @@ public sealed class GameLogIngestServiceTests
     {
         var policy = new GameLogPolicy(new GameLogSettings(Enabled: true));
         var result = Parse(policy,
-            ("player", Player), ("attr.team", "red"), ("attr.score", "1.0"), ("q", "Victory now"), ("event", "match.end"));
+            ("player", Player), ("attr.team", "red"), ("attr.score", "1.0"), ("q", "Victory now"), ("event", "match.end"),
+            ("from", "2023-11-01T00:00:00Z"), ("to", "2023-11-14T00:00:00Z"));
 
         Assert.True(result.Ok);
         var query = result.Query!;
-        Assert.Equal(["default", "audit"], query.Streams);
+        Assert.Equal(new[] { "audit", "default" }, query.StreamFloorsUnixMs.Keys.Order());
         Assert.Equal(Player, query.PlayerSteamId);
         Assert.Equal("match.end", query.Event);
         Assert.Equal(["victory", "now"], query.SearchTokens);
@@ -265,6 +296,30 @@ public sealed class GameLogIngestServiceTests
         var policy = new GameLogPolicy(new GameLogSettings(Enabled: true));
         Assert.Equal("STREAM_DISABLED", Parse(policy, ("stream", "chat")).ErrorCode);
         Assert.Equal("INVALID_QUERY", Parse(policy, ("from", "2024-01-02T00:00:00Z"), ("to", "2024-01-01T00:00:00Z")).ErrorCode);
+    }
+
+    [Fact]
+    public void Text_and_attribute_searches_require_a_time_range_of_at_most_31_days()
+    {
+        var policy = new GameLogPolicy(new GameLogSettings(Enabled: true));
+        Assert.Equal("TIME_RANGE_REQUIRED", Parse(policy, ("q", "victory")).ErrorCode);
+        Assert.Equal("TIME_RANGE_REQUIRED", Parse(policy, ("attr.team", "red"), ("from", "2023-11-01T00:00:00Z")).ErrorCode);
+        Assert.Equal("TIME_RANGE_TOO_LARGE", Parse(policy, ("q", "victory"), ("from", "2023-09-01T00:00:00Z"), ("to", "2023-11-14T00:00:00Z")).ErrorCode);
+        Assert.True(Parse(policy, ("q", "victory"), ("from", "2023-11-01T00:00:00Z"), ("to", "2023-11-14T00:00:00Z")).Ok);
+    }
+
+    [Fact]
+    public void Search_floors_come_from_each_streams_retention()
+    {
+        var policy = new GameLogPolicy(new GameLogSettings(Enabled: true, Streams: new Dictionary<string, GameLogStreamSettings>
+        {
+            ["default"] = new(RetentionDays: 2),
+        }));
+
+        var result = Parse(policy, ("stream", "default"), ("stream", "audit"));
+        Assert.True(result.Ok);
+        Assert.Equal(NowMs - 2 * 86_400_000L, result.Query!.StreamFloorsUnixMs["default"]);
+        Assert.Equal(NowMs - 365 * 86_400_000L, result.Query.StreamFloorsUnixMs["audit"]);
     }
 
     [Fact]
@@ -337,22 +392,75 @@ public sealed class GameLogIngestServiceTests
     }
 
     [Fact]
-    public void Queue_drops_when_full_and_counts_the_drop_per_project()
+    public void Rate_limiter_prunes_idle_buckets_once_per_interval_and_never_resets_a_project_bucket()
     {
-        var queue = new GameLogQueue();
-        for (var i = 0; i < GameLogQueue.Capacity; i++)
-            Assert.True(queue.TryEnqueue(Row($"e{i}")));
+        var clock = new ManualClock();
+        var limiter = new GameLogRateLimiter(clock);
+        Assert.True(limiter.TryConsume("project:p1", perMinute: 12_000, cost: 7_000).Allowed);
 
-        Assert.False(queue.TryEnqueue(Row("overflow")));
+        // Crossing the threshold prunes idle buckets. The project bucket holds 5,000 of its 12,000 tokens, so it stays.
+        for (var i = 0; i < 10_001; i++) limiter.TryConsume($"actor:{i}", perMinute: 1, cost: 0);
+        Assert.False(limiter.TryConsume("project:p1", perMinute: 12_000, cost: 7_001).Allowed);
 
-        var counters = queue.Snapshot("p1");
-        Assert.Equal(GameLogQueue.Capacity, counters.Accepted);
-        Assert.Equal(1, counters.DroppedQueueFull);
-        Assert.Equal(GameLogQueue.Capacity, counters.Buffered);
+        // Inside the same interval a second flood is not pruned.
+        var before = limiter.BucketCount;
+        for (var i = 0; i < 10_001; i++) limiter.TryConsume($"burst:{i}", perMinute: 1, cost: 0);
+        Assert.Equal(before + 10_001, limiter.BucketCount);
+
+        // After the interval the next call prunes the refilled buckets, the project bucket included.
+        clock.Seconds = 60;
+        Assert.True(limiter.TryConsume("project:p1", perMinute: 12_000, cost: 0).Allowed);
+        Assert.Equal(1, limiter.BucketCount);
     }
 
-    private static GameLogRow Row(string entryId) => new(
-        ProjectId: "p1",
+    [Fact]
+    public void Queue_caps_each_project_in_flight_so_one_project_cannot_starve_others()
+    {
+        var queue = new GameLogQueue();
+        for (var i = 0; i < GameLogQueue.PerProjectInFlightCap; i++)
+            Assert.True(queue.TryEnqueue(RowFor("p1", $"e{i}")));
+
+        Assert.False(queue.TryEnqueue(RowFor("p1", "overflow")));
+        Assert.True(queue.TryEnqueue(RowFor("p2", "other")));
+
+        var p1 = queue.Snapshot("p1");
+        Assert.Equal(GameLogQueue.PerProjectInFlightCap, p1.Accepted);
+        Assert.Equal(1, p1.DroppedQueueFull);
+        var p2 = queue.Snapshot("p2");
+        Assert.Equal(1, p2.Accepted);
+        Assert.Equal(0, p2.DroppedQueueFull);
+    }
+
+    [Fact]
+    public void Queue_releases_project_in_flight_when_a_batch_is_written()
+    {
+        var queue = new GameLogQueue();
+        for (var i = 0; i < GameLogQueue.PerProjectInFlightCap; i++)
+            Assert.True(queue.TryEnqueue(RowFor("p1", $"e{i}")));
+        Assert.False(queue.TryEnqueue(RowFor("p1", "blocked")));
+
+        queue.ReleaseInFlight("p1", GameLogQueue.PerProjectInFlightCap);
+
+        Assert.True(queue.TryEnqueue(RowFor("p1", "after-release")));
+    }
+
+    [Fact]
+    public void Queue_counts_a_global_overflow_against_the_project_that_hit_it()
+    {
+        var queue = new GameLogQueue();
+        foreach (var project in new[] { "p1", "p2", "p3", "p4" })
+            for (var i = 0; i < GameLogQueue.PerProjectInFlightCap; i++)
+                Assert.True(queue.TryEnqueue(RowFor(project, $"e{i}")));
+
+        Assert.False(queue.TryEnqueue(RowFor("p5", "overflow")));
+        Assert.Equal(1, queue.Snapshot("p5").DroppedQueueFull);
+        Assert.Equal(0, queue.Snapshot("p5").Accepted);
+    }
+
+    private static GameLogRow Row(string entryId) => RowFor("p1", entryId);
+
+    private static GameLogRow RowFor(string projectId, string entryId) => new(
+        ProjectId: projectId,
         EntryId: entryId,
         TsUnixMs: NowMs,
         Stream: "default",
@@ -366,9 +474,20 @@ public sealed class GameLogIngestServiceTests
         Message: "",
         AttrsJson: "{}",
         TraceId: null,
-        SearchText: "");
+        SearchText: "",
+        Source: "server");
 
     private static GameLogSearchParseResult Parse(GameLogPolicy policy, params (string Key, string Value)[] parameters)
         => GameLogSearchParser.Parse("p1", parameters.Select(p => new KeyValuePair<string, string>(p.Key, p.Value)), policy,
-            s => s.Length == 17 && s.All(char.IsAsciiDigit));
+            s => s.Length == 17 && s.All(char.IsAsciiDigit), DateTimeOffset.FromUnixTimeMilliseconds(NowMs));
+
+    /// <summary>A clock whose timestamps are whole seconds, so tests can move time without sleeping.</summary>
+    private sealed class ManualClock : TimeProvider
+    {
+        public long Seconds { get; set; }
+
+        public override long TimestampFrequency => 1;
+
+        public override long GetTimestamp() => Seconds;
+    }
 }

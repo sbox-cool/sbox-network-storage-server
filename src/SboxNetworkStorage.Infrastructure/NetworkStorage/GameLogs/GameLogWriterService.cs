@@ -102,6 +102,11 @@ public sealed class GameLogWriterService(
                 queue.RecordWriteFailed(group.Key, group.Count());
             _logger.LogError(ex, "Game-log batch of {Count} entries failed to write", batch.Count);
         }
+        finally
+        {
+            foreach (var group in batch.GroupBy(row => row.ProjectId, StringComparer.Ordinal))
+                queue.ReleaseInFlight(group.Key, group.Count());
+        }
     }
 
     /// <summary>Runs the retention purge when the daily interval has elapsed.</summary>

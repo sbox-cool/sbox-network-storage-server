@@ -33,6 +33,7 @@ public static class PostgresMigrations
             project_id {Key}, entry_id {Key}, ts_unix_ms bigint NOT NULL, stream text NOT NULL, level text NOT NULL, event text NOT NULL,
             actor_steam_id text, target_steam_id text, revision_id bigint, client_type text, library_version text,
             message text NOT NULL, attrs_json jsonb NOT NULL, trace_id text, search_text text NOT NULL,
+            source text NOT NULL CHECK (source IN ('client', 'server')),
             search_tokens text[] GENERATED ALWAYS AS (string_to_array(search_text, ' ')) STORED,
             PRIMARY KEY (project_id, entry_id));
         CREATE INDEX ix_game_log_project_ts ON {p}game_log_entries (project_id, ts_unix_ms DESC, entry_id DESC);

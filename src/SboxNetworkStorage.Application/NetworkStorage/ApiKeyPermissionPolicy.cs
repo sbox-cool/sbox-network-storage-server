@@ -17,7 +17,7 @@ namespace SboxNetworkStorage.Application.NetworkStorage;
 ///   not <c>"none"</c>, and grant the requested <paramref name="level"/>.</item>
 /// </list>
 ///
-/// Levels: <c>"r"</c> needs read; <c>"rw"</c> needs read AND write; <c>"x"</c>
+/// Levels: <c>"r"</c> needs read; <c>"w"</c> needs write; <c>"rw"</c> needs read AND write; <c>"x"</c>
 /// needs execute. The direct collection-data HTTP API requires
 /// <c>("collections", "x")</c> — execute = "direct collection data HTTP API
 /// access" per the permission-scope docs.
@@ -44,6 +44,7 @@ public static class ApiKeyPermissionPolicy
         return level switch
         {
             "x" => hasExecute,
+            "w" => hasWrite,
             "rw" => hasRead && hasWrite,
             _ => hasRead,
         };

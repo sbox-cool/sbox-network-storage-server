@@ -56,9 +56,10 @@ public sealed class SqliteNetworkStorageStore : RelationalNetworkStorageStore
 
     protected override string GameLogAttrsValueSql => "@attrs_json";
 
-    // FTS5 external-content lookup on the rowid mirror; the MATCH expression is built once in the base class.
+    // FTS5 lookup on the rowid mirror: the correlated EXISTS ties the MATCH to each candidate row, which the outer
+    // predicates already scope to one project. The MATCH expression is built once in the base class.
     protected override string GameLogTextPredicateSql(int tokenCount) =>
-        $"e.seq IN (SELECT rowid FROM {TablePrefix}game_log_fts WHERE {TablePrefix}game_log_fts MATCH @fts)";
+        $"EXISTS (SELECT 1 FROM {TablePrefix}game_log_fts WHERE rowid = e.seq AND {TablePrefix}game_log_fts MATCH @fts)";
 
     // Scalar comparison on the JSON type: strings compare as-is, numbers by their canonical decimal text (SQLite CAST of
     // an integer or real), booleans as 'true'/'false'. Objects and arrays never match.

@@ -4,6 +4,8 @@ using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using SboxNetworkStorage.Application.NetworkStorage;
 using SboxNetworkStorage.Application.NetworkStorage.AuthSessions;
+using SboxNetworkStorage.Application.NetworkStorage.GameLogs;
+using SboxNetworkStorage.Infrastructure.NetworkStorage.GameLogs;
 using SboxNetworkStorage.Server.Hosting;
 using SboxNetworkStorage.Server.Tests.Hosting;
 
@@ -43,9 +45,9 @@ public sealed class GameLogsHttpTests
         };
         foreach (var (key, value) in extra ?? new()) form[key] = value;
         await projects.UpdateProjectSettingsAsync(owner, project.ProjectId, "game-logs", form, Ct);
-        // Keys made by default carry no logs scope; the helper hands out a key that holds logs:r only.
-        var (_, logKey) = await projects.CreateProjectKeyAsync(owner, project.ProjectId, "Log reader", "secret",
-            permissions: new Dictionary<string, string> { ["logs"] = "r" }, Ct);
+        // Keys made by default carry no logs scope; the helper hands out a key that holds logs:rw.
+        var (_, logKey) = await projects.CreateProjectKeyAsync(owner, project.ProjectId, "Log writer", "secret",
+            permissions: new Dictionary<string, string> { ["logs"] = "rw" }, Ct);
         return (factory, project with { SecretKey = logKey });
     }
 
@@ -266,5 +268,124 @@ public sealed class GameLogsHttpTests
         Assert.Equal(7, settings.Streams["chat"].RetentionDays);
         Assert.Equal(["match.*", "scoreboard.update"], settings.AllowedEvents);
         Assert.Equal(600, settings.RateLimitPerMinute);
+    }
+
+    [Fact]
+    public async Task Requests_that_fail_identity_do_not_consume_the_project_budget()
+    {
+        var (factory, project) = await EnabledProjectAsync(new() { ["gameLogsRateLimitPerMinute"] = "3" });
+        using var factoryScope = factory;
+        using var client = factory.CreateClient();
+        var token = factory.Services.GetRequiredService<INetworkStorageAuthSessionService>()
+            .Create(NetworkStorageServices.LocalOwnerUserId, project.ProjectId, Player, 3600).Token!;
+
+        for (var i = 0; i < 5; i++)
+        {
+            using var anonymous = await client.SendAsync(Ingest(project, project.PublicKey, "[{\"event\":\"client.join\"}]"));
+            Assert.NotEqual(HttpStatusCode.Accepted, anonymous.StatusCode);
+            Assert.NotEqual(HttpStatusCode.TooManyRequests, anonymous.StatusCode);
+        }
+
+        // The project budget is 3 entries per minute; the five anonymous requests above must not have spent it.
+        using var response = await client.SendAsync(Ingest(project, project.PublicKey,
+            "[{\"event\":\"client.join\"},{\"event\":\"client.join\"},{\"event\":\"client.join\"}]", session: token));
+        Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task An_over_limit_actor_is_refused_without_draining_the_project_budget()
+    {
+        var (factory, project) = await EnabledProjectAsync(new() { ["gameLogsRateLimitPerMinute"] = "3" });
+        using var factoryScope = factory;
+        using var client = factory.CreateClient();
+        var sessions = factory.Services.GetRequiredService<INetworkStorageAuthSessionService>();
+        var playerToken = sessions.Create(NetworkStorageServices.LocalOwnerUserId, project.ProjectId, Player, 3600).Token!;
+        var victimToken = sessions.Create(NetworkStorageServices.LocalOwnerUserId, project.ProjectId, Victim, 3600).Token!;
+
+        // Drain Player's actor bucket (1,200 per minute, refilling at 20 per second) so a 500-entry batch is refused by the actor bucket.
+        var limiter = factory.Services.GetRequiredService<GameLogRateLimiter>();
+        Assert.True(limiter.TryConsume($"actor:{project.ProjectId}:{Player}", 1200, 1200).Allowed);
+        var flood = "[" + string.Join(",", Enumerable.Repeat("{\"event\":\"client.join\"}", GameLogPolicy.MaxBatchEntries)) + "]";
+
+        using var playerResponse = await client.SendAsync(Ingest(project, project.PublicKey, flood, session: playerToken));
+        Assert.Equal(HttpStatusCode.TooManyRequests, playerResponse.StatusCode);
+
+        // The refused batch was charged to nothing, so Victim still has the whole project budget of 3.
+        using var victimResponse = await client.SendAsync(Ingest(project, project.PublicKey,
+            "[{\"event\":\"client.join\"},{\"event\":\"client.join\"}]", session: victimToken));
+        Assert.Equal(HttpStatusCode.Accepted, victimResponse.StatusCode);
+    }
+
+    [Fact]
+    public async Task Secret_key_without_logs_write_cannot_ingest()
+    {
+        var (factory, project) = await EnabledProjectAsync();
+        using var factoryScope = factory;
+        using var client = factory.CreateClient();
+        var readOnly = await CreateKeyAsync(factory, project, new() { ["logs"] = "r" });
+
+        using var response = await client.SendAsync(Ingest(project, readOnly, "[{\"event\":\"admin.kick\"}]"));
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync(Ct));
+        Assert.Equal("FORBIDDEN", body.RootElement.GetProperty("error").GetString());
+    }
+
+    [Fact]
+    public async Task Api_key_in_the_query_string_is_refused_before_key_lookup()
+    {
+        var (factory, project) = await EnabledProjectAsync();
+        using var factoryScope = factory;
+        using var client = factory.CreateClient();
+
+        using var response = await client.SendAsync(new HttpRequestMessage(HttpMethod.Get,
+            $"{Route}/{project.ProjectId}?apiKey={project.SecretKey}"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync(Ct));
+        Assert.Equal("API_KEY_IN_QUERY", body.RootElement.GetProperty("error").GetString());
+    }
+
+    [Fact]
+    public async Task Text_search_without_a_time_range_is_rejected()
+    {
+        var (factory, project) = await EnabledProjectAsync();
+        using var factoryScope = factory;
+        using var client = factory.CreateClient();
+
+        using var response = await client.SendAsync(Search(project, "?q=victory"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync(Ct));
+        Assert.Equal("TIME_RANGE_REQUIRED", body.RootElement.GetProperty("error").GetString());
+    }
+
+    [Fact]
+    public async Task Stored_rows_record_whether_a_client_or_the_server_wrote_them()
+    {
+        var (factory, project) = await EnabledProjectAsync();
+        using var factoryScope = factory;
+        using var client = factory.CreateClient();
+        var token = factory.Services.GetRequiredService<INetworkStorageAuthSessionService>()
+            .Create(NetworkStorageServices.LocalOwnerUserId, project.ProjectId, Player, 3600).Token!;
+
+        using var fromClient = await client.SendAsync(Ingest(project, project.PublicKey, "[{\"event\":\"client.join\"}]", session: token));
+        using var fromServer = await client.SendAsync(Ingest(project, project.SecretKey, "[{\"event\":\"admin.mute\"}]"));
+        Assert.Equal(HttpStatusCode.Accepted, fromClient.StatusCode);
+        Assert.Equal(HttpStatusCode.Accepted, fromServer.StatusCode);
+
+        var joined = await WaitForEntriesAsync(client, project, "?event=client.join", 1);
+        Assert.Equal("client", Assert.Single(joined.GetProperty("entries").EnumerateArray()).GetProperty("source").GetString());
+        var muted = await WaitForEntriesAsync(client, project, "?event=admin.mute", 1);
+        Assert.Equal("server", Assert.Single(muted.GetProperty("entries").EnumerateArray()).GetProperty("source").GetString());
+    }
+
+    private static async Task<string> CreateKeyAsync(SqliteHostFactory factory, SelfHostProject project, Dictionary<string, string> permissions)
+    {
+        await using var scope = factory.Services.CreateAsyncScope();
+        var projects = scope.ServiceProvider.GetRequiredService<INetworkStorageProjectService>();
+        var (_, key) = await projects.CreateProjectKeyAsync(NetworkStorageServices.LocalOwnerUserId, project.ProjectId,
+            "Test key", "secret", permissions: permissions, Ct);
+        return key;
     }
 }

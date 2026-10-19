@@ -43,9 +43,9 @@ public sealed class PostgresNetworkStorageStore : RelationalNetworkStorageStore
     protected override string GameLogTextPredicateSql(int tokenCount) =>
         $"e.search_tokens @> ARRAY[{string.Join(", ", Enumerable.Range(0, tokenCount).Select(static i => $"@tok{i}"))}]::text[]";
 
-    // Scalar comparison on the jsonb type: strings and booleans via ->> ('true'/'false'), numbers via their canonical text.
+    // GIN (jsonb_path_ops) containment, so the index applies: the string form always, the literal form for numbers and booleans.
     protected override string GameLogAttrPredicateSql(int index) =>
-        $"jsonb_typeof(e.attrs_json -> @attr_key{index}) IN ('string', 'number', 'boolean') AND e.attrs_json ->> @attr_key{index} = @attr_value{index}";
+        $"(e.attrs_json @> @attr_json{index}::jsonb OR e.attrs_json @> @attr_typed{index}::jsonb)";
 
     protected override async ValueTask<DbConnection> OpenConnectionAsync(CancellationToken ct)
         => await _dataSource.OpenConnectionAsync(ct);

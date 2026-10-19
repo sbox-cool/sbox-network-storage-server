@@ -33,6 +33,7 @@ public static class SqliteMigrations
             stream TEXT NOT NULL, level TEXT NOT NULL, event TEXT NOT NULL,
             actor_steam_id TEXT, target_steam_id TEXT, revision_id INTEGER, client_type TEXT, library_version TEXT,
             message TEXT NOT NULL, attrs_json TEXT NOT NULL, trace_id TEXT, search_text TEXT NOT NULL,
+            source TEXT NOT NULL CHECK (source IN ('client', 'server')),
             UNIQUE (project_id, entry_id)) STRICT;
         CREATE INDEX ix_game_log_project_ts ON {p}game_log_entries (project_id, ts_unix_ms DESC, entry_id DESC);
         CREATE INDEX ix_game_log_project_actor_ts ON {p}game_log_entries (project_id, actor_steam_id, ts_unix_ms DESC);

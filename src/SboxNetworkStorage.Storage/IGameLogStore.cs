@@ -16,7 +16,8 @@ public sealed record GameLogRow(
     string Message,
     string AttrsJson,
     string? TraceId,
-    string SearchText);
+    string SearchText,
+    string Source);
 
 /// <summary>Keyset cursor: entries strictly older than (<see cref="TsUnixMs"/>, <see cref="EntryId"/>) in (ts DESC, entry_id DESC) order.</summary>
 public sealed record GameLogCursor(long TsUnixMs, string EntryId);
@@ -25,12 +26,12 @@ public sealed record GameLogCursor(long TsUnixMs, string EntryId);
 public sealed record GameLogAttrFilter(string Key, string Value);
 
 /// <summary>
-/// Search filters. <see cref="Streams"/> is the set of enabled streams to search (never empty here).
-/// <see cref="SearchTokens"/> are ANDed whole-token matches produced by the same tokenizer that wrote <see cref="GameLogRow.SearchText"/>.
+/// Search filters. <see cref="StreamFloorsUnixMs"/> maps each enabled stream to the earliest timestamp still inside its retention
+/// (rows older than the floor are never returned). <see cref="SearchTokens"/> are ANDed whole-token matches produced by the same tokenizer that wrote <see cref="GameLogRow.SearchText"/>.
 /// </summary>
 public sealed record GameLogQuery(
     string ProjectId,
-    IReadOnlyList<string> Streams,
+    IReadOnlyDictionary<string, long> StreamFloorsUnixMs,
     long? FromUnixMs,
     long? ToUnixMs,
     string? Level,
