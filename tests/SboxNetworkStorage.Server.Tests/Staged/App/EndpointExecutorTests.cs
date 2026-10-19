@@ -392,6 +392,172 @@ public sealed class NativeEndpointExecutorTests
     }
 
     [Fact]
+    public async Task TryExecute_LiveServe_WebhookOutboxOff_SendsInlineAndReportsRealStatus()
+    {
+        // Flag unset (default for existing projects): the step waits for the sender and the game sees its real status.
+        var store = new Dictionary<string, object?>
+        {
+            ["proj:ep:notify"] = MakeEndpointDef(
+                steps: new List<object?> { MakeWebhookStep("notify") },
+                body: WebhookEndpointBody()),
+        };
+        var ds = new FakeDataSource(store, new Dictionary<string, object?>());
+        var sender = new FakeWebhookSender { Result = (true, 204, null) };
+        var outbox = new FakeWebhookOutbox();
+        var executor = new EndpointExecutor(ds, sender, webhookOutbox: outbox);
+
+        var result = await executor.TryExecuteAsync(
+            "proj", "notify",
+            input: new Dictionary<string, object?>(), steamId: "steam1", userId: "u1",
+            gameValues: new Dictionary<string, object?>(),
+            hasSecretKey: true, isDedicatedServer: true, CancellationToken.None, liveServe: true);
+
+        Assert.NotNull(result);
+        Assert.True(result!.Ok);
+        Assert.Equal(200, result.Status);
+        Assert.Single(sender.Sent);
+        Assert.Empty(outbox.Enqueued);
+        Assert.Equal("""{"ok":true,"webhookOk":true,"webhookStatus":204,"webhookError":{},"webhookQueued":{}}""", BodyJson(result.Body));
+    }
+
+    [Theory]
+    [InlineData(404, "HTTP 404")]
+    [InlineData(503, "HTTP 503")]
+    public async Task TryExecute_LiveServe_WebhookOutboxOff_FailedSend_ReportsFailureInline(int status, string error)
+    {
+        // Same as main: a failed send is reported in the step result (EndpointStepExecutor.cs:613); the endpoint still succeeds.
+        var store = new Dictionary<string, object?>
+        {
+            ["proj:ep:notify"] = MakeEndpointDef(
+                steps: new List<object?> { MakeWebhookStep("notify") },
+                body: WebhookEndpointBody()),
+        };
+        var ds = new FakeDataSource(store, new Dictionary<string, object?>());
+        var sender = new FakeWebhookSender { Result = (false, status, error) };
+        var outbox = new FakeWebhookOutbox();
+        var executor = new EndpointExecutor(ds, sender, webhookOutbox: outbox);
+
+        var result = await executor.TryExecuteAsync(
+            "proj", "notify",
+            input: new Dictionary<string, object?>(), steamId: "steam1", userId: "u1",
+            gameValues: new Dictionary<string, object?>(),
+            hasSecretKey: true, isDedicatedServer: true, CancellationToken.None, liveServe: true);
+
+        Assert.NotNull(result);
+        Assert.True(result!.Ok);
+        Assert.Equal(200, result.Status);
+        Assert.Single(sender.Sent);
+        Assert.Empty(outbox.Enqueued);
+        var expected = "{\"ok\":true,\"webhookOk\":false,\"webhookStatus\":" + status + ",\"webhookError\":\"" + error + "\",\"webhookQueued\":{}}";
+        Assert.Equal(expected, BodyJson(result.Body));
+    }
+
+    [Fact]
+    public async Task TryExecute_LiveServe_WebhookOutboxOn_ReportsQueuedToGame()
+    {
+        var store = new Dictionary<string, object?>
+        {
+            ["proj:ep:notify"] = MakeEndpointDef(
+                steps: new List<object?> { MakeWebhookStep("notify") },
+                body: WebhookEndpointBody()),
+        };
+        var ds = new FakeDataSource(store, new Dictionary<string, object?>()) { WebhookOutboxEnabled = true };
+        var sender = new FakeWebhookSender();
+        var outbox = new FakeWebhookOutbox();
+        var executor = new EndpointExecutor(ds, sender, webhookOutbox: outbox);
+
+        var result = await executor.TryExecuteAsync(
+            "proj", "notify",
+            input: new Dictionary<string, object?>(), steamId: "steam1", userId: "u1",
+            gameValues: new Dictionary<string, object?>(),
+            hasSecretKey: true, isDedicatedServer: true, CancellationToken.None, liveServe: true);
+
+        Assert.NotNull(result);
+        Assert.True(result!.Ok);
+        Assert.Equal(200, result.Status);
+        Assert.Empty(sender.Sent);
+        var queued = Assert.Single(outbox.Enqueued);
+        Assert.Equal("proj", queued.ProjectId);
+        Assert.StartsWith("https://discord.com/api/webhooks/", queued.Url);
+        Assert.Equal("""{"ok":true,"webhookOk":true,"webhookStatus":202,"webhookError":{},"webhookQueued":true}""", BodyJson(result.Body));
+    }
+
+    [Fact]
+    public async Task TryExecute_WebhookOutbox_QueueFull_ReportsFixedErrorAndSendsNothing()
+    {
+        var sender = new FakeWebhookSender();
+        var outbox = new FakeWebhookOutbox { Outcome = WebhookEnqueueOutcome.QueueFull };
+
+        var body = await RunQueuedWebhookAsync(outbox, sender);
+
+        Assert.Empty(outbox.Enqueued);
+        Assert.Empty(sender.Sent);
+        Assert.Contains("\"webhookOk\":false", body);
+        Assert.Contains("\"webhookError\":\"webhook queue full\"", body);
+        Assert.DoesNotContain("\"webhookQueued\":true", body);
+    }
+
+    [Fact]
+    public async Task TryExecute_WebhookOutbox_EnqueueFailure_ReturnsFixedErrorWithoutExceptionText()
+    {
+        var sender = new FakeWebhookSender();
+        var outbox = new FakeWebhookOutbox { Failure = new InvalidOperationException("Host=db.internal;Password=hunter2") };
+
+        var body = await RunQueuedWebhookAsync(outbox, sender);
+
+        Assert.Empty(sender.Sent);
+        Assert.Contains("\"webhookError\":\"webhook enqueue failed\"", body);
+        Assert.DoesNotContain("hunter2", body);
+        Assert.DoesNotContain("db.internal", body);
+    }
+
+    private static async Task<string> RunQueuedWebhookAsync(FakeWebhookOutbox outbox, FakeWebhookSender sender)
+    {
+        var store = new Dictionary<string, object?>
+        {
+            ["proj:ep:notify"] = MakeEndpointDef(
+                steps: new List<object?> { MakeWebhookStep("notify") },
+                body: WebhookEndpointBody()),
+        };
+        var ds = new FakeDataSource(store, new Dictionary<string, object?>()) { WebhookOutboxEnabled = true };
+        var executor = new EndpointExecutor(ds, sender, webhookOutbox: outbox);
+
+        var result = await executor.TryExecuteAsync(
+            "proj", "notify",
+            input: new Dictionary<string, object?>(), steamId: "steam1", userId: "u1",
+            gameValues: new Dictionary<string, object?>(),
+            hasSecretKey: true, isDedicatedServer: true, CancellationToken.None, liveServe: true);
+
+        Assert.NotNull(result);
+        return BodyJson(result!.Body);
+    }
+
+    private static Dictionary<string, object?> WebhookEndpointBody() => new()
+    {
+        ["ok"] = true,
+        ["webhookOk"] = "{{notify.ok}}",
+        ["webhookStatus"] = "{{notify.status}}",
+        ["webhookError"] = "{{notify.error}}",
+        ["webhookQueued"] = "{{notify.queued}}",
+    };
+
+    private static string BodyJson(object? body) => System.Text.Json.JsonSerializer.Serialize(body);
+
+    private sealed class FakeWebhookOutbox : IEndpointWebhookOutbox
+    {
+        public List<(string ProjectId, string Url, IReadOnlyDictionary<string, object?> Payload)> Enqueued { get; } = new();
+        public WebhookEnqueueOutcome Outcome { get; init; } = WebhookEnqueueOutcome.Queued;
+        public Exception? Failure { get; init; }
+
+        public Task<WebhookEnqueueOutcome> EnqueueAsync(string projectId, string webhookUrl, IReadOnlyDictionary<string, object?> payload, CancellationToken ct)
+        {
+            if (Failure is not null) throw Failure;
+            if (Outcome == WebhookEnqueueOutcome.Queued) Enqueued.Add((projectId, webhookUrl, payload));
+            return Task.FromResult(Outcome);
+        }
+    }
+
+    [Fact]
     public async Task TryExecute_ReadStep_ResolvesCollectionNameAndStripsDefaultKey()
     {
         // Endpoint YAML uses collection NAME ("players") and "{{steamId}}_default"
@@ -1284,6 +1450,10 @@ public sealed class NativeEndpointExecutorTests
 
         public Task<bool> IsLegacyPlayerProjectionsEnabledAsync(string projectId, CancellationToken ct) => Task.FromResult(LegacyPlayerProjections);
 
+        public bool WebhookOutboxEnabled { get; set; }
+
+        public Task<bool> IsWebhookOutboxEnabledAsync(string projectId, CancellationToken ct) => Task.FromResult(WebhookOutboxEnabled);
+
         public Task WriteGlobalRecordAsync(string projectId, string collectionId, string recordId, IReadOnlyDictionary<string, object?> payload, CancellationToken ct)
             => Task.CompletedTask;
     }
@@ -1312,6 +1482,8 @@ public sealed class NativeEndpointExecutorTests
             => throw new Exception("Store unavailable");
 
         public Task<bool> IsLegacyPlayerProjectionsEnabledAsync(string projectId, CancellationToken ct) => Task.FromResult(true);
+
+        public Task<bool> IsWebhookOutboxEnabledAsync(string projectId, CancellationToken ct) => Task.FromResult(false);
 
         public Task WriteGlobalRecordAsync(string projectId, string collectionId, string recordId, IReadOnlyDictionary<string, object?> payload, CancellationToken ct)
             => throw new Exception("Store unavailable");
@@ -1388,6 +1560,8 @@ public sealed class NativeEndpointExecutorTests
 
         public Task<bool> IsLegacyPlayerProjectionsEnabledAsync(string projectId, CancellationToken ct) => Task.FromResult(LegacyPlayerProjections);
 
+        public Task<bool> IsWebhookOutboxEnabledAsync(string projectId, CancellationToken ct) => Task.FromResult(false);
+
         public Task WriteGlobalRecordAsync(string projectId, string collectionId, string recordId, IReadOnlyDictionary<string, object?> payload, CancellationToken ct)
         {
             GlobalRecordsWritten.Add((collectionId, recordId, payload));
@@ -1428,6 +1602,8 @@ public sealed class NativeEndpointExecutorTests
             => Task.FromResult<object?>(null);
 
         public Task<bool> IsLegacyPlayerProjectionsEnabledAsync(string projectId, CancellationToken ct) => Task.FromResult(true);
+
+        public Task<bool> IsWebhookOutboxEnabledAsync(string projectId, CancellationToken ct) => Task.FromResult(false);
 
         public Task WriteGlobalRecordAsync(string projectId, string collectionId, string recordId, IReadOnlyDictionary<string, object?> payload, CancellationToken ct)
             => throw new Exception("Store global write failed");
@@ -1495,6 +1671,8 @@ public sealed class NativeEndpointExecutorTests
             => Task.FromResult<object?>(null);
 
         public Task<bool> IsLegacyPlayerProjectionsEnabledAsync(string projectId, CancellationToken ct) => Task.FromResult(true);
+
+        public Task<bool> IsWebhookOutboxEnabledAsync(string projectId, CancellationToken ct) => Task.FromResult(false);
 
         public Task WriteGlobalRecordAsync(string projectId, string collectionId, string recordId, IReadOnlyDictionary<string, object?> payload, CancellationToken ct)
             => Task.CompletedTask;

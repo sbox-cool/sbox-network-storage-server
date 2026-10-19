@@ -118,6 +118,46 @@ public sealed class OwnerManagementPagesTests
     }
 
     [Fact]
+    public async Task WebhookDeliveryStatusReenableAndOutboxToggleShowOnTheOwnerPage()
+    {
+        var (factory, owner, project, url) = await SetupAsync();
+        using var _ = factory;
+        using var __ = owner;
+        const string hook = "https://discord.com/api/webhooks/456/abc";
+        using (var saved = await PostFormAsync(owner, url + "/webhooks", url + "/webhooks/profiles",
+            ("id", "shop"), ("name", "Shop"), ("url", hook), ("enabled", "true")))
+            Assert.Equal(HttpStatusCode.Redirect, saved.StatusCode);
+
+        await using var scope = factory.Services.CreateAsyncScope();
+        var outbox = scope.ServiceProvider.GetRequiredService<IWebhookOutboxStore>();
+        await outbox.WriteTargetAsync(new WebhookTargetState(project.ProjectId, hook, 2, 1_900_000_000_000, 503, "HTTP 503", null, null, 1_900_000_000_000), CancellationToken.None);
+        var failing = await owner.GetStringAsync(url + "/webhooks");
+        Assert.Contains("Failing since", failing);
+        Assert.DoesNotContain("Delivery disabled", failing);
+
+        await outbox.WriteTargetAsync(new WebhookTargetState(project.ProjectId, hook, 3, 1_900_000_000_000, 404, "HTTP 404: webhook not found",
+            1_900_000_100_000, "HTTP 404: webhook not found", 1_900_000_100_000), CancellationToken.None);
+        var disabled = await owner.GetStringAsync(url + "/webhooks");
+        Assert.Contains("Delivery disabled since", disabled);
+        Assert.Contains("HTTP 404: webhook not found", disabled);
+        Assert.Contains("/webhooks/profiles/reenable", disabled);
+
+        using (var reenabled = await PostFormAsync(owner, url + "/webhooks", url + "/webhooks/profiles/reenable", ("id", "shop")))
+            Assert.Equal(HttpStatusCode.Redirect, reenabled.StatusCode);
+        var target = await outbox.ReadTargetAsync(project.ProjectId, hook, CancellationToken.None);
+        Assert.Null(target!.DisabledAtUnixMs);
+        Assert.Null(target.DisabledReason);
+        Assert.Null(target.FailingSinceUnixMs);
+        Assert.DoesNotContain("Delivery disabled", await owner.GetStringAsync(url + "/webhooks"));
+
+        using (var toggled = await PostFormAsync(owner, url + "/webhooks", url + "/webhooks/outbox", ("enabled", "true")))
+            Assert.Equal(HttpStatusCode.Redirect, toggled.StatusCode);
+        var access = await scope.ServiceProvider.GetRequiredService<INetworkStorageProjectService>()
+            .ResolveProjectAccessAsync(NetworkStorageServices.LocalOwnerUserId, project.ProjectId, CancellationToken.None);
+        Assert.True(access!.Project.WebhookOutbox == true);
+    }
+
+    [Fact]
     public async Task TestRunnerVersionsAndPagesWorkFromTheDashboard()
     {
         var (factory, owner, project, url) = await SetupAsync();

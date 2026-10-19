@@ -921,6 +921,8 @@ public abstract class NetworkStorageManagementMutationTests<TFactory> : IClassFi
 
         public Task<bool> IsLegacyPlayerProjectionsEnabledAsync(string projectId, CancellationToken ct) => Task.FromResult(false);
 
+        public Task<bool> IsWebhookOutboxEnabledAsync(string projectId, CancellationToken ct) => Task.FromResult(false);
+
         public Task WriteGlobalRecordAsync(
             string projectId, string collectionId, string recordId,
             IReadOnlyDictionary<string, object?> payload, CancellationToken ct) =>

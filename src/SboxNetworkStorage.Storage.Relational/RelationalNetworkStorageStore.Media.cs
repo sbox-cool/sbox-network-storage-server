@@ -3,7 +3,7 @@ using System.Data.Common;
 
 namespace SboxNetworkStorage.Storage.Relational;
 
-/// <summary>Media object rows and upload grant rows (schema v8).</summary>
+/// <summary>Media object rows and upload grant rows (schema v9).</summary>
 public abstract partial class RelationalNetworkStorageStore : IMediaStore
 {
     /// <summary>

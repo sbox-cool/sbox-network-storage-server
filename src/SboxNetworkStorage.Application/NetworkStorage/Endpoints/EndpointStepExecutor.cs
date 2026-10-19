@@ -585,6 +585,24 @@ public sealed partial class EndpointStepExecutor
                         return null;
                     }
 
+                    // Outbox mode (per-project opt-in): the send happens later in the background worker.
+                    if (request.EnqueueWebhookAsync is not null)
+                    {
+                        try
+                        {
+                            var outcome = await request.EnqueueWebhookAsync(webhookUrl, payload, ct);
+                            context[asKey ?? id] = outcome == WebhookEnqueueOutcome.Queued
+                                ? new Dictionary<string, object?> { ["ok"] = true, ["status"] = 202, ["queued"] = true }
+                                : new Dictionary<string, object?> { ["ok"] = false, ["status"] = 0, ["error"] = "webhook queue full" };
+                        }
+                        catch (Exception ex) when (ex is not OperationCanceledException)
+                        {
+                            // Fixed text: the exception message may carry connection or SQL detail that must not reach the game.
+                            context[asKey ?? id] = new Dictionary<string, object?> { ["ok"] = false, ["status"] = 0, ["error"] = "webhook enqueue failed" };
+                        }
+                        return null;
+                    }
+
                     if (request.ExecuteWebhookAsync is null)
                     {
                         context[asKey ?? id] = new Dictionary<string, object?> { ["ok"] = false, ["status"] = 0, ["error"] = "No webhook executor" };
@@ -1468,6 +1486,8 @@ public sealed record EndpointExecutionRequest(
     Func<string, List<object?>>? ScanCollection = null,
     Func<string, CancellationToken, Task<Dictionary<string, object?>?>>? LoadWorkflow = null,
     Func<string, Dictionary<string, object?>, CancellationToken, Task<(bool Ok, int Status, string? Error)>>? ExecuteWebhookAsync = null,
+    // Outbox mode: when set, webhook steps enqueue the send instead of calling ExecuteWebhookAsync; the step reports "queued".
+    Func<string, Dictionary<string, object?>, CancellationToken, Task<WebhookEnqueueOutcome>>? EnqueueWebhookAsync = null,
     bool SkipWebhooks = false,
     bool SkipSleep = false,
     Action<EndpointStepTrace>? OnStep = null);

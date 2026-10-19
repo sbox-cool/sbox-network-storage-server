@@ -23,11 +23,12 @@ public static class PostgresMigrations
         new(5, "Daily client-version aggregates; errors record the caller's library identity", SchemaChange.Additive, V5),
         new(6, "Integrity flags, player blocks and player action log for the integrity and insights modules", SchemaChange.Additive, V6),
         new(7, "Hourly per-library request outcomes by server version for post-update regression checks", SchemaChange.Additive, V7),
-        new(8, "Media objects and single-use upload grant records for the media store", SchemaChange.Additive, V8),
+        new(8, "Durable Discord webhook outbox and per-target delivery state for endpoint webhook steps", SchemaChange.Additive, V8),
+        new(9, "Media objects and single-use upload grant records for the media store", SchemaChange.Additive, V9),
     ];
 
     // Additive: two new tables with indexes. Nothing existing is touched; older binaries never read them.
-    private static string V8(string p) => $"""
+    private static string V9(string p) => $"""
         CREATE TABLE {p}media_objects (
             project_id {Key}, media_id {Key}, purpose text NOT NULL, sha256 text NOT NULL,
             content_type text NOT NULL, size_bytes bigint NOT NULL, width bigint NOT NULL, height bigint NOT NULL,
@@ -50,6 +51,23 @@ public static class PostgresMigrations
         CREATE TABLE {p}player_blocks (project_id {Key}, steam_id {Key}, scope text NOT NULL, reason text, created_at_unix_ms bigint NOT NULL, expires_at_unix_ms bigint, created_by text, PRIMARY KEY (project_id, steam_id));
         CREATE TABLE {p}player_action_log (project_id {Key}, steam_id {Key}, created_at_unix_ms bigint NOT NULL, entry_id {Key}, endpoint_slug text, revision_id bigint, outcome text, changed_fields_json text, body_json text, PRIMARY KEY (project_id, steam_id, created_at_unix_ms, entry_id));
         CREATE INDEX ix_player_action_log_project_time ON {p}player_action_log (project_id, created_at_unix_ms DESC);
+        """;
+
+    // Additive: two new tables. Only binaries with the outbox write them; the previous binary never reads them.
+    private static string V8(string p) => $"""
+        CREATE TABLE {p}webhook_outbox (
+            project_id {Key}, outbox_id {Key}, target_url {Key}, payload_json text NOT NULL,
+            status text NOT NULL, attempts integer NOT NULL, next_attempt_at_unix_ms bigint NOT NULL,
+            lease_until_unix_ms bigint, last_status integer, last_error text,
+            created_at_unix_ms bigint NOT NULL, updated_at_unix_ms bigint NOT NULL,
+            PRIMARY KEY (project_id, outbox_id));
+        CREATE INDEX ix_webhook_outbox_due ON {p}webhook_outbox (status, next_attempt_at_unix_ms);
+        CREATE INDEX ix_webhook_outbox_target ON {p}webhook_outbox (project_id, target_url, status);
+        CREATE TABLE {p}webhook_targets (
+            project_id {Key}, target_url {Key}, consecutive_failures integer NOT NULL,
+            failing_since_unix_ms bigint, last_status integer, last_error text,
+            disabled_at_unix_ms bigint, disabled_reason text, updated_at_unix_ms bigint NOT NULL,
+            PRIMARY KEY (project_id, target_url));
         """;
 
     // Additive: one new table. Older binaries never read or write it, so they keep working on the result.

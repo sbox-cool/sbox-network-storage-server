@@ -1,5 +1,5 @@
 {
-  "$comment": "Library builds the Compat workflow runs inside s&box against every server change (.github/workflows/compat-matrix.yml, scripts/ci/compat-engine.ps1). Published games embed the library they were built with, so a server change that breaks any of these fails the gate. ref is anything tools/sbox-cli-e2e accepts for --library (main, git:<sha>, r<revision>), or latest:N for the newest N r<revision> releases of sbox-cool/sbox-network-storage. Builds that point at the same commit run once. Pin older revisions players still run as git:<sha>; one that stops compiling on a newer engine is reported as an upstream failure (it fails on the latest release too) instead of blaming the change.",
+  "$comment": "Library builds the Compat workflow runs inside s&box against every server change (.github/workflows/compat-matrix.yml, scripts/ci/compat-engine.ps1). Published games embed the library they were built with, so a server change that breaks any of these fails the gate. ref is anything tools/sbox-cli-e2e accepts for --library (main, git:<sha>, r<revision>), or latest:N for the newest N r<revision> releases of sbox-cool/sbox-network-storage. Builds that point at the same commit run once. Pin older revisions players still run as git:<sha>; one that stops compiling on a newer engine is reported as an upstream failure (it fails on the latest release too) instead of blaming the change. knownFailures lists check ids a pinned build fails on every server (documented, immutable library defect); when the only failures on both this build and the latest release are those ids the verdict is `known`, which is reported but not counted as upstream.",
   "targets": [
     {
       "ref": "latest:3",
@@ -27,7 +27,12 @@
       "ref": "git:5c33cb5556d23323fc78e33d5d51f2d4417e4fa0",
       "label": "published r238672 (legacy)",
       "version": "legacy",
-      "revision": 238672
+      "revision": 238672,
+      "knownFailures": [
+        "dedicated.endpoint",
+        "dedicated.secret-key"
+      ],
+      "notes": "No-input CallEndpoint sends GET {root}/endpoints/{projectId} with no slug in this build (legacy and encrypted branches alike), so it never worked on any server: sbox-cool/sbox-network-storage#39. Other checks still run and any new failure keeps the normal verdict."
     }
   ]
 }

@@ -24,7 +24,13 @@ never download code at runtime and never run outside code.
    Definitions outside the module's namespace are never touched.
 6. **Upgrade.** A catalog upgrade without new permissions applies on next install. A version
    that adds permissions is held: the installed version keeps running until the owner approves
-   the new permissions on the Modules page.
+   the new permissions on the Modules page. Applying an upgrade, automatic or approved, first
+   checks for conflicts with definitions the module does not own. A conflict refuses the upgrade and leaves the installed
+   definitions and `modules.json` unchanged. Settings carry over: an explicit value submitted
+   with the upgrade wins, then the installed value, then the catalog default. Settings the new
+   version no longer declares are dropped. Values are not type-checked on save; consumers fall
+   back to their default when a value does not parse. Explicit values submitted with a held
+   upgrade are not saved until the owner approves; change them in the settings form first.
 
 ## Sync preservation
 

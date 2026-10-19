@@ -1,6 +1,6 @@
 namespace SboxNetworkStorage.Storage;
 
-/// <summary>Media object metadata and upload grant records (schema v8). Blob bytes live in the media blob store.</summary>
+/// <summary>Media object metadata and upload grant records (schema v9). Blob bytes live in the media blob store.</summary>
 public interface IMediaStore
 {
     /// <summary>

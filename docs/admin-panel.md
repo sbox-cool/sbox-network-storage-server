@@ -504,6 +504,37 @@ base URL (`server.public_url`, otherwise the dashboard address), and a
 **Fetch it from the game** example. The response is JSON with `title`,
 `updatedAt` and `markdown` (markdown pages) or `data` (key/value pages).
 
+### Webhooks
+
+**Webhooks** keeps Discord profiles that endpoint `webhook` steps can send to.
+Each profile shows its YAML step with a **Copy** button. Untick **Offer this profile in the endpoint builder**
+to hide a profile from the builder without deleting it.
+
+**Delivery** chooses how endpoint webhook steps send. By default (off) the
+endpoint waits for Discord and the step result shows the HTTP status, as before.
+With **Deliver webhooks in the background** on, the step returns at once with
+`queued`, and a server worker sends the message from a durable outbox:
+
+- Discord `429` waits for `retry_after`; other failures retry with exponential
+  backoff and jitter, up to 8 attempts.
+- A `401` or `404` disables that profile. The profile shows
+  **Delivery disabled since** and why, and **Re-enable delivery** turns it back
+  on. Deliveries queued while it was disabled are not resent.
+- Repeated failures show **Failing since** with the consecutive-failure count.
+- A message can be repeated if a send succeeds at Discord but the server stops
+  before it records the result. Discord has no idempotency key for webhooks.
+- At most 500 deliveries can wait for one project and webhook profile. Past that, the step returns
+  `webhook queue full` and nothing is queued. The limit is `WebhookOutboxWriter.MaxPendingPerTarget`.
+- A delivery still waiting after 1 hour is marked failed with reason `expired` and is never sent late.
+- Embed titles, descriptions, field names and values, and footers are cut to Discord's documented limits
+  before queueing. Titles are capped at 256 characters, descriptions at 4096, field names at 256, field values at 1024,
+  fields at 25, footers at 2048, and the whole embed at 6000.
+- The worker sends only to `https://discord.com/api/webhooks/` or `https://discordapp.com/api/webhooks/` URLs,
+  and fails any other queued row without sending.
+
+Turning background delivery off, or deleting the project, marks its pending deliveries suppressed
+(reason `outbox disabled` or `project deleted`). Later calls send inline.
+
 ### Request log and errors
 
 **Logs** lists recent data-plane requests (`/api`, `/v3`, `/v1`,

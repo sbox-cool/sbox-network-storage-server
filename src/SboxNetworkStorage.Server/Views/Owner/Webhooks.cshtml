@@ -18,6 +18,15 @@
     </form>
 </section>
 <section class="card">
+    <h2>Delivery</h2>
+    <p>By default an endpoint waits for Discord before it responds, and the webhook step result shows the HTTP status. With background delivery on, the step returns at once with <code>queued</code> and a worker sends the message: Discord <code>429</code> waits for <code>retry_after</code>, server errors retry with backoff (up to 8 attempts), and a <code>401</code> or <code>404</code> disables that profile until you re-enable it below. Retries can repeat a message that Discord already received.</p>
+    <form method="post" action="@url/webhooks/outbox" class="manage-inline">
+        @Html.AntiForgeryToken()
+        <label class="check"><input type="checkbox" name="enabled" value="true" checked="@Model.OutboxEnabled" /> Deliver webhooks in the background</label>
+        <button type="submit">Save delivery mode</button>
+    </form>
+</section>
+<section class="card">
     <div class="section-heading"><h2>Profiles <span class="badge">@Model.Profiles.Count</span></h2></div>
     @if (Model.Profiles.Count == 0)
     {
@@ -35,6 +44,18 @@
                 </div>
             </div>
             <div class="copy-row"><code class="selectable">@profile.Url</code><button type="button" class="secondary" data-copy-previous>Copy</button></div>
+            @if (profile.Delivery is { DisabledAtUnixMs: not null } disabled)
+            {
+                <div class="notice">
+                    <strong>Delivery disabled since @(DateTimeOffset.FromUnixTimeMilliseconds(disabled.DisabledAtUnixMs.Value).UtcDateTime.ToString("yyyy-MM-dd HH:mm")) UTC</strong>
+                    <p>@disabled.DisabledReason. Background deliveries to this URL are not sent until you re-enable it. Deliveries queued while it was disabled are not resent.</p>
+                    <form method="post" action="@url/webhooks/profiles/reenable">@Html.AntiForgeryToken()<input type="hidden" name="id" value="@profile.Id" /><button type="submit" class="secondary">Re-enable delivery</button></form>
+                </div>
+            }
+            else if (profile.Delivery is { FailingSinceUnixMs: not null } failing)
+            {
+                <p class="error">Failing since @(DateTimeOffset.FromUnixTimeMilliseconds(failing.FailingSinceUnixMs.Value).UtcDateTime.ToString("yyyy-MM-dd HH:mm")) UTC (@failing.ConsecutiveFailures consecutive failure(s)@(failing.LastError is null ? "" : ": " + failing.LastError)).</p>
+            }
             <details><summary>Webhook step YAML</summary><div class="copy-row"><pre class="manage-snippet" data-copyable data-language="yaml">@OwnerWebhooksController.StepYaml(profile)</pre><button type="button" class="secondary" data-copy-previous>Copy step</button></div></details>
         </article>
     }

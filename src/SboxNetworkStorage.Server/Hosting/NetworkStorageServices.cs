@@ -25,6 +25,7 @@ using SboxNetworkStorage.Server.Infrastructure;
 using SboxNetworkStorage.Server.Infrastructure.NetworkStorage;
 using SboxNetworkStorage.Server.Monitoring;
 using SboxNetworkStorage.Server.Updates;
+using SboxNetworkStorage.Server.Webhooks;
 using SboxNetworkStorage.Storage;
 using SboxNetworkStorage.Storage.Relational;
 
@@ -46,7 +47,16 @@ public static class NetworkStorageServices
         services.AddConfiguredStore(config);
         services.AddProjectMetadataCache();
 
-        services.AddHttpClient("endpoint-webhook", client => { client.Timeout = TimeSpan.FromSeconds(5); });
+        services.AddHttpClient("endpoint-webhook", client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(5);
+            client.DefaultRequestHeaders.UserAgent.ParseAdd($"sbox-ns-server/{BuildInfo.Version}");
+        });
+        services.AddHttpClient(WebhookOutboxDispatcher.ClientName, client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(10);
+            client.DefaultRequestHeaders.UserAgent.ParseAdd($"sbox-ns-server/{BuildInfo.Version}");
+        }).ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });
         services.AddHttpClient("alerts-discord", client => { client.Timeout = TimeSpan.FromSeconds(10); })
             .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });
         services.AddHttpClient(HttpWebhookClient.ClientName, client => { client.Timeout = TimeSpan.FromSeconds(10); })
@@ -162,6 +172,14 @@ public static class NetworkStorageServices
         services.AddScoped<IEndpointDataSource>(sp => sp.GetRequiredService<StoreEndpointDataSource>());
         services.AddScoped<EndpointExecutor>();
         services.AddScoped<IEndpointWebhookSender, HttpEndpointWebhookSender>();
+        // Webhook delivery outbox (docs/alerting.md, "Endpoint webhook outbox"). Only projects that set
+        // webhookOutbox use it; the inline sender above stays the default path.
+        services.AddSingleton<IWebhookOutboxStore>(sp => sp.GetRequiredService<INetworkStorageStoreAdmin>() is IWebhookOutboxStore outbox
+            ? outbox : new InMemoryWebhookOutboxStore());
+        services.AddSingleton<IEndpointWebhookOutbox, WebhookOutboxWriter>();
+        services.AddSingleton<WebhookRateLimitGate>();
+        services.AddSingleton<WebhookOutboxDispatcher>();
+        services.AddHostedService<WebhookOutboxWorker>();
         services.AddScoped<NativeQueryExecutor>();
         services.AddSingleton<IQueryRunRecorder, StoreQueryRunRecorder>();
         services.AddSingleton<NetworkStorageUsageTracker>();

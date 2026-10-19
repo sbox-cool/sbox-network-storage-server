@@ -14,6 +14,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using SboxNetworkStorage.Infrastructure.NetworkStorage.Storage;
+using SboxNetworkStorage.Storage;
 
 namespace SboxNetworkStorage.Infrastructure.NetworkStorage;
 
@@ -27,7 +28,8 @@ public sealed class NetworkStorageProjectService(
     IStorageKeyCdnWriter keyCdnWriter,
     INetworkStorageStore networkStore,
     ILogger<NetworkStorageProjectService> logger,
-    IApiKeyCacheInvalidator? keyCache = null)
+    IApiKeyCacheInvalidator? keyCache = null,
+    IWebhookOutboxStore? webhookOutbox = null)
     : INetworkStorageProjectService
 {
     // Most-recent audit-log entries pulled from the store for the dashboard
@@ -443,6 +445,9 @@ public sealed class NetworkStorageProjectService(
         var projects = await workspaceStore.GetUserProjectsAsync(storageOwnerUserId, cancellationToken);
         var updated = projects.Where(p => !string.Equals(p.Id, projectId, StringComparison.OrdinalIgnoreCase)).ToList();
         await workspaceStore.SaveUserProjectsAsync(storageOwnerUserId, updated, cancellationToken);
+        // Queued sends for a deleted project must not go out after the project is gone.
+        if (webhookOutbox is not null)
+            await webhookOutbox.CancelPendingAsync(projectId, "project deleted", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), cancellationToken);
     }
 
     // ── Settings ──
