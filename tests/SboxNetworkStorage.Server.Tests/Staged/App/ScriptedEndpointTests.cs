@@ -154,13 +154,151 @@ public sealed class ScriptedEndpointExecutorTests
         Assert.Contains("SCRIPT_LIMIT_EXCEEDED", JsonSerializer.Serialize(result.Body));
     }
 
+    [Fact]
+    public async Task Workflow_RunFromScript_AppliesItsWritesAndReturnsItsResult()
+    {
+        var executor = ProjectWithWorkflows(PlayerRecord(250d),
+            [("grant_coins", GrantCoinsWorkflow())],
+            ("caller", Scripted("""
+                export default function handle() {
+                    const r = ns.workflows.run("grant_coins", { amount: 5 });
+                    return { ok: true, granted: r.granted };
+                }
+                """)),
+            ("read", Scripted("""
+                export default function handle() {
+                    return { coins: ns.records.get("players", "steam1").coins };
+                }
+                """)));
+
+        var run = await Run(executor, endpoint: "caller", liveServe: true);
+
+        Assert.True(run.Ok, run.OwnerDetail);
+        Assert.Contains("\"granted\":5", JsonSerializer.Serialize(run.Body));
+        var read = await Run(executor, endpoint: "read");
+        var readBody = JsonSerializer.Serialize(read.Body);
+        Assert.True(readBody.Contains("\"coins\":255"), readBody);
+    }
+
+    [Fact]
+    public async Task Workflow_CamelCaseAlias_IsCallableAsAMethodOfWorkflows()
+    {
+        var executor = ProjectWithWorkflows(PlayerRecord(250d),
+            [("grant_coins", GrantCoinsWorkflow())],
+            ("caller", Scripted("""
+                export default function handle() {
+                    return { ok: true, granted: workflows.grantCoins({ amount: 7 }).granted };
+                }
+                """)));
+
+        var run = await Run(executor, endpoint: "caller");
+
+        Assert.True(run.Ok, run.OwnerDetail);
+        Assert.Contains("\"granted\":7", JsonSerializer.Serialize(run.Body));
+    }
+
+    [Fact]
+    public async Task Workflow_Failure_ThrowsATypedScriptErrorAndAppliesNoWrites()
+    {
+        var executor = ProjectWithWorkflows(PlayerRecord(250d),
+            [("spend", SpendWorkflow())],
+            ("caller", Scripted("""
+                export default function handle() {
+                    ns.workflows.run("spend", { amount: 50 });
+                    return { ok: true };
+                }
+                """)),
+            ("read", Scripted("""
+                export default function handle() {
+                    return { coins: ns.records.get("players", "steam1").coins };
+                }
+                """)));
+
+        var run = await Run(executor, endpoint: "caller", liveServe: true);
+
+        Assert.False(run.Ok);
+        Assert.Equal(409, run.Status);
+        Assert.Contains("NO_FUNDS", JsonSerializer.Serialize(run.Body));
+        var read = await Run(executor, endpoint: "read");
+        Assert.Contains("\"coins\":250", JsonSerializer.Serialize(read.Body));
+    }
+
+    [Fact]
+    public async Task Workflow_UnknownId_ThrowsATypedNotFoundError()
+    {
+        var executor = ProjectWithWorkflows(PlayerRecord(250d), [],
+            ("caller", Scripted("""
+                export default function handle() {
+                    ns.workflows.run("missing", {});
+                    return { ok: true };
+                }
+                """)));
+
+        var run = await Run(executor, endpoint: "caller");
+
+        Assert.False(run.Ok);
+        Assert.Contains("WORKFLOW_NOT_FOUND", JsonSerializer.Serialize(run.Body));
+    }
+
+    [Fact]
+    public async Task Workflow_NestingDeeperThanTheLimit_StopsTheScriptWithTheLimitError()
+    {
+        var executor = ProjectWithWorkflows(PlayerRecord(250d),
+            [("recurse", RecursiveWorkflow())],
+            ("caller", Scripted("""
+                export default function handle() {
+                    ns.workflows.run("recurse", {});
+                    return { ok: true };
+                }
+                """)));
+
+        var run = await Run(executor, endpoint: "caller");
+
+        Assert.False(run.Ok);
+        Assert.Equal(500, run.Status);
+        Assert.Contains("SCRIPT_LIMIT_EXCEEDED", JsonSerializer.Serialize(run.Body));
+    }
+
+
     private static EndpointExecutor Project(Dictionary<string, object?> records,
+        params (string Slug, Dictionary<string, object?> Definition)[] endpoints) =>
+        ProjectWithWorkflows(records, [], endpoints);
+
+    private static EndpointExecutor ProjectWithWorkflows(Dictionary<string, object?> records,
+        (string Id, Dictionary<string, object?> Definition)[] workflows,
         params (string Slug, Dictionary<string, object?> Definition)[] endpoints)
     {
         var definitions = endpoints.ToDictionary(e => $"proj:ep:{e.Slug}", e => (object?)e.Definition);
+        foreach (var (id, definition) in workflows)
+            definitions[$"proj:wf:{id}"] = definition;
         return new EndpointExecutor(new FakeDataSource(definitions, records),
             scriptRuntimes: EndpointExecutor.CreateScriptRuntimes(scriptsEnabled: true));
     }
+
+    private static Dictionary<string, object?> Obj(params (string Key, object? Value)[] fields) =>
+        fields.ToDictionary(field => field.Key, field => field.Value, StringComparer.Ordinal);
+
+    private static List<object?> Arr(params object?[] items) => [.. items];
+
+    /// <summary>Adds 'amount' to the player's coins and returns it as 'granted'.</summary>
+    private static Dictionary<string, object?> GrantCoinsWorkflow() => Obj(
+        ("steps", Arr(Obj(
+            ("id", "grant"), ("type", "write"), ("collection", "players"), ("key", "steam1"),
+            ("ops", Arr(Obj(("op", "inc"), ("path", "coins"), ("value", "{{input.amount}}"))))))),
+        ("returns", Obj(("granted", "{{input.amount}}"))));
+
+    /// <summary>Sets the coins to 'amount' first, then fails when 'amount' is above 10. The write must not apply.</summary>
+    private static Dictionary<string, object?> SpendWorkflow() => Obj(
+        ("steps", Arr(
+            Obj(("id", "spend"), ("type", "write"), ("collection", "players"), ("key", "steam1"),
+                ("ops", Arr(Obj(("op", "set"), ("path", "coins"), ("value", "{{input.amount}}"))))),
+            Obj(("id", "funds"), ("type", "condition"),
+                ("check", Obj(("field", "input.amount"), ("op", "<="), ("value", 10d))),
+                ("onFail", Obj(("status", 409d), ("error", "NO_FUNDS"), ("message", "Not enough coins.")))))));
+
+    /// <summary>Calls itself through a workflow step, so nesting only stops at the depth limit.</summary>
+    private static Dictionary<string, object?> RecursiveWorkflow() => Obj(
+        ("steps", Arr(Obj(("id", "again"), ("type", "workflow"), ("workflow", "recurse")))));
 
     private static Dictionary<string, object?> Global(string script) =>
         new() { ["runtime"] = "javascript", ["scope"] = "global", ["script"] = script };
@@ -224,13 +362,14 @@ public sealed class ScriptedEndpointExecutorTests
     }
 
     private static async Task<EndpointExecutionResult> Run(
-        EndpointExecutor executor, string endpoint = "script", Dictionary<string, object?>? input = null)
+        EndpointExecutor executor, string endpoint = "script", Dictionary<string, object?>? input = null,
+        bool liveServe = false)
     {
         var result = await executor.TryExecuteAsync(
             "proj", endpoint,
             input: input ?? new Dictionary<string, object?>(), steamId: "steam1", userId: "u1",
             gameValues: new Dictionary<string, object?>(),
-            hasSecretKey: false, isDedicatedServer: false, CancellationToken.None);
+            hasSecretKey: false, isDedicatedServer: false, CancellationToken.None, liveServe: liveServe);
         return result!;
     }
 
@@ -273,10 +412,14 @@ public sealed class ScriptedEndpointExecutorTests
         }
 
         public Task<Dictionary<string, object?>?> ReadWorkflowDefinitionAsync(string projectId, string workflowId, CancellationToken ct)
-            => Task.FromResult<Dictionary<string, object?>?>(null);
+            => Task.FromResult(_definitions.GetValueOrDefault($"{projectId}:wf:{workflowId}") as Dictionary<string, object?>);
 
         public Task<IReadOnlyList<string>> ListWorkflowIdsAsync(string projectId, CancellationToken ct)
-            => Task.FromResult<IReadOnlyList<string>>([]);
+        {
+            var prefix = $"{projectId}:wf:";
+            return Task.FromResult<IReadOnlyList<string>>(
+                _definitions.Keys.Where(key => key.StartsWith(prefix, StringComparison.Ordinal)).Select(key => key[prefix.Length..]).ToList());
+        }
 
         public Task<IReadOnlyList<string>> ListEndpointIdsAsync(string projectId, CancellationToken ct)
         {
@@ -286,7 +429,7 @@ public sealed class ScriptedEndpointExecutorTests
         }
 
         public Task<IEndpointWriteTransaction> BeginWriteTransactionAsync(CancellationToken ct)
-            => throw new InvalidOperationException("These tests never write.");
+            => Task.FromResult<IEndpointWriteTransaction>(new FakeWriteTransaction(_records));
 
         public Task<object?> ReadGlobalRecordAsync(string projectId, string collectionId, string recordId, CancellationToken ct)
             => Task.FromResult<object?>(null);
@@ -297,6 +440,38 @@ public sealed class ScriptedEndpointExecutorTests
 
         public Task WriteGlobalRecordAsync(string projectId, string collectionId, string recordId, IReadOnlyDictionary<string, object?> payload, CancellationToken ct)
             => Task.CompletedTask;
+    }
+
+    /// <summary>Stages a transaction's writes and applies them to the fake store only on commit.</summary>
+    private sealed class FakeWriteTransaction(Dictionary<string, object?> records) : IEndpointWriteTransaction
+    {
+        private readonly List<(string Key, Dictionary<string, object?>? Payload)> _staged = [];
+
+        public Task WriteRecordAsync(string projectId, string collectionId, string key,
+            IReadOnlyDictionary<string, object?> payload, CancellationToken ct)
+        {
+            _staged.Add(($"{projectId}:{collectionId}:{key}", new Dictionary<string, object?>(payload)));
+            return Task.CompletedTask;
+        }
+
+        public Task DeleteRecordAsync(string projectId, string collectionId, string key, CancellationToken ct)
+        {
+            _staged.Add(($"{projectId}:{collectionId}:{key}", null));
+            return Task.CompletedTask;
+        }
+
+        public Task CommitAsync(CancellationToken ct)
+        {
+            foreach (var (key, payload) in _staged)
+            {
+                if (payload is null) records.Remove(key);
+                else records[key] = payload;
+            }
+            _staged.Clear();
+            return Task.CompletedTask;
+        }
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 }
 
