@@ -198,6 +198,16 @@ The shipped matrix is immutable and offline: no unsigned remote source can impos
 
 Endpoint-route errors (`/v3/endpoints/...`) reach a library caller as HTTP 200 with the real status in the body (issue #152). The library reads only the body of a 2xx response, so the status it needs has to be in the body. A caller is a library caller when it sends a non-empty `x-ns-library-version`, a recognised `x-ns-client-type` (`game`, `editor` or `dedicated`), or a body `security` object. Every other client keeps the real HTTP status and the flat body it has always received. Non-endpoint routes return the real status to everyone.
 
+Identification by published library build (from each revision's source). The signal is on the request, not the version string:
+
+| Build | Headers | Body |
+| --- | --- | --- |
+| r238672 | `x-ns-client-type` on every request | `security` and `_endpointSlug` on POST |
+| r422519 | `x-ns-client-type` on the authenticated path only | `security` and `_endpointSlug` on POST |
+| r423774 | `x-ns-library-version` and `x-ns-client-type` on the authenticated path only | `security` and `_endpointSlug` on POST |
+
+The dedicated-server public-key path sends no library header in r422519 or r423774. A body-less GET on that path cannot be identified and keeps the real status. POSTs on that path are identified by their body.
+
 A library caller receives:
 
 ```json

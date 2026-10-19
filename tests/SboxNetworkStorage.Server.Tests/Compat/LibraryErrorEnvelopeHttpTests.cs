@@ -32,8 +32,8 @@ public abstract class LibraryErrorEnvelopeHttpTests<TFactory> : IClassFixture<TF
         this.factory = factory;
     }
 
-    // Published r422519 build (NetworkStorageHttp.cs 61-113): header-only GET, no body, no
-    // x-ns-library-version, but x-ns-client-type on every request.
+    // Published r422519 build (snapshot 026acfa): header-only GET, no body, no
+    // x-ns-library-version. x-ns-client-type is set on the authenticated path only.
     private static HttpRequestMessage LegacyGet(string url, string publicKey)
     {
         var request = new HttpRequestMessage(HttpMethod.Get, url);
@@ -150,8 +150,8 @@ public abstract class LibraryErrorEnvelopeHttpTests<TFactory> : IClassFixture<TF
         }
     }
 
-    // Published r238672 / r422519 POST: the library sends a body security block and _endpointSlug, with no
-    // library headers at all. The body alone identifies the caller.
+    // Published r238672 / r422519 / r423774 POST: the body carries a security block and _endpointSlug.
+    // The dedicated-server public-key path sends no client-type header there, so the body alone identifies.
     [SkippableFact]
     public async Task OldRevisionPostBody_IdentifiesLibraryWithoutHeaders()
     {
