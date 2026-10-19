@@ -583,6 +583,29 @@ public abstract class NetworkStorageManagementMutationTests<TFactory> : IClassFi
     }
 
     [SkippableFact]
+    public async Task PreflightSync_GlobalImport_IsNotReportedWhenProjectGlobalsAreNotLoaded()
+    {
+        var handler = new ManagementMutationHandler(
+            new FakeKeyResolver("sk-valid", "proj-1"),
+            new FakeWorkspace("proj-1"),
+            new InMemoryNetworkStorageStore(),
+            TimeProvider.System,
+            endpointExecutor: null,
+            scriptRuntimes: EndpointExecutor.CreateScriptRuntimes(scriptsEnabled: true));
+
+        var body = """
+        {"endpoints":[{"slug":"caller","runtime":"javascript","script":"import { coinsOf } from \"globals/bank\";\nexport default function handle() { return { ok: true, coins: coinsOf() }; }\n"}]}
+        """;
+        var result = await handler.ExecuteAsync(
+            BuildRequest("POST", "proj-1", apiKey: "sk-valid", routeSuffix: "sync/preflight", body: body));
+
+        Assert.Equal(200, result.StatusCode);
+        var json = JsonSerializer.SerializeToElement(result.Body);
+        var diagnostics = json.GetProperty("endpoints").GetProperty("results")[0].GetProperty("diagnostics").EnumerateArray();
+        Assert.DoesNotContain(diagnostics, item => item.GetProperty("code").GetString()!.StartsWith("GLOBAL_", StringComparison.Ordinal));
+    }
+
+    [SkippableFact]
     public async Task PreflightSync_ExistingEndpoint_ReportsWouldUpdate()
     {
         var store = new InMemoryNetworkStorageStore();
