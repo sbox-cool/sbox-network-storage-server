@@ -3,6 +3,7 @@ using System.Net.Mail;
 using System.Security.Cryptography;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using SboxNetworkStorage.Application.NetworkStorage.Endpoints;
 using SboxNetworkStorage.Application.Workspace;
 using SboxNetworkStorage.Server.Alerts;
 using SboxNetworkStorage.Server.Hosting;
@@ -72,6 +73,7 @@ public sealed class OwnerServerController(
     INetworkStorageStoreAdmin admin,
     IWorkspaceStore workspace,
     SboxNetworkStorage.Server.Configuration.EffectiveConfig config,
+    EndpointWriteQueue writeQueue,
     PostUpdateVerifier verifier) : Controller
 {
     private const string AlertsUrl = "/dashboard/server/alerts";
@@ -153,6 +155,7 @@ public sealed class OwnerServerController(
             samples = sampler.Since(after, 240),
             slow = new { slow.DataFree, slow.DataTotal, slow.DataSize, slow.BackupSize, newestBackup = slow.NewestBackup?.ToUnixTimeMilliseconds() },
             uptimeSeconds = (long)(DateTimeOffset.UtcNow - sampler.StartedAt).TotalSeconds,
+            writeQueue = writeQueue.GetStats(),
         });
     }
 

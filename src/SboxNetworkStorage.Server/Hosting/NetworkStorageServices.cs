@@ -187,6 +187,11 @@ public static class NetworkStorageServices
         services.AddSingleton<IReadOnlyList<IEndpointScriptRuntime>>(sp => EndpointExecutor.CreateScriptRuntimes(config.GetBoolean("endpoints.scripts"), sp.GetRequiredService<ILogger<JavaScriptEndpointRuntime>>()));
         // One gate for the process: the executor is scoped, so a per-request gate would bound nothing.
         services.AddSingleton<ScriptConcurrencyGate>();
+        // One write queue for the process, for the same reason: the executor is scoped, so a per-request queue would serialize nothing.
+        services.AddSingleton<EndpointWriteQueue>(_ => new EndpointWriteQueue(
+            enabled: config.GetBoolean("endpoints.write_queue.enabled"),
+            maxQueued: (int)Math.Clamp(config.GetInteger("endpoints.write_queue.max_queued"), 0L, 1_000_000L),
+            timeout: TimeSpan.FromMilliseconds(Math.Clamp(config.GetInteger("endpoints.write_queue.timeout_ms"), 1L, 3_600_000L))));
         services.AddScoped<EndpointExecutor>();
         services.AddScoped<IEndpointWebhookSender, HttpEndpointWebhookSender>();
         // Webhook delivery outbox (docs/alerting.md, "Endpoint webhook outbox"). Only projects that set

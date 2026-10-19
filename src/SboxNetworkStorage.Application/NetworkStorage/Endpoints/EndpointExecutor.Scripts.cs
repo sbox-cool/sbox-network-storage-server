@@ -21,6 +21,12 @@ public sealed partial class EndpointExecutor
     /// <summary>Store records, scans, workflow definitions and global modules one request may load across all rounds.</summary>
     public const int MaxScriptStateLoads = 64;
 
+    /// <summary>
+    /// Locked passes one committing request may take. A pass that reaches a record outside the locked set widens the
+    /// set and runs again. Past this many, the call answers 409 <c>CONFLICT</c> rather than hold locks longer.
+    /// </summary>
+    private const int MaxScriptLockAttempts = 3;
+
     /// <summary>Record writes one handler run may stage. Only the run that completes without misses commits.</summary>
     public const int MaxStagedWrites = 1000;
 
@@ -113,6 +119,9 @@ public sealed partial class EndpointExecutor
 
     private sealed record ScriptRun(EndpointScriptHost Host, EndpointScriptOutcome Outcome);
 
+    /// <summary>One pass over the handler: its last run and round, the state it read, and any denial that ended it early.</summary>
+    private sealed record ScriptAttempt(ScriptState State, ScriptRound Round, ScriptRun Run, EndpointExecutionResult? Denial);
+
     /// <summary>Runs a scripted endpoint. The caller has already applied the public gates and resolved collections.</summary>
     private async Task<EndpointExecutionResult> ExecuteScriptEndpointAsync(ScriptInvocation inv, CancellationToken ct)
     {
@@ -128,8 +137,7 @@ public sealed partial class EndpointExecutor
         if (Encoding.UTF8.GetByteCount(source) > runtime.Limits.MaxSourceBytes)
             return ScriptFailure(500, "SCRIPT_LIMIT_EXCEEDED", "The endpoint script is larger than this server allows.", null);
 
-        var protectedCollections = inv.LiveServe ? inv.VersionCheckedCollections : null;
-        if (protectedCollections is not null && _dataSource is not IEndpointSnapshotDataSource)
+        if (inv.LiveServe && inv.VersionCheckedCollections is not null && _dataSource is not IEndpointSnapshotDataSource)
             return Denied(500, "STORAGE_WRITE_FAILED", "This provider cannot protect endpoint record versions.");
 
         // Admission comes before any store read or script work. A full gate answers at once; it never queues.
@@ -137,11 +145,32 @@ public sealed partial class EndpointExecutor
         if (slot is null)
             return ScriptFailure(503, "SCRIPT_BUSY", "Too many scripted requests are running on this server. Try again shortly.", null);
 
-        // One budget for the whole request: every round shares its time, statement and workflow limits.
+        // The first pass runs without record locks. A preview, a failed run, or a run that writes nothing answers from
+        // it; only a live run that stages writes goes on to commit under the locks.
+        var first = await RunScriptRoundsAsync(runtime, source, inv, ct);
+        if (first.Denial is not null) return first.Denial;
+        if (!inv.LiveServe || !CommitsWrites(first))
+            return await FinishScriptRunAsync(inv, first.State, first.Round, first.Run, ct);
+        return await CommitScriptUnderLocksAsync(runtime, source, inv, first, ct);
+    }
+
+    /// <summary>
+    /// Runs the handler until a run finishes without misses, loading what each miss needed. Each pass gets its own
+    /// budget. Its clock starts when user code runs, so time spent waiting for a record lock is never charged to the
+    /// handler.
+    /// </summary>
+    private async Task<ScriptAttempt> RunScriptRoundsAsync(
+        IEndpointScriptRuntime runtime,
+        string source,
+        ScriptInvocation inv,
+        CancellationToken ct)
+    {
+        // One budget for the whole pass: every round shares its time, statement and workflow limits.
         using var budget = new ScriptRunBudget(runtime.Limits, ct);
 
+        var protectedCollections = inv.LiveServe ? inv.VersionCheckedCollections : null;
         var state = new ScriptState(protectedCollections is null ? null : new EndpointReadSet(protectedCollections));
-        // Catalogs are loaded whole, once per request. A failed load propagates: a script must not run against a
+        // Catalogs are loaded whole, once per pass. A failed load propagates: a script must not run against a
         // silently shorter catalog.
         state.WorkflowIds = await _dataSource.ListWorkflowIdsAsync(inv.ProjectId, ct);
         state.GlobalIds = await _dataSource.ListEndpointIdsAsync(inv.ProjectId, ct);
@@ -151,12 +180,78 @@ public sealed partial class EndpointExecutor
             var attempt = new ScriptRound();
             var run = RunScriptRound(runtime, source, inv, state, attempt, budget, ct);
             if (attempt.Misses == 0)
-                return await FinishScriptRunAsync(inv, state, attempt, run, ct);
+                return new ScriptAttempt(state, attempt, run, null);
             if (round >= MaxScriptRounds)
-                return ScriptFailure(500, "SCRIPT_LIMIT_EXCEEDED", "The endpoint needs more reads than one request may make.", null);
+                return new ScriptAttempt(state, attempt, run,
+                    ScriptFailure(500, "SCRIPT_LIMIT_EXCEEDED", "The endpoint needs more reads than one request may make.", null));
 
             var loadDenial = await LoadScriptMissesAsync(inv, state, attempt, ct);
-            if (loadDenial is not null) return loadDenial;
+            if (loadDenial is not null) return new ScriptAttempt(state, attempt, run, loadDenial);
+        }
+    }
+
+    /// <summary>A committing run is one that reached no failure and staged record writes.</summary>
+    private static bool CommitsWrites(ScriptAttempt attempt) =>
+        attempt.Run.Host.Failure is null
+        && attempt.Run.Outcome.Kind is not (EndpointScriptOutcomeKind.LimitExceeded or EndpointScriptOutcomeKind.ScriptError)
+        && attempt.Round.DurableWrites.Count > 0;
+
+    /// <summary>
+    /// Runs a committing handler again while holding the write queue's locks on the records it writes and on the
+    /// versioned records it reads. The first pass only discovers those records: its snapshots can be stale once a lock
+    /// is held, so the committed result always comes from a pass made under the locks. A pass that reaches a record
+    /// outside the locked set widens the set and runs again. After <see cref="MaxScriptLockAttempts"/> passes the call
+    /// answers 409 <c>CONFLICT</c>.
+    /// </summary>
+    private async Task<EndpointExecutionResult> CommitScriptUnderLocksAsync(
+        IEndpointScriptRuntime runtime,
+        string source,
+        ScriptInvocation inv,
+        ScriptAttempt discovered,
+        CancellationToken ct)
+    {
+        var locked = new HashSet<(string Collection, string Key)>();
+        AddCommitRecords(locked, discovered, inv);
+        for (var pass = 1; ; pass++)
+        {
+            EndpointWriteQueue.RecordLease? lease;
+            try
+            {
+                lease = await _writeQueue.AcquireAsync(inv.ProjectId, locked, ct);
+            }
+            catch (EndpointWriteQueueException ex)
+            {
+                return WriteQueueDenied(ex);
+            }
+            // The locks cover this pass and the flush inside FinishScriptRunAsync, so the version check sees no interleaving.
+            using var held = lease;
+
+            var attempt = await RunScriptRoundsAsync(runtime, source, inv, ct);
+            if (attempt.Denial is not null) return attempt.Denial;
+            if (!CommitsWrites(attempt))
+                return await FinishScriptRunAsync(inv, attempt.State, attempt.Round, attempt.Run, ct);
+
+            var needed = new HashSet<(string Collection, string Key)>();
+            AddCommitRecords(needed, attempt, inv);
+            if (needed.IsSubsetOf(locked))
+                return await FinishScriptRunAsync(inv, attempt.State, attempt.Round, attempt.Run, ct);
+            if (pass >= MaxScriptLockAttempts)
+                return Denied(409, "CONFLICT", "Endpoint state changed during execution. Reload before retrying.");
+            locked.UnionWith(needed);
+        }
+    }
+
+    /// <summary>The records a committing pass locks: the records it writes and the versioned records it read.</summary>
+    private static void AddCommitRecords(
+        HashSet<(string Collection, string Key)> records, ScriptAttempt attempt, ScriptInvocation inv)
+    {
+        foreach (var write in attempt.Round.DurableWrites)
+            records.Add((write.Collection, write.Key));
+        if (attempt.State.ReadSet is null) return;
+        foreach (var (collection, key) in attempt.State.ReadSet.Records.Keys)
+        {
+            if (inv.VersionCheckedCollections?.Contains(collection) == true)
+                records.Add((collection, key));
         }
     }
 

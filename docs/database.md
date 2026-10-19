@@ -183,6 +183,24 @@ compensating writes. Analytics batches also commit transactionally; their
 retention and bounded buffer are documented in
 [configuration.md](configuration.md#analytics-retention-and-buffering).
 
+## Multiple server instances
+
+The record write queue (`endpoints.write_queue.*`, see [configuration.md](configuration.md#record-write-queue)) lives in memory in one server process. It orders writes to the same record only among requests that reach that process.
+
+- **Covered:** concurrent writes to one record inside one process, through the record API, YAML endpoints and script endpoints. The script `SCRIPT_BUSY` gate is per process as well.
+- **Not covered:** two server processes writing to the same database. They do not share the queue, so it cannot order their writes.
+
+What still protects data across processes:
+
+- **Version checks.** YAML collections with `requireSaveVersion` check the record version before they commit. A writer that lost the race gets `409 CONFLICT` and must reload before retrying. The owner and dev paths that take `expectedVersion` behave the same way.
+- **Store transactions.** Endpoint record writes and deletes commit in one transaction, so a rejected write never leaves a half-applied endpoint (see [Transactions](#transactions)).
+
+What is not protected across processes:
+
+- **Unversioned record API writes.** `POST /api/storage/{project}/{collection}/{key}` has no expected-version parameter. Two processes that read-modify-write the same record can interleave, and the last commit wins.
+
+Until the record API accepts an expected version, run one server process per database schema when clients write the same records concurrently, or write those records through a `requireSaveVersion` YAML endpoint.
+
 ## Backups and restores
 
 ```sh

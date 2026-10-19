@@ -263,6 +263,25 @@ public sealed class MonitoringAlertsTests : IDisposable
         Assert.True(sample.GetProperty("seq").GetInt64() > 0);
     }
 
+    [Fact]
+    public async Task ServerStats_ReportsWriteQueueSettingsAndCounters()
+    {
+        using var factory = new SqliteHostFactory();
+        await OwnerHttp.CreateOwnerAsync(factory);
+        using var client = await OwnerHttp.LoggedInClientAsync(factory);
+
+        using var json = JsonDocument.Parse(await client.GetStringAsync("/dashboard/server/stats?viewer=t&interval=250&after=0"));
+        var queue = json.RootElement.GetProperty("writeQueue");
+        Assert.True(queue.GetProperty("enabled").GetBoolean());
+        Assert.Equal(64, queue.GetProperty("maxQueued").GetInt64());
+        Assert.Equal(10000, queue.GetProperty("timeoutMs").GetInt64());
+        Assert.Equal(0, queue.GetProperty("activeKeys").GetInt64());
+        Assert.Equal(0, queue.GetProperty("queuedRequests").GetInt64());
+        var counters = queue.GetProperty("counters");
+        Assert.Equal(0, counters.GetProperty("rejected").GetInt64());
+        Assert.Equal(0, counters.GetProperty("timedOut").GetInt64());
+    }
+
     private (MonitoringStore Store, AlertRuleEngine Engine, MetricsSampler Sampler) Build()
     {
         var (store, engine, sampler, _) = BuildWithRequests();
