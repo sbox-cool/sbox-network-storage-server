@@ -104,7 +104,9 @@
       }
       var base = draftBase();
       if (!base) return;
-      window.location.assign(base + encodeURIComponent(id));
+      var starter = document.getElementById("new-resource-template");
+      var templateQuery = starter && starter.value ? "&template=" + encodeURIComponent(starter.value) : "";
+      window.location.assign(base + encodeURIComponent(id) + templateQuery);
     });
     var field = document.getElementById("new-resource-id");
     if (field) field.addEventListener("keydown", function (event) {

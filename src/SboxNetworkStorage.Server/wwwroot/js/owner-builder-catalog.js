@@ -36,11 +36,12 @@
   }
 
 
-  function buildGallery(examples) {
+  function buildGallery(examples, templates, templateError) {
     var host = document.getElementById("example-gallery");
     if (!host) return;
     host.textContent = "";
-    var shown = examples.filter(function (example) { return example.kind === kind; });
+    if (templateError && kind === "endpoint") host.appendChild(el("p", "muted", "Starter templates could not be loaded: " + templateError + " Examples are still available."));
+    var shown = examples.concat(templates).filter(function (example) { return example.kind === kind; });
     if (shown.length === 0) {
       host.appendChild(el("p", "muted", "No examples for this kind yet."));
       return;
@@ -57,13 +58,15 @@
         heading.appendChild(el("h3", null, example.title + (example.exists ? " (exists)" : "")));
         card.appendChild(heading);
         card.appendChild(el("p", "muted", example.summary));
+        if (example.note) card.appendChild(el("p", "muted", example.note));
         if (example.requires && example.requires.length > 0)
           card.appendChild(el("p", "muted", "Needs: " + example.requires.join(", ")));
         (example.calls || []).forEach(function (call) {
           card.appendChild(el("p", "muted", "Try: " + callSummary(call)));
         });
         var actions = el("div", "actions");
-        var insertButton = el("button", "secondary", "Use example");
+        var noun = example.template ? "template" : "example";
+        var insertButton = el("button", "secondary", "Use " + noun);
         insertButton.type = "button";
         insertButton.addEventListener("click", function () {
           var source = example.source.replace(/\s+$/, "") + "\n";
@@ -79,8 +82,8 @@
           // editor text untouched rather than discarding unsaved changes.
           if (!textarea.value.trim()) { apply(); return; }
           if (window.OwnerDialog) window.OwnerDialog.confirm({
-            title: "Use example",
-            message: "Replace the editor contents with this example? Unsaved changes will be lost.",
+            title: "Use " + noun,
+            message: "Replace the editor contents with this " + noun + "? Unsaved changes will be lost.",
             confirmLabel: "Replace",
             opener: insertButton,
           }).then(function (ok) { if (ok) apply(); });
@@ -198,7 +201,7 @@
     fetch(projectRoot + "/catalog").then(readResponse).then(function (catalog) {
       if (!Array.isArray(catalog.examples) || !catalog.stepDefaults || typeof catalog.stepDefaults !== "object")
         throw new Error("Invalid catalog response");
-      buildGallery(catalog.examples);
+      buildGallery(catalog.examples, Array.isArray(catalog.templates) ? catalog.templates : [], catalog.templateError || null);
       document.dispatchEvent(new CustomEvent("owner:catalog", { detail: catalog }));
     }).catch(function () {
       document.dispatchEvent(new Event("owner:catalog-error"));

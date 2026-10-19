@@ -212,8 +212,7 @@ the server's own. Template codes, such as `AUTH_REQUIRED` or
 
 ## Templates
 
-Each template ships in both runtimes. Templates are data files served as
-static assets. Their list is:
+Starter endpoints ship in JavaScript and TypeScript. The list of them is `wwwroot/js/endpoint-api/templates/index.json`, embedded in the server build. The New dialog and the examples gallery both read that list. Each entry has an `id`, `title`, `summary`, `scope` (`route` or `global`) and `runtimes`. An entry that imports another template's module names it in `needs`. Each runtime is one file, `<id>.<runtime>.endpoint.yml`, served at `/owner-assets/endpoint-api/templates/<file>`.
 
 | Template | Method | Shows |
 | --- | --- | --- |
@@ -224,12 +223,28 @@ static assets. Their list is:
 | `inventory` | GET | A `scope: global` module with a class and two functions. Not public. |
 | `buy-item` | POST | `import` from `globals/inventory`, `globals.inventory`, and typed errors. |
 
-Files are named `<template>.javascript.endpoint.yml` and
-`<template>.typescript.endpoint.yml`. Served at
-`/owner-assets/endpoint-api/templates/<file>`. The shared typings are at
+The New dialog offers Blank (YAML steps) and the standalone routes `grant-coins`, `submit-score`, `daily-reward` and `profile`, in both runtimes. Two templates stay out of the dialog and appear only in the gallery:
+
+- `buy-item` imports `globals/inventory`, so it fails validation unless the project already has that module. Its gallery card names the module it needs.
+- `inventory` is a `scope: global` module. It is not an HTTP route.
+
+`GET /dashboard/projects/{id}/resources/endpoint/new?draft=<id>&template=<id>.<runtime>` opens a draft from a template, for example `template=grant-coins.typescript`. Leave `template` out for Blank. An unknown or unoffered choice, or a template on another kind, returns 400. An index that failed to load returns 503 with the reason.
+
+The shared typings are at
 `/owner-assets/endpoint-api/ns.d.ts`. A project's typings, with its own
 collections, game values and globals, are at
 `GET /dashboard/projects/{id}/resources/endpoint-typings`.
+
+## Editing in the dashboard
+
+The endpoint editor is Monaco, the editor behind VS Code. It is served from the server, so it works without a CDN. The YAML definition and the script body are separate editors. The script pane appears when the YAML has a top-level `script: |` block with runtime `javascript` or `typescript`.
+
+- Completions and hover for `req`, `ns` and `globals` come from `ns.d.ts`. The project's typings are used first; the shared file is the fallback.
+- The Script API panel lists each `ns` and `req` member with its docs. Filter the list, select an entry and insert its call at the cursor.
+- Check results that report a line and column for `/script` appear as markers in the script. Results without a position stay in the results list.
+- Ctrl+S (Cmd+S on macOS) saves. Tab indents inside the editor; press Ctrl+M to move focus out.
+- Trying an endpoint from the editor is not available yet.
+- If Monaco cannot load, the plain text box stays in use with the same content.
 
 ## File layout
 

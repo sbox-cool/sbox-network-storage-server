@@ -1,6 +1,7 @@
 @using System.Text.Json
 @using SboxNetworkStorage.Server.Owner
-@model (string Kind, JsonElement? Definition, OwnerResourceRow? Row)
+@using SboxNetworkStorage.Application.NetworkStorage.Endpoints.Scripting
+@model (string Kind, JsonElement? Definition, OwnerResourceRow? Row, OwnerScriptView? Script)
 @{
     string Text(JsonElement element, string name)
         => element.ValueKind == JsonValueKind.Object && element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String
@@ -71,32 +72,96 @@ else if (Model.Kind == "endpoint")
             </dl>
         }
         else { <p class="muted">None.</p> }
-        @if (ArrayLength(definition, "steps") > 0)
+        @if (Model.Script is { } script)
         {
-            var steps = definition.GetProperty("steps");
-            <h3>Pipeline (@steps.GetArrayLength())</h3>
-            <ol class="pipeline">
-            @{ var number = 0; }
-            @foreach (var step in steps.EnumerateArray())
+            @if (script.Module is not { } module)
             {
-                number++;
-                var stepId = Text(step, "id");
-                var stepType = Text(step, "type");
-                var target = StepTarget(step);
-                <li><code>@(stepId.Length > 0 ? stepId : "step " + number)</code>@if (stepType.Length > 0) { <span class="badge">@stepType</span> }@if (target.Length > 0) { <span class="pipeline-target">@target</span> }</li>
+                <h3>Outline</h3>
+                <p class="error">Outline unavailable: @script.Error</p>
             }
-            </ol>
+            else
+            {
+                var handler = module.Exports.FirstOrDefault(export => export.Name == "default");
+                var handlerParameters = handler?.Parameters?.Select(parameter => parameter.Name).ToList() ?? new List<string>();
+                var others = module.Exports.Where(item => item.Name != "default").ToList();
+                <h3>Handler</h3>
+                @if (handler is null)
+                {
+                    <p class="muted">No default export. A script endpoint needs <code>export default function handle(req, ns)</code>.</p>
+                }
+                else
+                {
+                    <dl class="outline-facts">
+                        <dt>Type</dt><dd>@handler.Kind.ToString().ToLowerInvariant()</dd>
+                        <dt>Parameters</dt><dd>@(handlerParameters.Count > 0 ? string.Join(", ", handlerParameters) : "None")</dd>
+                    </dl>
+                }
+                <h3>Other exports</h3>
+                @if (others.Count > 0)
+                {
+                    <dl class="outline-facts">
+                        @foreach (var other in others)
+                        {
+                            <dt><code>@other.Name</code></dt><dd>@other.Kind.ToString().ToLowerInvariant()</dd>
+                        }
+                    </dl>
+                }
+                else { <p class="muted">None.</p> }
+                <h3>Global imports</h3>
+                @if (module.GlobalImports.Count > 0)
+                {
+                    <dl class="outline-facts">
+                        @foreach (var globalImport in module.GlobalImports)
+                        {
+                            <dt><code>@ScriptModuleAnalysis.GlobalPrefix@globalImport.EndpointId</code></dt>
+                            <dd>@(globalImport.Names.Count > 0 ? string.Join(", ", globalImport.Names) : "Side-effect import")</dd>
+                        }
+                    </dl>
+                }
+                else { <p class="muted">None.</p> }
+                <h3>Member reads</h3>
+                @if (script.Members.Count > 0)
+                {
+                    <dl class="outline-facts">
+                        @foreach (var member in script.Members)
+                        {
+                            <dt><code>@member.Parameter</code></dt>
+                            <dd>@(member.Names.Count > 0 ? string.Join(", ", member.Names) : "None")</dd>
+                        }
+                    </dl>
+                }
+                else { <p class="muted">None.</p> }
+            }
         }
-        else { <h3>Pipeline</h3><p class="muted">None.</p> }
-        <h3>Response</h3>
-        @if (definition.TryGetProperty("response", out var response) && response.ValueKind == JsonValueKind.Object)
+        else
         {
-            <dl class="outline-facts">
-                <dt>Status</dt><dd>@(response.TryGetProperty("status", out var status) ? status.GetRawText() : "200")</dd>
-                <dt>Body</dt><dd>@BodySummary(response)</dd>
-            </dl>
+            @if (ArrayLength(definition, "steps") > 0)
+            {
+                var steps = definition.GetProperty("steps");
+                <h3>Pipeline (@steps.GetArrayLength())</h3>
+                <ol class="pipeline">
+                @{ var number = 0; }
+                @foreach (var step in steps.EnumerateArray())
+                {
+                    number++;
+                    var stepId = Text(step, "id");
+                    var stepType = Text(step, "type");
+                    var target = StepTarget(step);
+                    <li><code>@(stepId.Length > 0 ? stepId : "step " + number)</code>@if (stepType.Length > 0) { <span class="badge">@stepType</span> }@if (target.Length > 0) { <span class="pipeline-target">@target</span> }</li>
+                }
+                </ol>
+            }
+            else { <h3>Pipeline</h3><p class="muted">None.</p> }
+            <h3>Response</h3>
+            @if (definition.TryGetProperty("response", out var response) && response.ValueKind == JsonValueKind.Object)
+            {
+                <dl class="outline-facts">
+                    <dt>Status</dt><dd>@(response.TryGetProperty("status", out var status) ? status.GetRawText() : "200")</dd>
+                    <dt>Body</dt><dd>@BodySummary(response)</dd>
+                </dl>
+            }
+            else { <p class="muted">None.</p> }
         }
-        else { <p class="muted">None.</p> }
     </div>
 }
 else if (Model.Kind == "collection")

@@ -114,8 +114,8 @@ public static class OwnerHostingExtensions
                 context.Response.Headers["X-Content-Type-Options"] = "nosniff";
                 var turnstile = context.RequestServices.GetRequiredService<OwnerTurnstile>().Enabled;
                 context.Response.Headers["Content-Security-Policy"] = turnstile
-                    ? "default-src 'none'; img-src 'self'; style-src 'self'; script-src 'self' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; connect-src 'self' https://challenges.cloudflare.com; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
-                    : "default-src 'none'; img-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'";
+                    ? "default-src 'none'; img-src 'self' data:; font-src data:; style-src 'self' 'unsafe-inline'; script-src 'self' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; worker-src 'self' blob:; connect-src 'self' https://challenges.cloudflare.com; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
+                    : "default-src 'none'; img-src 'self' data:; font-src data:; style-src 'self' 'unsafe-inline'; script-src 'self'; worker-src 'self' blob:; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'";
             }
             await next(context);
         });
@@ -124,6 +124,9 @@ public static class OwnerHostingExtensions
             typeof(OwnerHostingExtensions).Assembly.GetManifestResourceStream("SboxNetworkStorage.Server.Owner.vendor-bootstrap.css")!, "text/css"));
         app.MapGet("/owner-assets/vendor/bootstrap.js", () => Results.Stream(
             typeof(OwnerHostingExtensions).Assembly.GetManifestResourceStream("SboxNetworkStorage.Server.Owner.vendor-bootstrap.js")!, "text/javascript"));
+        app.MapGet("/owner-assets/vendor/monaco/{*path}", (string path) => OwnerMonacoAssets.Open(path) is { } asset
+            ? Results.Stream(asset.Stream, asset.ContentType)
+            : Results.NotFound());
         app.MapGet("/owner-assets/management.css", () => Results.Stream(
             typeof(OwnerHostingExtensions).Assembly.GetManifestResourceStream("SboxNetworkStorage.Server.Owner.management.css")!, "text/css"));
         app.MapGet("/owner-assets/theme.js", () => Results.Stream(
@@ -157,6 +160,16 @@ public static class OwnerHostingExtensions
             typeof(OwnerHostingExtensions).Assembly.GetManifestResourceStream("SboxNetworkStorage.Server.Owner.toast.js")!, "text/javascript"));
         app.MapGet("/owner-assets/workbench.css", () => Results.Stream(
             typeof(OwnerHostingExtensions).Assembly.GetManifestResourceStream("SboxNetworkStorage.Server.Owner.workbench.css")!, "text/css"));
+        app.MapGet("/owner-assets/endpoint-page.css", () => Results.Stream(
+            typeof(OwnerHostingExtensions).Assembly.GetManifestResourceStream("SboxNetworkStorage.Server.Owner.endpoint-page.css")!, "text/css"));
+        app.MapGet("/owner-assets/script-block.js", () => Results.Stream(
+            typeof(OwnerHostingExtensions).Assembly.GetManifestResourceStream("SboxNetworkStorage.Server.Owner.script-block.js")!, "text/javascript"));
+        app.MapGet("/owner-assets/script-docs.js", () => Results.Stream(
+            typeof(OwnerHostingExtensions).Assembly.GetManifestResourceStream("SboxNetworkStorage.Server.Owner.script-docs.js")!, "text/javascript"));
+        app.MapGet("/owner-assets/script-editor.js", () => Results.Stream(
+            typeof(OwnerHostingExtensions).Assembly.GetManifestResourceStream("SboxNetworkStorage.Server.Owner.script-editor.js")!, "text/javascript"));
+        app.MapGet("/owner-assets/script-editor.css", () => Results.Stream(
+            typeof(OwnerHostingExtensions).Assembly.GetManifestResourceStream("SboxNetworkStorage.Server.Owner.script-editor.css")!, "text/css"));
         app.MapGet("/owner-assets/highlight.js", () => Results.Stream(
             typeof(OwnerHostingExtensions).Assembly.GetManifestResourceStream("SboxNetworkStorage.Server.Owner.highlight.js")!, "text/javascript"));
         app.MapGet("/owner-assets/workbench.js", () => Results.Stream(

@@ -3,6 +3,8 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using YamlDotNet.Core;
 using YamlDotNet.Serialization;
+using YamlDotNet.Core.Events;
+using YamlDotNet.Serialization.EventEmitters;
 
 namespace SboxNetworkStorage.Server.Owner;
 
@@ -16,6 +18,7 @@ public static class OwnerYamlDefinitions
     private static readonly IDeserializer YamlDeserializer = new DeserializerBuilder().Build();
     private static readonly ISerializer YamlSerializer = new SerializerBuilder()
         .DisableAliases()
+        .WithEventEmitter(next => new LiteralMultilineStrings(next))
         .Build();
 
     /// <summary>
@@ -101,4 +104,21 @@ public static class OwnerYamlDefinitions
         JsonValueKind.False => false,
         _ => null,
     };
+
+    // YamlDotNet writes some multi-line strings as folded `>` blocks, which join their lines. The
+    // dashboard's script editor reads only `script: |` blocks, so every multi-line string is written
+    // as a literal block. libyaml falls back to a quoted scalar when a literal block is not allowed,
+    // for example when a line ends in spaces.
+    private sealed class LiteralMultilineStrings(IEventEmitter next) : ChainedEventEmitter(next)
+    {
+        public override void Emit(ScalarEventInfo eventInfo, IEmitter emitter)
+        {
+            if (eventInfo.Source.Value is string text && text.Contains('\n'))
+            {
+                eventInfo.Style = ScalarStyle.Literal;
+            }
+
+            base.Emit(eventInfo, emitter);
+        }
+    }
 }

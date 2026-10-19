@@ -1,0 +1,47 @@
+/* Monaco editor for endpoint definitions and scripts (owner-script-editor.js).
+   Colours come from the theme tokens in owner-management.css; no raw colours here. */
+
+/* Once Monaco owns the source, the plain textarea and its workbench shell stay in the form but are not shown. */
+.monaco-active .source-editor,
+.monaco-active .source-actions { display: none; }
+
+.monaco-host { display: grid; gap: 1rem; margin-top: .3rem; }
+.monaco-host[hidden],
+.script-pane[hidden],
+.script-docs-detail[hidden],
+.script-docs-status[hidden],
+#monaco-status[hidden] { display: none; }
+#script-pane-notice[hidden] { display: none; }
+
+.monaco-surface { overflow: hidden; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--code-bg); }
+.monaco-surface-yaml { height: 60vh; min-height: 320px; }
+.monaco-surface-script { height: 280px; min-height: 220px; }
+
+.script-pane { display: grid; gap: .6rem; }
+.script-pane-heading { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: .25rem 1rem; }
+.script-pane-heading h3 { margin: 0; font-size: 1rem; }
+.script-pane-heading span { color: var(--muted); font-size: .85rem; }
+.script-pane-notice { margin: 0; }
+
+.script-docs { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: .5rem .75rem; }
+.script-docs > summary { cursor: pointer; font-weight: 600; font-size: .9rem; padding: .25rem 0; }
+.script-docs label { margin-bottom: .4rem; font-size: .85rem; }
+.script-docs-list { list-style: none; margin: .5rem 0 0; padding: 0; display: grid; gap: .15rem; max-height: 240px; overflow-y: auto; }
+.script-docs-item { display: flex; justify-content: flex-start; width: 100%; min-height: 28px; padding: .25rem .5rem; color: var(--text); background: transparent; border: 0; border-radius: var(--radius-sm); font-weight: 400; font-size: .85rem; text-align: left; }
+.script-docs-item:hover { background: var(--fill); color: var(--text); }
+.script-docs-item[aria-pressed="true"] { background: var(--fill-strong); }
+.script-docs-detail { display: grid; gap: .4rem; margin-top: .6rem; }
+.script-docs-detail code { display: block; padding: .5rem .6rem; white-space: pre-wrap; }
+.script-docs-detail p { margin: 0; color: var(--muted); font-size: .9rem; }
+.script-docs-insert { justify-self: start; }
+.script-docs > summary:focus-visible,
+.script-docs-item:focus-visible,
+.script-docs-filter:focus-visible { outline: 2px solid var(--accent-fg); outline-offset: 2px; }
+
+/* Token colour for ns, req, globals and workflows, applied by owner-script-editor.js. Beats Monaco's own token classes. */
+.monaco-editor .view-line .owner-api-token { color: var(--syn-api); }
+
+@media (max-width: 760px) {
+  .monaco-surface-yaml { height: 50vh; min-height: 260px; }
+  .monaco-surface-script { height: 240px; min-height: 200px; }
+}

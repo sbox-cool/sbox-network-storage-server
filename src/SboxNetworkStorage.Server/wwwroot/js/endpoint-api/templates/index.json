@@ -1,0 +1,45 @@
+[
+  {
+    "id": "grant-coins",
+    "title": "Grant coins",
+    "summary": "A secret-key-only grant that writes a player record.",
+    "scope": "route",
+    "runtimes": ["javascript", "typescript"]
+  },
+  {
+    "id": "submit-score",
+    "title": "Submit score",
+    "summary": "Input validation, a best-score update and a typed error.",
+    "scope": "route",
+    "runtimes": ["javascript", "typescript"]
+  },
+  {
+    "id": "daily-reward",
+    "title": "Daily reward",
+    "summary": "A 24-hour cooldown from ns.now() and a game value with a default.",
+    "scope": "route",
+    "runtimes": ["javascript", "typescript"]
+  },
+  {
+    "id": "profile",
+    "title": "Player profile",
+    "summary": "A read-only response for the signed-in player.",
+    "scope": "route",
+    "runtimes": ["javascript", "typescript"]
+  },
+  {
+    "id": "inventory",
+    "title": "Inventory",
+    "summary": "A global module with a class and two functions. It is not a route and not public.",
+    "scope": "global",
+    "runtimes": ["javascript", "typescript"]
+  },
+  {
+    "id": "buy-item",
+    "title": "Buy item",
+    "summary": "Imports globals/inventory, uses the module and returns typed errors.",
+    "scope": "route",
+    "needs": "inventory",
+    "runtimes": ["javascript", "typescript"]
+  }
+]

@@ -13,10 +13,10 @@
     }
 }
 <h2 id="quick-preview-title">@Model.Name</h2>
-<p class="muted"><code>@Model.Id</code>@if (Model.Kind == "endpoint") { <span class="badge">@Model.Row.Method</span> <span class="badge @((Model.Row.Enabled ?? true) ? "positive" : "")">@((Model.Row.Enabled ?? true) ? "Enabled" : "Disabled")</span> <span class="badge">@Model.Row.Access</span> }
+<p class="muted"><code>@Model.Id</code>@if (Model.Kind == "endpoint") { <span class="badge">@Model.Row.Method</span> <span class="badge">@Model.Row.RuntimeLabel</span>@if (Model.Row.ScopeLabel is { } scopeLabel) { <span class="badge">@scopeLabel</span> } <span class="badge @((Model.Row.Enabled ?? true) ? "positive" : "")">@((Model.Row.Enabled ?? true) ? "Enabled" : "Disabled")</span> <span class="badge">@Model.Row.Access</span> }
 else if (Model.Kind == "collection") { <span class="badge">@Model.Row.Storage</span> <span class="badge">@Model.Row.ClientAccess</span> }</p>
 @await Html.PartialAsync("~/Views/Owner/_ResourceStatStrip.cshtml", (Kind: Model.Kind, Row: Model.Row))
-@await Html.PartialAsync("~/Views/Owner/_ResourceOutline.cshtml", (Kind: Model.Kind, Definition: Model.DefinitionJson, Row: Model.Row))
+@await Html.PartialAsync("~/Views/Owner/_ResourceOutline.cshtml", (Kind: Model.Kind, Definition: Model.DefinitionJson, Row: Model.Row, Script: Model.Script))
 @if (csharp is not null)
 {
     <h3>Call from the game</h3>

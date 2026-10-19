@@ -179,7 +179,9 @@
     function changed() {
       syncPrompts();
       if (status) status.textContent = textarea.value === initial ? "No unsaved changes" : "Unsaved changes";
-      if (position) { var before = textarea.value.slice(0, textarea.selectionStart).split("\n"); position.textContent = "Line " + before.length + ", col " + (before[before.length - 1].length + 1); }
+      var rawPanel = document.getElementById("definition-raw");
+      var monacoOwnsPosition = !!rawPanel && rawPanel.classList.contains("monaco-active");
+      if (position && !monacoOwnsPosition) { var before = textarea.value.slice(0, textarea.selectionStart).split("\n"); position.textContent = "Line " + before.length + ", col " + (before[before.length - 1].length + 1); }
     }
     textarea.addEventListener("input", function () {
       var check = document.getElementById("check-results");

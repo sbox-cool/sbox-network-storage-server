@@ -12,12 +12,14 @@
     var isOverview = !isEdit && !isCode;
 }
 <link rel="stylesheet" href="/owner-assets/m/manage.css" />
+@if (Model.Kind == "endpoint") { <link rel="stylesheet" href="/owner-assets/endpoint-page.css" /> }
 @if (isEdit)
 {
     <link rel="stylesheet" href="/owner-assets/blocks.css" />
+    <link rel="stylesheet" href="/owner-assets/script-editor.css" />
 }
 <div class="page-heading"><div><h1>@Model.Name</h1><p><code>@(Model.Id ?? Model.Kind)</code>@if (Model.IsDraft) { <span class="badge">Draft</span> }
-@if (Model.Kind == "endpoint" && Model.Row is not null) { <span class="badge">@Model.Row.Method</span> <span class="badge @((Model.Row.Enabled ?? true) ? "positive" : "")">@((Model.Row.Enabled ?? true) ? "Enabled" : "Disabled")</span> <span class="badge">@Model.Row.Access</span> }
+@if (Model.Kind == "endpoint" && Model.Row is not null) { <span class="badge">@Model.Row.Method</span> <span class="badge">@Model.Row.RuntimeLabel</span>@if (Model.Row.ScopeLabel is { } scopeLabel) { <span class="badge">@scopeLabel</span> } <span class="badge @((Model.Row.Enabled ?? true) ? "positive" : "")">@((Model.Row.Enabled ?? true) ? "Enabled" : "Disabled")</span> <span class="badge">@Model.Row.Access</span> }
 else if (Model.Kind == "collection" && Model.Row is not null) { <span class="badge">@Model.Row.Storage</span> <span class="badge">@Model.Row.ClientAccess</span> }</p></div>
 <div class="page-actions">
 @if (!isEdit) { <a class="button" href="@TabUrl("edit")">Edit</a> }
@@ -38,6 +40,25 @@ else if (Model.Kind == "collection" && Model.Row is not null) { <span class="bad
 </nav>
 @if (isOverview)
 {
+    @if (Model.Script is { } script)
+    {
+        <section class="card endpoint-script">
+            <div class="section-heading"><h2>Script</h2><a href="@TabUrl("edit")">Edit script</a></div>
+            <p class="muted">This is the endpoint script. The view is read-only; change the source on the Edit tab.</p>
+            @if (Model.Row is { Scope: "global" } globalRow)
+            {
+                <p class="muted">Other scripts import this endpoint as <code>globals/@globalRow.Id</code>. A global endpoint is never an HTTP route.</p>
+            }
+            @if (string.IsNullOrWhiteSpace(script.Source))
+            {
+                <p class="muted">The script is empty.</p>
+            }
+            else
+            {
+                <pre data-language="@script.Language">@script.Source</pre>
+            }
+        </section>
+    }
     @if (!Model.IsDraft && Model.Row is not null)
     {
         @await Html.PartialAsync("~/Views/Owner/_ResourceStatStrip.cshtml", (Kind: Model.Kind, Row: Model.Row))
@@ -45,7 +66,7 @@ else if (Model.Kind == "collection" && Model.Row is not null) { <span class="bad
     <section class="card">
         <h2>Definition preview</h2>
         <p class="muted">Read-only outline of the saved source. Edit it under the Edit tab.</p>
-        @await Html.PartialAsync("~/Views/Owner/_ResourceOutline.cshtml", (Kind: Model.Kind, Definition: Model.DefinitionJson, Row: Model.Row))
+        @await Html.PartialAsync("~/Views/Owner/_ResourceOutline.cshtml", (Kind: Model.Kind, Definition: Model.DefinitionJson, Row: Model.Row, Script: Model.Script))
         <details><summary>Full source</summary><pre data-language="yaml">@Model.Definition</pre></details>
     </section>
 }
@@ -74,6 +95,27 @@ else if (isEdit)
     @Html.AntiForgeryToken()
     @if (Model.Id is not null && !Model.IsDraft && Model.Kind != "game-values") { <input type="hidden" name="id" value="@Model.Id" /> }
     <div class="source-heading"><label for="definition">Definition source</label><span class="muted" id="source-position">YAML</span></div>
+    <p id="monaco-status" class="notice" role="status" hidden></p>
+    <div id="definition-monaco" class="monaco-host" hidden data-typings-url="@(url + "/resources/endpoint-typings")">
+      <div id="definition-yaml" class="monaco-surface monaco-surface-yaml"></div>
+      <section id="script-pane" class="script-pane" aria-labelledby="script-pane-title" hidden>
+        <div class="script-pane-heading"><h3 id="script-pane-title">Script</h3><span id="script-pane-language"></span></div>
+        <p id="script-pane-notice" class="notice script-pane-notice" hidden></p>
+        <div id="script-editor" class="monaco-surface monaco-surface-script"></div>
+        <details id="script-docs" class="script-docs">
+          <summary>Script API</summary>
+          <label for="script-docs-filter">Filter the Script API</label>
+          <input type="search" id="script-docs-filter" class="script-docs-filter" autocomplete="off" />
+          <p id="script-docs-status" class="muted script-docs-status" role="status" hidden></p>
+          <ul id="script-docs-list" class="script-docs-list"></ul>
+          <div id="script-docs-detail" class="script-docs-detail" hidden>
+            <code id="script-docs-signature"></code>
+            <p id="script-docs-text"></p>
+            <button type="button" class="secondary script-docs-insert" id="script-docs-insert" disabled>Insert at cursor</button>
+          </div>
+        </details>
+      </section>
+    </div>
     <textarea class="code-editor" id="definition" name="definition" rows="24" required spellcheck="false" autocomplete="off" autocapitalize="off" wrap="off" data-language="yaml" aria-describedby="definition-help definition-sync">@Model.Definition</textarea>
     <p class="muted definition-sync" id="definition-sync">Editor pushes can overwrite dashboard edits. Coordinate changes with your checked-in source.</p>
     </form></div>
@@ -95,8 +137,40 @@ else if (isCode)
 }
 @if (Model.Kind != "game-values")
 {
-<dialog class="owner-dialog" id="new-resource" aria-labelledby="new-resource-title"><div class="owner-dialog-body"><h2 id="new-resource-title">New @Model.Kind</h2><p>Choose an id using letters, numbers, underscore or hyphen. A fresh draft opens with this id; nothing is published until you save.</p><label>Id <input id="new-resource-id" maxlength="128" placeholder="my-@Model.Kind" data-autofocus /></label><p class="muted" id="new-resource-status" aria-live="polite"></p><div class="owner-dialog-actions"><form method="dialog"><button type="submit" class="secondary" value="cancel">Cancel</button></form><button type="button" id="new-resource-confirm">Create draft</button></div></div></dialog>
-<noscript><p><a class="button secondary" href="@baseUrl/new?draft=new-@Model.Kind">New @Model.Kind</a></p></noscript>
+<dialog class="owner-dialog" id="new-resource" aria-labelledby="new-resource-title"><div class="owner-dialog-body"><h2 id="new-resource-title">New @Model.Kind</h2><p>Choose an id using letters, numbers, underscore or hyphen. A fresh draft opens with this id; nothing is published until you save.</p><label>Id <input id="new-resource-id" maxlength="128" placeholder="my-@Model.Kind" data-autofocus /></label>
+@if (Model.Kind == "endpoint")
+{
+<label>Start from <select id="new-resource-template">
+<option value="" selected>Blank (YAML steps)</option>
+@foreach (var starter in OwnerEndpointTemplates.Offered)
+{
+<option value="@starter.Choice">@starter.Title (@starter.RuntimeLabel)</option>
+}
+</select></label>
+@if (OwnerEndpointTemplates.LoadError is { } templateError)
+{
+<p class="muted" role="status">Starter templates could not be loaded: @templateError Blank is still available.</p>
+}
+}
+<p class="muted" id="new-resource-status" aria-live="polite"></p><div class="owner-dialog-actions"><form method="dialog"><button type="submit" class="secondary" value="cancel">Cancel</button></form><button type="button" id="new-resource-confirm">Create draft</button></div></div></dialog>
+<noscript><form method="get" action="@baseUrl/new">
+<p><label>Id <input name="draft" maxlength="128" required value="new-@Model.Kind" /></label></p>
+@if (Model.Kind == "endpoint")
+{
+<p><label>Start from <select name="template">
+<option value="" selected>Blank (YAML steps)</option>
+@foreach (var starter in OwnerEndpointTemplates.Offered)
+{
+<option value="@starter.Choice">@starter.Title (@starter.RuntimeLabel)</option>
+}
+</select></label></p>
+@if (OwnerEndpointTemplates.LoadError is { } templateError)
+{
+<p class="muted" role="status">Starter templates could not be loaded: @templateError Blank is still available.</p>
+}
+}
+<p><button type="submit">New @Model.Kind</button></p>
+</form></noscript>
 }
 <script src="/owner-assets/m/manage.js" defer></script>
 @if (isEdit)
@@ -106,4 +180,7 @@ else if (isCode)
 <script src="/owner-assets/definition-model.js" defer></script>
 <script src="/owner-assets/blocks.js" defer></script>
 <script src="/owner-assets/builder-catalog.js" defer></script>
+<script src="/owner-assets/script-block.js" defer></script>
+<script src="/owner-assets/script-docs.js" defer></script>
+<script src="/owner-assets/script-editor.js" defer></script>
 }

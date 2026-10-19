@@ -19,7 +19,7 @@
     "static", "super", "switch", "this", "throw", "try", "typeof", "var", "void", "while", "with", "yield",
   ];
   const JS_BUILTINS = [
-    "ns", "req", "res", "ctx", "console", "Math", "JSON", "Object", "Array", "String", "Number",
+    "res", "ctx", "console", "Math", "JSON", "Object", "Array", "String", "Number",
     "Promise", "Date", "Map", "Set", "RegExp", "Error", "process", "window", "document",
   ];
   const CS_KEYWORDS = [
@@ -80,6 +80,9 @@
       ["string", /`(?:[^`\\]|\\[\s\S])*`|"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'/],
       ["regex", /\/(?![*\/])(?:\\.|\[(?:\\.|[^\]\\\n])*\]|[^\/\\\n])+\/[dgimsuvy]*/, REGEX_GUARD],
       ["number", /\b(?:0[xX][0-9a-fA-F_]+|0[bB][01_]+|0[oO][0-7_]+|\d[\d_]*(?:\.\d[\d_]*)?(?:[eE][-+]?\d+)?)n?\b/],
+      // Host API objects (endpoint-api/ns.d.ts) and the members reached through them, such as
+      // ns.records.get or req.input.id. A call or index ends the chain, so a member of a returned value is not api.
+      ["api", /(?<![\w$.])(?:req|ns|globals|workflows)(?![\w$])|(?<=(?<![\w$.])(?:req|ns|globals|workflows)(?:\??\.[A-Za-z_$][\w$]*)*\??\.)[A-Za-z_$][\w$]*/],
       ["keyword", words(JS_KEYWORDS)],
       ["boolean", /\b(?:true|false|null|undefined|NaN|Infinity)\b/],
       ["builtin", words(JS_BUILTINS)],
@@ -270,11 +273,62 @@
     return run(compile(name), String(text));
   }
 
+  // A "script: |" block in a YAML endpoint holds endpoint source. The block is tokenized as javascript only when
+  // the same document has a top-level "runtime: javascript" or "runtime: typescript" line (exact match, as the
+  // server reads it). Everything else stays yaml.
+  const YAML_RUNTIME = /^runtime:[ \t]*(["']?)(?:javascript|typescript)\1(?:[ \t]+#.*)?[ \t]*$/;
+  const YAML_SCRIPT_HEADER = /^script:[ \t]*\|(?:([1-9])[-+]?|[-+]([1-9])?)?(?:[ \t]+#.*)?[ \t]*$/;
+
+  // Lines keep their terminators, so joining any run of them reproduces that run of the input.
+  function splitLines(text) { return text.match(/[^\n]*\n|[^\n]+/g) || []; }
+  function bareLine(line) { return line.replace(/\r?\n$/, ""); }
+  function isBlank(line) { return /^\s*$/.test(line); }
+  function indentOf(line) { return /^ */.exec(line)[0].length; }
+
+  // Returns [{ start, end }] line ranges (end exclusive) of script block bodies. A body holds the blank lines
+  // and the lines indented at least as far as its first content line (or as far as an explicit indicator says).
+  function yamlScriptBodies(lines) {
+    const bodies = [];
+    if (!lines.some(function (line) { return YAML_RUNTIME.test(bareLine(line)); })) return bodies;
+    for (let i = 0; i < lines.length; i++) {
+      const header = YAML_SCRIPT_HEADER.exec(bareLine(lines[i]));
+      if (!header) continue;
+      let indent = Number(header[1] || header[2] || 0);
+      if (!indent) {
+        let first = i + 1;
+        while (first < lines.length && isBlank(bareLine(lines[first]))) first++;
+        if (first === lines.length || indentOf(bareLine(lines[first])) === 0) continue;
+        indent = indentOf(bareLine(lines[first]));
+      }
+      let end = i + 1;
+      while (end < lines.length && (isBlank(bareLine(lines[end])) || indentOf(bareLine(lines[end])) >= indent)) end++;
+      if (end > i + 1) bodies.push({ start: i + 1, end: end });
+      i = end - 1;
+    }
+    return bodies;
+  }
+
+  function tokenizeYaml(text) {
+    const lines = splitLines(text);
+    const bodies = yamlScriptBodies(lines);
+    if (bodies.length === 0) return tokenizeWith("yaml", text);
+    const out = [];
+    let next = 0;
+    for (const body of bodies) {
+      if (body.start > next) appendAll(out, tokenizeWith("yaml", lines.slice(next, body.start).join("")));
+      appendAll(out, tokenizeWith("javascript", lines.slice(body.start, body.end).join("")));
+      next = body.end;
+    }
+    if (next < lines.length) appendAll(out, tokenizeWith("yaml", lines.slice(next).join("")));
+    return out;
+  }
+
   // Splits text into [{ type, text }] tokens. type is null for plain text.
   // Concatenating every token's text reproduces the input exactly.
   function tokenize(text, language) {
     const name = normalizeLanguage(language);
     if (!name) return [{ type: null, text: String(text) }];
+    if (name === "yaml") return tokenizeYaml(String(text));
     return tokenizeWith(name, text);
   }
 

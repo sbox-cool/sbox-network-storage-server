@@ -31,6 +31,7 @@
     <EmbeddedResource Include="wwwroot/css/owner-management.css" LogicalName="SboxNetworkStorage.Server.Owner.management.css" />
     <EmbeddedResource Include="wwwroot/js/endpoint-api/ns.d.ts" LogicalName="SboxNetworkStorage.Server.Owner.endpoint-api.ns.d.ts" />
     <EmbeddedResource Include="wwwroot/js/endpoint-api/templates/*.endpoint.yml" LogicalName="SboxNetworkStorage.Server.Owner.endpoint-api.templates.%(Filename)%(Extension)" />
+    <EmbeddedResource Include="wwwroot/js/endpoint-api/templates/index.json" LogicalName="SboxNetworkStorage.Server.Owner.endpoint-templates-index.json" />
     <EmbeddedResource Include="wwwroot/js/owner-theme.js" LogicalName="SboxNetworkStorage.Server.Owner.theme.js" />
     <EmbeddedResource Include="wwwroot/js/owner-json-editor.js" LogicalName="SboxNetworkStorage.Server.Owner.json-editor.js" />
     <EmbeddedResource Include="wwwroot/vendor/yaml-2.8.2.js" LogicalName="SboxNetworkStorage.Server.Owner.vendor-yaml.js" />
@@ -44,6 +45,11 @@
     <EmbeddedResource Include="wwwroot/js/owner-manage.js" LogicalName="SboxNetworkStorage.Server.Owner.manage.js" />
     <EmbeddedResource Include="wwwroot/css/owner-manage.css" LogicalName="SboxNetworkStorage.Server.Owner.manage.css" />
     <EmbeddedResource Include="wwwroot/css/owner-workbench.css" LogicalName="SboxNetworkStorage.Server.Owner.workbench.css" />
+    <EmbeddedResource Include="wwwroot/css/owner-endpoint-page.css" LogicalName="SboxNetworkStorage.Server.Owner.endpoint-page.css" />
+    <EmbeddedResource Include="wwwroot/js/owner-script-block.js" LogicalName="SboxNetworkStorage.Server.Owner.script-block.js" />
+    <EmbeddedResource Include="wwwroot/js/owner-script-docs.js" LogicalName="SboxNetworkStorage.Server.Owner.script-docs.js" />
+    <EmbeddedResource Include="wwwroot/js/owner-script-editor.js" LogicalName="SboxNetworkStorage.Server.Owner.script-editor.js" />
+    <EmbeddedResource Include="wwwroot/css/owner-script-editor.css" LogicalName="SboxNetworkStorage.Server.Owner.script-editor.css" />
     <EmbeddedResource Include="wwwroot/js/owner-highlight.js" LogicalName="SboxNetworkStorage.Server.Owner.highlight.js" />
     <EmbeddedResource Include="wwwroot/js/owner-workbench.js" LogicalName="SboxNetworkStorage.Server.Owner.workbench.js" />
     <EmbeddedResource Include="wwwroot/img/sbox-network-storage-icon.svg" LogicalName="SboxNetworkStorage.Server.Owner.brand-icon.svg" />
@@ -54,6 +60,7 @@
     <EmbeddedResource Include="wwwroot/css/owner-server.css" LogicalName="SboxNetworkStorage.Server.Owner.server.css" />
     <EmbeddedResource Include="wwwroot/vendor/bootstrap/bootstrap.min.css" LogicalName="SboxNetworkStorage.Server.Owner.vendor-bootstrap.css" />
     <EmbeddedResource Include="wwwroot/vendor/bootstrap/bootstrap.bundle.min.js" LogicalName="SboxNetworkStorage.Server.Owner.vendor-bootstrap.js" />
+    <EmbeddedResource Include="wwwroot/vendor/monaco/**/*" LogicalName="SboxNetworkStorage.Server.Owner.vendor-monaco.$([System.String]::Copy('%(RecursiveDir)').Replace('\','.').Replace('/','.'))%(Filename)%(Extension)" />
     <EmbeddedResource Include="wwwroot/vendor/heroicons.LICENSE.txt" LogicalName="SboxNetworkStorage.Server.Owner.heroicons.LICENSE.txt" />
     <EmbeddedResource Include="Owner/Examples/*.yml" LogicalName="SboxNetworkStorage.Server.Owner.Examples.%(Filename)%(Extension)" />
     <EmbeddedResource Include="../../compat/library-matrix.json" LogicalName="SboxNetworkStorage.Server.Compat.library-matrix.json" />

@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SboxNetworkStorage.Application.Common;
@@ -48,11 +49,19 @@ public sealed record OwnerResourceRow(string Id, string Name,
     long Calls, long Errors, long DurationMsSum,
     string? Storage, string? ClientAccess, int Fields, long? Records,
     string? Parameters, int WorkflowSteps,
-    string? QueryType, string? Sources, string? LastRun, long? DurationMs, int? RecordsReturned);
+    string? QueryType, string? Sources, string? LastRun, long? DurationMs, int? RecordsReturned,
+    string? Runtime = null, string? Scope = null)
+{
+    /// <summary>The endpoint runtime as owners read it: JavaScript, TypeScript, or YAML steps when there is no runtime.</summary>
+    public string RuntimeLabel => Runtime switch { "javascript" => "JavaScript", "typescript" => "TypeScript", _ => "YAML steps" };
+
+    /// <summary>The endpoint scope as owners read it, or null when the definition declares none.</summary>
+    public string? ScopeLabel => Scope switch { "global" => "Global scope", "public" => "Public scope", _ => null };
+}
 
 /// <summary>Resource list page: one row per saved resource plus the stats month.</summary>
 public sealed record OwnerResourceListModel(string ProjectId, string ProjectName, string Kind,
-    IReadOnlyList<OwnerResourceRow> Rows, string Month);
+    IReadOnlyList<OwnerResourceRow> Rows, string Month, string RuntimeFilter = "all");
 
 /// <summary>Resource detail page: header, tab, editor state and overview facts.</summary>
 public sealed record OwnerResourceDetailModel(string ProjectId, string ProjectName, string Kind,
@@ -60,11 +69,22 @@ public sealed record OwnerResourceDetailModel(string ProjectId, string ProjectNa
     string Tab, bool IsDraft,
     OwnerResourceIntegration? Integration,
     string? Error = null, IReadOnlyList<DefinitionDiagnostic>? Diagnostics = null,
-    OwnerResourceRow? Row = null, JsonElement? DefinitionJson = null);
+    OwnerResourceRow? Row = null, JsonElement? DefinitionJson = null, OwnerScriptView? Script = null);
 
 /// <summary>Quick preview modal body: header, stats, outline, snippet and links.</summary>
 public sealed record OwnerResourcePreviewModel(string ProjectId, string Kind, string Id, string Name,
-    OwnerResourceRow Row, OwnerResourceIntegration? Integration, string Definition, JsonElement? DefinitionJson = null);
+    OwnerResourceRow Row, OwnerResourceIntegration? Integration, string Definition, JsonElement? DefinitionJson = null,
+    OwnerScriptView? Script = null);
+
+/// <summary>One handler parameter and the member names it reads (req.input, ns.records), in source order.</summary>
+public sealed record OwnerScriptMembers(string Parameter, IReadOnlyList<string> Names);
+
+/// <summary>
+/// Read-only view of a scripted endpoint: the source as saved and its outline. Module is null when the source does not
+/// compile or analyse, and Error then says why. Members lists the reads of each handler parameter.
+/// </summary>
+public sealed record OwnerScriptView(string Language, string Source, ScriptModuleInfo? Module, string? Error,
+    IReadOnlyList<OwnerScriptMembers> Members);
 
 [Authorize(AuthenticationSchemes = OwnerHostingExtensions.Scheme)]
 public sealed class OwnerResourcesController(INetworkStorageProjectService projects, INetworkStorageStore store,
@@ -75,9 +95,10 @@ public sealed class OwnerResourcesController(INetworkStorageProjectService proje
     private const string Route = Root + "/{kind}";
     private static readonly JsonSerializerOptions Pretty = new() { WriteIndented = true };
     private static readonly JsonSerializerOptions Web = new(JsonSerializerDefaults.Web);
+    private static readonly string[] RuntimeFilters = ["all", "yaml", "javascript", "typescript"];
 
     [HttpGet(Route)]
-    public async Task<IActionResult> List(string projectId, string kind, [FromQuery] string? id, [FromQuery] string? draft, [FromQuery] string? tab, CancellationToken ct)
+    public async Task<IActionResult> List(string projectId, string kind, [FromQuery] string? id, [FromQuery] string? draft, [FromQuery] string? tab, [FromQuery] string? runtime, CancellationToken ct)
     {
         if (!OwnerResourceSource.IsKind(kind)) return NotFound();
         if (kind == "game-values")
@@ -93,12 +114,15 @@ public sealed class OwnerResourcesController(INetworkStorageProjectService proje
                 return BadRequest("Draft ids need 1-128 letters, numbers, underscores or hyphens.");
             return Redirect($"/dashboard/projects/{Uri.EscapeDataString(projectId)}/resources/{kind}/new?draft={Uri.EscapeDataString(draft)}");
         }
-        var model = await LoadListAsync(projectId, kind, ct);
+        var runtimeFilter = string.IsNullOrEmpty(runtime) ? "all" : runtime;
+        if (!RuntimeFilters.Contains(runtimeFilter, StringComparer.Ordinal))
+            return BadRequest("Runtime must be all, yaml, javascript or typescript.");
+        var model = await LoadListAsync(projectId, kind, runtimeFilter, ct);
         return model is null ? NotFound() : View("~/Views/Owner/Resources.cshtml", model);
     }
 
     [HttpGet(Root + "/{kind}/new")]
-    public async Task<IActionResult> New(string projectId, string kind, [FromQuery] string? draft, [FromQuery] string? tab, CancellationToken ct)
+    public async Task<IActionResult> New(string projectId, string kind, [FromQuery] string? draft, [FromQuery] string? tab, [FromQuery] string? template, CancellationToken ct)
     {
         if (!OwnerResourceSource.IsKind(kind) || kind == "game-values") return NotFound();
         if (string.IsNullOrEmpty(draft))
@@ -109,7 +133,16 @@ public sealed class OwnerResourcesController(INetworkStorageProjectService proje
         }
         if (draft.Length is < 1 or > 128 || draft.Any(c => !char.IsAsciiLetterOrDigit(c) && c is not '_' and not '-'))
             return BadRequest("Draft ids need 1-128 letters, numbers, underscores or hyphens.");
-        var detail = await LoadDetailAsync(projectId, kind, null, tab, draft, ct);
+        string? starter = null;
+        if (!string.IsNullOrEmpty(template))
+        {
+            if (kind != "endpoint") return BadRequest("Starter templates are only available for endpoints.");
+            if (OwnerEndpointTemplates.LoadError is { } loadError) return StatusCode(503, loadError);
+            var chosen = OwnerEndpointTemplates.FindOffered(template);
+            if (chosen is null) return BadRequest("Choose Blank or a starter template from the list.");
+            starter = ApplyDraftId(chosen.Source, draft);
+        }
+        var detail = await LoadDetailAsync(projectId, kind, null, tab, draft, ct, starter);
         return detail is null ? NotFound() : View("~/Views/Owner/Resource.cshtml", detail);
     }
 
@@ -198,6 +231,13 @@ public sealed class OwnerResourcesController(INetworkStorageProjectService proje
             }),
             stepDefaults = OwnerResourceExamples.StepDefaults,
             stepYaml = OwnerResourceExamples.StepYaml,
+            templates = OwnerEndpointTemplates.Templates.Select(starter => new
+            {
+                kind = "endpoint", category = "Templates", title = starter.Title + " (" + starter.RuntimeLabel + ")",
+                starter.Summary, requires = Array.Empty<string>(), calls = Array.Empty<object>(), exists = false,
+                template = true, note = OwnerEndpointTemplates.NeedsNote(starter), starter.Source,
+            }),
+            templateError = OwnerEndpointTemplates.LoadError,
         }, Web);
     }
 
@@ -264,7 +304,7 @@ public sealed class OwnerResourcesController(INetworkStorageProjectService proje
         => row.ValueKind == JsonValueKind.Object && row.TryGetProperty(name, out var value)
             && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
 
-    private async Task<OwnerResourceListModel?> LoadListAsync(string projectId, string kind, CancellationToken ct)
+    private async Task<OwnerResourceListModel?> LoadListAsync(string projectId, string kind, string runtimeFilter, CancellationToken ct)
     {
         var access = await projects.ResolveProjectAccessAsync(Owner, projectId, ct);
         if (access is null || access.StorageOwnerUserId != Owner || !access.CanManage) return null;
@@ -275,8 +315,12 @@ public sealed class OwnerResourcesController(INetworkStorageProjectService proje
         var counts = kind == "collection" ? await CollectionCountMapAsync(projectId, resources, ct) : new Dictionary<string, long>(StringComparer.Ordinal);
         var rows = new List<OwnerResourceRow>();
         foreach (var row in resources.Rows(kind).OrderBy(candidate => Text(candidate, "name") ?? Text(candidate, "slug") ?? Text(candidate, kind + "_id") ?? ""))
-            rows.Add(BuildRow(kind, row, OwnerProjectResources.Column(row, "definition_json"), usage, queryRuns, counts));
-        return new OwnerResourceListModel(projectId, access.Project.Name, kind, rows, month);
+        {
+            var built = BuildRow(kind, row, OwnerProjectResources.Column(row, "definition_json"), usage, queryRuns, counts);
+            if (kind == "endpoint" && !MatchesRuntimeFilter(built.Runtime, runtimeFilter)) continue;
+            rows.Add(built);
+        }
+        return new OwnerResourceListModel(projectId, access.Project.Name, kind, rows, month, kind == "endpoint" ? runtimeFilter : "all");
     }
 
     private async Task<Dictionary<string, OwnerEndpointUsage>> EndpointUsageMapAsync(string projectId, string month, CancellationToken ct)
@@ -341,7 +385,7 @@ public sealed class OwnerResourcesController(INetworkStorageProjectService proje
             var row = BuildDraftRow(kind, draftId, name, parsed);
             return new OwnerResourceDetailModel(projectId, access.Project.Name, kind, draftId, name,
                 display, resources.BuilderJson(), NormalizeTab(tab, true), true, integration,
-                overrideError, overrideDiagnostics, row, parsed);
+                overrideError, overrideDiagnostics, row, parsed, ScriptFor(kind, parsed));
         }
         if (resourceId is null) return null;
         var match = resources.Rows(kind).FirstOrDefault(candidate => Text(candidate, kind + "_id") == resourceId);
@@ -353,7 +397,7 @@ public sealed class OwnerResourcesController(INetworkStorageProjectService proje
             var rowNew = BuildDraftRow(kind, resourceId, resourceId, parsedNew);
             return new OwnerResourceDetailModel(projectId, access.Project.Name, kind, resourceId, resourceId,
                 overrideDefinition, resources.BuilderJson(), "edit", true, integrationNew,
-                overrideError, overrideDiagnostics, rowNew, parsedNew);
+                overrideError, overrideDiagnostics, rowNew, parsedNew, ScriptFor(kind, parsedNew));
         }
         var storedDefinition = OwnerProjectResources.Column(match, "definition_json");
         var text = overrideDefinition
@@ -369,7 +413,7 @@ public sealed class OwnerResourcesController(INetworkStorageProjectService proje
         var detailRow = BuildRow(kind, match, storedDefinition, usage, queryRuns, counts);
         return new OwnerResourceDetailModel(projectId, access.Project.Name, kind, resourceId, nameSaved,
             text, resources.BuilderJson(), NormalizeTab(tab, false), false, guide,
-            overrideError, overrideDiagnostics, detailRow, json);
+            overrideError, overrideDiagnostics, detailRow, json, ScriptFor(kind, json));
     }
 
     private async Task<OwnerResourcePreviewModel?> LoadPreviewAsync(string projectId, string kind, string resourceId, CancellationToken ct)
@@ -391,10 +435,10 @@ public sealed class OwnerResourcesController(INetworkStorageProjectService proje
         if (kind == "collection" && OwnerDataRecords.Describe(match) is { } collection)
             counts[collection.Id] = await OwnerDataRecords.CountAsync(store, projectId, collection, null, ct);
         var row = BuildRow(kind, match, definition, usage, queryRuns, counts);
-        return new OwnerResourcePreviewModel(projectId, kind, resourceId, row.Name, row, guide, display, definition);
+        return new OwnerResourcePreviewModel(projectId, kind, resourceId, row.Name, row, guide, display, definition, ScriptFor(kind, definition));
     }
 
-    private static OwnerResourceRow BuildRow(string kind, JsonElement row, JsonElement? definition,
+    internal static OwnerResourceRow BuildRow(string kind, JsonElement row, JsonElement? definition,
         Dictionary<string, OwnerEndpointUsage> usage, Dictionary<string, JsonElement> queryRuns, Dictionary<string, long> counts)
     {
         var id = Text(row, kind + "_id") ?? "";
@@ -404,10 +448,7 @@ public sealed class OwnerResourcesController(INetworkStorageProjectService proje
         var slug = kind == "endpoint" ? Text(row, "slug") ?? Text(row, "endpoint_id") ?? id : null;
         var method = kind == "endpoint" ? Text(row, "method") ?? (definition is { ValueKind: JsonValueKind.Object } e ? OwnerProjectScope.Text(e, "method") : null) ?? "POST" : null;
         var enabled = kind == "endpoint" ? EndpointEnabled(row, definition) : (bool?)null;
-        var access = kind == "endpoint"
-            ? OwnerGameSnippets.IsInternalEndpoint(definition) ? "Internal"
-                : OwnerGameSnippets.RequiresSecretKey(definition) || OwnerGameSnippets.RowRequiresSecretKey(row) ? "Secret key" : "Public"
-            : null;
+        var access = kind == "endpoint" ? EndpointAccess(row, definition) : null;
         var stats = slug is not null && usage.TryGetValue(slug, out var hit) ? hit : new OwnerEndpointUsage(0, 0, 0);
         if (slug is not null && !usage.ContainsKey(slug) && usage.TryGetValue(id, out var byId)) stats = byId;
         var storage = kind == "collection"
@@ -426,18 +467,16 @@ public sealed class OwnerResourcesController(INetworkStorageProjectService proje
             queryType, sources,
             lastRun.ValueKind == JsonValueKind.Object ? RowString(lastRun, "run_at") : null,
             lastRun.ValueKind == JsonValueKind.Object && lastRun.TryGetProperty("duration_ms", out var duration) && duration.ValueKind == JsonValueKind.Number && duration.TryGetInt64(out var durationMs) ? durationMs : null,
-            lastRun.ValueKind == JsonValueKind.Object && lastRun.TryGetProperty("records_returned", out var returned) && returned.ValueKind == JsonValueKind.Number && returned.TryGetInt32(out var returnedCount) ? returnedCount : null);
+            lastRun.ValueKind == JsonValueKind.Object && lastRun.TryGetProperty("records_returned", out var returned) && returned.ValueKind == JsonValueKind.Number && returned.TryGetInt32(out var returnedCount) ? returnedCount : null,
+            kind == "endpoint" ? EndpointRuntime(definition) : null, kind == "endpoint" ? EndpointScope(definition) : null);
     }
 
-    private static OwnerResourceRow BuildDraftRow(string kind, string id, string name, JsonElement? definition)
+    internal static OwnerResourceRow BuildDraftRow(string kind, string id, string name, JsonElement? definition)
     {
         var slug = kind == "endpoint" ? id : null;
         var method = kind == "endpoint" ? (definition is { ValueKind: JsonValueKind.Object } e ? OwnerProjectScope.Text(e, "method") : null) ?? "POST" : null;
         var enabled = kind == "endpoint" ? EndpointEnabled(default, definition) : (bool?)null;
-        var access = kind == "endpoint"
-            ? OwnerGameSnippets.IsInternalEndpoint(definition) ? "Internal"
-                : OwnerGameSnippets.RequiresSecretKey(definition) ? "Secret key" : "Public"
-            : null;
+        var access = kind == "endpoint" ? EndpointAccess(default, definition) : null;
         var steps = definition is { ValueKind: JsonValueKind.Object } d && d.TryGetProperty("steps", out var list) && list.ValueKind == JsonValueKind.Array
             ? list.GetArrayLength() : 0;
         return new OwnerResourceRow(id, name, method, enabled, steps, access, slug, 0, 0, 0,
@@ -446,7 +485,8 @@ public sealed class OwnerResourcesController(INetworkStorageProjectService proje
             kind == "collection" ? CollectionFields(definition) : 0, null,
             kind == "workflow" ? WorkflowParams(definition) : null, steps,
             kind == "query" ? ((definition is { ValueKind: JsonValueKind.Object } q ? OwnerProjectScope.Text(q, "type") : null) ?? "Query") : null,
-            kind == "query" ? QuerySources(definition) : null, null, null, null);
+            kind == "query" ? QuerySources(definition) : null, null, null, null,
+            kind == "endpoint" ? EndpointRuntime(definition) : null, kind == "endpoint" ? EndpointScope(definition) : null);
     }
 
     private static bool EndpointEnabled(JsonElement row, JsonElement? definition)
@@ -463,6 +503,105 @@ public sealed class OwnerResourcesController(INetworkStorageProjectService proje
             if (column.ValueKind == JsonValueKind.Number && column.TryGetInt64(out var number)) return number != 0;
         }
         return true;
+    }
+
+    /// <summary>The runtime a scripted endpoint names (javascript or typescript); null for a YAML steps endpoint.</summary>
+    internal static string? EndpointRuntime(JsonElement? definition)
+    {
+        var runtime = definition is { ValueKind: JsonValueKind.Object } d ? OwnerProjectScope.Text(d, "runtime") : null;
+        return runtime is "javascript" or "typescript" ? runtime : null;
+    }
+
+    /// <summary>The scope a scripted endpoint declares (public or global); null when it declares neither.</summary>
+    internal static string? EndpointScope(JsonElement? definition)
+    {
+        var scope = definition is { ValueKind: JsonValueKind.Object } d ? OwnerProjectScope.Text(d, "scope") : null;
+        return scope is "public" or "global" ? scope : null;
+    }
+
+    /// <summary>
+    /// Access label for an endpoint row. A global endpoint is imported by other scripts and is never routed over HTTP,
+    /// so it reads as Internal whatever its key requirements are.
+    /// </summary>
+    internal static string EndpointAccess(JsonElement row, JsonElement? definition)
+    {
+        if (EndpointScope(definition) == "global" || OwnerGameSnippets.IsInternalEndpoint(definition)) return "Internal";
+        return OwnerGameSnippets.RequiresSecretKey(definition) || OwnerGameSnippets.RowRequiresSecretKey(row) ? "Secret key" : "Public";
+    }
+
+    /// <summary>Whether a row passes the runtime filter: all, yaml (no runtime), javascript or typescript.</summary>
+    internal static bool MatchesRuntimeFilter(string? runtime, string filter) => filter switch
+    {
+        "yaml" => runtime is null,
+        "javascript" or "typescript" => runtime == filter,
+        _ => true,
+    };
+
+    /// <summary>
+    /// The script view of a scripted endpoint definition, or null for YAML endpoints and other kinds. The source is
+    /// analysed the way the save path analyses it, so the outline shows what the server will load.
+    /// </summary>
+    private OwnerScriptView? ScriptFor(string kind, JsonElement? definition)
+    {
+        if (kind != "endpoint" || EndpointRuntime(definition) is not { } language) return null;
+        var source = definition is { ValueKind: JsonValueKind.Object } d ? OwnerProjectScope.Text(d, "script") ?? "" : "";
+        var engine = HttpContext.RequestServices.GetRequiredService<IReadOnlyList<IEndpointScriptRuntime>>()
+            .FirstOrDefault(candidate => candidate.Language == language);
+        return ScriptView(language, source, engine);
+    }
+
+    /// <summary>
+    /// Compiles and analyses one script source. A source that does not compile or analyse keeps its text and carries
+    /// the reason in Error, so the page still shows the code.
+    /// </summary>
+    internal static OwnerScriptView ScriptView(string language, string source, IEndpointScriptRuntime? engine)
+    {
+        if (engine is null)
+            return new OwnerScriptView(language, source, null, $"The {language} runtime is not available on this server.", []);
+        try
+        {
+            var javaScript = engine.ToJavaScript(source);
+            var module = ScriptModuleAnalysis.Analyze(javaScript);
+            return new OwnerScriptView(language, source, module, null, ScriptMemberUsage(javaScript, HandlerParameters(module)));
+        }
+        catch (ScriptModuleException ex)
+        {
+            return new OwnerScriptView(language, source, null, $"Line {ex.Line}, column {ex.Column}: {ex.Message}", []);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or Acornima.ParseErrorException)
+        {
+            return new OwnerScriptView(language, source, null, ex.Message, []);
+        }
+    }
+
+    /// <summary>The handler's parameter names: the first two of the default export (req, ns). Empty without a default function.</summary>
+    internal static IReadOnlyList<string> HandlerParameters(ScriptModuleInfo module)
+    {
+        if (module.Exports.FirstOrDefault(export => export.Name == "default") is not { Parameters: { } parameters }) return new List<string>();
+        return parameters.Take(2).Select(parameter => parameter.Name).ToList();
+    }
+
+    private static readonly Regex ScriptMaskPattern = new(
+        @"//[^\n]*|/\*[\s\S]*?\*/|""(?:\\.|[^""\\\n])*""|'(?:\\.|[^'\\\n])*'|`(?:\\.|[^`\\])*`");
+
+    /// <summary>
+    /// The member names each handler parameter reads, in source order without repeats (req.input, ns.records). Read as
+    /// text: comments and string and template literals are blanked first, so reads inside them are not listed, and
+    /// neither are reads inside the ${...} parts of a template literal.
+    /// </summary>
+    internal static IReadOnlyList<OwnerScriptMembers> ScriptMemberUsage(string javaScript, IReadOnlyList<string> parameters)
+    {
+        var code = ScriptMaskPattern.Replace(javaScript, match => new string(' ', match.Length));
+        var usage = new List<OwnerScriptMembers>(parameters.Count);
+        foreach (var parameter in parameters)
+        {
+            var reads = new Regex(@"(?<![\w$.])" + Regex.Escape(parameter) + @"\s*\??\.\s*([A-Za-z_$][\w$]*)");
+            var names = new List<string>();
+            foreach (Match read in reads.Matches(code))
+                if (!names.Contains(read.Groups[1].Value, StringComparer.Ordinal)) names.Add(read.Groups[1].Value);
+            usage.Add(new OwnerScriptMembers(parameter, names));
+        }
+        return usage;
     }
 
     private static int CollectionFields(JsonElement? definition)

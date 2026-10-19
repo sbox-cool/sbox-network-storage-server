@@ -27,7 +27,7 @@
   --syn-comment: #8b93a1; --syn-property: #61afef; --syn-function: #82aaff; --syn-type: #e5c07b;
   --selection-bg: rgb(112 224 0 / .15);
   --syn-variable: #d7dae0; --syn-operator: #abb2bf; --syn-punctuation: #9ba3b1; --syn-template: #5fd7c4;
-  --syn-regex: #e5a07a; --syn-builtin: #56d4dd;
+  --syn-regex: #e5a07a; --syn-builtin: #56d4dd; --syn-api: #ff7b72;
 }
 :root[data-theme="light"] {
   color-scheme: light;
@@ -44,11 +44,11 @@
   --danger-bg: color-mix(in srgb, var(--danger) 14%, transparent);
   --green: var(--success); --accent-text: var(--on-accent);
   --radius: 10px; --radius-sm: 6px;
-  --syn-keyword: #cf222e; --syn-string: var(--accent-fg); --syn-number: #0550ae; --syn-boolean: #bc4c00;
+  --syn-keyword: #cf222e; --syn-string: var(--accent-fg); --syn-number: #0550ae; --syn-boolean: #a84300;
   --syn-comment: #57606a; --syn-property: #0a3069; --syn-function: #7a48d6; --syn-type: #0b6e75;
   --selection-bg: rgb(112 224 0 / .18);
-  --syn-variable: #24292f; --syn-operator: #24292f; --syn-punctuation: #57606a; --syn-template: #bc4c00;
-  --syn-regex: #116329; --syn-builtin: #953800;
+  --syn-variable: #24292f; --syn-operator: #24292f; --syn-punctuation: #57606a; --syn-template: #a84300;
+  --syn-regex: #116329; --syn-builtin: #953800; --syn-api: #a3237f;
 }
 :root[data-theme="contrast"] {
   color-scheme: dark;
@@ -69,7 +69,7 @@
   --syn-comment: #c8c8c8; --syn-property: #8ed0ff; --syn-function: #ffe27a; --syn-type: #8be9fd;
   --selection-bg: rgb(112 224 0 / .3);
   --syn-variable: #f2f2f2; --syn-operator: #e6e6e6; --syn-punctuation: #d4d4d4; --syn-template: #ffb86b;
-  --syn-regex: #ffb3d1; --syn-builtin: #6ef0c0;
+  --syn-regex: #ffb3d1; --syn-builtin: #6ef0c0; --syn-api: #b9a6ff;
 }
 :root { --r-xs: 4px; --r-lg: 14px; --pill: 999px; --blur: saturate(180%) blur(16px); }
 /* Bootstrap components follow the owner theme instead of Bootstrap defaults. */

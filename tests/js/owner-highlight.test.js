@@ -46,7 +46,7 @@ test("yaml template expressions are split and their contents tokenized as javasc
   const got = kinds(text, "yaml");
   assert.ok(got.some((t) => t[0] === "template" && t[1] === "{{"));
   assert.ok(got.some((t) => t[0] === "template" && t[1] === "}}"));
-  assert.ok(got.some((t) => t[0] === "builtin" && t[1] === "ns"));
+  assert.ok(got.some((t) => t[0] === "api" && t[1] === "ns"));
   assertLossless(text, "yaml");
 });
 
@@ -87,8 +87,8 @@ test("javascript highlights keywords, builtins, functions, types and comments", 
   const text = "const x = ns.run(42); // note\nclass Foo {}";
   const got = kinds(text, "javascript");
   assert.deepEqual(got.find((t) => t[1] === "const"), ["keyword", "const"]);
-  assert.deepEqual(got.find((t) => t[1] === "ns"), ["builtin", "ns"]);
-  assert.deepEqual(got.find((t) => t[1] === "run"), ["function", "run"]);
+  assert.deepEqual(got.find((t) => t[1] === "ns"), ["api", "ns"]);
+  assert.deepEqual(got.find((t) => t[1] === "run"), ["api", "run"]);
   assert.deepEqual(got.find((t) => t[1] === "42"), ["number", "42"]);
   assert.deepEqual(got.find((t) => t[1] === "// note"), ["comment", "// note"]);
   assert.deepEqual(got.find((t) => t[1] === "Foo"), ["type", "Foo"]);

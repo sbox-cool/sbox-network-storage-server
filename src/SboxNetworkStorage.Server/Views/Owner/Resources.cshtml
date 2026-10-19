@@ -24,6 +24,7 @@
 <link rel="stylesheet" href="/owner-assets/m/manage.css" />
 <div class="page-heading"><div><h1>@title</h1><p>@description</p></div><div class="page-actions"><button type="button" data-dialog="new-resource">New @singular</button><a class="button secondary" href="@draftUrl">Examples</a></div></div>
 <noscript><p><a class="button secondary" href="@draftUrl">New @singular</a></p></noscript>
+@if (Model.Kind == "endpoint") { <link rel="stylesheet" href="/owner-assets/endpoint-page.css" /> }
 @if (Model.Kind == "endpoint")
 {
     <p class="muted">Calls, errors and timing cover @Model.Month. Open a row for the full definition and game code.</p>
@@ -37,7 +38,7 @@ else if (Model.Kind == "collection")
     <p class="muted">Records counts live data. Open a row for the full definition and game code.</p>
 }
 <div class="card">
-    @if (Model.Rows.Count == 0)
+    @if (Model.Rows.Count == 0 && Model.RuntimeFilter == "all")
     {
         <section class="empty-state">
             <h2>No @(title.ToLowerInvariant()) yet</h2>
@@ -48,10 +49,35 @@ else if (Model.Kind == "collection")
     else
     {
         <div class="resource-toolbar">
-            <label class="sr-only" for="resource-filter">Filter @(title.ToLowerInvariant()) by name or id</label>
-            <input type="search" id="resource-filter" placeholder="Filter by name or id" autocomplete="off" />
-            <p class="muted resource-count">@countText</p>
+            @if (Model.Kind == "endpoint")
+            {
+                <form method="get" action="@baseUrl" class="resource-runtime-filter">
+                    <label for="resource-runtime">Runtime</label>
+                    <select id="resource-runtime" name="runtime">
+                        <option value="all" selected="@(Model.RuntimeFilter == "all" ? "selected" : null)">All</option>
+                        <option value="yaml" selected="@(Model.RuntimeFilter == "yaml" ? "selected" : null)">YAML steps</option>
+                        <option value="javascript" selected="@(Model.RuntimeFilter == "javascript" ? "selected" : null)">JavaScript</option>
+                        <option value="typescript" selected="@(Model.RuntimeFilter == "typescript" ? "selected" : null)">TypeScript</option>
+                    </select>
+                    <button type="submit" class="secondary">Apply</button>
+                </form>
+            }
+            @if (Model.Rows.Count > 0)
+            {
+                <label class="sr-only" for="resource-filter">Filter @(title.ToLowerInvariant()) by name or id</label>
+                <input type="search" id="resource-filter" placeholder="Filter by name or id" autocomplete="off" />
+                <p class="muted resource-count">@countText</p>
+            }
         </div>
+        @if (Model.Rows.Count == 0)
+        {
+            <section class="empty-state">
+                <h2>No endpoints use this runtime</h2>
+                <p>Choose another runtime, or All to see every endpoint.</p>
+            </section>
+        }
+        else
+        {
         <div class="table-scroll"><table data-sortable id="resource-table">
             <thead><tr>
                 <th scope="col">Name</th>
@@ -70,7 +96,7 @@ else if (Model.Kind == "collection")
                     {
                         <td>@item.Method</td>
                         <td><span class="badge @((item.Enabled ?? true) ? "positive" : "")">@((item.Enabled ?? true) ? "Enabled" : "Disabled")</span></td>
-                        <td class="num @(item.Steps == 0 ? "zero" : "")" data-sort-value="@item.Steps">@item.Steps</td>
+                        <td class="num @(item.Runtime is null && item.Steps == 0 ? "zero" : "")" data-sort-value="@(item.Runtime is null ? item.Steps : -1)">@(item.Runtime is null ? item.Steps.ToString(System.Globalization.CultureInfo.InvariantCulture) : "Script")</td>
                         <td>@item.Access</td>
                         <td class="num @(item.Calls == 0 ? "zero" : "")" data-sort-value="@item.Calls">@item.Calls</td>
                         <td class="num @(item.Errors == 0 ? "zero" : "")" data-sort-value="@item.Errors">@item.Errors</td>
@@ -103,8 +129,42 @@ else if (Model.Kind == "collection")
             </tbody>
         </table></div>
         <p class="muted" id="resource-filter-empty" hidden>No matching resources.</p>
+        }
     }
 </div>
-<dialog class="owner-dialog" id="new-resource" aria-labelledby="new-resource-title"><div class="owner-dialog-body"><h2 id="new-resource-title">New @singular</h2><p>Choose an id using letters, numbers, underscore or hyphen. A fresh draft opens with this id; nothing is published until you save.</p><label>Id <input id="new-resource-id" maxlength="128" placeholder="my-@singular" data-autofocus /></label><p class="muted" id="new-resource-status" aria-live="polite"></p><div class="owner-dialog-actions"><form method="dialog"><button type="submit" class="secondary" value="cancel">Cancel</button></form><button type="button" id="new-resource-confirm">Create draft</button></div></div></dialog>
+<dialog class="owner-dialog" id="new-resource" aria-labelledby="new-resource-title"><div class="owner-dialog-body"><h2 id="new-resource-title">New @singular</h2><p>Choose an id using letters, numbers, underscore or hyphen. A fresh draft opens with this id; nothing is published until you save.</p><label>Id <input id="new-resource-id" maxlength="128" placeholder="my-@singular" data-autofocus /></label>
+@if (Model.Kind == "endpoint")
+{
+<label>Start from <select id="new-resource-template">
+<option value="" selected>Blank (YAML steps)</option>
+@foreach (var starter in SboxNetworkStorage.Server.Owner.OwnerEndpointTemplates.Offered)
+{
+<option value="@starter.Choice">@starter.Title (@starter.RuntimeLabel)</option>
+}
+</select></label>
+@if (SboxNetworkStorage.Server.Owner.OwnerEndpointTemplates.LoadError is { } templateError)
+{
+<p class="muted" role="status">Starter templates could not be loaded: @templateError Blank is still available.</p>
+}
+}
+<p class="muted" id="new-resource-status" aria-live="polite"></p><div class="owner-dialog-actions"><form method="dialog"><button type="submit" class="secondary" value="cancel">Cancel</button></form><button type="button" id="new-resource-confirm">Create draft</button></div></div></dialog>
+<noscript><form method="get" action="@baseUrl/new">
+<p><label>Id <input name="draft" maxlength="128" required value="new-@Model.Kind" /></label></p>
+@if (Model.Kind == "endpoint")
+{
+<p><label>Start from <select name="template">
+<option value="" selected>Blank (YAML steps)</option>
+@foreach (var starter in SboxNetworkStorage.Server.Owner.OwnerEndpointTemplates.Offered)
+{
+<option value="@starter.Choice">@starter.Title (@starter.RuntimeLabel)</option>
+}
+</select></label></p>
+@if (SboxNetworkStorage.Server.Owner.OwnerEndpointTemplates.LoadError is { } templateError)
+{
+<p class="muted" role="status">Starter templates could not be loaded: @templateError Blank is still available.</p>
+}
+}
+<p><button type="submit">New @singular</button></p>
+</form></noscript>
 <dialog class="owner-dialog" id="quick-preview" aria-label="Quick preview"><div class="owner-dialog-body" id="quick-preview-body"><p class="muted">Loading preview.</p></div></dialog>
 <script src="/owner-assets/m/manage.js" defer></script>

@@ -1,0 +1,11 @@
+/* Endpoint page: code-first script card and the endpoints list runtime filter. */
+.endpoint-script a { color: var(--accent-fg); }
+.endpoint-script pre { max-height: 36rem; overflow: auto; }
+.resource-runtime-filter { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; margin: 0; }
+.resource-runtime-filter label { color: var(--muted); font-size: .85rem; }
+.resource-runtime-filter select { width: auto; margin-top: 0; }
+.resource-runtime-filter button { margin-top: 0; }
+@media (max-width: 760px) {
+  .endpoint-script pre { max-height: 24rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .resource-runtime-filter select { flex: 1 1 10rem; }
+}
