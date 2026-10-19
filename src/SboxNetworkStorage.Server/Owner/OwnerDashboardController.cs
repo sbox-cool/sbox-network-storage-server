@@ -6,6 +6,8 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Caching.Memory;
 using SboxNetworkStorage.Application.Common;
 using SboxNetworkStorage.Application.NetworkStorage;
+using SboxNetworkStorage.Application.NetworkStorage.GameLogs;
+using SboxNetworkStorage.Infrastructure.NetworkStorage.GameLogs;
 using SboxNetworkStorage.Application.Workspace;
 using SboxNetworkStorage.Domain.Workspace;
 using SboxNetworkStorage.Server.Authority;
@@ -63,14 +65,14 @@ public sealed record OwnerProjectModel(WorkspaceProject Project, NetworkStorageP
 /// <summary>Standalone adaptation of the Network Storage project/settings/key management surface.</summary>
 [Authorize(AuthenticationSchemes = OwnerHostingExtensions.Scheme)]
 public sealed class OwnerDashboardController(INetworkStorageProjectService projects, IWorkspaceStore workspace,
-    IAuditLogger audit, INetworkStorageStore store, EffectiveConfig config, IMemoryCache cache, TimeProvider time) : Controller
+    IAuditLogger audit, INetworkStorageStore store, EffectiveConfig config, IMemoryCache cache, TimeProvider time, GameLogQueue gameLogs) : Controller
 {
     private const long Owner = NetworkStorageServices.LocalOwnerUserId;
     private const int RecentRequests = 200;
     private static readonly TimeSpan RawKeyLifetime = TimeSpan.FromMinutes(5);
 
     /// <summary>Permission scopes enforced by ApiKeyPermissionPolicy for secret keys.</summary>
-    public static readonly string[] KeyScopes = ["endpoints", "queries", "collections", "workflows", "game_values", "rate_limits", "settings"];
+    public static readonly string[] KeyScopes = ["endpoints", "queries", "collections", "workflows", "game_values", "rate_limits", "settings", "logs"];
 
     /// <summary>Access levels: r reads definitions, w writes them, x executes (tests, direct collection data API).</summary>
     public static readonly IReadOnlyDictionary<string, string> KeyLevels = new Dictionary<string, string>(StringComparer.Ordinal)
@@ -128,14 +130,29 @@ public sealed class OwnerDashboardController(INetworkStorageProjectService proje
             cache.Remove(RawKeyCacheKey(created));
             model = model with { RawKey = stored.Raw };
         }
+        ViewData["GameLogCounters"] = gameLogs.Snapshot(projectId);
         return View("~/Views/Owner/Project.cshtml", model);
+    }
+
+    private static bool GameLogFormValid(Dictionary<string, string> values)
+    {
+        foreach (var stream in new[] { GameLogPolicy.DefaultStream, GameLogPolicy.ChatStream, GameLogPolicy.AuditStream })
+        {
+            var retention = values.GetValueOrDefault($"gameLogs_{stream}_retention");
+            var sampling = values.GetValueOrDefault($"gameLogs_{stream}_sampling");
+            if (!string.IsNullOrWhiteSpace(retention) && GameLogSettingsForm.ParseRetention(retention) is null) return false;
+            if (!string.IsNullOrWhiteSpace(sampling) && GameLogSettingsForm.ParseSampling(sampling) is null) return false;
+        }
+
+        var rate = values.GetValueOrDefault("gameLogsRateLimitPerMinute");
+        return string.IsNullOrWhiteSpace(rate) || GameLogSettingsForm.ParseRateLimit(rate) is not null;
     }
 
     [HttpPost("/dashboard/projects/{projectId}/settings")]
     public async Task<IActionResult> Settings(string projectId, [FromForm] string? tab, CancellationToken ct)
     {
         if (await LoadProjectAsync(projectId, ct) is null) return NotFound();
-        if (tab is not ("project" or "security" or "player-keys" or "legacy-projections" or "revisions")) return BadRequest("Unknown settings tab.");
+        if (tab is not ("project" or "security" or "player-keys" or "legacy-projections" or "revisions" or "game-logs")) return BadRequest("Unknown settings tab.");
         var form = await Request.ReadFormAsync(ct);
         var values = form.ToDictionary(pair => pair.Key, pair => pair.Value.ToString(), StringComparer.Ordinal);
         if (tab == "project" && (values.GetValueOrDefault("name")?.Trim().Length is not (>= 1 and <= 64)
@@ -151,6 +168,8 @@ public sealed class OwnerDashboardController(INetworkStorageProjectService proje
             || !IsOptionalIntRange(values.GetValueOrDefault("revisionGracePeriodMinutes"), 0, 10080)
             || !IsOptionalIntRange(values.GetValueOrDefault("revisionRetentionCount"), 0, 20)))
             return await ProjectErrorAsync(projectId, "Choose an enforcement mode, in-grace and post-grace action, a minimum revision, a grace period of 0-10080 minutes and retention of 0-20; the notice may contain at most 500 characters.", ct);
+        if (tab == "game-logs" && !GameLogFormValid(values))
+            return await ProjectErrorAsync(projectId, "Game-log retention must be 1-3650 days, sampling in (0, 1], and the rate limit at least 1 entry per minute.", ct);
         await projects.UpdateProjectSettingsAsync(Owner, projectId, tab, values, ct);
         await AuditAsync(projectId, "project.settings", new { tab }, ct);
         OwnerFlash.Success(this, "Settings saved");

@@ -327,6 +327,10 @@ of slowing requests down. Reading a record produces no analytics event.
 | --- | --- | --- |
 | `analytics.retention_days` | `90` | Timeline events and project issues older than this many days are deleted once a day. `0` keeps them forever. Player profiles and sessions are never purged. |
 
+### Game logs
+
+Game logs add no `server.toml` keys. They are turned on per project in the owner dashboard (Game logs section), where the streams, retention, sampling, allowed client events and per-project rate limit are set. Routes: `/api/game-logs/{projectId}`. Details, limits and error codes are in [game-logs.md](game-logs.md).
+
 ### Coding agent permissions
 
 Coding agents connected through `sbox-ns mcp` can always read definitions,

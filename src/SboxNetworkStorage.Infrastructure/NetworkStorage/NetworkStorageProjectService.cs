@@ -6,6 +6,7 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using System.Threading;
 using SboxNetworkStorage.Application.NetworkStorage;
+using SboxNetworkStorage.Application.NetworkStorage.GameLogs;
 using SboxNetworkStorage.Contracts.NetworkStorage;
 using SboxNetworkStorage.Application.Workspace;
 using SboxNetworkStorage.Domain.Workspace;
@@ -534,6 +535,11 @@ public sealed class NetworkStorageProjectService(
                         Webhooks = wh,
                         DiscordWebhook = defaultUrl
                     };
+                    break;
+                }
+            case "game-logs":
+                {
+                    project = project with { GameLogs = GameLogSettingsForm.Apply(project.GameLogs ?? new GameLogSettings(), key => formValues.GetValueOrDefault(key)) };
                     break;
                 }
             case "analytics":

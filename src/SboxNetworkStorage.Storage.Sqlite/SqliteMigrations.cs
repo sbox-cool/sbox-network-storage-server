@@ -22,7 +22,30 @@ public static class SqliteMigrations
         new(5, "Daily client-version aggregates; errors record the caller's library identity", SchemaChange.Additive, V5),
         new(6, "Integrity flags, player blocks and player action log for the integrity and insights modules", SchemaChange.Additive, V6),
         new(7, "Hourly per-library request outcomes by server version for post-update regression checks", SchemaChange.Additive, V7),
+        new(8, "Structured game logs: per-project entries with an FTS5 free-text index (off by default)", SchemaChange.Additive, V8),
     ];
+
+    // Additive: one new table, its indexes, an FTS5 external-content mirror and two triggers. Older binaries never touch them.
+    // seq is an INTEGER PRIMARY KEY (rowid alias) so the FTS5 content link survives VACUUM.
+    private static string V8(string p) => $"""
+        CREATE TABLE {p}game_log_entries (
+            seq INTEGER PRIMARY KEY, project_id TEXT NOT NULL, entry_id TEXT NOT NULL, ts_unix_ms INTEGER NOT NULL,
+            stream TEXT NOT NULL, level TEXT NOT NULL, event TEXT NOT NULL,
+            actor_steam_id TEXT, target_steam_id TEXT, revision_id INTEGER, client_type TEXT, library_version TEXT,
+            message TEXT NOT NULL, attrs_json TEXT NOT NULL, trace_id TEXT, search_text TEXT NOT NULL,
+            UNIQUE (project_id, entry_id)) STRICT;
+        CREATE INDEX ix_game_log_project_ts ON {p}game_log_entries (project_id, ts_unix_ms DESC, entry_id DESC);
+        CREATE INDEX ix_game_log_project_actor_ts ON {p}game_log_entries (project_id, actor_steam_id, ts_unix_ms DESC);
+        CREATE INDEX ix_game_log_project_target_ts ON {p}game_log_entries (project_id, target_steam_id, ts_unix_ms DESC);
+        CREATE INDEX ix_game_log_project_event_ts ON {p}game_log_entries (project_id, event, ts_unix_ms DESC);
+        CREATE VIRTUAL TABLE {p}game_log_fts USING fts5(search_text, content='{p}game_log_entries', content_rowid='seq', tokenize='unicode61 remove_diacritics 0');
+        CREATE TRIGGER game_log_entries_fts_ai AFTER INSERT ON {p}game_log_entries BEGIN
+            INSERT INTO {p}game_log_fts (rowid, search_text) VALUES (new.seq, new.search_text);
+        END;
+        CREATE TRIGGER game_log_entries_fts_ad AFTER DELETE ON {p}game_log_entries BEGIN
+            INSERT INTO {p}game_log_fts ({p}game_log_fts, rowid, search_text) VALUES ('delete', old.seq, old.search_text);
+        END;
+        """;
 
     // Additive: three new tables plus two indexes. No existing table is touched, so the
     // previous binary's statements keep working and older binaries ignore the new tables.

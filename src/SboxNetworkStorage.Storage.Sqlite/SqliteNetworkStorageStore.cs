@@ -54,6 +54,25 @@ public sealed class SqliteNetworkStorageStore : RelationalNetworkStorageStore
 
     protected override IReadOnlyList<SchemaMigration> Migrations => SqliteMigrations.All;
 
+    protected override string GameLogAttrsValueSql => "@attrs_json";
+
+    // FTS5 external-content lookup on the rowid mirror; the MATCH expression is built once in the base class.
+    protected override string GameLogTextPredicateSql(int tokenCount) =>
+        $"e.seq IN (SELECT rowid FROM {TablePrefix}game_log_fts WHERE {TablePrefix}game_log_fts MATCH @fts)";
+
+    // Scalar comparison on the JSON type: strings compare as-is, numbers by their canonical decimal text (SQLite CAST of
+    // an integer or real), booleans as 'true'/'false'. Objects and arrays never match.
+    protected override string GameLogAttrPredicateSql(int index) =>
+        $"""
+        CASE json_type(e.attrs_json, @attr_path{index})
+            WHEN 'text' THEN json_extract(e.attrs_json, @attr_path{index})
+            WHEN 'true' THEN 'true'
+            WHEN 'false' THEN 'false'
+            WHEN 'integer' THEN CAST(json_extract(e.attrs_json, @attr_path{index}) AS TEXT)
+            WHEN 'real' THEN CAST(json_extract(e.attrs_json, @attr_path{index}) AS TEXT)
+        END = @attr_value{index}
+        """;
+
     protected override async ValueTask<DbConnection> OpenConnectionAsync(CancellationToken ct)
     {
         var connection = new SqliteConnection(_connectionString);

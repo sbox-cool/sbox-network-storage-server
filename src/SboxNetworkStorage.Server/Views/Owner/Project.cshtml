@@ -212,6 +212,37 @@
             <button type="submit">Save projection setting</button>
         </form>
     </details>
+    @{
+        var gameLogPolicy = new SboxNetworkStorage.Application.NetworkStorage.GameLogs.GameLogPolicy(project.GameLogs ?? new SboxNetworkStorage.Domain.Workspace.GameLogSettings());
+        var gameLogCounters = (SboxNetworkStorage.Infrastructure.NetworkStorage.GameLogs.GameLogCounterSnapshot?)ViewData["GameLogCounters"];
+    }
+    <details class="card settings-advanced">
+        <summary>Game logs</summary>
+        <p class="muted">Structured game events your game sends to <code>/api/game-logs</code>. Off by default for every project. Game events and admin/audit events are stored by default; chat capture is a separate stream and stays off until you enable it. IP addresses are never stored. Player identity comes from the verified session, so a client cannot write logs as another player.</p>
+        @if (gameLogCounters is not null)
+        {
+            <p class="muted">Since this server started (all game-log writes): accepted <b>@gameLogCounters.Accepted</b>, written <b>@gameLogCounters.Written</b>, rejected <b>@gameLogCounters.Rejected</b>, sampled out <b>@gameLogCounters.Sampled</b>, truncated <b>@gameLogCounters.Truncated</b>, rate limited <b>@gameLogCounters.RateLimited</b>, dropped because the queue was full <b>@gameLogCounters.DroppedQueueFull</b>, write failures <b>@gameLogCounters.WriteFailed</b>. Currently buffered: @gameLogCounters.Buffered.</p>
+        }
+        <form method="post" action="@url/settings">
+            @Html.AntiForgeryToken()<input type="hidden" name="tab" value="game-logs" />
+            <label class="check"><input type="checkbox" name="gameLogsEnabled" value="true" checked="@(project.GameLogs?.Enabled == true)" /> Enable game logs for this project</label>
+            <fieldset class="manage-windows"><legend>Streams</legend>
+            @foreach (var (stream, label) in new[] { ("default", "Game events (kept 30 days by default)"), ("chat", "Chat capture (opt-in, kept 14 days by default)"), ("audit", "Admin and command audit (kept 365 days by default)") })
+            {
+                var streamPolicy = gameLogPolicy.Streams[stream];
+                <div class="form-grid">
+                <label class="check"><input type="checkbox" name="gameLogs_@(stream)_enabled" value="true" checked="@streamPolicy.Enabled" /> @label</label>
+                <label>Retention (days, 1-3650) <input type="number" name="gameLogs_@(stream)_retention" value="@streamPolicy.RetentionDays" min="1" max="3650" /></label>
+                <label>Sampling (0-1) <input type="number" name="gameLogs_@(stream)_sampling" value="@streamPolicy.Sampling.ToString(CultureInfo.InvariantCulture)" min="0.0001" max="1" step="any" /></label>
+                </div>
+            }
+            </fieldset>
+            <label>Extra event names game clients may send (one per line or comma-separated; a trailing <code>.*</code> matches a prefix). <code>client.*</code> and <code>chat.*</code> are always accepted from public keys.
+                <textarea name="gameLogsAllowedEvents" rows="3">@string.Join("\n", gameLogPolicy.AllowedEvents)</textarea></label>
+            <label>Rate limit per minute for the project <input type="number" name="gameLogsRateLimitPerMinute" value="@gameLogPolicy.RateLimitPerMinute" min="1" /></label>
+            <button type="submit">Save game-log settings</button>
+        </form>
+    </details>
     <details class="card settings-advanced">
         <summary>Revision policy (game versions)</summary>
         <p class="muted">Published revisions are retained so older game builds keep working: an old build inside its support window runs its own revision's definitions and values, while player data stays shared. The client library learns the policy from endpoint responses and revision-init. Server-side blocking is off unless you switch it on below. <a href="@OwnerDocs.Url("admin-panel.md#revision-policy")" rel="noreferrer">Revision policy</a></p>

@@ -233,7 +233,7 @@ public static class NetworkStorageGatewayEndpoints
         }, context.RequestAborted);
     }
 
-    private static async Task ServeNotFoundAsync(HttpContext context)
+    internal static async Task ServeNotFoundAsync(HttpContext context)
     {
         context.Response.StatusCode = StatusCodes.Status404NotFound;
         context.Response.ContentType = "application/json; charset=utf-8";

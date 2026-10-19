@@ -97,7 +97,8 @@ public sealed record WorkspaceProject(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? LegacyPlayerProjections = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? LibraryMinimum = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? LibraryAlertPercent = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Color = null
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Color = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] GameLogSettings? GameLogs = null
 );
 public static class WorkspaceProjectProfiles
 {

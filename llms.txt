@@ -11,6 +11,7 @@
 - [Game-client protocol](docs/game-client.md): Startup handshakes performed by the library.
 - [Game-client protocol](docs/game-client.md) route root: released libraries call `/v3/{path}`; `/v3/{path}` and `/api/v3/{path}` are the permanent surface for existing methods and endpoints; new features are `/api/{path}` only, and `/api/{path}` mirrors existing non-reserved `/v3` families. `/api/storage` follows `x-ns-library-version` (`1.2.0` or newer uses the canonical v3 handlers; missing, malformed or older keeps legacy). The library default `/api` is planned (counterpart #36, not shipped).
 - [Game values](docs/game-values.md): Shared tuning numbers; owner/API/MCP authoring and Sync Tool YAML source compilation in current source (release 0.5.4 lacks the fix); one-call reads; snapshots require explicit revision policy, retained support, and may fall back to live for missing resources; worked anti-exploit example.
+- [Game logs](docs/game-logs.md): Opt-in structured game events per project; `/api/game-logs/{projectId}` wire format, actor rules, streams and retention defaults, search syntax, limits and error codes.
 
 ## Operators and coding agents
 

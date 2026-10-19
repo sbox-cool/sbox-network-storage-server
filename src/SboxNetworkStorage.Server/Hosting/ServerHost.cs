@@ -111,6 +111,7 @@ public static class ServerHost
         app.MapRecords();
         app.MapNetworkStorageGateway();
         app.MapStorageApi();
+        app.MapGameLogs();
         app.MapApiRootAliases();
 
         return app;

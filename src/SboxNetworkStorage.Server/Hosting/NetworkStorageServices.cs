@@ -10,6 +10,7 @@ using SboxNetworkStorage.Application.Workspace;
 
 using SboxNetworkStorage.Infrastructure.NetworkStorage;
 using SboxNetworkStorage.Infrastructure.NetworkStorage.Analytics;
+using SboxNetworkStorage.Infrastructure.NetworkStorage.GameLogs;
 using SboxNetworkStorage.Infrastructure.NetworkStorage.Metadata;
 using SboxNetworkStorage.Infrastructure.NetworkStorage.Modules;
 using SboxNetworkStorage.Infrastructure.NetworkStorage.Storage;
@@ -137,6 +138,18 @@ public static class NetworkStorageServices
         services.AddSingleton<IPlayerAnalyticsService, QueuedPlayerAnalyticsService>();
         services.AddSingleton<AnalyticsWriterService>();
         services.AddHostedService(sp => sp.GetRequiredService<AnalyticsWriterService>());
+        // Game logs (epic #111): ingest only enqueues; one batch writer drains the bounded queue. Drops are counted.
+        services.AddSingleton<IGameLogStore>(sp =>
+        {
+            var admin = sp.GetRequiredService<INetworkStorageStoreAdmin>();
+            return admin is IGameLogStore logs ? logs
+                : throw new InvalidOperationException($"The configured {nameof(INetworkStorageStoreAdmin)} ({admin.GetType().FullName}) does not implement {nameof(IGameLogStore)}: game logs need a relational store.");
+        });
+        services.AddSingleton<GameLogQueue>();
+        services.AddSingleton<GameLogRateLimiter>();
+        services.AddSingleton(new GameLogWriterOptions(LocalOwnerUserId));
+        services.AddSingleton<GameLogWriterService>();
+        services.AddHostedService(sp => sp.GetRequiredService<GameLogWriterService>());
         // Concrete registrations let staged ("next") endpoint calls derive revision-overlay copies.
         services.AddScoped<StoreEndpointDataSource>();
         services.AddScoped<IEndpointDataSource>(sp => sp.GetRequiredService<StoreEndpointDataSource>());
