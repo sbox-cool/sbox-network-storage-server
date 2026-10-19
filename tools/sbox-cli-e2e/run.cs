@@ -473,9 +473,10 @@ static class E2E
 			}
 			if (await Save(true))
 			{
-				var first = await Call("ping");
-				ev.Check($"{target}.encryption-on", "C", Ok(first) && Body(first).Contains("pong"),
-					$"encryption on: ping succeeds after the library's encrypted retry (got '{(Ok(first) ? "ok" : Code(first))}')", required: libraryMain);
+				// The library cannot encrypt a GET (a null input sends a plain GET), so the encrypted retry is exercised on a POST.
+				var first = await Call("echo", new JsonObject { ["hello"] = "world" });
+				ev.Check($"{target}.encryption-on", "C", Ok(first),
+					$"encryption on: POST echo succeeds after the library's encrypted retry (got '{(Ok(first) ? "ok" : Code(first))}')", required: libraryMain);
 			}
 			if (await Save(false))
 			{
@@ -485,9 +486,9 @@ static class E2E
 			}
 			if (await Save(true))
 			{
-				var third = await Call("ping");
-				ev.Check($"{target}.encryption-on-again", "C", Ok(third) && Body(third).Contains("pong"),
-					$"encryption back on: ping succeeds after the library's encrypted retry (got '{(Ok(third) ? "ok" : Code(third))}')", required: libraryMain);
+				var third = await Call("echo", new JsonObject { ["hello"] = "world" });
+				ev.Check($"{target}.encryption-on-again", "C", Ok(third),
+					$"encryption back on: POST echo succeeds after the library's encrypted retry (got '{(Ok(third) ? "ok" : Code(third))}')", required: libraryMain);
 			}
 			var refused = await server.Cli!.RunAsync(["dev", "logs_requests"], stdin: new JsonObject { ["projectId"] = server.ProjectId, ["limit"] = 200 }.ToJsonString());
 			ev.Observe($"{target}.encryption-409-rows", Regex.Matches(refused.Stdout, "\"status\":\\s*409").Count.ToString());
