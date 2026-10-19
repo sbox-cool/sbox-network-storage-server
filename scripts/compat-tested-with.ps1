@@ -19,12 +19,10 @@
 .PARAMETER Matrix
   Path to the matrix. Defaults to compat/library-matrix.json in this repository.
 
-.PARAMETER CiOnly
-  Marks the release as ci-only: it was released without an editor run. The notes say so.
-
 .PARAMETER Gate
-  Release gate: exit with code 2 unless a `pass` row exists for the matrix's `recommended` library,
-  or -CiOnly was given. The table is printed either way.
+  Release gate: exit with code 2 unless the matrix has matching-commit evidence for the `recommended`
+  library: a `ci-only` row (green Compat engine legs) or a `pass` row (native editor run). The table is
+  printed either way. A release with only `ci-only` evidence is a CI-only release, and the notes say so.
 
 .EXAMPLE
   ./scripts/compat-tested-with.ps1 -Version 0.5.0 -Commit 6386646
@@ -37,7 +35,6 @@ param(
     [Parameter(Mandatory = $true)][string]$Version,
     [string]$Commit = '',
     [string]$Matrix = '',
-    [switch]$CiOnly,
     [switch]$Gate
 )
 
@@ -120,19 +117,21 @@ else {
 }
 
 $recommended = [string]$data.recommended
-$hasPass = @($selected | Where-Object { $_.result -eq 'pass' -and $_.library -eq $recommended }).Count -gt 0
+$recommendedRows = @($selected | Where-Object { $_.library -eq $recommended })
+$hasEvidence = @($recommendedRows | Where-Object { $_.result -eq 'pass' -or $_.result -eq 'ci-only' }).Count -gt 0
+$hasPass = @($recommendedRows | Where-Object { $_.result -eq 'pass' }).Count -gt 0
 
 $out.Add('')
-if ($CiOnly) {
-    $out.Add("**ci-only release:** no editor run was recorded for the recommended library ($recommended). The server was verified by CI only.")
+if (-not $hasEvidence) {
+    $out.Add("**Warning:** no matching-commit evidence for the recommended library ($recommended) exists for this release. Record the Compat engine legs (ci-only) or a native editor run (pass) in compat/library-matrix.json.")
 }
 elseif (-not $hasPass) {
-    $out.Add("**Warning:** no ``pass`` row for the recommended library ($recommended) exists for this release. Record an editor run in compat/library-matrix.json (docs/editor-test-plan.md), or release as ci-only.")
+    $out.Add("**CI-only release:** no native s&box editor run is recorded for the recommended library ($recommended). The green Compat engine legs (real library inside the real s&box engine) are the certification.")
 }
 
 $out -join "`n"
 
-if ($Gate -and -not $CiOnly -and -not $hasPass) {
-    [Console]::Error.WriteLine("Release gate failed: no 'pass' row for recommended library $recommended on server $Version (and -CiOnly was not given).")
+if ($Gate -and -not $hasEvidence) {
+    [Console]::Error.WriteLine("Release gate failed: no matching-commit evidence ('ci-only' or 'pass') for recommended library $recommended on server $Version.")
     exit 2
 }

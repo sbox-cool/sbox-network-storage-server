@@ -35,12 +35,11 @@ project is only the value for local builds.
    confirmed both by the installed binary and by the target's own `sbox-ns compatibility` probe.
 4. Run the **Install matrix** workflow on the commit (Actions > Install matrix > Run workflow)
    and wait for it to pass. It replaces the manual VM checklist; see below.
-5. Confirm the compatibility evidence, then tag. `compat/library-matrix.json` must have a `pass`
-   row for this server version (or release commit) and the matrix's `recommended` library, or the
-   release must be marked `ci-only`. See [Release evidence](#release-evidence). Releases with no
-   editor-GUI surface take the code track: the green Compat gate on the release commit plus the
-   recorded `ci-only` row (via explicit `--allow-ci-only`) is the certification, still called out
-   as ci-only in the notes.
+5. Confirm the compatibility evidence, then tag. `compat/library-matrix.json` must have a row for
+   this server version (or release commit) and the matrix's `recommended` library, on the exact
+   tested commit. A `ci-only` row from the green Compat engine legs is the certification for a
+   server release; a `pass` row is added when a native editor run exists and is called out in the
+   notes. Either row type passes the gate. See [Release evidence](#release-evidence).
 6. Tag the commit on `main` and push the tag: `git tag v0.x.z && git push origin v0.x.z`.
 7. The release workflow runs the tests, the HTTP smoke gate, the stable-reference parity diff and
    the **Compat** gate (`.github/workflows/compat-matrix.yml`): the corpus diffed against the
@@ -54,16 +53,17 @@ project is only the value for local builds.
 ## Release evidence
 
 Every release can say which library, on which engine build, it was tested with. The source is
-the `tested` list in [`compat/library-matrix.json`](../compat/library-matrix.json); editor runs
-add their rows as described in [editor-test-plan.md](editor-test-plan.md#recording-the-result).
+the `tested` list in [`compat/library-matrix.json`](../compat/library-matrix.json). Compat engine
+legs add `ci-only` rows; native editor runs add `pass` rows, as described in
+[editor-test-plan.md](editor-test-plan.md#recording-the-result).
 
 The Compat gate also writes machine-readable evidence into the signed `release.json` asset:
 `testedLibraries` lists each library it ran (`library`, sbox.game `revision`, `source`, the
 Facepunch/sbox-public `engine` commit, `target: dedicated`) with `result` `ci-only` (passed) or
 `fail`. Libraries that also fail on the previous release (an engine or library problem) are left
 out. `sbox-ns update` compares this list with the library versions the owner's games actually
-send before installing (docs/self-hosting.md, "Updates"). These are hosted-runner results, never
-an editor `pass`.
+send before installing (docs/self-hosting.md, "Updates"). A `ci-only` result is the green engine
+leg certification for this release; it is not a native editor `pass`.
 
 1. Generate the release-notes table and put it in the GitHub Release notes:
 
@@ -73,10 +73,11 @@ an editor `pass`.
 
    On Windows, `powershell -File scripts/compat-tested-with.ps1 -Version 0.x.z` works too. It
    lists the rows for that server version (and rows recorded against the commit) with library,
-   revision, engine, OS, server kind, database, result and evidence links.
-   `scripts/compat-tested-with.ps1` is a notes renderer only. Its `-Gate` switch is a
-   convenience subset of the evidence-row check below (a `pass` row for the `recommended`
-   library, unless `-CiOnly`); it is not the release gate.
+   revision, engine, OS, server kind, database, result and evidence links. When no `pass` row
+   exists for the recommended library, the table is prefixed with a CI-only banner.
+   `scripts/compat-tested-with.ps1` is a notes renderer only. Its `-Gate` switch is a convenience
+   subset of the evidence-row check below (a matching-commit `ci-only` or `pass` row for the
+   `recommended` library); it is not the release gate.
 2. Release gate: the authoritative gate is `scripts/compat-release.py`:
 
    ```sh
@@ -90,8 +91,9 @@ an editor `pass`.
    It validates the matrix shape, the version ranges, the deprecation sunsets, the
    exact-commit evidence rows, that detached evidence changes only `tested` rows, that
    announced sunsets are never shortened, and the rollback reports. The release needs a
-   matching-commit `pass` for the `recommended` library (or an explicit `--allow-ci-only`
-   with a matching `ci-only` row, called out in the notes). A failing gate stops the release.
+   matching-commit `ci-only` or `pass` row for the `recommended` library. Without a `pass` row the
+   notes say the release is CI-only and that the green engine legs are the certification. A failing
+   gate stops the release.
 3. Changing the matrix itself (`minimum`, `recommended`, `deprecated`, `blocked`) is a server
    change like any other. Public library methods and endpoints are preserved indefinitely by
    default: a deprecation sets no removal date, and a warning never authorizes removal (see
@@ -100,7 +102,28 @@ an editor `pass`.
    live traffic it affects. `blocked` is the only immediate path and is for security or data-loss
    problems. The gate enforces sunset floors on deprecated library entries that have a later supported successor: at least six months after that successor's `released` date, and at least 90 days after `announced` when recorded. Announced sunsets cannot be shortened. A recorded sunset is informational and never authorizes removal; the indefinite-preservation rule above still governs. Moving `minimum` also requires a completed `deprecated` entry for `<minimum` (sunset on or before the change date).
 4. A library release adds its row to `libraries` (with `minServer`) in the same PR as, or right
-   after, the library's own GitHub Release.
+   after, the library's own GitHub Release, and only after its native `pass` row exists (see
+   [Library releases](#library-releases)).
+
+## Library releases
+
+The library is released from its own repo; this server records the result. Before a library version
+is published to sbox.game or Library Manager, run that exact version once in a native Windows s&box
+editor (Steam-interactive `sbox-dev.exe`, not a GH-Actions runner), following
+[editor-test-plan.md](editor-test-plan.md): sections A and B (install/update, Setup and Sync Tool
+windows) plus every other section the release touches. Record the result as a `pass` row in
+`compat/library-matrix.json` for the server version used, with the library version and `revision` and
+the engine build from the run, and link the row from the release. The library version is not
+published until that `pass` row exists.
+
+This is the only native-run requirement. Server releases, server PRs, merges and library `Code/` and
+`Editor/` PRs are certified by the green Compat engine legs and do not wait for a native run.
+
+**Engine parity checks** are separate and periodic. When Facepunch ships a notable engine update, and
+before a library release if the last parity check is old, run the scripted e2e on the live Steam
+engine and compare it with the GH-Actions source-built engine. Record the result in an issue or PR
+that names both engine identities (the sbox-public commit and the Steam build). A parity check gates
+nothing by itself; a mismatch is a bug report against the engine legs or the library.
 
 ## Install matrix
 

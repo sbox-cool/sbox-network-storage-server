@@ -18,18 +18,20 @@ Link the parent server/client issues, counterpart PR, dependency and priority (`
 
 ## Automated gates
 
-These run without anyone remembering to. All of them are `ci-only` evidence (hosted runners cannot
-start the s&box editor GUI). The contract leg holds changes back; the engine leg additionally
-certifies every non-GUI pattern it exercises (see
-[Certification](#certification-certify-once-re-test-on-fundamental-change)). Editor-GUI surfaces
-still need a native editor run.
+These run without anyone remembering to. They are `ci-only` evidence: hosted runners cannot start
+the s&box editor GUI, so the green Compat engine leg is the certification for every server change and
+for every library change in `Code/` and `Editor/`. The contract leg holds changes back; the engine leg
+additionally certifies every non-GUI pattern it exercises (see
+[Certification](#certification-certify-once-re-test-on-fundamental-change)). A native editor run is
+not a gate for PRs or merges; it is reserved for library releases and engine parity checks (see
+[When s&box evidence is required](#when-sbox-evidence-is-required)).
 
 | Where | Check | Blocks |
 | --- | --- | --- |
 | Server PR and `main` | **Compat gate** ([`compat-matrix.yml`](../.github/workflows/compat-matrix.yml)): the parity corpus on the change, diffed against the approved stable reference **and against the latest release**; library version headers; the real library inside s&box (newest Facepunch/sbox-public, `-mcp` dedicated server) for every library in [`compat/library-targets.json`](../compat/library-targets.json) | Any unlisted wire difference. Any library that passes on the latest release and fails on the change (**regression**). A library failing on both is reported as an engine/library problem, not blamed on the change. |
 | Server release | The same gate inside `release.yml`, before anything is built or signed | Publishing. Passing libraries go into the signed `release.json` `testedLibraries`. |
 | Server nightly | The same gate on `main` with the newest engine | Nothing; opens or updates a `compat` issue on a regression, a contract failure, or a library that now fails on the released server too (an s&box update broke it). |
-| Library PR | Its own required **Compat gate**: public API diff (held without `compat: breaking-approved`), the PR's library inside s&box against the latest server release, the oldest supported one (the library's `MinServerVersion`) and server `main`, and an editor-evidence hold for `Code/`/`Editor/` changes (`editor-tested`) | See the library's [docs/compat-gate.md](https://github.com/sbox-cool/sbox-network-storage/blob/main/docs/compat-gate.md). |
+| Library PR | Its own required **Compat gate**: public API diff (held without `compat: breaking-approved`), the PR's library inside s&box against the latest server release, the oldest supported one (the library's `MinServerVersion`) and server `main`, and an **Editor evidence** check for `Code/`/`Editor/` changes that passes when every Compat engine leg is green (no native run and no label needed) | See the library's [docs/compat-gate.md](https://github.com/sbox-cool/sbox-network-storage/blob/main/docs/compat-gate.md). |
 | Library publish | The revision sync tags each published sbox.game revision `r<revision>`; the newest three are picked up by `latest:3` here and by the library's nightly published-revision leg | Nothing on sbox.game itself; a break shows up as a nightly `compat` issue in either repo. |
 
 `main` requires **Compat gate** plus the build, test, smoke and secret-scan checks. Administrators
@@ -57,18 +59,24 @@ A certification is one `tested` row: exact server version and source commit,
 library version and package revision (or null when genuinely unassigned),
 library source, s&box engine build, operating system, backend kind, database
 providers actually exercised, a result, and evidence URLs (run
-logs/artifacts, both-repo PRs/issues). There are two tracks:
+logs/artifacts, both-repo PRs/issues). There are two kinds of evidence:
 
-- **Code track (GH Actions).** The Compat engine leg runs the real library inside the real
+- **Engine legs (GH Actions), the certification for PRs, merges and server releases.** The Compat engine leg runs the real library inside the real
   s&box engine (newest Facepunch/sbox-public built from source, `-mcp` dedicated server, no
   editor GUI) against the change and the latest release. A green engine leg certifies every
-  non-GUI pattern it exercises (for example legacy revision-init shape, save/load round trip,
-  endpoint success/error path, game values, secret-key gate). These rows are recorded with
-  result `ci-only` (no native editor GUI ran) and the run URL as evidence.
-- **GUI track (native editor).** Editor-GUI surfaces — the Setup and Sync Tool windows, Library
-  Manager install/update, Play-in-editor panels, media-capture UX, anything else a human or the
-  editor GUI does that the dedicated harness does not script — need a native Windows s&box editor
-  run on a non-GH-Actions runner (Steam-interactive `sbox-dev.exe`), recorded with result `pass`.
+  non-GUI pattern it exercises, including the library's `Code/` and `Editor/` paths the harness can
+  script (for example legacy revision-init shape, save/load round trip, endpoint success/error path,
+  game values, secret-key gate). These rows are recorded with result `ci-only` (no native editor
+  GUI ran) and the run URL as evidence. For a source-built engine, name the sbox-public commit.
+- **Native editor run (Steam build), reserved for two checks.** (1) **Library release:** one native
+  Windows s&box editor run (Steam-interactive `sbox-dev.exe`, on a non-GH-Actions runner) of the
+  library version being published, recorded as a `pass` row before that version is published to
+  sbox.game / Library Manager. This is where the Setup and Sync Tool windows and other GUI-only
+  surfaces (Library Manager install/update, Play-in-editor panels, media-capture UX) are checked.
+  (2) **Engine parity:** periodically, and when Facepunch ships a notable engine update, confirm that
+  the GH-Actions source-built engine and the live Steam engine give the same e2e results, and record
+  it as a matrix row or a note that names both engine identities (the sbox-public commit and the
+  Steam build). Neither check gates a PR or a merge.
 
 HTTP-parity-only runs (no s&box code at all) never certify a pairing. A certified request pattern
 covers that pattern only; new patterns need new rows.
@@ -93,27 +101,31 @@ renames without translation, shortened notice, patch-only syntax changes, and
 any fundamental change without new certification rows. When in doubt, keep the
 old form and add side-by-side.
 
-## When an s&box editor test is required
+## When s&box evidence is required
 
-Native editor runs are the most expensive evidence there is, so they are reserved for what only
-the editor GUI can exercise. Everything else rides the GH-Actions Compat gate, which runs the
-real library inside the real s&box engine headless. The rule is about the **surface**, not about
-how big or risky a change feels.
+Pull requests, merges and server releases are certified by the GH-Actions Compat engine legs: the
+real library inside the real s&box engine, headless. A green engine leg is sufficient evidence for
+every server change and for every library change in `Code/` and `Editor/`. No native Windows s&box
+editor run is required to open, merge or release a server change, and no PR or issue label tracks one.
+A native run is reserved for a library release (one `pass` row for the version being published) and
+for periodic engine parity checks. The rule is about the **surface**, not about how big or risky a
+change feels.
 
 **GUI surface** means anything the dedicated harness (`tools/sbox-cli-e2e`, `-mcp` dedicated
 server) does not script: the Setup and Sync Tool windows, Library Manager install/update,
 Play-in-editor panels and logs, media-capture UX, and any `Editor/` GUI code. A change has GUI
 surface when it alters what those windows show or do, or when its acceptance can only be
-observed through them.
+observed through them. GUI-surface changes merge on green engine legs; the native run that checks
+them happens before the library version that ships them is published.
 
 **Classify every PR's client-visible surface** (the PR template asks for it):
 
 | Class | Meaning | Evidence |
 | --- | --- | --- |
 | **None** | Request and response bytes, headers, status codes, error codes and defaults the library sees are identical to the previous release for every request it can send. Owner console, CLI, installers, updater, DNS/tunnel, monitoring and alerting, demo, storage internals, additive migrations whose reads and writes return the same results, performance, docs. | **No s&box run.** Required evidence is that the claim is true (below). |
-| **Additive, off by default** | New fields, headers, endpoints, capabilities or behaviors that appear **only** when the owner turns something on. The default-off path is byte-identical. | **No native run for the default-off path.** New non-GUI behavior needs a green Compat gate (contract + engine leg) on the commit before it is documented as supported to game developers. New GUI behavior needs one native GUI run first; until then label the issue/PR `pending-sbox-editor-test` and describe the feature as server-side only. |
-| **Changed** | Any difference for a request the library can already send: shapes, field meanings, error codes or envelopes, auth/session/encryption handling, save/endpoint/query/value semantics, rate-limit or revision behavior, defaults, status-header or capability values the library reads. | **GH Actions**, unless the change has GUI surface. Green Compat gate (contract + engine leg) on the commit, plus the old-client replay in [Every compatibility-affecting PR](#every-compatibility-affecting-pr). No native-editor wait. GUI-surface changes need a native `pass` row before release; label `pending-sbox-editor-test` until then. |
-| **Library code** | Any change in the library repo's `Code/` or `Editor/` (runtime, Sync Tool, Setup). | **GH Actions** for the paths the dedicated harness exercises (both repos' Compat gates). **Native run** for GUI-surface paths. Pure logic is covered by library unit tests, but only a real s&box run covers the engine APIs (`Http`, `Package`, windows). |
+| **Additive, off by default** | New fields, headers, endpoints, capabilities or behaviors that appear **only** when the owner turns something on. The default-off path is byte-identical. | **Green Compat gate (contract + engine leg)** on the commit before it is documented as supported to game developers. The default-off path needs no native run. Native checks for any GUI behavior belong to the library release that ships it. |
+| **Changed** | Any difference for a request the library can already send: shapes, field meanings, error codes or envelopes, auth/session/encryption handling, save/endpoint/query/value semantics, rate-limit or revision behavior, defaults, status-header or capability values the library reads. | **GH Actions.** Green Compat gate (contract + engine leg) on the commit, plus the old-client replay in [Every compatibility-affecting PR](#every-compatibility-affecting-pr). No native run is needed to merge. A library release that carries the change publishes only after its native `pass` row exists (see below). |
+| **Library code** | Any change in the library repo's `Code/` or `Editor/` (runtime, Sync Tool, Setup). | **GH Actions.** Green Compat engine legs on both repos' gates cover the paths the dedicated harness exercises. Pure logic is also covered by library unit tests. A native run is required before the library release that ships the change (it checks the Setup and Sync Tool windows and other GUI-only paths), not before the PR merges. |
 
 **"Identical" must be shown, not asserted.** For a **None** or default-off claim attach:
 
@@ -134,14 +146,13 @@ enough when an older published game could see a difference.
 **Server-only runs never certify.** HTTP tests, the parity corpus and fake-handler tests exercise
 no s&box code and can never certify a **Changed** or **Library code** change. The Compat engine
 leg is not server-only: it is the real library inside the real s&box engine, so a green engine
-leg certifies every non-GUI pattern it exercises. Only editor-GUI surfaces need the native run.
+leg certifies every non-GUI pattern it exercises. GUI-only behavior that the harness cannot script
+is checked by the native run before a library release.
 
-**Blocked on a native GUI run?** Add the label `pending-sbox-editor-test` to the issue and the PR
-at the time you know. The label tracks the GUI track only: it can only be resolved by a native
-Windows s&box editor run on a non-GH-Actions runner, never by a GH-Actions result. Do not close
-the issue as done and do not describe GUI behavior as supported until the `pass` row exists; say
-exactly which rows are missing. Remove the label when the `pass` row exists, or when the change
-is reclassified to the code track with the green gate run cited.
+**No native run is needed to open, merge or release a server change.** Do not apply
+`pending-sbox-editor-test` to a PR or an issue. For a library release, the native `pass` row is a
+release step: record it before the version is published, as described in [releasing.md](releasing.md).
+Say in the release notes which rows exist.
 
 
 ## Route root and storage versions
@@ -202,7 +213,8 @@ version/package revision and source, s&box engine build, operating system,
 backend kind, database providers, `pass`/`fail`/`ci-only`, and evidence URLs.
 Follow [editor-test-plan.md](editor-test-plan.md). Evidence links should
 identify the run, logs/artifacts and related PRs/issues, with secrets removed.
-Automated HTTP parity is `ci-only`, not a real editor pass.
+Compat engine legs are recorded as `ci-only` rows; native editor runs are `pass` rows.
+Automated HTTP parity alone is not a row.
 
 ```sh
 python3 scripts/compat-release.py
@@ -212,9 +224,9 @@ python3 scripts/compat-release.py --matrix /path/to/release-evidence.json \
   --policy-source compat/library-matrix.json
 ```
 
-Release notes require a matching-commit `pass` for the recommended library. A maintainer can explicitly use `--allow-ci-only` only when a matching `ci-only` row exists; the output prominently says no editor pass is certified. `dotnet test` validates the committed matrix and exercises these gates; Python 3 is required. The PowerShell companion [`scripts/compat-tested-with.ps1`](../scripts/compat-tested-with.ps1) renders the same rows as the "Tested with" release-notes table; it is a notes renderer only, not the gate. The authoritative release gate is `scripts/compat-release.py` (see [releasing.md](releasing.md#release-evidence)). For a deprecated library entry with a later supported successor, the gate enforces sunset floors: the recorded sunset must be at least six months after the successor's `released` date and, when `announced` is recorded, at least 90 days after that announcement. Announced sunsets cannot be shortened against the baseline. These floors limit how early a date may be written; a recorded sunset is informational and never authorizes removal (see [Non-breaking release rules](#non-breaking-release-rules)).
+Release notes require matching-commit evidence for the recommended library: a `ci-only` row from the green Compat engine legs, or a `pass` row from a native editor run. The gate accepts a `ci-only` row by default. When no `pass` row exists, the generated notes say the release is CI-only and that no native editor run is recorded; the green engine legs are the certification. The library release checklist requires the native `pass` row for the library version being published; this server gate accepts either row type. `dotnet test` validates the committed matrix and exercises these gates; Python 3 is required. The PowerShell companion [`scripts/compat-tested-with.ps1`](../scripts/compat-tested-with.ps1) renders the same rows as the "Tested with" release-notes table; it is a notes renderer, and its `-Gate` switch applies the same matching-commit check. The authoritative release gate is `scripts/compat-release.py` (see [releasing.md](releasing.md#release-evidence)). For a deprecated library entry with a later supported successor, the gate enforces sunset floors: the recorded sunset must be at least six months after the successor's `released` date and, when `announced` is recorded, at least 90 days after that announcement. Announced sunsets cannot be shortened against the baseline. These floors limit how early a date may be written; a recorded sunset is informational and never authorizes removal (see [Non-breaking release rules](#non-breaking-release-rules)).
 
-A source commit cannot contain its own hash in a newly committed evidence row. Keep the release evidence as a **detached build/release artifact** after testing the final source commit; record it in the repo subsequently. Never change the tested commit to the later bookkeeping commit. Use `--matrix` for that artifact, and attach the generated table and matrix to the release. A binary's `tested` advertisement only includes records actually embedded for its version; `matrixUrl` also points to the maintained evidence history, not an authenticated policy override. The maintainer owns release-workflow attachment and the real s&box editor run.
+A source commit cannot contain its own hash in a newly committed evidence row. Keep the release evidence as a **detached build/release artifact** after testing the final source commit; record it in the repo subsequently. Never change the tested commit to the later bookkeeping commit. Use `--matrix` for that artifact, and attach the generated table and matrix to the release. A binary's `tested` advertisement only includes records actually embedded for its version; `matrixUrl` also points to the maintained evidence history, not an authenticated policy override. The maintainer owns release-workflow attachment and the native editor runs for library releases and engine parity checks.
 
 Validate a detached artifact with `--policy-source`: it may change `tested`
 evidence only, not the matrix policy that was exercised by the tests. Embed that

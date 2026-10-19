@@ -5,33 +5,38 @@ Everything here needs the s&box editor and the real
 so CI cannot run it. Server-only behavior (HTTP contract, SQLite and
 PostgreSQL, installers) is covered by CI and the parity corpus.
 
-**Run only the sections a change can affect.** Whether a change needs an editor run at all is decided by
-[When an s&box editor test is required](compatibility.md#when-an-sbox-editor-test-is-required): changes
-with identical request and response bytes for everything the library can send (owner console, CLI,
-installers, DNS, monitoring, storage internals, additive migrations) need none; changed wire behavior
-and library code do. When a run is needed, run the sections that cover the changed pattern (A: install,
-B: Sync Tool, C: play mode, D: security modes, E: revision handling, F: hosted name, G: independent
-releases) and record only those. A `pass` row covers the exercised pattern, not the whole plan.
+**Run only the sections a change can affect.** Whether a change needs a native run at all is decided by
+[When s&box evidence is required](compatibility.md#when-sbox-evidence-is-required). A server change, or a
+library change in `Code/` or `Editor/`, is certified by the green Compat engine legs with no native run. When a
+native run is made, run the sections that cover the changed pattern (A: install, B: Sync Tool, C: play mode,
+D: security modes, E: revision handling, F: hosted name, G: independent releases) and record only those. A
+`pass` row covers the exercised pattern, not the whole plan.
 
 Each run ends with one `tested` row in [`compat/library-matrix.json`](../compat/library-matrix.json)
-(see [Recording the result](#recording-the-result)). Tick the boxes in the PR that
-records the run, and link that PR from the row's `evidence`.
+(see [Recording the result](#recording-the-result)). Tick the boxes in the PR or release
+issue that records the run, and link it from the row's `evidence`.
 
-**Two tracks.** This plan is the GUI track: the sections below need a native Windows editor run
-(Steam-interactive `sbox-dev.exe`) on a non-GH-Actions runner, and only such a run clears
-`pending-sbox-editor-test`. The code track — the same runtime patterns in C, D, E and G exercised
-headless — is covered by the GH-Actions Compat engine leg (real library, source-built engine,
-`-mcp` dedicated server); a green gate run certifies those patterns with no native wait.
-Sections A, B and F always need the native run (Library Manager, Sync Tool windows, and the
-owner-approved hosted name). The scripted run below covers the code-track subset
-and can drive either a dedicated server headless (CI) or the real editor where Steam is available.
+**What needs a native run.** Two checks use a native Windows editor run (Steam-interactive `sbox-dev.exe`)
+on a non-GH-Actions runner. Neither gates a PR or a merge.
+
+1. **Library release.** Before a library version is published to sbox.game / Library Manager, run that
+   version natively. Sections A and B are always included: Library Manager install/update, and the Setup and
+   Sync Tool windows, which the dedicated harness does not script. Add every other section the release
+   touches. Record the `pass` row before the version is published.
+2. **Engine parity.** Periodically, and when Facepunch ships a notable engine update, run the scripted run
+   on the live Steam engine and compare its e2e results with the GH-Actions source-built engine. Record the
+   result in an issue or PR that names both engine identities: the sbox-public commit for the source-built
+   engine and the Steam build for the live one.
+
+Sections C, D, E and G are exercised headless by the Compat engine legs and are repeated natively only when a
+release or a parity check needs them. Section F needs the owner's approval and is run by hand.
 
 **Scripted run.** [`tools/sbox-cli-e2e`](../tools/sbox-cli-e2e/README.md) drives the real editor and
 a dedicated server through sbox-cli (s&box 26.10.13+, Windows with Steam running for the editor) and
 records the five facts below itself. It covers B (Push All with post-push verification, Test Live), C
 (endpoint success and error code, `inc` with `{{values.*}}`, game values) and the dedicated secret-key
 check in D, and writes `summary.md`, `evidence.json` and a draft `tested` row. Everything else in this
-plan stays manual.
+plan stays manual. The same script runs headless in CI, which is how the Compat engine legs exercise these patterns.
 
 ## Setup
 
@@ -53,7 +58,7 @@ plan stays manual.
 |Library version|A library from git: the tag it was built from or, if untagged, `git:<sha>` (`git rev-parse --short HEAD` in the library checkout). A library installed through the editor: the version Library Manager shows, or the `LibraryVersion` constant (`NetworkStorage.LibraryVersion`). Also note the package revision from the library's `.version` (`1.0.<revision>`) when you have it|`library`, `librarySource` (`git:<sha>`, `library-manager` or `release:<tag>`), `revision`|
 |Server build|`GET /api/server-info` (or `/v3/server-info`): `version`, `kind` (`self-hosted` or `hosted`) and `database`. Hosted runs record `kind: hosted`; for a self-hosted server also record the commit if it is not a release build|`server`, `kind`, `database`, `commit`|
 |Operating system|The machine the editor ran on, e.g. `Windows 11 23H2`|`os`|
-|Result|`pass` only when every box in the sections you ran is ticked on this setup; otherwise `fail`. No editor run: `ci-only`|`result`|
+|Result|`pass` only when every box in the sections you ran is ticked on this setup; otherwise `fail`. No native editor run: `ci-only` (Compat engine legs)|`result`|
 
 The server also logs the library version and engine build it receives
 (`x-ns-library-version`, `x-ns-engine-version`; see
@@ -65,7 +70,7 @@ version contract.
 ## Recording the result
 
 Add one row to `tested` in `compat/library-matrix.json` per server build, library, engine,
-operating system and database combination you ran, in the PR that records the run
+operating system and database combination you ran, in the PR or release issue that records the run
 (the file is checked against `compat/library-matrix.schema.json` by `dotnet test`):
 
 ```json
@@ -88,6 +93,7 @@ operating system and database combination you ran, in the PR that records the ru
 - `engine` and `os` are optional in the schema only for `ci-only` rows. A `pass` row without
   `engine`, `os`, `kind` and `librarySource` fails the schema check, and so does one without
   `database` and `evidence`.
+- A Compat engine leg is recorded as a `ci-only` row with the run URL as evidence. Only a native editor run is `pass`.
 - Do not write free text results into issues or PR descriptions instead of the row. Link the row's PR
   or issue from `evidence`, and put the log excerpts and the filled-in checklist there.
 - `scripts/compat-tested-with.ps1 -Version 0.5.0` prints the "Tested with" table for release notes
