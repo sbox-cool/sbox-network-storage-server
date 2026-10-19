@@ -218,6 +218,57 @@ public abstract class LibraryErrorEnvelopeHttpTests<TFactory> : IClassFixture<TF
         Assert.Equal(404, row.GetProperty("status_code").GetInt32());
         Assert.Equal("game", row.GetProperty("client_type").GetString());
     }
+
+    [SkippableFact]
+    public async Task SecurityDenial_PlainCaller_KeepsRealStatusAndNoEnvelope()
+    {
+        var project = await ProjectWithPingAsync("Envelope security plain");
+        await factory.UpdateProjectAsync(project.ProjectId, p => p with { EnableAuthSessions = true, RequireAuthSessions = true });
+        using var client = Client(factory);
+        using var request = new HttpRequestMessage(HttpMethod.Post, $"/v3/endpoints/{project.ProjectId}/ping?apiKey={project.PublicKey}")
+        {
+            Content = JsonContent.Create(new { }),
+        };
+        request.Headers.Add("x-public-key", project.PublicKey);
+        request.Headers.Add("x-steam-id", SteamId);
+        using var response = await client.SendAsync(request);
+
+        var root = await AssertPlainErrorAsync(response, HttpStatusCode.Unauthorized);
+        Assert.Equal("SECURITY_SESSION_REQUIRED", root.GetProperty("error").GetProperty("code").GetString());
+        Assert.False(root.TryGetProperty("security", out _));
+        Assert.False(root.TryGetProperty("retrySafe", out _));
+    }
+
+    [SkippableFact]
+    public async Task SecurityDenial_LibraryCaller_GetsEnvelopeWithSecurityAndRetrySafe()
+    {
+        var project = await ProjectWithPingAsync("Envelope security library");
+        await factory.UpdateProjectAsync(project.ProjectId, p => p with { EnableAuthSessions = true, RequireAuthSessions = true });
+        using var client = Client(factory);
+        using var request = new HttpRequestMessage(HttpMethod.Post, $"/v3/endpoints/{project.ProjectId}/ping?apiKey={project.PublicKey}")
+        {
+            Content = JsonContent.Create(new { }),
+        };
+        request.Headers.Add("x-public-key", project.PublicKey);
+        request.Headers.Add("x-steam-id", SteamId);
+        request.Headers.Add("x-ns-client-type", "game");
+        using var response = await client.SendAsync(request);
+
+        var root = await AssertEnvelopeAsync(response, 401, "SECURITY_SESSION_REQUIRED");
+        Assert.True(root.GetProperty("retrySafe").GetBoolean());
+        Assert.True(root.TryGetProperty("security", out _));
+    }
+
+    [SkippableFact]
+    public async Task ServerInfo_AdvertisesLibraryErrorEnvelopeCapability()
+    {
+        using var client = Client(factory);
+        using var response = await client.GetAsync("/v3/server-info");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var root = await JsonAsync(response);
+        Assert.Contains("library-error-envelope", root.GetProperty("capabilities").EnumerateArray().Select(c => c.GetString()));
+    }
 }
 
 public sealed class SqliteLibraryErrorEnvelopeHttpTests(SqliteHostFactory factory) : LibraryErrorEnvelopeHttpTests<SqliteHostFactory>(factory);
