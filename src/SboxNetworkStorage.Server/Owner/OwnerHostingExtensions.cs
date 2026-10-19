@@ -144,6 +144,9 @@ public static class OwnerHostingExtensions
             typeof(OwnerHostingExtensions).Assembly.GetManifestResourceStream("SboxNetworkStorage.Server.Owner.builder-catalog.js")!, "text/javascript"));
         app.MapGet("/owner-assets/endpoint-api/ns.d.ts", () => Results.Stream(
             typeof(OwnerHostingExtensions).Assembly.GetManifestResourceStream("SboxNetworkStorage.Server.Owner.endpoint-api.ns.d.ts")!, "text/plain; charset=utf-8"));
+        app.MapGet("/owner-assets/endpoint-api/templates/{fileName}", (string fileName) => EndpointTypings.Template(fileName) is { } template
+            ? Results.Stream(template, "text/plain; charset=utf-8")
+            : Results.NotFound());
         app.MapGet("/owner-assets/m/manage.css", () => Results.Stream(
             typeof(OwnerHostingExtensions).Assembly.GetManifestResourceStream("SboxNetworkStorage.Server.Owner.manage.css")!, "text/css"));
         app.MapGet("/owner-assets/m/manage.js", () => Results.Stream(

@@ -1,0 +1,34 @@
+id: buy-item
+slug: buy-item
+method: POST
+enabled: true
+requiresSecretKey: false
+runtime: typescript
+script: |
+  // Uses the global inventory module twice: the Inventory class by import, add_item through globals.
+  import { Inventory } from "globals/inventory";
+
+  interface PlayerRecord {
+    coins?: number;
+    items?: string[];
+  }
+
+  const ITEM_PRICE: number = 50;
+
+  export default function handle(req: EndpointRequest, ns: Ns): unknown {
+    if (req.player === null) ns.fail("AUTH_REQUIRED", "Sign in to buy items.", 401);
+    const itemId = req.input.itemId;
+    if (typeof itemId !== "string" || itemId.length === 0 || itemId.length > 64) {
+      ns.fail("INVALID_ITEM", "itemId must be a non-empty string of at most 64 characters.", 400);
+    }
+    const key = req.player!.steamId;
+    const player = (ns.records.get("players", key) ?? {}) as PlayerRecord;
+    const owned: Inventory = new Inventory(player.items ?? []);
+    if (owned.has(itemId)) ns.fail("ITEM_OWNED", "You already own this item.", 409);
+    const coins = player.coins ?? 0;
+    if (coins < ITEM_PRICE) ns.fail("INSUFFICIENT_COINS", "You need more coins for this item.", 402);
+    const items: string[] = globals.inventory.add_item(owned.items, itemId);
+    const remaining = coins - ITEM_PRICE;
+    ns.records.put("players", key, { ...player, coins: remaining, items });
+    return { ok: true, itemId, coins: remaining, items };
+  }

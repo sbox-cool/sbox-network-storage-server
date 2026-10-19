@@ -429,7 +429,7 @@ public sealed class ScriptedEndpointExecutorTests
         new() { ["proj:players:steam1"] = new Dictionary<string, object?> { ["coins"] = coins } };
 
     /// <summary>Minimal store: endpoint definitions by "proj:ep:slug" and records by "proj:collection:key".</summary>
-    private sealed class FakeDataSource : IEndpointDataSource
+    internal sealed class FakeDataSource : IEndpointDataSource
     {
         private readonly Dictionary<string, object?> _definitions;
         private readonly Dictionary<string, object?> _records;

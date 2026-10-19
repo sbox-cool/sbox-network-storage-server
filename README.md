@@ -263,7 +263,7 @@ and update your server base URL.
 
 - **Player and shared data:** per-player records keyed by Steam ID, global
   collections, named queries and leaderboards.
-- **Server authority:** endpoints and workflows execute on your server and check claims against game values and the server clock. Player auth sessions and per-project rate limits add controlled access.
+- **Server authority:** endpoints and workflows execute on your server and check claims against game values and the server clock. Endpoints can also be JavaScript or TypeScript functions, with starter templates. Player auth sessions and per-project rate limits add controlled access. [Guide](docs/endpoints-javascript.md).
 - **Game values:** named groups and typed tables that the game reads in one request and endpoints read on the server. They are versioned per published build. [Guide](docs/game-values.md).
 - **Owner console:** guided editors with raw YAML, dry-run endpoint tests, version history and live server monitoring.
 - **Two databases:** zero-config SQLite or PostgreSQL with a dedicated schema.

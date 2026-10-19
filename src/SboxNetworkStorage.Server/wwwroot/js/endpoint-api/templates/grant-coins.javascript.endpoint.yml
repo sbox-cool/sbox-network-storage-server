@@ -1,0 +1,22 @@
+id: grant-coins
+slug: grant-coins
+method: POST
+enabled: true
+requiresSecretKey: true
+runtime: javascript
+script: |
+  // Server-side grant: a secret-key caller names the player, so req.player is null here.
+  export default function handle(req, ns) {
+    const steamId = req.input.steamId;
+    const amount = req.input.amount;
+    if (typeof steamId !== "string" || steamId.length === 0) {
+      ns.fail("INVALID_STEAM_ID", "steamId must be a non-empty string.", 400);
+    }
+    if (!Number.isInteger(amount) || amount < 1 || amount > 1000) {
+      ns.fail("INVALID_AMOUNT", "amount must be a whole number from 1 to 1000.", 400);
+    }
+    const player = ns.records.get("players", steamId) ?? {};
+    const coins = (player.coins ?? 0) + amount;
+    ns.records.put("players", steamId, { ...player, coins });
+    return { ok: true, steamId, coins };
+  }

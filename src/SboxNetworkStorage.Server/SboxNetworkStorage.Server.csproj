@@ -30,6 +30,7 @@
     <Content Update="wwwroot/**/*" CopyToPublishDirectory="Never" />
     <EmbeddedResource Include="wwwroot/css/owner-management.css" LogicalName="SboxNetworkStorage.Server.Owner.management.css" />
     <EmbeddedResource Include="wwwroot/js/endpoint-api/ns.d.ts" LogicalName="SboxNetworkStorage.Server.Owner.endpoint-api.ns.d.ts" />
+    <EmbeddedResource Include="wwwroot/js/endpoint-api/templates/*.endpoint.yml" LogicalName="SboxNetworkStorage.Server.Owner.endpoint-api.templates.%(Filename)%(Extension)" />
     <EmbeddedResource Include="wwwroot/js/owner-theme.js" LogicalName="SboxNetworkStorage.Server.Owner.theme.js" />
     <EmbeddedResource Include="wwwroot/js/owner-json-editor.js" LogicalName="SboxNetworkStorage.Server.Owner.json-editor.js" />
     <EmbeddedResource Include="wwwroot/vendor/yaml-2.8.2.js" LogicalName="SboxNetworkStorage.Server.Owner.vendor-yaml.js" />

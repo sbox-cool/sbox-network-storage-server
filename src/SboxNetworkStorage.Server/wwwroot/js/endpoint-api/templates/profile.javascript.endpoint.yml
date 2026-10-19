@@ -1,0 +1,18 @@
+id: profile
+slug: profile
+method: GET
+enabled: true
+requiresSecretKey: false
+runtime: javascript
+script: |
+  // Read-only: reads the signed-in player's record and never writes.
+  export default function handle(req, ns) {
+    if (req.player === null) ns.fail("AUTH_REQUIRED", "Sign in to read your profile.", 401);
+    const player = ns.records.get("players", req.player.steamId) ?? {};
+    return {
+      steamId: req.player.steamId,
+      coins: player.coins ?? 0,
+      bestScore: player.bestScore ?? 0,
+      items: player.items ?? [],
+    };
+  }

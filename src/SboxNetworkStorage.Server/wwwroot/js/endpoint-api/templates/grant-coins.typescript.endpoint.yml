@@ -1,0 +1,29 @@
+id: grant-coins
+slug: grant-coins
+method: POST
+enabled: true
+requiresSecretKey: true
+runtime: typescript
+script: |
+  // Server-side grant: a secret-key caller names the player, so req.player is null here.
+  interface PlayerRecord {
+    coins?: number;
+    bestScore?: number;
+    lastDailyAt?: number;
+    items?: string[];
+  }
+
+  export default function handle(req: EndpointRequest, ns: Ns): unknown {
+    const steamId = req.input.steamId;
+    const amount = req.input.amount;
+    if (typeof steamId !== "string" || steamId.length === 0) {
+      ns.fail("INVALID_STEAM_ID", "steamId must be a non-empty string.", 400);
+    }
+    if (typeof amount !== "number" || !Number.isInteger(amount) || amount < 1 || amount > 1000) {
+      ns.fail("INVALID_AMOUNT", "amount must be a whole number from 1 to 1000.", 400);
+    }
+    const player = (ns.records.get("players", steamId) ?? {}) as PlayerRecord;
+    const coins = (player.coins ?? 0) + amount;
+    ns.records.put("players", steamId, { ...player, coins });
+    return { ok: true, steamId, coins };
+  }

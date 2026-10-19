@@ -1,0 +1,33 @@
+id: inventory
+slug: inventory
+method: GET
+enabled: true
+requiresSecretKey: false
+scope: global
+runtime: typescript
+script: |
+  // A global module: other scripts import it or read it as globals.inventory. It is never an HTTP route.
+  export class Inventory {
+    items: string[];
+
+    constructor(items: string[]) {
+      this.items = Array.isArray(items) ? items.slice() : [];
+    }
+
+    has(itemId: string): boolean {
+      return check_inventory_has_item(this.items, itemId);
+    }
+
+    add(itemId: string): this {
+      this.items = add_item(this.items, itemId);
+      return this;
+    }
+  }
+
+  export function check_inventory_has_item(items: string[], itemId: string): boolean {
+    return items.indexOf(itemId) >= 0;
+  }
+
+  export function add_item(items: string[], itemId: string): string[] {
+    return items.concat([itemId]);
+  }

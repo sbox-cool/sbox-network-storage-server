@@ -1,0 +1,27 @@
+id: daily-reward
+slug: daily-reward
+method: POST
+enabled: true
+requiresSecretKey: false
+runtime: javascript
+script: |
+  // One reward per 24 hours. The reward is the rewards.dailyReward game value (default 10).
+  const COOLDOWN_MS = 24 * 60 * 60 * 1000;
+
+  export default function handle(req, ns) {
+    if (req.player === null) ns.fail("AUTH_REQUIRED", "Sign in to claim the daily reward.", 401);
+    const reward = ns.values.get("rewards.dailyReward") ?? 10;
+    if (!Number.isInteger(reward) || reward < 0) {
+      ns.fail("REWARD_NOT_CONFIGURED", "The rewards.dailyReward game value must be a whole number.", 500);
+    }
+    const now = ns.now();
+    const key = req.player.steamId;
+    const player = ns.records.get("players", key) ?? {};
+    const last = player.lastDailyAt ?? 0;
+    if (last > 0 && now - last < COOLDOWN_MS) {
+      ns.fail("DAILY_REWARD_COOLDOWN", "The daily reward is not ready yet.", 429);
+    }
+    const coins = (player.coins ?? 0) + reward;
+    ns.records.put("players", key, { ...player, coins, lastDailyAt: now });
+    return { ok: true, reward, coins, nextAvailableAt: now + COOLDOWN_MS };
+  }

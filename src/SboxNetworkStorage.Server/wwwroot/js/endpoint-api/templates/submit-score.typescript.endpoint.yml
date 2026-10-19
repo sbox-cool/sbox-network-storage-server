@@ -1,0 +1,28 @@
+id: submit-score
+slug: submit-score
+method: POST
+enabled: true
+requiresSecretKey: false
+runtime: typescript
+script: |
+  // Keeps the player's best score. The score is validated before anything is written.
+  interface PlayerRecord {
+    coins?: number;
+    bestScore?: number;
+    lastDailyAt?: number;
+    items?: string[];
+  }
+
+  export default function handle(req: EndpointRequest, ns: Ns): unknown {
+    if (req.player === null) ns.fail("AUTH_REQUIRED", "Sign in to submit a score.", 401);
+    const score = req.input.score;
+    if (typeof score !== "number" || !Number.isInteger(score) || score < 0 || score > 1000000) {
+      ns.fail("INVALID_SCORE", "score must be a whole number from 0 to 1000000.", 400);
+    }
+    const key = req.player!.steamId;
+    const player = (ns.records.get("players", key) ?? {}) as PlayerRecord;
+    const previous = player.bestScore ?? 0;
+    const bestScore = Math.max(previous, score);
+    ns.records.put("players", key, { ...player, bestScore });
+    return { ok: true, submitted: score, bestScore, improved: score > previous };
+  }

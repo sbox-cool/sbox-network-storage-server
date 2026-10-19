@@ -428,6 +428,8 @@ server as the place where rules are enforced, not where gameplay is proven.
 
 - [Version policy](version-policy.md): revisions, retention, pinned execution
   and revision enforcement.
+- [JavaScript and TypeScript endpoints](endpoints-javascript.md): scripted
+  endpoints that read game values with `ns.values.get`.
 - [Admin panel](admin-panel.md): the owner console, dry-run endpoint tests and
   the **Game values** page.
 - [Game client](game-client.md): the requests the library sends.

@@ -13,6 +13,7 @@ namespace SboxNetworkStorage.Server.Owner;
 internal static class EndpointTypings
 {
     private const string StaticResource = "SboxNetworkStorage.Server.Owner.endpoint-api.ns.d.ts";
+    private const string TemplatePrefix = "SboxNetworkStorage.Server.Owner.endpoint-api.templates.";
     private static readonly Regex Identifier = new("^[A-Za-z_$][A-Za-z0-9_$]*$", RegexOptions.CultureInvariant);
 
     /// <summary>The shipped static declarations, valid on their own.</summary>
@@ -23,6 +24,20 @@ internal static class EndpointTypings
         using var reader = new StreamReader(stream);
         return reader.ReadToEnd();
     }
+
+    /// <summary>File names of the shipped endpoint templates, for example <c>buy-item.typescript.endpoint.yml</c>.</summary>
+    public static IReadOnlyList<string> TemplateFileNames() =>
+        typeof(EndpointTypings).Assembly.GetManifestResourceNames()
+            .Where(name => name.StartsWith(TemplatePrefix, StringComparison.Ordinal))
+            .Select(name => name[TemplatePrefix.Length..])
+            .Order(StringComparer.Ordinal)
+            .ToList();
+
+    /// <summary>One shipped endpoint template as YAML, or null when no template has that file name.</summary>
+    public static Stream? Template(string fileName) =>
+        TemplateFileNames().Contains(fileName, StringComparer.Ordinal)
+            ? typeof(EndpointTypings).Assembly.GetManifestResourceStream(TemplatePrefix + fileName)
+            : null;
 
     /// <summary>The full typings for one project.</summary>
     public static string ForProject(OwnerProjectResources resources, IReadOnlyList<IEndpointScriptRuntime> scriptRuntimes)
