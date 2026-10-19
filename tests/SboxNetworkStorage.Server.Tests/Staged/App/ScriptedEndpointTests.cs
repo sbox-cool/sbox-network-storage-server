@@ -1089,3 +1089,60 @@ public sealed class ScriptedEndpointValidationTests
             JsonSerializer.SerializeToElement(endpoint),
             Context);
 }
+
+/// <summary>Where the request clock starts, and that save-time checks never throw a cancellation out of the runtime.</summary>
+public sealed class ScriptBudgetSetupTests
+{
+    [Fact]
+    public void Budget_DoesNotArmTheDeadline_UntilStart()
+    {
+        // A zero timeout would cancel at once if the clock started in the constructor, as it did before engine setup moved out of the budget.
+        var limits = EndpointScriptLimits.Defaults with { Timeout = TimeSpan.Zero };
+        using var budget = new ScriptRunBudget(limits, CancellationToken.None);
+
+        Assert.False(budget.Token.IsCancellationRequested);
+
+        budget.Start();
+
+        Assert.True(budget.Token.WaitHandle.WaitOne(TimeSpan.FromSeconds(5)));
+    }
+
+    [Fact]
+    public void Classify_JintExecutionCanceled_IsALimitNotAScriptError()
+    {
+        // Jint's ExecutionCanceledException is not an OperationCanceledException. A real engine whose token is already cancelled raises it.
+        using var cancelled = new CancellationTokenSource();
+        cancelled.Cancel();
+        var engine = new Jint.Engine(Jint.ConstraintsOptionsExtensions.CancellationToken(new Jint.Options(), cancelled.Token));
+        var error = Record.Exception(() => engine.Execute("for (;;) {}"));
+
+        Assert.IsType<Jint.Runtime.ExecutionCanceledException>(error);
+        var outcome = new JavaScriptEndpointRuntime(enabled: true, EndpointScriptLimits.Defaults).Classify(error!);
+        Assert.Equal(EndpointScriptOutcomeKind.LimitExceeded, outcome.Kind);
+    }
+
+    [Fact]
+    public async Task Check_UnderLoadedThreadPool_ReturnsNoDiagnosticInsteadOfThrowing()
+    {
+        var runtime = new JavaScriptEndpointRuntime(enabled: true, EndpointScriptLimits.Defaults);
+        using var stop = new CancellationTokenSource();
+        var burners = Enumerable.Range(0, Environment.ProcessorCount)
+            .Select(_ => Task.Run(() =>
+            {
+                while (!stop.IsCancellationRequested)
+                {
+                }
+            }))
+            .ToArray();
+        try
+        {
+            for (var i = 0; i < 3; i++)
+                Assert.Empty(runtime.Check("export default function handle(req, ns) { return { ok: true }; }"));
+        }
+        finally
+        {
+            stop.Cancel();
+            await Task.WhenAll(burners);
+        }
+    }
+}

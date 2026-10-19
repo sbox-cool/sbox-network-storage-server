@@ -32,6 +32,8 @@ public sealed class JavaScriptEndpointRuntime : IEndpointScriptRuntime
 
     private const string ModuleSpecifier = GlobalModuleLoader.EntryModule;
     private const int PreparedCacheLimit = 256;
+    /// <summary>Time budget for save-time checks and analysis. Separate from the request budget so a slow host does not fail a valid save.</summary>
+    internal static readonly TimeSpan ValidationTimeout = TimeSpan.FromSeconds(5);
 
     // Member names come from ScriptApiAttribute values, which are fixed identifiers, and are quoted anyway.
     private static readonly string Prelude = BuildPrelude();
@@ -61,19 +63,23 @@ public sealed class JavaScriptEndpointRuntime : IEndpointScriptRuntime
         var size = Encoding.UTF8.GetByteCount(source);
         if (size > Limits.MaxSourceBytes)
             return [new EndpointScriptDiagnostic(1, 1, $"Script is {size} bytes; the limit is {Limits.MaxSourceBytes}.")];
+        // Save-time checks get their own budget, so a slow host cannot turn a valid script into a save failure.
+        using var budget = new ScriptRunBudget(Limits with { Timeout = ValidationTimeout }, CancellationToken.None);
         try
         {
-            using var budget = new ScriptRunBudget(Limits, CancellationToken.None);
             using var engine = CreateEngine(budget, loader: null);
-            Prepare(source, engine);
+            budget.Start();
+            Prepare(source, budget.Limits);
             return [];
         }
         catch (Exception error)
         {
-            var diagnostic = SyntaxDiagnostic(error);
-            if (diagnostic is null)
-                throw;
-            return [diagnostic];
+            if (SyntaxDiagnostic(error) is { } syntax)
+                return [syntax];
+            var outcome = Classify(error);
+            if (outcome.Kind == EndpointScriptOutcomeKind.LimitExceeded)
+                return [new EndpointScriptDiagnostic(1, 1, $"The script could not be checked within the server's limits: {outcome.OwnerDetail}")];
+            throw;
         }
     }
 
@@ -83,10 +89,13 @@ public sealed class JavaScriptEndpointRuntime : IEndpointScriptRuntime
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(host);
-        using var engine = CreateEngine(budget, new GlobalModuleLoader(host.GlobalModuleSource));
+        Engine? engine = null;
         try
         {
-            var prepared = Prepare(source, engine);
+            // Engine setup is not counted against the request's time budget; Start() arms it before user code runs.
+            engine = CreateEngine(budget, new GlobalModuleLoader(host.GlobalModuleSource));
+            budget.Start();
+            var prepared = Prepare(source, budget.Limits);
             engine.Modules.Add(ModuleSpecifier, builder => builder.AddModule(in prepared));
 
             var hostFunction = new ClrFunction(engine, "host", (_, args) =>
@@ -133,13 +142,17 @@ public sealed class JavaScriptEndpointRuntime : IEndpointScriptRuntime
             using var document = JsonDocument.Parse(text);
             return new EndpointScriptOutcome(EndpointScriptOutcomeKind.Returned, document.RootElement.Clone());
         }
-        catch (Exception error) when (error is not OperationCanceledException || !budget.ClientCancelled)
+        catch (Exception error) when (!IsCancellation(error) || !budget.ClientCancelled)
         {
             return Classify(error);
         }
+        finally
+        {
+            engine?.Dispose();
+        }
     }
 
-    /// <summary>Engine options for an endpoint run. Statements and time come from <paramref name="budget"/>, shared by every engine entry of the request. Internal so tests can assert the guards are on before running anything.</summary>
+    /// <summary>Engine options for an endpoint run. Statements, time and memory come from <paramref name="budget"/>, shared by every engine entry of the request. Internal so tests can assert the guards are on before running anything.</summary>
     internal Options CreateOptions(ScriptRunBudget budget, IModuleLoader? loader)
     {
         var options = new Options
@@ -147,11 +160,11 @@ public sealed class JavaScriptEndpointRuntime : IEndpointScriptRuntime
             Strict = true,
         };
         options.Constraint(budget.CreateStatementConstraint())
-            .LimitMemory(Limits.MemoryBytes)
-            .LimitRecursion(Limits.MaxRecursionDepth)
+            .LimitMemory(budget.Limits.MemoryBytes)
+            .LimitRecursion(budget.Limits.MaxRecursionDepth)
             .DisableStringCompilation(true)
             .CancellationToken(budget.Token);
-        ScriptEngineGuards.Configure(options, Limits.Timeout);
+        ScriptEngineGuards.Configure(options, budget.Limits.Timeout);
         if (loader is not null)
             options.EnableModules(loader);
         return options;
@@ -164,12 +177,13 @@ public sealed class JavaScriptEndpointRuntime : IEndpointScriptRuntime
         return engine;
     }
 
-    private Prepared<Acornima.Ast.Module> Prepare(string source, Engine engine)
+    private Prepared<Acornima.Ast.Module> Prepare(string source, EndpointScriptLimits limits)
     {
-        var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(source)));
+        // The regex timeout is baked into the prepared module, so it is part of the cache key.
+        var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(source))) + "@" + limits.Timeout.Ticks;
         if (_prepared.TryGet(key, out var cached))
             return cached;
-        var prepared = Engine.PrepareModule(source, ModuleSpecifier, ScriptEngineGuards.ModulePreparation(Limits.Timeout));
+        var prepared = Engine.PrepareModule(source, ModuleSpecifier, ScriptEngineGuards.ModulePreparation(limits.Timeout));
         _prepared.Set(key, prepared);
         return prepared;
     }
@@ -197,6 +211,9 @@ public sealed class JavaScriptEndpointRuntime : IEndpointScriptRuntime
         return null;
     }
 
+    /// <summary>True for the cancellations Jint raises when the budget's token fires. Jint's ExecutionCanceledException derives from JintException, not OperationCanceledException, so both must be matched.</summary>
+    private static bool IsCancellation(Exception error) => error is OperationCanceledException or ExecutionCanceledException;
+
     internal EndpointScriptOutcome Classify(Exception error)
     {
         if (SyntaxDiagnostic(error) is { } syntax)
@@ -204,9 +221,7 @@ public sealed class JavaScriptEndpointRuntime : IEndpointScriptRuntime
                 $"line {syntax.Line}, column {syntax.Column}: {syntax.Message}");
         if (error is JavaScriptException script)
             return new EndpointScriptOutcome(EndpointScriptOutcomeKind.ScriptError, null, LocationPrefix(error) + script.Message);
-        if (error is TimeoutException)
-            return new EndpointScriptOutcome(EndpointScriptOutcomeKind.LimitExceeded, null, "Time limit exceeded.");
-        if (error is OperationCanceledException)
+        if (error is TimeoutException || IsCancellation(error))
             return new EndpointScriptOutcome(EndpointScriptOutcomeKind.LimitExceeded, null, "Time limit exceeded.");
         if (error is ScriptLimitExceededException limit)
             return new EndpointScriptOutcome(EndpointScriptOutcomeKind.LimitExceeded, null, limit.Message);
