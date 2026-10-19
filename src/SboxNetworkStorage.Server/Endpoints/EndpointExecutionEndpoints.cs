@@ -188,11 +188,33 @@ public static class EndpointExecutionEndpoints
             return;
         }
 
+        // Live definition, read before metering. A `scope: global` endpoint is a module other
+        // scripts import, never an HTTP route, so its calls are recorded nowhere (usage, request
+        // log, analytics, hooks, error reports). The read runs before identity and version checks,
+        // so those early rejections are unrecorded too. A read failure is non-fatal: the executor's
+        // own gates still apply below.
+        Dictionary<string, object?>? liveEndpointDef = null;
+        try
+        {
+            var liveSource = context.RequestServices.GetService<StoreEndpointDataSource>();
+            if (liveSource is not null)
+                liveEndpointDef = await liveSource.ReadEndpointDefinitionAsync(projectId, endpointSlug, context.RequestAborted);
+        }
+        catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested)
+        {
+            return;
+        }
+        catch { /* live-definition failure: the executor's own gates still apply below */ }
+        var isGlobalEndpoint = liveEndpointDef is not null && EndpointExecutor.IsGlobalScope(liveEndpointDef);
+
         // Usage metering: authenticated endpoint call with a resolved slug. The
         // middleware measures duration/bytes; this annotation supplies the
         // endpoint-call classification + per-endpoint counter dimension.
-        SboxNetworkStorage.Server.Middleware.NetworkStorageUsageContext.Set(
-            context, projectId, SboxNetworkStorage.Infrastructure.NetworkStorage.Usage.UsageKind.EndpointCall, endpointSlug);
+        if (isGlobalEndpoint)
+            SboxNetworkStorage.Server.Middleware.NetworkStorageUsageContext.Suppress(context);
+        else
+            SboxNetworkStorage.Server.Middleware.NetworkStorageUsageContext.Set(
+                context, projectId, SboxNetworkStorage.Infrastructure.NetworkStorage.Usage.UsageKind.EndpointCall, endpointSlug);
 
         var claimedSteamId = PlayerIdentity.ClaimedSteamId(context.Request, body);
         var hasSecretKey = string.Equals(auth.KeyType, "secret", StringComparison.OrdinalIgnoreCase);
@@ -252,13 +274,9 @@ public static class EndpointExecutionEndpoints
         // fire-and-forget through the bounded channel: it never blocks or
         // fails the request.
         var moduleEmitter = context.RequestServices.GetService<IModuleHookEmitter>();
-        Dictionary<string, object?>? liveEndpointDef = null;
         Func<string, bool>? isModuleDisabled = null;
         try
         {
-            var liveSource = context.RequestServices.GetService<StoreEndpointDataSource>();
-            if (liveSource is not null)
-                liveEndpointDef = await liveSource.ReadEndpointDefinitionAsync(projectId, endpointSlug, context.RequestAborted);
             var stateCache = context.RequestServices.GetService<ModuleStateCache>();
             if (stateCache is not null)
                 isModuleDisabled = await stateCache.GetDisabledLookupAsync(projectId, context.RequestAborted);
@@ -267,7 +285,7 @@ public static class EndpointExecutionEndpoints
         {
             return;
         }
-        catch { /* live-definition failure: the executor's own gates still apply below */ }
+        catch { /* module-state failure: the executor's own gates still apply below */ }
         var moduleBlocker = context.RequestServices.GetService<PlayerBlockService>();
         if (moduleBlocker is not null)
         {
@@ -284,9 +302,13 @@ public static class EndpointExecutionEndpoints
             catch { /* block-store failure: fail open to the request path */ }
             if (blockDenial is not null)
             {
-                moduleEmitter?.TryEmit(ModuleHookDispatcher.Describe("request.rejected", projectId, DateTimeOffset.UtcNow,
-                    steamId, endpointSlug, revisionClientId, hasSecretKey,
-                    new Dictionary<string, object?>(StringComparer.Ordinal) { ["reason"] = "player-blocked" }));
+                // A global endpoint records no rejection; the 403 below is the unchanged public answer.
+                if (!isGlobalEndpoint)
+                {
+                    moduleEmitter?.TryEmit(ModuleHookDispatcher.Describe("request.rejected", projectId, DateTimeOffset.UtcNow,
+                        steamId, endpointSlug, revisionClientId, hasSecretKey,
+                        new Dictionary<string, object?>(StringComparer.Ordinal) { ["reason"] = "player-blocked" }));
+                }
                 var blockMessage = blockDenial.Reason is { Length: > 0 } reason ? reason
                     : blockDenial.Scope == PlayerBlockService.AllScope
                         ? "This player is blocked from all requests."
@@ -365,7 +387,8 @@ public static class EndpointExecutionEndpoints
         }
         catch (Exception ex)
         {
-            await ReportNativeEndpointFailureAsync(context, projectId, endpointSlug, steamId, ex);
+            if (!isGlobalEndpoint)
+                await ReportNativeEndpointFailureAsync(context, projectId, endpointSlug, steamId, ex);
             await WriteEndpointErrorAsync(context, StatusCodes.Status500InternalServerError,
                 "ENDPOINT_EXECUTION_FAILED", "The endpoint failed to execute.");
             return;
@@ -454,8 +477,14 @@ public static class EndpointExecutionEndpoints
             return;
         }
 
-        EmitEndpointExecuted(moduleEmitter, projectId, steamId, endpointSlug, revisionClientId,
-            hasSecretKey, liveEndpointDef, result.Ok, ErrorCodeOf(result.Body));
+        // Global endpoints are module-only: the call is answered (404) but recorded nowhere. A pinned or
+        // staged copy can be global while the live definition is public, so the executor's result decides.
+        var globalCall = result.GlobalScope;
+        if (globalCall)
+            SboxNetworkStorage.Server.Middleware.NetworkStorageUsageContext.Suppress(context);
+        else
+            EmitEndpointExecuted(moduleEmitter, projectId, steamId, endpointSlug, revisionClientId,
+                hasSecretKey, liveEndpointDef, result.Ok, ErrorCodeOf(result.Body));
 
         // The native executor is authoritative now (no legacy server in the success path), so a
         // native 5xx must still reach /admin/errors + Discord + the per-project
@@ -468,7 +497,7 @@ public static class EndpointExecutionEndpoints
         // empty skills source → permanent 409 → invisible while no alert fired). Both
         // 5xx and 409 are reported; other 4xx (400/401/403/404/429) are routine
         // client/auth/limit responses and are NOT reported here.
-        if (result.Status >= 500 || result.Status == 409)
+        if (!globalCall && (result.Status >= 500 || result.Status == 409))
         {
             var reporter = context.RequestServices.GetService<SboxNetworkStorage.Server.Infrastructure.EndpointErrorReporter>();
             if (reporter is not null)
@@ -496,7 +525,7 @@ public static class EndpointExecutionEndpoints
         // ingester still updates presence (last_seen / is_online) for any endpoint
         // category. Best-effort: never blocks the response. Anonymous callers
         // (e.g. unauthenticated health probes) are skipped.
-        if (steamId != "anonymous")
+        if (steamId != "anonymous" && !globalCall)
         {
             var analytics = context.RequestServices.GetService<IPlayerAnalyticsService>();
             if (analytics is not null)

@@ -1545,8 +1545,11 @@ public sealed partial class EndpointStepExecutor
     }
 }
 
-/// <summary>Endpoint execution result: HTTP status + JS-value-model body.</summary>
-public sealed record EndpointExecutionResult(bool Ok, int Status, object? Body, string? OwnerDetail = null);
+/// <summary>
+/// Endpoint execution result: HTTP status + JS-value-model body. <c>GlobalScope</c> marks the denial of a
+/// <c>scope: global</c> definition; public callers record nothing for it.
+/// </summary>
+public sealed record EndpointExecutionResult(bool Ok, int Status, object? Body, string? OwnerDetail = null, bool GlobalScope = false);
 
 /// <summary>Inputs for a single endpoint execution.</summary>
 public sealed record EndpointExecutionRequest(

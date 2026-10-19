@@ -633,6 +633,13 @@ public sealed partial class EndpointExecutor
     private static readonly string[] s_trackedFields = { "totalLevel", "totalKills", "totalGold", "nodesMined" };
 
     /// <summary>
+    /// True for a <c>scope: global</c> definition: a module other scripts import, never an HTTP route.
+    /// Public-path callers record nothing for it.
+    /// </summary>
+    public static bool IsGlobalScope(Dictionary<string, object?> endpointDef) =>
+        string.Equals(ScriptStringField(endpointDef, "scope"), "global", StringComparison.Ordinal);
+
+    /// <summary>
     /// Public-HTTP access gates, mirroring the legacy server runtime's checks in
     /// <c>controllers/endpoint-modules/execution-routes.js</c>. Returns the denial to
     /// send, or null when the caller may proceed.
@@ -641,8 +648,8 @@ public sealed partial class EndpointExecutor
         Dictionary<string, object?> endpointDef, string endpointSlug, bool hasSecretKey)
     {
         // A global endpoint is a module other scripts import, never an HTTP route: answer exactly as an unknown slug does.
-        if (string.Equals(ScriptStringField(endpointDef, "scope"), "global", StringComparison.Ordinal))
-            return Denied(404, "ENDPOINT_NOT_FOUND", $"Endpoint \"{endpointSlug}\" was not found.");
+        if (IsGlobalScope(endpointDef))
+            return Denied(404, "ENDPOINT_NOT_FOUND", $"Endpoint \"{endpointSlug}\" was not found.", globalScope: true);
 
         // Only an EXPLICIT false disables. A definition with no "enabled" key stays
         // enabled, so a source-compiled endpoint that never wrote the flag keeps working.
@@ -709,12 +716,12 @@ public sealed partial class EndpointExecutor
             _ => null,
         };
 
-    private static EndpointExecutionResult Denied(int status, string code, string message) =>
+    private static EndpointExecutionResult Denied(int status, string code, string message, bool globalScope = false) =>
         new(false, status, new Dictionary<string, object?>
         {
             ["ok"] = false,
             ["error"] = new Dictionary<string, object?> { ["code"] = code, ["message"] = message },
-        });
+        }, GlobalScope: globalScope);
 
     /// <summary>
     /// Public-HTTP access gates over an endpoint definition: enabled,
