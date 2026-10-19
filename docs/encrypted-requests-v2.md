@@ -285,21 +285,36 @@ allows `sbox-ns admin reset-2fa`. The owner re-entry rule applies to the owner c
 
 `RequestEncryptionKeyring.Rotate` is the underlying operation for both.
 
-## Key pinning (library, later)
+## Key pinning
 
-Not implemented by this server change, and not verified.
+Games pin the signing key, not the request key. The signing key is the server's identity:
+it signs the security config, and a pin fixes which key the library must match.
 
-The planned library behaviour, from issue #153:
+- Pin value: the signing key fingerprint, the lowercase hex SHA-256 of the signing key's
+  SubjectPublicKeyInfo DER (64 characters). It has the same format as the request-key
+  fingerprint. The library computes it from `signing.publicKeyJwk` (`n` and `e`); those bytes
+  equal the ones behind `signing.publicKeyPem`. No separate field is published, so the
+  `signing` block keeps its reference shape.
+- Normalising a pasted pin: strip spaces, colons and line breaks, then lowercase it.
+- Where to read it: `sbox-ns security status` prints it under "Security signing key", and the
+  owner console project page shows it in the Signing key card. Both show the same value.
+- Owner flow: copy the fingerprint from one of those places, check it against the console,
+  then pin it with `NetworkStorage.Configure(..., securityKeyFingerprint)` or the Setup window
+  field.
+- A pinned mismatch is a hard refusal, not a fallback.
+- Without a pin, the library trusts the signing key it first sees per base URL, stores it,
+  and warns loudly on change.
+- The request-key fingerprint (`encryption.fingerprint`) is informational for pinning. When
+  the request key rotates, the signed config carries the new `keyId`, which is accepted
+  because the signature verifies against the pinned signing key.
+- Signing-key rotation breaks pinned games. It is deliberate and rare, and there is no
+  command for it. After a suspected compromise: stop the server, move
+  `auth.security_signing_key_file` aside, start the server to generate a new key, read the
+  new fingerprint with `sbox-ns security status`, announce it to game owners, and have them
+  repin.
 
-- The owner can pin the server key fingerprint in the library configuration
-  (`NetworkStorage.Configure(..., securityKeyFingerprint)`) or in the Setup window. A pinned
-  mismatch is a hard refusal, not a fallback.
-- Without a pin, the library trusts the first key it sees per base URL, stores it, and
-  warns loudly on change. An explicit owner rotation, announced via the old key's
-  signature, is accepted.
-
-Owners compare the fingerprint in the owner console with the one the library reports.
-Do not pin a value that has not been checked against the console.
+The library side ships in the library release that adds v2. Nothing here was run against an
+s&box build.
 
 ## Golden vectors
 

@@ -139,6 +139,27 @@ public sealed class EncryptedRequestModeConfigTests : IDisposable
         Assert.Equal(before.GetProperty("configVersion").GetString(), after.GetProperty("configVersion").GetString());
     }
 
+    [Fact]
+    public void Pinned_signing_fingerprint_is_the_key_the_signed_config_publishes()
+    {
+        var signing = Build(Project()).GetProperty("signing");
+
+        using var fromPem = RSA.Create();
+        fromPem.ImportFromPem(signing.GetProperty("publicKeyPem").GetString()!);
+        var jwk = signing.GetProperty("publicKeyJwk");
+        using var fromJwk = RSA.Create();
+        fromJwk.ImportParameters(new RSAParameters
+        {
+            Modulus = Base64UrlDecode(jwk.GetProperty("n").GetString()!),
+            Exponent = Base64UrlDecode(jwk.GetProperty("e").GetString()!),
+        });
+
+        var pinned = NetworkStorageSecurityConfigSigningKey.Fingerprint;
+        Assert.Matches("^[0-9a-f]{64}$", pinned);
+        Assert.Equal(pinned, Convert.ToHexString(SHA256.HashData(fromPem.ExportSubjectPublicKeyInfo())).ToLowerInvariant());
+        Assert.Equal(pinned, Convert.ToHexString(SHA256.HashData(fromJwk.ExportSubjectPublicKeyInfo())).ToLowerInvariant());
+    }
+
     private static JsonElement Project(string extra = "") =>
         JsonDocument.Parse("{\"id\":\"demo-project\",\"authSessionTtlSeconds\":7200" + extra + "}").RootElement.Clone();
 

@@ -12,7 +12,9 @@
     string When(DateTimeOffset at) => at.ToString("yyyy-MM-dd HH:mm:ss 'UTC'", CultureInfo.InvariantCulture);
     var agentPrompt = $"My sbox-ns project ID is {project.Id}. Use the sbox-ns MCP tools to read its definitions, recent requests and errors before you change anything, and dry-run endpoints with endpoint_test before I play.";
     var encryptionKey = Model.EncryptionKey;
-    var fingerprintGroups = encryptionKey is null ? "" : string.Join(" ", Enumerable.Range(0, encryptionKey.Fingerprint.Length / 4).Select(index => encryptionKey.Fingerprint.Substring(index * 4, 4)));
+    string Grouped(string value) => string.Join(" ", Enumerable.Range(0, value.Length / 4).Select(index => value.Substring(index * 4, 4)));
+    var fingerprintGroups = encryptionKey is null ? "" : Grouped(encryptionKey.Fingerprint);
+    var signingGroups = Model.SigningKeyFingerprint is null ? "" : Grouped(Model.SigningKeyFingerprint);
 }
 <link rel="stylesheet" href="/owner-assets/m/manage.css" />
 <div class="page-heading"><div class="project-title">@OwnerProjectIcon.For(project, 56)<div><h1>@project.Name</h1>@if (!string.IsNullOrEmpty(project.Description)) { <p>@project.Description</p> }<code>@project.Id</code></div></div><a class="button" href="@url/data">Browse data</a></div>
@@ -197,6 +199,14 @@
             </details>
             <button type="submit">Save security settings</button>
         </form>
+        <details class="settings-advanced">
+            <summary>Signing key (pin in games)</summary>
+            @if (Model.SigningKeyFingerprint is not null)
+            {
+                <p class="muted">Games pin this fingerprint to trust the server's signed security config. Rotating the request encryption key below does not change it. Replacing this signing key breaks every pinned game until its owner repins, so only do that after a compromise. <a href="@OwnerDocs.Url("admin-panel.md#encrypted-requests")" rel="noreferrer">Encrypted requests</a></p>
+                <p>Fingerprint <code class="selectable">@signingGroups</code></p>
+            }
+        </details>
         <details class="settings-advanced">
             <summary>Request encryption key</summary>
             @if (encryptionKey is not null)

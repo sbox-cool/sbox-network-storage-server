@@ -40,6 +40,9 @@ internal static class NetworkStorageSecurityConfigBuilder
     /// </summary>
     internal static bool UsingEphemeralSigningKey { get; private set; }
 
+    /// <summary>Lowercase hex SHA-256 of the signing key's SubjectPublicKeyInfo DER: the identity games pin.</summary>
+    internal static string SigningKeyFingerprint => RequestEncryptionKeyring.FingerprintOf(SigningKey);
+
     private static RSA LoadSigningKey()
     {
         var pem = Environment.GetEnvironmentVariable("NETWORK_STORAGE_SECURITY_CONFIG_PRIVATE_KEY");
@@ -263,4 +266,19 @@ public static class NetworkStorageSecurityConfigVersion
 {
     /// <summary>Config version for a raw project JSON object (equal to the signed config's <c>configVersion</c>).</summary>
     public static string Of(JsonElement project) => NetworkStorageSecurityConfigBuilder.ConfigVersionOf(project);
+}
+
+/// <summary>Public entry point for the signing-key identity that games pin.</summary>
+public static class NetworkStorageSecurityConfigSigningKey
+{
+    /// <summary>Fingerprint of the key the server signs security configs with: the value games pin.</summary>
+    public static string Fingerprint => NetworkStorageSecurityConfigBuilder.SigningKeyFingerprint;
+
+    /// <summary>Fingerprint of a PKCS#8 signing key PEM, computed without starting the signer.</summary>
+    public static string FingerprintOfPem(string privateKeyPem)
+    {
+        using var rsa = RSA.Create();
+        rsa.ImportFromPem(privateKeyPem);
+        return RequestEncryptionKeyring.FingerprintOf(rsa);
+    }
 }

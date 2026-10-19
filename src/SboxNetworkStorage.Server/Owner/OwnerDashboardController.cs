@@ -67,7 +67,7 @@ public sealed record OwnerRequestSummary(DateTimeOffset At, string Method, strin
 public sealed record OwnerProjectModel(WorkspaceProject Project, NetworkStorageProjectResources? Resources,
     IReadOnlyList<ApiKeyInfo> Keys, OwnerConnectInfo Connect, OwnerRequestSummary? LastRequest,
     IReadOnlyList<OwnerRequestSummary> RecentRejected, AuthorityCheckService.AuthorityCheckResult? Authority = null, string? RawKey = null, string? Error = null,
-    RequestEncryptionKeyInfo? EncryptionKey = null);
+    RequestEncryptionKeyInfo? EncryptionKey = null, string? SigningKeyFingerprint = null);
 
 /// <summary>Standalone adaptation of the Network Storage project/settings/key management surface.</summary>
 [Authorize(AuthenticationSchemes = OwnerHostingExtensions.Scheme)]
@@ -323,7 +323,8 @@ public sealed class OwnerDashboardController(INetworkStorageProjectService proje
         var resources = await projects.GetProjectResourcesForOwnerAsync(Owner, projectId, ct);
         var authority = AuthorityCheckService.AnalyzeLoaded(access.Project.HostingProfile, resources, keys, rawRequests);
         return new OwnerProjectModel(access.Project, resources,
-            keys, connect, requests.FirstOrDefault(), rejected, authority, EncryptionKey: encryptionKeys.Current().Current);
+            keys, connect, requests.FirstOrDefault(), rejected, authority, EncryptionKey: encryptionKeys.Current().Current,
+            SigningKeyFingerprint: NetworkStorageSecurityConfigSigningKey.Fingerprint);
     }
 
     private static OwnerRequestSummary Summary(JsonElement row) => new(

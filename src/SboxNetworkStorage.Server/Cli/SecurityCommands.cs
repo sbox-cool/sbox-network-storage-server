@@ -4,7 +4,7 @@ using SboxNetworkStorage.Server.Configuration;
 
 namespace SboxNetworkStorage.Server.Cli;
 
-/// <summary><c>sbox-ns security status|rotate-key</c>: the server key that unwraps encrypted-request v2 payloads.</summary>
+/// <summary><c>sbox-ns security status|rotate-key</c>: the signing key games pin, and the key that unwraps encrypted-request v2 payloads.</summary>
 public static class SecurityCommands
 {
     public static int Run(CliContext context)
@@ -17,13 +17,16 @@ public static class SecurityCommands
 
         var config = context.LoadValidConfig();
         var path = config.GetPath("auth.request_encryption_keys_file", config.RuntimeDirectory);
+        var signingPath = config.GetPath("auth.security_signing_key_file", config.RuntimeDirectory);
         using var identity = RuntimeIdentity.Enter(config);
         config.EnsureRuntimeDirectory();
-        return command == "status" ? Status(path) : RotateKey(path, context.Args);
+        return command == "status" ? Status(signingPath, path) : RotateKey(path, context.Args);
     }
 
-    private static int Status(string path)
+    private static int Status(string signingPath, string path)
     {
+        PrintSigningKey(signingPath);
+
         var now = DateTimeOffset.UtcNow;
         var keyring = RequestEncryptionKeyring.EnsureAndLoad(path, now, Announce);
         Console.WriteLine($"Request encryption keys: {path}");
@@ -46,6 +49,19 @@ public static class SecurityCommands
         }
 
         return CliApp.Ok;
+    }
+
+    private static void PrintSigningKey(string path)
+    {
+        Console.WriteLine($"Security signing key: {path}");
+        if (!File.Exists(path))
+        {
+            Console.WriteLine("  Not generated yet; the server creates it on first start.");
+            return;
+        }
+
+        Console.WriteLine($"  Fingerprint: {NetworkStorageSecurityConfigSigningKey.FingerprintOfPem(File.ReadAllText(path))}");
+        Console.WriteLine("  Games pin this fingerprint. Replacing the signing key breaks every pinned game until it is repinned.");
     }
 
     private static int RotateKey(string path, CliArguments args)
