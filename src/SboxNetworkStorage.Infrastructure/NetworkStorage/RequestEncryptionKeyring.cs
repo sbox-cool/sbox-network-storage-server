@@ -339,7 +339,11 @@ public sealed record RequestEncryptionKeyInfo(
 /// </summary>
 public sealed class RequestEncryptionKeyStore
 {
-    private static readonly long CheckIntervalTicks = Stopwatch.Frequency * 5;
+    /// <summary>How often <see cref="Current"/> checks the file for a change. Tests inject a shorter or fake interval.</summary>
+    public static readonly TimeSpan DefaultCheckInterval = TimeSpan.FromSeconds(5);
+
+    private readonly long _checkIntervalTicks;
+    private readonly Func<long> _timestamp;
 
     private readonly Lock _gate = new();
     private RequestEncryptionKeyring? _snapshot;
@@ -348,10 +352,13 @@ public sealed class RequestEncryptionKeyStore
     private readonly ILogger<RequestEncryptionKeyStore>? _logger;
     private bool _missingReported;
 
-    public RequestEncryptionKeyStore(string path, ILogger<RequestEncryptionKeyStore>? logger = null)
+    public RequestEncryptionKeyStore(string path, ILogger<RequestEncryptionKeyStore>? logger = null,
+        TimeSpan? checkInterval = null, Func<long>? timestamp = null)
     {
         Path = path;
         _logger = logger;
+        _checkIntervalTicks = (long)((checkInterval ?? DefaultCheckInterval).TotalSeconds * Stopwatch.Frequency);
+        _timestamp = timestamp ?? (() => Stopwatch.GetTimestamp());
     }
 
     public string Path { get; }
@@ -361,10 +368,10 @@ public sealed class RequestEncryptionKeyStore
     {
         lock (_gate)
         {
-            var now = Stopwatch.GetTimestamp();
+            var now = _timestamp();
             if (_snapshot is null || now >= _nextCheckTicks)
             {
-                _nextCheckTicks = now + CheckIntervalTicks;
+                _nextCheckTicks = now + _checkIntervalTicks;
                 RefreshIfChanged();
             }
 
@@ -381,7 +388,7 @@ public sealed class RequestEncryptionKeyStore
             var snapshot = RequestEncryptionKeyring.Load(Path);
             _snapshot = snapshot;
             _snapshotWriteTimeUtc = writeTime;
-            _nextCheckTicks = Stopwatch.GetTimestamp() + CheckIntervalTicks;
+            _nextCheckTicks = _timestamp() + _checkIntervalTicks;
             return snapshot;
         }
     }
