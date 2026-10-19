@@ -251,7 +251,8 @@ public sealed class StateLayoutTests : IDisposable
         var created = new List<string>();
         var secrets = ServerSecrets.EnsureAndLoad(Load(), created.Add);
 
-        Assert.Equal(3, created.Count);
+        Assert.Equal(4, created.Count);
+        Assert.Contains(Path.Combine(StateDir, "secrets", "request_encryption_keys.json"), created);
         Assert.All(created, path => Assert.StartsWith(Path.Combine(StateDir, "secrets"), path));
         Assert.Equal(before, Snapshot(ConfigDir));
         Assert.True(File.Exists(StateLayout.MarkerPath(DataDir)));
