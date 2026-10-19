@@ -69,9 +69,6 @@ public sealed class ScriptFetchSession(EndpointFetchPolicy policy, IScriptFetchT
     /// <summary>Fetch calls in ordinal order, for the endpoint trace. The first 64 calls are kept.</summary>
     public IReadOnlyList<ScriptFetchTraceEntry> Trace => _trace.Values.ToList();
 
-    /// <summary>The code of the last fetch error this execution raised, or null.</summary>
-    public string? LastErrorCode { get; private set; }
-
     /// <summary>Starts a new run. Ordinals restart so a re-run lines up with the calls it made before.</summary>
     public void BeginRound() => _ordinal = 0;
 
@@ -87,7 +84,6 @@ public sealed class ScriptFetchSession(EndpointFetchPolicy policy, IScriptFetchT
         catch (ScriptFetchException error)
         {
             SetTrace(new ScriptFetchTraceEntry(ordinal, string.Empty, string.Empty, null, error.Code, null));
-            LastErrorCode = error.Code;
             throw;
         }
 
@@ -104,7 +100,6 @@ public sealed class ScriptFetchSession(EndpointFetchPolicy policy, IScriptFetchT
         if (_completed.Count + _pending.Count >= MaxRequestsPerExecution)
         {
             SetTrace(new ScriptFetchTraceEntry(ordinal, call.Host, call.Request.Method, null, "FETCH_LIMIT_EXCEEDED", null));
-            LastErrorCode = "FETCH_LIMIT_EXCEEDED";
             throw new ScriptFetchException("FETCH_LIMIT_EXCEEDED", LimitMessage);
         }
 
@@ -147,7 +142,6 @@ public sealed class ScriptFetchSession(EndpointFetchPolicy policy, IScriptFetchT
             return ResponseValue(response);
 
         var failure = result.Failure!;
-        LastErrorCode = failure.Code;
         throw new ScriptFetchException(failure.Code, FailureMessage(failure));
     }
 
@@ -155,7 +149,6 @@ public sealed class ScriptFetchSession(EndpointFetchPolicy policy, IScriptFetchT
     {
         RecordBlocked(call.Host, reason);
         SetTrace(new ScriptFetchTraceEntry(call.Ordinal, call.Host, call.Request.Method, null, "FETCH_BLOCKED", reason));
-        LastErrorCode = "FETCH_BLOCKED";
         return new ScriptFetchException("FETCH_BLOCKED", BlockedMessage(call.Host, reason));
     }
 

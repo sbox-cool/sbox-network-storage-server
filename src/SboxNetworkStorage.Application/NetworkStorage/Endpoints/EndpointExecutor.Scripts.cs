@@ -476,7 +476,7 @@ public sealed partial class EndpointExecutor
             case EndpointScriptOutcomeKind.LimitExceeded:
                 return ScriptFailure(500, "SCRIPT_LIMIT_EXCEEDED", "The endpoint exceeded a limit.", ScriptOwnerDetail(outcome.OwnerDetail, logs));
             case EndpointScriptOutcomeKind.ScriptError:
-                if (state.Fetch.LastErrorCode is { } fetchCode)
+                if (outcome.ErrorCode is { } fetchCode)
                     return ScriptFailure(502, fetchCode, "An outbound request failed.", ScriptOwnerDetail(outcome.OwnerDetail, logs));
                 return ScriptFailure(500, "SCRIPT_ERROR", "The endpoint script failed.", ScriptOwnerDetail(outcome.OwnerDetail, logs));
         }

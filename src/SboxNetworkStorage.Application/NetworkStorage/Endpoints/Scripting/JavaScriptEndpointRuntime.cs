@@ -220,7 +220,7 @@ public sealed class JavaScriptEndpointRuntime : IEndpointScriptRuntime
             return new EndpointScriptOutcome(EndpointScriptOutcomeKind.ScriptError, null,
                 $"line {syntax.Line}, column {syntax.Column}: {syntax.Message}");
         if (error is JavaScriptException script)
-            return new EndpointScriptOutcome(EndpointScriptOutcomeKind.ScriptError, null, LocationPrefix(error) + script.Message);
+            return new EndpointScriptOutcome(EndpointScriptOutcomeKind.ScriptError, null, LocationPrefix(error) + script.Message, FetchErrorCode(script));
         if (error is TimeoutException || IsCancellation(error))
             return new EndpointScriptOutcome(EndpointScriptOutcomeKind.LimitExceeded, null, "Time limit exceeded.");
         if (error is ScriptLimitExceededException limit)
@@ -241,6 +241,18 @@ public sealed class JavaScriptEndpointRuntime : IEndpointScriptRuntime
         // An unclassified fault: the owner gets the type and message; the full trace goes to the server log.
         _logger?.LogError(error, "Endpoint script failed with an unclassified error");
         return new EndpointScriptOutcome(EndpointScriptOutcomeKind.ScriptError, null, EndpointScriptHost.DescribeForOwner(error));
+    }
+
+    /// <summary>
+    /// The <c>FETCH_*</c> code of an uncaught <c>ns.fetch</c> error, or null. Only the error that escaped the handler
+    /// counts: a fetch error the script caught and did not rethrow never reaches here.
+    /// </summary>
+    private static string? FetchErrorCode(JavaScriptException script)
+    {
+        if (!script.Error.IsObject())
+            return null;
+        var code = script.Error.AsObject().Get("code");
+        return code.IsString() && code.AsString().StartsWith("FETCH_", StringComparison.Ordinal) ? code.AsString() : null;
     }
 
     private static bool RegexTimeout(Exception error)
