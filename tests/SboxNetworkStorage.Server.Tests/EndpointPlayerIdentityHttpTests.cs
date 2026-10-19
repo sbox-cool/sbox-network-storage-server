@@ -83,15 +83,15 @@ public abstract class EndpointPlayerIdentityHttpTests<TFactory> : IClassFixture<
     }
 
     [SkippableTheory]
-    [InlineData("missing-token", "SBOX_AUTH_FAILED")]
-    [InlineData("expired-token", "SBOX_AUTH_FAILED")]
-    [InlineData("player-token", "SBOX_AUTH_FAILED")]
-    [InlineData("invalid-session", "AUTH_SESSION_INVALID")]
-    [InlineData("expired-session", "AUTH_SESSION_EXPIRED")]
-    [InlineData("other-project-session", "AUTH_SESSION_INVALID")]
-    [InlineData("other-owner-session", "AUTH_SESSION_INVALID")]
-    [InlineData("player-session", "AUTH_SESSION_STEAMID_MISMATCH")]
-    public async Task InvalidExpiredAndMismatchedCredentialsCannotMutate(string kind, string code)
+    [InlineData("missing-token", "SBOX_AUTH_FAILED", 401)]
+    [InlineData("expired-token", "SBOX_AUTH_FAILED", 401)]
+    [InlineData("player-token", "SBOX_AUTH_FAILED", 401)]
+    [InlineData("invalid-session", "AUTH_SESSION_INVALID", 401)]
+    [InlineData("expired-session", "AUTH_SESSION_EXPIRED", 401)]
+    [InlineData("other-project-session", "AUTH_SESSION_INVALID", 401)]
+    [InlineData("other-owner-session", "AUTH_SESSION_INVALID", 401)]
+    [InlineData("player-session", "AUTH_SESSION_STEAMID_MISMATCH", 403)]
+    public async Task InvalidExpiredAndMismatchedCredentialsCannotMutate(string kind, string code, int status)
     {
         using var setup = await CreateAsync();
         var session = kind.EndsWith("session", StringComparison.Ordinal);
@@ -107,21 +107,21 @@ public abstract class EndpointPlayerIdentityHttpTests<TFactory> : IClassFixture<
         };
         using var request = Request(setup, "x-steam-id", Victim, session ? "bearer" : "x-sbox-token", token);
         using var response = await setup.Client.SendAsync(request);
-        await AssertErrorAsync(response, HttpStatusCode.Unauthorized, code);
+        await AssertErrorAsync(response, (HttpStatusCode)status, code);
         await AssertUntouchedAsync(setup);
     }
 
     [SkippableTheory]
-    [InlineData("expired-token", Player, "SBOX_AUTH_FAILED")]
-    [InlineData("player-token", Victim, "AUTH_SESSION_STEAMID_MISMATCH")]
-    public async Task ValidSessionCannotMaskInvalidOrConflictingFacepunchCredentials(string token, string sessionPlayer, string code)
+    [InlineData("expired-token", Player, "SBOX_AUTH_FAILED", 401)]
+    [InlineData("player-token", Victim, "AUTH_SESSION_STEAMID_MISMATCH", 403)]
+    public async Task ValidSessionCannotMaskInvalidOrConflictingFacepunchCredentials(string token, string sessionPlayer, string code, int status)
     {
         using var setup = await CreateAsync();
         using var request = Request(setup, "x-steam-id", Player, "x-sbox-token", token);
         request.Headers.Add("x-auth-session",
             setup.Sessions.Create(NetworkStorageServices.LocalOwnerUserId, setup.Project.ProjectId, sessionPlayer, 3600).Token!);
         using var response = await setup.Client.SendAsync(request);
-        await AssertErrorAsync(response, HttpStatusCode.Unauthorized, code);
+        await AssertErrorAsync(response, (HttpStatusCode)status, code);
         await AssertUntouchedAsync(setup);
     }
 
@@ -136,7 +136,7 @@ public abstract class EndpointPlayerIdentityHttpTests<TFactory> : IClassFixture<
         using var request = Request(setup, conflictingIdentity, Victim, "x-sbox-token", "player-token");
         request.Headers.Add("x-steam-id", Player);
         using var response = await setup.Client.SendAsync(request);
-        await AssertErrorAsync(response, HttpStatusCode.Unauthorized, "AUTH_SESSION_STEAMID_MISMATCH");
+        await AssertErrorAsync(response, HttpStatusCode.Forbidden, "AUTH_SESSION_STEAMID_MISMATCH");
         await AssertUntouchedAsync(setup);
     }
 
@@ -211,7 +211,7 @@ public abstract class EndpointPlayerIdentityHttpTests<TFactory> : IClassFixture<
         var token = setup.Sessions.Create(NetworkStorageServices.LocalOwnerUserId, setup.Project.ProjectId, Player, 3600).Token!;
         using var request = Request(setup, "none", Player, "bearer", token);
         using var response = await setup.Client.SendAsync(request);
-        await AssertErrorAsync(response, HttpStatusCode.Forbidden, "AUTH_SESSION_DISABLED");
+        await AssertErrorAsync(response, HttpStatusCode.Forbidden, "SECURITY_SESSION_DISABLED");
         await AssertUntouchedAsync(setup);
     }
 
@@ -326,12 +326,25 @@ public abstract class EndpointPlayerIdentityHttpTests<TFactory> : IClassFixture<
         return request;
     }
 
+    /// <summary>
+    /// Security-class errors on endpoint routes answer HTTP 200 with the status in the body (reference epError);
+    /// other endpoint errors keep their HTTP status.
+    /// </summary>
     private static async Task AssertErrorAsync(HttpResponseMessage response, HttpStatusCode status, string code)
     {
-        Assert.Equal(status, response.StatusCode);
         using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        if (IsSecurityClass(code))
+        {
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            Assert.Equal((int)status, body.RootElement.GetProperty("status").GetInt32());
+        }
+        else Assert.Equal(status, response.StatusCode);
         Assert.Equal(code, body.RootElement.GetProperty("error").GetProperty("code").GetString());
     }
+
+    private static bool IsSecurityClass(string code) =>
+        code.StartsWith("SECURITY_", StringComparison.Ordinal) || code.StartsWith("AUTH_SESSION_", StringComparison.Ordinal)
+        || code.StartsWith("ENCRYPTED_REQUEST_", StringComparison.Ordinal) || code.StartsWith("REQUEST_SIGNATURE_", StringComparison.Ordinal);
 
     private static async Task AssertUntouchedAsync(Setup setup)
     {

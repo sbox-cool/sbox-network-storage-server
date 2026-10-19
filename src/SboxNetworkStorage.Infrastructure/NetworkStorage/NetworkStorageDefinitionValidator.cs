@@ -1,10 +1,13 @@
 using SboxNetworkStorage.Application.NetworkStorage.Endpoints.Scripting;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace SboxNetworkStorage.Infrastructure.NetworkStorage;
 
 /// <summary>One save-time finding. Errors block saving; warnings are advisory.</summary>
-public sealed record DefinitionDiagnostic(string Severity, string Code, string Message, string Path)
+public sealed record DefinitionDiagnostic(string Severity, string Code, string Message, string Path,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? Line = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? Column = null)
 {
     public bool IsError => Severity == "error";
 }
@@ -34,6 +37,7 @@ internal sealed class DiagnosticBag
 {
     public List<DefinitionDiagnostic> Items { get; } = [];
     public void Error(string code, string message, string path) => Items.Add(new("error", code, message, path));
+    public void ErrorAt(string code, string message, string path, int line, int column) => Items.Add(new("error", code, message, path, line, column));
     public void Warning(string code, string message, string path) => Items.Add(new("warning", code, message, path));
 }
 
@@ -186,7 +190,7 @@ public static class NetworkStorageDefinitionValidator
         if (problems.Count > 0)
         {
             foreach (var problem in problems)
-                bag.Error("SCRIPT_SYNTAX", $"Line {problem.Line}, column {problem.Column}: {problem.Message}", "/script");
+                bag.ErrorAt("SCRIPT_SYNTAX", $"Line {problem.Line}, column {problem.Column}: {problem.Message}", "/script", problem.Line, problem.Column);
             return;
         }
         ValidateScriptImports(source, engine, IsGlobalScope(definition), bag, context);
@@ -210,7 +214,7 @@ public static class NetworkStorageDefinitionValidator
         }
         catch (ScriptModuleException ex)
         {
-            bag.Error("SCRIPT_MODULE_UNSUPPORTED", $"Line {ex.Line}, column {ex.Column}: {ex.Message}", "/script");
+            bag.ErrorAt("SCRIPT_MODULE_UNSUPPORTED", $"Line {ex.Line}, column {ex.Column}: {ex.Message}", "/script", ex.Line, ex.Column);
             return;
         }
         var self = context.ResourceId ?? "this endpoint";

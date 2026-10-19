@@ -508,6 +508,7 @@ public sealed class NetworkStorageProjectService(
                     {
                         RequireSboxAuth = IsChecked(formValues.GetValueOrDefault("requireSboxAuth")),
                         EnableAuthSessions = IsChecked(formValues.GetValueOrDefault("enableAuthSessions")),
+                        RequireAuthSessions = IsChecked(formValues.GetValueOrDefault("requireAuthSessions")),
                         AuthSessionTtlSeconds = ParseIntOrDefault(formValues.GetValueOrDefault("authSessionTtlSeconds"), 3600, 60, 86400),
                         EnableEncryptedRequests = IsChecked(formValues.GetValueOrDefault("enableEncryptedRequests")),
                         EncryptedRequestWindowSeconds = ParseIntOrDefault(formValues.GetValueOrDefault("encryptedRequestWindowSeconds"), 120, 30, 600)

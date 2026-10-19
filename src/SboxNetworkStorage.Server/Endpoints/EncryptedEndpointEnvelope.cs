@@ -20,14 +20,14 @@ internal static partial class EncryptedEndpointEnvelope
 {
     private const string Version = "1";
     private const string Algorithm = "aes-256-gcm+hmac-sha256";
-    private const int ReplayWindowSeconds = 120;
     private static readonly ConcurrentDictionary<string, long> ReplayCache = new(StringComparer.Ordinal);
     private static long lastCleanupMs;
 
     // JSON.stringify output for the ASCII identifiers, base64url and hex strings the envelope carries.
     private static readonly JsonSerializerOptions JsOptions = new() { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
 
-    internal readonly record struct Result(bool Ok, int Status, string? Code, string? Message, JsonElement Payload);
+    internal readonly record struct Result(bool Ok, int Status, string? Code, string? Message, JsonElement Payload,
+        string RequestId = "", string IdentityKey = "");
 
     /// <summary>Returns the envelope object if the body carries one (envelope, encryptedRequest, or inline).</summary>
     public static bool TryRead(JsonElement body, out JsonElement envelope)
@@ -54,7 +54,7 @@ internal static partial class EncryptedEndpointEnvelope
     /// <param name="steamId">Verified player identity to bind a steam envelope to; null skips the binding (secret-key callers).</param>
     /// <param name="sessionId">Id of the validated auth session presented with the request, if any.</param>
     public static Result Decrypt(JsonElement envelope, string publicKey, string projectId, string endpointSlug,
-        string? steamId, string? sessionId, DateTimeOffset now)
+        string? steamId, string? sessionId)
     {
         var shape = ValidateShape(envelope, publicKey, projectId, endpointSlug, steamId, sessionId);
         if (shape is not null) return shape.Value;
@@ -82,10 +82,10 @@ internal static partial class EncryptedEndpointEnvelope
             if (payloadSlug.Length > 0 && endpointSlug.Length > 0 && !string.Equals(payloadSlug, endpointSlug, StringComparison.Ordinal))
                 return Invalid("Encrypted request _endpointSlug does not match the URL.");
 
+            // Replay is consumed by ConsumeReplay once the endpoint is known to exist (reference order).
             var identity = Identity(envelope);
-            var replay = ConsumeRequestId(projectId, $"{identity.Type}:{identity.Value}", Str(payload, "encryptedRequestId"), now);
-            if (replay is not null) return replay.Value;
-            return new Result(true, 200, null, null, WithoutReservedKeys(payload));
+            return new Result(true, 200, null, null, WithoutReservedKeys(payload),
+                Str(payload, "encryptedRequestId"), $"{identity.Type}:{identity.Value}");
         }
         catch (Exception ex) when (ex is CryptographicException or FormatException or JsonException or ArgumentException)
         {
@@ -116,14 +116,18 @@ internal static partial class EncryptedEndpointEnvelope
         var identity = Identity(envelope);
         if (identity.Type.Length == 0)
             return Invalid("Encrypted request envelope must bind a steamId or sessionId.");
-        if (identity.Type == "session")
+        if (identity.Type == "session" && sessionId is null)
+            return new Result(false, 401, "AUTH_SESSION_REQUIRED", "Encrypted requests bound to a sessionId require a valid auth session token.", default);
+        if (sessionId is not null)
         {
-            if (sessionId is null)
-                return new Result(false, 401, "AUTH_SESSION_REQUIRED", "Encrypted requests bound to a sessionId require a valid auth session token.", default);
-            if (identity.Value != sessionId)
-                return new Result(false, 401, "AUTH_SESSION_STEAMID_MISMATCH", "Encrypted request sessionId does not match the auth session.", default);
+            if (identity.Type == "session" && identity.Value != sessionId)
+                return new Result(false, 403, "AUTH_SESSION_STEAMID_MISMATCH", "Encrypted request sessionId does not match the auth session.", default);
+            // Reference: a steamId present on the envelope must be the session's steamId.
+            if (steamId is not null && envelope.TryGetProperty("steamId", out var envelopeSteamId)
+                && envelopeSteamId.ValueKind != JsonValueKind.Null && Str(envelope, "steamId") != steamId)
+                return new Result(false, 403, "AUTH_SESSION_STEAMID_MISMATCH", "Encrypted request steamId does not match the auth session.", default);
         }
-        else if (steamId is not null && identity.Value != steamId)
+        else if (steamId is not null && identity.Type == "steam" && identity.Value != steamId)
         {
             return Invalid("Encrypted request steamId does not match the authenticated Steam ID.");
         }
@@ -138,15 +142,23 @@ internal static partial class EncryptedEndpointEnvelope
             : Invalid("Encrypted request signature does not match the envelope.");
     }
 
-    private static Result? ConsumeRequestId(string projectId, string identityKey, string requestId, DateTimeOffset now)
+    /// <summary>
+    /// Consumes the request id of a decrypted envelope. Called only after the endpoint is known to exist, as in the
+    /// reference, so an unknown endpoint does not burn an id. <paramref name="windowSeconds"/> is the project's
+    /// <c>encryptedRequestWindowSeconds</c> (30-600, default 120).
+    /// </summary>
+    public static Result? ConsumeReplay(string projectId, Result decrypted, int windowSeconds, DateTimeOffset now)
+        => ConsumeRequestId(projectId, decrypted.IdentityKey, decrypted.RequestId, windowSeconds, now);
+
+    private static Result? ConsumeRequestId(string projectId, string identityKey, string requestId, int windowSeconds, DateTimeOffset now)
     {
         var match = RequestIdPattern().Match(requestId.Trim());
         if (!match.Success)
             return new Result(false, 400, "ENCRYPTED_REQUEST_INVALID_ID", "encryptedRequestId must use the format {unixSeconds}_{random6plus}.", default);
         var issued = long.Parse(match.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
         var nowSeconds = now.ToUnixTimeSeconds();
-        if (Math.Abs(nowSeconds - issued) > ReplayWindowSeconds)
-            return new Result(false, 400, "ENCRYPTED_REQUEST_STALE", $"encryptedRequestId is outside the accepted {ReplayWindowSeconds} second replay window.", default);
+        if (Math.Abs(nowSeconds - issued) > windowSeconds)
+            return new Result(false, 400, "ENCRYPTED_REQUEST_STALE", $"encryptedRequestId is outside the accepted {windowSeconds} second replay window.", default);
 
         var nowMs = now.ToUnixTimeMilliseconds();
         if (nowMs - Interlocked.Read(ref lastCleanupMs) >= 10_000)
@@ -155,7 +167,7 @@ internal static partial class EncryptedEndpointEnvelope
             foreach (var entry in ReplayCache)
                 if (entry.Value <= nowMs) ReplayCache.TryRemove(entry.Key, out _);
         }
-        return ReplayCache.TryAdd($"{projectId}:{identityKey}:{requestId.Trim()}", (issued + ReplayWindowSeconds) * 1000)
+        return ReplayCache.TryAdd($"{projectId}:{identityKey}:{requestId.Trim()}", (issued + windowSeconds) * 1000)
             ? null
             : new Result(false, 409, "ENCRYPTED_REQUEST_REPLAY_DETECTED", "This encrypted request id has already been accepted for this identity.", default);
     }

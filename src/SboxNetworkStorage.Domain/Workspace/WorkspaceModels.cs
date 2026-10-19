@@ -106,7 +106,10 @@ public sealed record WorkspaceProject(
     /// <summary>ns.fetch host allow-list: exact hosts or *.example.com (docs/endpoints-javascript.md). Absent = none.</summary>
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] List<string>? FetchAllowedHosts = null,
     /// <summary>Opt-in: ns.fetch may call any public host. Private-network addresses stay blocked unless endpoints.fetch_private_networks is set; metadata and reserved addresses are always blocked.</summary>
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? FetchAllowAllPublic = null
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? FetchAllowAllPublic = null,
+    // Opt-in (off when absent): every endpoint call must carry an auth session (SECURITY_SESSION_REQUIRED).
+    // Not part of the signed security config, matching the reference (services/network-storage-security-config.js).
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? RequireAuthSessions = null
 );
 public static class WorkspaceProjectProfiles
 {

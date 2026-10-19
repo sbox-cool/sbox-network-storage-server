@@ -365,6 +365,7 @@ public sealed class ManagementReadHandler : INetworkStorageHandler
             ["enabled"] = project.Enabled,
             ["requireSboxAuth"] = project.RequireSboxAuth == true,
             ["enableAuthSessions"] = project.EnableAuthSessions == true,
+            ["requireAuthSessions"] = project.RequireAuthSessions == true,
             ["authSessionTtlSeconds"] = project.AuthSessionTtlSeconds ?? 3600,
             ["enableEncryptedRequests"] = project.EnableEncryptedRequests == true,
             ["encryptedRequestWindowSeconds"] = project.EncryptedRequestWindowSeconds ?? 300,

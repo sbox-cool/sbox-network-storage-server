@@ -321,6 +321,8 @@ changing it.
 | `GLOBAL_CYCLE` | Save | Global imports form a cycle. |
 | `SOURCE_COMPILE_FAILED` | Save | The endpoint source did not compile. |
 
+Sync preflight runs the syntax and module checks too. It reports `SCRIPT_SYNTAX` and `SCRIPT_MODULE_UNSUPPORTED` as warnings with the line and column. Preflight does not load the project's globals, so `GLOBAL_*` findings appear only when the owner saves.
+
 `ns.fail` takes any code and a status from 400 to 499. The codes above are
 the server's own. Template codes, such as `AUTH_REQUIRED` or
 `INSUFFICIENT_COINS`, belong to the template and are listed with it.

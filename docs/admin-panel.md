@@ -233,15 +233,26 @@ session token (`/api/auth-sessions/{projectId}/create`, also `/v3/...`). Later c
 session token and skip the s&box check until it expires after **Session TTL**
 seconds. Off by default.
 
+**Require an auth session for every endpoint call** refuses an endpoint call
+that has no valid session token with `SECURITY_SESSION_REQUIRED`. Calls that
+carry the project's secret key are exempt. Off by default.
+
 ### Encrypted requests
 
 **Enable encrypted requests** is reported to the client library in the signed
 security config, and the library then encrypts endpoint calls (AES-256-GCM
-with a key derived from the public key, signed with HMAC-SHA256). This server
-decrypts such calls and rejects replays, but still accepts plain calls, so it
-does not make encryption mandatory. It accepts request IDs up to 120 seconds
-old whatever the window setting says; the window value is passed to the client
-library.
+with a key derived from the public key, signed with HMAC-SHA256). The setting
+is enforced in both directions. While it is on, plain endpoint calls are
+refused with `SECURITY_ENCRYPTION_REQUIRED`. While it is off, encrypted calls
+are refused with `SECURITY_ENCRYPTION_DISABLED`. The library refreshes its
+security config and retries once in the matching mode, so a plain call made
+while the setting is on still succeeds (encrypted). Off by default.
+
+Each encrypted call carries a request ID. The server refuses an ID outside the
+**Encrypted request window** with `ENCRYPTED_REQUEST_STALE`, and refuses an ID
+already accepted for the same identity with `ENCRYPTED_REQUEST_REPLAY_DETECTED`.
+The window is 30 to 600 seconds, default 120. The window value is also passed
+to the client library.
 
 ### Player key mode
 
