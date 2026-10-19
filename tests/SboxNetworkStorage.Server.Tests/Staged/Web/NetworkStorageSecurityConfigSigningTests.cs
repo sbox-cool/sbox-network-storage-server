@@ -20,6 +20,7 @@ namespace SboxNetworkStorage.Server.Tests;
 ///   2. The signing key was a per-process ephemeral keypair, so keyId and the public
 ///      key changed on every restart and never matched the legacy server signer's key.
 /// </summary>
+[Collection(SecurityConfigProcessEnvironmentCollection.Name)]
 public sealed class NetworkStorageSecurityConfigSigningTests : IDisposable
 {
     private const string ProjectJson = """
@@ -96,8 +97,8 @@ public sealed class NetworkStorageSecurityConfigSigningTests : IDisposable
 
     /// <summary>
     /// auth.security_signing_key_id lets a server that took over a project keep publishing
-    /// the key id its game clients know; empty keeps the derived id. Kept in this class so it
-    /// never runs in parallel with the stability test above (the id lives in the process environment).
+    /// the key id its game clients know; empty keeps the derived id. The id lives in the process
+    /// environment, so this test runs in SecurityConfigProcessEnvironmentCollection with the other signed-config tests.
     /// </summary>
     [Fact]
     public void Configured_signing_key_id_reaches_the_security_config()

@@ -255,6 +255,8 @@ public abstract class NetworkStorageSecurityConfigTests<TFactory> : IClassFixtur
     }
 }
 
+[Collection(SecurityConfigProcessEnvironmentCollection.Name)]
 public sealed class NetworkStorageSecurityConfigTests_Sqlite(SqliteHostFactory factory) : NetworkStorageSecurityConfigTests<SqliteHostFactory>(factory);
 
+[Collection(SecurityConfigProcessEnvironmentCollection.Name)]
 public sealed class NetworkStorageSecurityConfigTests_Postgres(PostgresHostFactory factory) : NetworkStorageSecurityConfigTests<PostgresHostFactory>(factory);

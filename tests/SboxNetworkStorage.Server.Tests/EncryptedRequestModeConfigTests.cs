@@ -11,6 +11,7 @@ namespace SboxNetworkStorage.Server.Tests;
 /// Encrypted-request modes on the signed security config: the mode matrix, legacy
 /// enableEncryptedRequests migration, the v2 encryption block, and signature coverage.
 /// </summary>
+[Collection(SecurityConfigProcessEnvironmentCollection.Name)]
 public sealed class EncryptedRequestModeConfigTests : IDisposable
 {
     private static readonly DateTimeOffset Now = DateTimeOffset.UnixEpoch;
