@@ -66,6 +66,15 @@ public static class NetworkStorageDefinitionValidator
 
     public static readonly string[] QueryTypes = ["leaderboard", "count", "sum", "average", "min", "max"];
 
+    /// <summary>
+    /// Codes that refuse a scripted endpoint's save: the source does not parse or is too large, uses a module form the
+    /// server cannot run, or imports a global that is missing, does not export the name, or imports back into a cycle.
+    /// </summary>
+    private static readonly HashSet<string> ScriptSaveRefusalCodes = new(StringComparer.Ordinal)
+    {
+        "SCRIPT_SYNTAX", "SCRIPT_TOO_LARGE", "SCRIPT_MODULE_UNSUPPORTED", "GLOBAL_CYCLE", "GLOBAL_NOT_FOUND", "GLOBAL_EXPORT_NOT_FOUND",
+    };
+
     /// <summary>Compiles a stored resource wrapper (source-backed or plain) and validates the result.</summary>
     public static IReadOnlyList<DefinitionDiagnostic> ValidateResource(
         JsonElement resource, string kind, DefinitionValidationContext context, out JsonElement compiled)
@@ -101,6 +110,44 @@ public static class NetworkStorageDefinitionValidator
         }
         return bag.Items;
     }
+
+    /// <summary>
+    /// True when a finding refuses the save of a scripted endpoint rather than advising. The Sync Tool refuses a batch on
+    /// these; its other findings are warnings that the push stores as given.
+    /// </summary>
+    public static bool RefusesScriptSave(DefinitionDiagnostic finding) =>
+        finding.IsError && ScriptSaveRefusalCodes.Contains(finding.Code);
+
+    /// <summary>
+    /// Analysed imports and exports of the enabled global endpoints among <paramref name="endpoints"/>. A global whose
+    /// source does not analyse is left out: its own save rejected it, so importers see it as missing.
+    /// </summary>
+    public static Dictionary<string, ScriptModuleInfo> ProjectGlobalModules(
+        IEnumerable<(string Id, JsonElement Definition)> endpoints, IReadOnlyList<IEndpointScriptRuntime> scriptRuntimes)
+    {
+        var modules = new Dictionary<string, ScriptModuleInfo>(StringComparer.Ordinal);
+        foreach (var (id, definition) in endpoints)
+        {
+            if (definition.ValueKind != JsonValueKind.Object) continue;
+            if (StringProperty(definition, "scope") != "global" || StringProperty(definition, "runtime") is not { } language) continue;
+            if (definition.TryGetProperty("enabled", out var enabled) && enabled.ValueKind == JsonValueKind.False) continue;
+            if (StringProperty(definition, "script") is not { } source) continue;
+            var engine = scriptRuntimes.FirstOrDefault(candidate => candidate.Language == language);
+            if (engine is null) continue;
+            try
+            {
+                modules[id] = ScriptModuleAnalysis.Analyze(engine.ToJavaScript(source));
+            }
+            catch (Exception ex) when (ex is ScriptModuleException or InvalidOperationException or Acornima.ParseErrorException)
+            {
+                // A global that does not analyse was rejected at its own save; importers see it as missing.
+            }
+        }
+        return modules;
+    }
+
+    private static string? StringProperty(JsonElement element, string name) =>
+        element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
 
     private static void ValidateEndpoint(JsonElement definition, DiagnosticBag bag, DefinitionValidationContext context)
     {
