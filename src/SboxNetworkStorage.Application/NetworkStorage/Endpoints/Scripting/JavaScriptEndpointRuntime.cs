@@ -244,14 +244,18 @@ public sealed class JavaScriptEndpointRuntime : IEndpointScriptRuntime
     }
 
     /// <summary>
-    /// The <c>FETCH_*</c> code of an uncaught <c>ns.fetch</c> error, or null. Only the error that escaped the handler
-    /// counts: a fetch error the script caught and did not rethrow never reaches here.
+    /// The <c>FETCH_*</c> code of an uncaught <c>ns.fetch</c> error, or null. Only errors the prelude built for a failed
+    /// <c>ns.fetch</c> call carry the marker; a script's own error with a <c>FETCH_</c> code is not one of them.
     /// </summary>
     private static string? FetchErrorCode(JavaScriptException script)
     {
         if (!script.Error.IsObject())
             return null;
-        var code = script.Error.AsObject().Get("code");
+        var error = script.Error.AsObject();
+        var marked = error.Get("nsFetchFailure");
+        if (!marked.IsBoolean() || !marked.AsBoolean())
+            return null;
+        var code = error.Get("code");
         return code.IsString() && code.AsString().StartsWith("FETCH_", StringComparison.Ordinal) ? code.AsString() : null;
     }
 
@@ -287,7 +291,7 @@ public sealed class JavaScriptEndpointRuntime : IEndpointScriptRuntime
         builder.Append("  var freeze = Object.freeze;\n");
         builder.Append("  function call(name, args) {\n");
         builder.Append("    var reply = parse(hostCall(name, stringify(args)));\n");
-        builder.Append("    if (!reply.ok) { var failure = new Error(reply.error); if (reply.code) failure.code = reply.code; throw failure; }\n");
+        builder.Append("    if (!reply.ok) { var failure = new Error(reply.error); if (reply.code) { failure.code = reply.code; Object.defineProperty(failure, 'nsFetchFailure', { value: true }); } throw failure; }\n");
         builder.Append("    return reply.value;\n");
         builder.Append("  }\n");
         builder.Append("  function api(name) {\n");
