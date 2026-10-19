@@ -558,6 +558,8 @@ public static class EndpointExecutionEndpoints
         if (revisionStatus is not null)
             responseBody = RevisionStatusInjector.WithStatus(responseBody, revisionStatus);
         context.Response.StatusCode = result.Status > 0 ? result.Status : StatusCodes.Status200OK;
+        if (result.RetryAfterSeconds is { } retryAfter)
+            context.Response.Headers["Retry-After"] = retryAfter.ToString(System.Globalization.CultureInfo.InvariantCulture);
         await context.Response.WriteAsJsonAsync(responseBody, JsonOptions);
     }
 
