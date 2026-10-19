@@ -70,6 +70,10 @@
       ["boolean", /\b(?:true|false|null|yes|no|on|off)(?![\w-])/],
       ["number", /-?\b\d+(?:\.\d+)?\b/],
       ["punctuation", /[\[\]{},]/],
+      // Unquoted scalar values (after "key: " or a "- " list marker) read as strings, as in
+      // VS Code. Earlier rules win ties, so keys, numbers, booleans, quotes and {{ }} keep
+      // their own colours; block/flow indicators and anchors are left alone.
+      ["string", /(?<=:[ \t]+|^[ \t]*-[ \t]+)(?![\[{|>&*!#"'\s])[^\n#{]*?(?=[ \t]+#|[ \t]*$|[ \t]*\{\{)/],
     ],
     javascript: [
       ["comment", /\/\/[^\n]*|\/\*[\s\S]*?(?:\*\/|(?![\s\S]))/],
