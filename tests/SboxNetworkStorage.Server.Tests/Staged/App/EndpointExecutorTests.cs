@@ -1437,6 +1437,12 @@ public sealed class NativeEndpointExecutorTests
         public Task<Dictionary<string, object?>?> ReadWorkflowDefinitionAsync(string projectId, string workflowId, CancellationToken ct)
             => Task.FromResult<Dictionary<string, object?>?>(null);
 
+        public Task<IReadOnlyList<string>> ListWorkflowIdsAsync(string projectId, CancellationToken ct)
+            => Task.FromResult<IReadOnlyList<string>>([]);
+
+        public Task<IReadOnlyList<string>> ListEndpointIdsAsync(string projectId, CancellationToken ct)
+            => Task.FromResult<IReadOnlyList<string>>([]);
+
         public Task<IEndpointWriteTransaction> BeginWriteTransactionAsync(CancellationToken ct)
             => Task.FromResult<IEndpointWriteTransaction>(new DelegateEndpointWriteTransaction(
                 write: (projectId, collectionId, key, payload) => _records[$"{projectId}:{collectionId}:{key}"] = new Dictionary<string, object?>(payload),
@@ -1474,6 +1480,12 @@ public sealed class NativeEndpointExecutorTests
 
         public Task<Dictionary<string, object?>?> ReadWorkflowDefinitionAsync(string projectId, string workflowId, CancellationToken ct)
             => Task.FromResult<Dictionary<string, object?>?>(null);
+
+        public Task<IReadOnlyList<string>> ListWorkflowIdsAsync(string projectId, CancellationToken ct)
+            => Task.FromResult<IReadOnlyList<string>>([]);
+
+        public Task<IReadOnlyList<string>> ListEndpointIdsAsync(string projectId, CancellationToken ct)
+            => Task.FromResult<IReadOnlyList<string>>([]);
 
         public Task<IEndpointWriteTransaction> BeginWriteTransactionAsync(CancellationToken ct)
             => throw new Exception("Store unavailable");
@@ -1532,6 +1544,12 @@ public sealed class NativeEndpointExecutorTests
         public Task<Dictionary<string, object?>?> ReadWorkflowDefinitionAsync(string projectId, string workflowId, CancellationToken ct)
             => Task.FromResult<Dictionary<string, object?>?>(null);
 
+
+        public Task<IReadOnlyList<string>> ListWorkflowIdsAsync(string projectId, CancellationToken ct)
+            => Task.FromResult<IReadOnlyList<string>>([]);
+
+        public Task<IReadOnlyList<string>> ListEndpointIdsAsync(string projectId, CancellationToken ct)
+            => Task.FromResult<IReadOnlyList<string>>([]);
         public List<(string Collection, string Key, IReadOnlyDictionary<string, object?> Payload)> RecordsWritten { get; } = new();
         public List<(string Collection, string Key)> RecordsDeleted { get; } = new();
         public List<(string Collection, string RecordId, IReadOnlyDictionary<string, object?> Payload)> GlobalRecordsWritten { get; } = new();
@@ -1593,6 +1611,12 @@ public sealed class NativeEndpointExecutorTests
         public Task<Dictionary<string, object?>?> ReadWorkflowDefinitionAsync(string projectId, string workflowId, CancellationToken ct)
             => Task.FromResult<Dictionary<string, object?>?>(null);
 
+        public Task<IReadOnlyList<string>> ListWorkflowIdsAsync(string projectId, CancellationToken ct)
+            => Task.FromResult<IReadOnlyList<string>>([]);
+
+        public Task<IReadOnlyList<string>> ListEndpointIdsAsync(string projectId, CancellationToken ct)
+            => Task.FromResult<IReadOnlyList<string>>([]);
+
         public Task<IEndpointWriteTransaction> BeginWriteTransactionAsync(CancellationToken ct)
             => Task.FromResult<IEndpointWriteTransaction>(new DelegateEndpointWriteTransaction(
                 write: (_, _, _, _) => throw new Exception("Store write failed"),
@@ -1649,6 +1673,12 @@ public sealed class NativeEndpointExecutorTests
 
         public Task<Dictionary<string, object?>?> ReadWorkflowDefinitionAsync(string projectId, string workflowId, CancellationToken ct)
             => Task.FromResult<Dictionary<string, object?>?>(null);
+
+        public Task<IReadOnlyList<string>> ListWorkflowIdsAsync(string projectId, CancellationToken ct)
+            => Task.FromResult<IReadOnlyList<string>>([]);
+
+        public Task<IReadOnlyList<string>> ListEndpointIdsAsync(string projectId, CancellationToken ct)
+            => Task.FromResult<IReadOnlyList<string>>([]);
 
         public Task<IEndpointWriteTransaction> BeginWriteTransactionAsync(CancellationToken ct)
         {

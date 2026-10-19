@@ -912,6 +912,12 @@ public abstract class NetworkStorageManagementMutationTests<TFactory> : IClassFi
             string projectId, string workflowId, CancellationToken ct) =>
             Task.FromResult<Dictionary<string, object?>?>(null);
 
+        public Task<IReadOnlyList<string>> ListWorkflowIdsAsync(string projectId, CancellationToken ct) =>
+            Task.FromResult<IReadOnlyList<string>>([]);
+
+        public Task<IReadOnlyList<string>> ListEndpointIdsAsync(string projectId, CancellationToken ct) =>
+            Task.FromResult<IReadOnlyList<string>>([]);
+
         public Task<IEndpointWriteTransaction> BeginWriteTransactionAsync(CancellationToken ct) =>
             throw new InvalidOperationException("Auto-test must not persist record writes.");
 

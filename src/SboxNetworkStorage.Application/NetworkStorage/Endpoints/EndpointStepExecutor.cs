@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text.RegularExpressions;
 using System.Security.Cryptography;
+using SboxNetworkStorage.Application.NetworkStorage.Endpoints.Scripting;
 
 namespace SboxNetworkStorage.Application.NetworkStorage.Endpoints;
 
@@ -785,7 +786,24 @@ public sealed partial class EndpointStepExecutor
 
     // ── Workflow execution ──
 
-    private async Task<object?> ExecuteWorkflowAsync(Dictionary<string, object?> wfDef, Dictionary<string, object?> step, Dictionary<string, object?> parentContext, EndpointExecutionRequest request, List<PendingWrite> pendingWrites, int depth, CancellationToken ct)
+    private async Task<object?> ExecuteWorkflowAsync(Dictionary<string, object?> wfDef, Dictionary<string, object?> step, Dictionary<string, object?> parentContext, EndpointExecutionRequest request, List<PendingWrite> pendingWrites, int depth, CancellationToken ct, IReadOnlyDictionary<string, object?>? scriptInput = null)
+    {
+        // Script-initiated runs carry a budget that bounds nesting and step count across the whole invocation.
+        var budget = request.ScriptBudget;
+        if (budget is null)
+            return await ExecuteWorkflowCoreAsync(wfDef, step, parentContext, request, pendingWrites, depth, ct, scriptInput);
+        budget.EnterWorkflow();
+        try
+        {
+            return await ExecuteWorkflowCoreAsync(wfDef, step, parentContext, request, pendingWrites, depth, ct, scriptInput);
+        }
+        finally
+        {
+            budget.ExitWorkflow();
+        }
+    }
+
+    private async Task<object?> ExecuteWorkflowCoreAsync(Dictionary<string, object?> wfDef, Dictionary<string, object?> step, Dictionary<string, object?> parentContext, EndpointExecutionRequest request, List<PendingWrite> pendingWrites, int depth, CancellationToken ct, IReadOnlyDictionary<string, object?>? scriptInput)
     {
         if (depth >= MaxWorkflowDepth)
             return Fail(400, $"Workflow nesting depth exceeded (max {MaxWorkflowDepth}).", StepCtx(step));
@@ -797,7 +815,7 @@ public sealed partial class EndpointStepExecutor
         // Build sub-context: inherit builtins, resolve params from parent context.
         var subContext = new Dictionary<string, object?>(StringComparer.Ordinal)
         {
-            ["input"] = parentContext.GetValueOrDefault("input"),
+            ["input"] = scriptInput is not null ? new Dictionary<string, object?>(scriptInput, StringComparer.Ordinal) : parentContext.GetValueOrDefault("input"),
             ["steamId"] = parentContext.GetValueOrDefault("steamId"),
             ["playerKey"] = parentContext.GetValueOrDefault("playerKey"),
             ["_hasSecretKey"] = parentContext.GetValueOrDefault("_hasSecretKey"),
@@ -812,10 +830,13 @@ public sealed partial class EndpointStepExecutor
             ["projectId"] = parentContext.GetValueOrDefault("projectId"),
             ["userId"] = parentContext.GetValueOrDefault("userId"),
         };
+        // Script calls never sleep (documented); nested workflow sleep steps honour this flag.
+        if (request.ScriptBudget is not null)
+            subContext["_skipSleep"] = true;
 
         // Resolve params and inject into sub-context.
         var @params = step.GetValueOrDefault("params") as Dictionary<string, object?>;
-        if (@params != null)
+        if (@params != null && scriptInput is null)
         {
             foreach (var (paramName, paramTemplate) in @params)
                 subContext[paramName] = EndpointExpression.ResolveTemplate(paramTemplate, parentContext);
@@ -830,6 +851,7 @@ public sealed partial class EndpointStepExecutor
         {
             if (rawWfStep is not Dictionary<string, object?> wfStep)
                 continue;
+            request.ScriptBudget?.ChargeStep();
             var terminal = await ExecuteStepAsync(wfStep, subContext, request, pendingWrites, ct);
             if (terminal is EndpointExecutionResult err && !err.Ok)
                 return err;
@@ -846,6 +868,56 @@ public sealed partial class EndpointStepExecutor
             return mapped;
         }
         return subContext;
+    }
+
+    /// <summary>
+    /// Runs a workflow on behalf of a script (<c>ns.workflows.run</c>). The script's input object becomes the
+    /// workflow's <c>input</c>. Pending writes apply through the request's write delegates only on success.
+    /// Synchronous by design: the script path supplies synchronous read and load delegates, refuses webhooks and
+    /// skips sleeps, so every awaited step completes without yielding.
+    /// </summary>
+    public object? RunWorkflowForScript(
+        string workflowId,
+        Dictionary<string, object?> wfDef,
+        IReadOnlyDictionary<string, object?> input,
+        Dictionary<string, object?> scriptContext,
+        EndpointExecutionRequest request,
+        CancellationToken ct)
+    {
+        var pendingWrites = new List<PendingWrite>();
+        var outcome = ExecuteWorkflowAsync(wfDef, new Dictionary<string, object?>(StringComparer.Ordinal),
+            scriptContext, request, pendingWrites, 0, ct, input).GetAwaiter().GetResult();
+        if (outcome is EndpointExecutionResult failure)
+        {
+            var (code, message) = WorkflowFailure(failure.Body);
+            throw new EndpointScriptFailureException(
+                failure.Status is >= 400 and <= 599 ? failure.Status : 400,
+                code, message, $"Workflow '{workflowId}' failed.");
+        }
+
+        foreach (var pw in pendingWrites)
+        {
+            if (pw.IsDelete)
+                request.DeleteRecord?.Invoke(pw.Collection, pw.Key);
+            else
+                request.WriteRecord?.Invoke(pw.Collection, pw.Key, pw.Data!);
+        }
+        return outcome;
+    }
+
+    /// <summary>Public context for a script invocation (same builtins as YAML endpoints).</summary>
+    public static Dictionary<string, object?> CreateScriptContext(EndpointExecutionRequest request) =>
+        BuildContext(new Dictionary<string, object?>(StringComparer.Ordinal), request);
+
+    private static (string Code, string Message) WorkflowFailure(object? body)
+    {
+        if (body is Dictionary<string, object?> envelope
+            && envelope.GetValueOrDefault("error") is Dictionary<string, object?> error)
+        {
+            return (error.GetValueOrDefault("code") as string ?? "WORKFLOW_FAILED",
+                error.GetValueOrDefault("message") as string ?? "The workflow failed.");
+        }
+        return ("WORKFLOW_FAILED", "The workflow failed.");
     }
 
 
@@ -1467,7 +1539,7 @@ public sealed partial class EndpointStepExecutor
 }
 
 /// <summary>Endpoint execution result: HTTP status + JS-value-model body.</summary>
-public sealed record EndpointExecutionResult(bool Ok, int Status, object? Body);
+public sealed record EndpointExecutionResult(bool Ok, int Status, object? Body, string? OwnerDetail = null);
 
 /// <summary>Inputs for a single endpoint execution.</summary>
 public sealed record EndpointExecutionRequest(
@@ -1490,7 +1562,8 @@ public sealed record EndpointExecutionRequest(
     Func<string, Dictionary<string, object?>, CancellationToken, Task<WebhookEnqueueOutcome>>? EnqueueWebhookAsync = null,
     bool SkipWebhooks = false,
     bool SkipSleep = false,
-    Action<EndpointStepTrace>? OnStep = null);
+    Action<EndpointStepTrace>? OnStep = null,
+    ScriptWorkflowBudget? ScriptBudget = null);
 
 /// <summary>
 /// Raised when an endpoint definition uses a feature the native executor does not

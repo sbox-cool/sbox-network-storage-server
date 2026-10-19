@@ -286,6 +286,50 @@ public sealed partial class StoreEndpointDataSource : IEndpointDataSource, IEndp
         }
     }
 
+    public async Task<IReadOnlyList<string>> ListWorkflowIdsAsync(string projectId, CancellationToken ct)
+    {
+        // Same precedence as ReadWorkflowDefinitionAsync: pinned snapshot first, then live rows. Errors propagate so
+        // a script never runs with a silently shorter catalog.
+        var rows = _snapshot is not null ? _snapshot.Workflows : await _store.ListWorkflowsAsync(projectId, ct);
+        return RowIds(rows, "workflow_id", "id", "name");
+    }
+
+    public async Task<IReadOnlyList<string>> ListEndpointIdsAsync(string projectId, CancellationToken ct)
+    {
+        // Same precedence as ReadEndpointDefinitionAsync: pinned snapshot first, then live rows merged with staged ones.
+        IReadOnlyList<JsonElement> rows;
+        if (_snapshot is not null)
+        {
+            rows = _snapshot.Endpoints;
+        }
+        else
+        {
+            rows = await _store.ListEndpointsAsync(projectId, ct);
+            if (_overlay is not null) rows = _overlay.MergeEndpointRows(rows);
+        }
+        return RowIds(rows, "slug");
+    }
+
+    /// <summary>The distinct ids of <paramref name="rows"/>, in ordinal order. Each row contributes its first non-empty string property among <paramref name="properties"/>.</summary>
+    private static IReadOnlyList<string> RowIds(IEnumerable<JsonElement> rows, params string[] properties)
+    {
+        var ids = new SortedSet<string>(StringComparer.Ordinal);
+        foreach (var row in rows)
+        {
+            if (row.ValueKind != JsonValueKind.Object) continue;
+            foreach (var property in properties)
+            {
+                if (row.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.String
+                    && value.GetString() is { Length: > 0 } id)
+                {
+                    ids.Add(id);
+                    break;
+                }
+            }
+        }
+        return ids.ToList();
+    }
+
     public async Task<IEndpointWriteTransaction> BeginWriteTransactionAsync(CancellationToken ct)
         => new WriteTransaction(this, await _store.BeginTransactionAsync(ct));
 

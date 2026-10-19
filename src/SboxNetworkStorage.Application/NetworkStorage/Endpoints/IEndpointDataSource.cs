@@ -49,6 +49,18 @@ public interface IEndpointDataSource
         string projectId, string workflowId, CancellationToken ct);
 
     /// <summary>
+    /// The ids of every workflow in the project (script <c>workflows</c> catalog). Errors propagate: a script must not
+    /// run against a silently shorter catalog.
+    /// </summary>
+    Task<IReadOnlyList<string>> ListWorkflowIdsAsync(string projectId, CancellationToken ct);
+
+    /// <summary>
+    /// The slugs of every endpoint in the project (script <c>globals</c> catalog and global module lookup). Errors
+    /// propagate.
+    /// </summary>
+    Task<IReadOnlyList<string>> ListEndpointIdsAsync(string projectId, CancellationToken ct);
+
+    /// <summary>
     /// Opens the transaction the live-serve endpoint path flushes its queued writes and deletes through. Every
     /// write must apply the SAME persistence semantics as the record-CRUD data plane so an endpoint-driven write
     /// is indistinguishable from a direct <c>POST /v3/storage/.../{key}</c>. Nothing is durable until

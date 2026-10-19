@@ -1,0 +1,245 @@
+using System.Collections.Concurrent;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+using Acornima;
+using Jint;
+using Jint.Native;
+using Jint.Native.Function;
+using Jint.Runtime;
+using Jint.Runtime.Interop;
+using Jint.Runtime.Modules;
+
+namespace SboxNetworkStorage.Application.NetworkStorage.Endpoints.Scripting;
+
+/// <summary>
+/// Runs scripted endpoints (<c>runtime: javascript</c>) with Jint, a managed JavaScript interpreter. Each invocation
+/// gets a fresh engine with no CLR interop, no file or network modules, no string compilation and hard limits for time,
+/// statements, memory and recursion. The only way out of the engine is the <c>host</c> function, which carries JSON text
+/// to <see cref="EndpointScriptHost"/>.
+/// </summary>
+/// <remarks>
+/// Script contract: the source is an ES module whose default export is the handler,
+/// <c>export default function handle(req, ns) { ... }</c> (the function may have any name). It must be synchronous.
+/// Ambient globals for the whole invocation, including imported global modules: <c>ns</c>, <c>req</c>, <c>workflows</c>
+/// and <c>globals</c>. The only importable modules are <c>globals/&lt;endpointId&gt;</c> (see <see cref="GlobalModuleLoader"/>).
+/// </remarks>
+public sealed class JavaScriptEndpointRuntime : IEndpointScriptRuntime
+{
+    public const string LanguageName = "javascript";
+
+    private const string ModuleSpecifier = "endpoint";
+    private const int PreparedCacheLimit = 256;
+
+    // Member names come from ScriptApiAttribute values, which are fixed identifiers, and are quoted anyway.
+    private static readonly string Prelude = BuildPrelude();
+
+    private readonly ConcurrentDictionary<string, Prepared<Acornima.Ast.Module>> _prepared = new(StringComparer.Ordinal);
+
+    public JavaScriptEndpointRuntime(bool enabled, EndpointScriptLimits limits)
+    {
+        Enabled = enabled;
+        Limits = limits ?? throw new ArgumentNullException(nameof(limits));
+    }
+
+    public string Language => LanguageName;
+
+    public bool Enabled { get; }
+
+    public EndpointScriptLimits Limits { get; }
+
+    public IReadOnlyList<EndpointScriptDiagnostic> Check(string source)
+    {
+        var size = Encoding.UTF8.GetByteCount(source);
+        if (size > Limits.MaxSourceBytes)
+            return [new EndpointScriptDiagnostic(1, 1, $"Script is {size} bytes; the limit is {Limits.MaxSourceBytes}.")];
+        try
+        {
+            using var engine = CreateEngine(CancellationToken.None, loader: null);
+            Prepare(source, engine);
+            return [];
+        }
+        catch (ParseErrorException error)
+        {
+            return [new EndpointScriptDiagnostic(error.LineNumber, error.Column + 1, error.Description)];
+        }
+    }
+
+    public string ToJavaScript(string source) => source;
+
+    public EndpointScriptOutcome Execute(string source, EndpointScriptRequest request, EndpointScriptHost host, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(host);
+        var engine = CreateEngine(ct, new GlobalModuleLoader(host.GlobalModuleSource));
+        try
+        {
+            var prepared = Prepare(source, engine);
+            engine.Modules.Add(ModuleSpecifier, builder => builder.AddModule(in prepared));
+
+            var hostFunction = new ClrFunction(engine, "host", (_, args) =>
+                new JsString(host.Invoke(args[0].AsString(), args[1].AsString())), 2);
+            var importGlobal = new ClrFunction(engine, "importGlobal", (_, args) =>
+                engine.Modules.Import(GlobalModuleLoader.Prefix + args[0].AsString()), 1);
+            var environment = engine.Call(engine.Evaluate(Prelude), JsValue.Undefined, hostFunction, importGlobal).AsObject();
+            var ns = environment.Get("ns");
+            var serialize = environment.Get("serialize");
+
+            var reqValue = engine.Evaluate("(" + JsonSerializer.Serialize(new
+            {
+                input = request.Input,
+                player = request.PlayerSteamId is null ? null : new { steamId = request.PlayerSteamId },
+                method = request.Method,
+                endpoint = request.Endpoint,
+                revision = request.Revision,
+            }) + ")");
+
+            engine.SetValue("ns", ns);
+            engine.SetValue("req", reqValue);
+            engine.SetValue("workflows", environment.Get("workflows"));
+            engine.SetValue("globals", environment.Get("globals"));
+
+            var handler = engine.Modules.Import(ModuleSpecifier).Get("default");
+            if (handler is not Function handlerFunction)
+                return new EndpointScriptOutcome(EndpointScriptOutcomeKind.ScriptError, null,
+                    "The script must `export default function handle(req, ns)`.");
+
+            var result = engine.Call(handlerFunction, JsValue.Undefined, reqValue, ns);
+            var json = engine.Call(serialize, JsValue.Undefined, result);
+            if (json.IsUndefined())
+                return new EndpointScriptOutcome(EndpointScriptOutcomeKind.Returned, null);
+
+            var text = json.AsString();
+            var responseBytes = Encoding.UTF8.GetByteCount(text);
+            if (responseBytes > Limits.MaxResponseBytes)
+                return new EndpointScriptOutcome(EndpointScriptOutcomeKind.LimitExceeded, null,
+                    $"Response is {responseBytes} bytes; the limit is {Limits.MaxResponseBytes}.");
+
+            using var document = JsonDocument.Parse(text);
+            return new EndpointScriptOutcome(EndpointScriptOutcomeKind.Returned, document.RootElement.Clone());
+        }
+        catch (Exception error) when (error is not OperationCanceledException || !ct.IsCancellationRequested)
+        {
+            return Classify(error);
+        }
+    }
+
+    private Engine CreateEngine(CancellationToken ct, IModuleLoader? loader)
+    {
+        var options = new Options
+        {
+            Strict = true,
+        };
+        options.TimeoutInterval(Limits.Timeout)
+            .MaxStatements(Limits.MaxStatements)
+            .LimitMemory(Limits.MemoryBytes)
+            .LimitRecursion(Limits.MaxRecursionDepth)
+            .DisableStringCompilation(true)
+            .CancellationToken(ct);
+        options.Constraints.RegexTimeout = Limits.Timeout;
+        if (loader is not null)
+            options.EnableModules(loader);
+        return new Engine(options);
+    }
+
+    private Prepared<Acornima.Ast.Module> Prepare(string source, Engine engine)
+    {
+        var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(source)));
+        if (_prepared.TryGetValue(key, out var cached))
+            return cached;
+        var prepared = Engine.PrepareModule(source, ModuleSpecifier, new ModulePreparationOptions());
+        if (_prepared.Count >= PreparedCacheLimit)
+            _prepared.Clear();
+        _prepared[key] = prepared;
+        return prepared;
+    }
+
+    private static EndpointScriptOutcome Classify(Exception error)
+    {
+        if (error is ParseErrorException syntax)
+            return new EndpointScriptOutcome(EndpointScriptOutcomeKind.ScriptError, null,
+                $"line {syntax.LineNumber}, column {syntax.Column + 1}: {syntax.Description}");
+        if (error is JavaScriptException script)
+            return new EndpointScriptOutcome(EndpointScriptOutcomeKind.ScriptError, null, LocationPrefix(error) + script.Message);
+        if (error is TimeoutException)
+            return new EndpointScriptOutcome(EndpointScriptOutcomeKind.LimitExceeded, null, "Time limit exceeded.");
+
+        // Jint's statement, memory and recursion guards throw internal exception types; match them by name.
+        var name = error.GetType().Name;
+        if (name.Contains("Statement", StringComparison.Ordinal))
+            return new EndpointScriptOutcome(EndpointScriptOutcomeKind.LimitExceeded, null, "Statement limit exceeded.");
+        if (name.Contains("Recursion", StringComparison.Ordinal) || name.Contains("StackOverflow", StringComparison.Ordinal))
+            return new EndpointScriptOutcome(EndpointScriptOutcomeKind.LimitExceeded, null, "Recursion limit exceeded.");
+        if (name.Contains("Memory", StringComparison.Ordinal))
+            return new EndpointScriptOutcome(EndpointScriptOutcomeKind.LimitExceeded, null, "Memory limit exceeded.");
+
+        return new EndpointScriptOutcome(EndpointScriptOutcomeKind.ScriptError, null, error.ToString());
+    }
+
+    private static string LocationPrefix(Exception error) =>
+        JintException.TryGetJavaScriptLocation(error, out var location)
+            ? $"line {location.Start.Line}, column {location.Start.Column + 1}: "
+            : string.Empty;
+
+    /// <summary>
+    /// Builds <c>ns</c>, <c>workflows</c> and <c>globals</c>. <c>ns</c> has one function per public host member. <c>workflows</c>
+    /// has one function per workflow alias. <c>globals</c> has one lazy getter per global name, and the getter imports
+    /// the module on first access, so a script pays only for the modules it reads.
+    /// </summary>
+    private static string BuildPrelude()
+    {
+        var builder = new StringBuilder();
+        builder.Append("(function (host, importGlobal) {\n");
+        builder.Append("  var stringify = JSON.stringify;\n");
+        builder.Append("  var parse = JSON.parse;\n");
+        builder.Append("  var slice = Array.prototype.slice;\n");
+        builder.Append("  var freeze = Object.freeze;\n");
+        builder.Append("  function call(name, args) {\n");
+        builder.Append("    var reply = parse(host(name, stringify(args)));\n");
+        builder.Append("    if (!reply.ok) throw new Error(reply.error);\n");
+        builder.Append("    return reply.value;\n");
+        builder.Append("  }\n");
+        builder.Append("  function api(name) {\n");
+        builder.Append("    return function () { return call(name, slice.call(arguments)); };\n");
+        builder.Append("  }\n");
+        builder.Append("  var ns = {};\n");
+
+        var groups = EndpointScriptHost.PublicApiNames.Where(name => name.Contains('.')).GroupBy(name => name[..name.IndexOf('.')]);
+        foreach (var group in groups)
+        {
+            builder.Append($"  ns[{JsonSerializer.Serialize(group.Key)}] = freeze({{ ");
+            builder.Append(string.Join(", ", group.Select(name =>
+                $"{JsonSerializer.Serialize(name[(name.IndexOf('.') + 1)..])}: api({JsonSerializer.Serialize(name)})")));
+            builder.Append(" });\n");
+        }
+        foreach (var name in EndpointScriptHost.PublicApiNames.Where(name => !name.Contains('.')))
+            builder.Append($"  ns[{JsonSerializer.Serialize(name)}] = api({JsonSerializer.Serialize(name)});\n");
+
+        builder.Append("  var catalog = call(\"workflows.catalog\", []);\n");
+        builder.Append("  var workflows = {};\n");
+        builder.Append("  Object.keys(catalog).forEach(function (alias) {\n");
+        builder.Append("    workflows[alias] = (function (id) {\n");
+        builder.Append("      return function (input) { return call(\"workflows.run\", [id, input === undefined ? {} : input]); };\n");
+        builder.Append("    })(catalog[alias]);\n");
+        builder.Append("  });\n");
+
+        builder.Append("  var names = call(\"globals.catalog\", []);\n");
+        builder.Append("  var loaded = {};\n");
+        builder.Append("  var globals = {};\n");
+        builder.Append("  Object.keys(names).forEach(function (name) {\n");
+        builder.Append("    Object.defineProperty(globals, name, { enumerable: true, get: function () {\n");
+        builder.Append("      if (!Object.prototype.hasOwnProperty.call(loaded, name)) loaded[name] = importGlobal(names[name]);\n");
+        builder.Append("      return loaded[name];\n");
+        builder.Append("    } });\n");
+        builder.Append("  });\n");
+
+        builder.Append("  return {\n");
+        builder.Append("    ns: freeze(ns),\n");
+        builder.Append("    workflows: freeze(workflows),\n");
+        builder.Append("    globals: freeze(globals),\n");
+        builder.Append("    serialize: function (value) { return stringify(value); }\n");
+        builder.Append("  };\n");
+        builder.Append("})");
+        return builder.ToString();
+    }
+}

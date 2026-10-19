@@ -106,6 +106,10 @@ public abstract class EndpointCombatConcurrencyTests<TFactory>(TFactory factory)
             => inner.ScanCollectionAsync(projectId, collectionId, ct);
         public Task<Dictionary<string, object?>?> ReadWorkflowDefinitionAsync(string projectId, string workflowId, CancellationToken ct)
             => inner.ReadWorkflowDefinitionAsync(projectId, workflowId, ct);
+        public Task<IReadOnlyList<string>> ListWorkflowIdsAsync(string projectId, CancellationToken ct)
+            => inner.ListWorkflowIdsAsync(projectId, ct);
+        public Task<IReadOnlyList<string>> ListEndpointIdsAsync(string projectId, CancellationToken ct)
+            => inner.ListEndpointIdsAsync(projectId, ct);
         public Task<IEndpointWriteTransaction> BeginWriteTransactionAsync(CancellationToken ct) => inner.BeginWriteTransactionAsync(ct);
         public Task<object?> ReadGlobalRecordAsync(string projectId, string collectionId, string recordId, CancellationToken ct)
             => inner.ReadGlobalRecordAsync(projectId, collectionId, recordId, ct);
