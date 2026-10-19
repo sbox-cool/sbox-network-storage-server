@@ -241,6 +241,9 @@ public abstract class AuthSessionEndpointsTests<TFactory> : IClassFixture<TFacto
 
     private sealed class FakeProjectService(bool enabled, bool authSessions) : INetworkStorageProjectService
     {
+        public Task<WorkspaceProject?> FindProjectAsync(string projectId, CancellationToken cancellationToken)
+            => Task.FromResult<WorkspaceProject?>(null);
+
         public Task<NetworkStorageProjectAccessResult?> ResolveProjectAccessAsync(long userId, string projectId, CancellationToken cancellationToken)
             => Task.FromResult<NetworkStorageProjectAccessResult?>(new NetworkStorageProjectAccessResult(
                 new WorkspaceProject(projectId, "Test Project", null, Enabled: enabled, null, null, null, EnableAuthSessions: authSessions, AuthSessionTtlSeconds: 3600),

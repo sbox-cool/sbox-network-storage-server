@@ -112,6 +112,7 @@ public static class ServerHost
         app.MapNetworkStorageGateway();
         app.MapStorageApi();
         app.MapGameLogs();
+        app.MapMedia(Math.Max(1, config.GetInteger("media.max_object_bytes")));
         app.MapApiRootAliases();
 
         return app;

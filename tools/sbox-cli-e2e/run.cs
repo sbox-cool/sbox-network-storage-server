@@ -199,6 +199,10 @@ static class E2E
 		}
 
 		var engine = ev.Identity["engine"]?["version"]?.GetValue<string>();
+		// Source builds report 0000000, which identifies no build. Leave the row's engine out (optional for
+		// ci-only rows; a pass row without it fails the schema) and name the sbox-public commit in its notes.
+		if (engine is not null && engine.Trim('0').Length == 0)
+			engine = null;
 		ev.WriteRow(o, engine, lib);
 		var pass = ev.Passed;
 		Console.WriteLine(pass ? "SBOX-CLI E2E PASS" : "SBOX-CLI E2E FAIL");
@@ -345,7 +349,7 @@ static class E2E
 		ev.Step("editor.play_start", play);
 		await WaitAsync(120, async () => J.Bool((await cli.CallAsync("instance_status")).Json, "isPlaying"));
 		await Task.Delay(3000);
-		await RuntimeProbeAsync(ev, cli, null, server, "editor", toolset);
+		await RuntimeProbeAsync(ev, cli, null, server, fixture, "editor", toolset);
 		File.WriteAllText(Path.Combine(ev.Dir, "editor-console.txt"), (await cli.CallAsync("read_console", new JsonObject { ["filter"] = "NetworkStorage", ["limit"] = 200 })).Text);
 		ev.Step("editor.play_stop", await cli.CallAsync("play_stop"));
 		if (!o.Attach) await cli.CallAsync("instance_console_command", new JsonObject { ["command"] = "quit" });
@@ -368,17 +372,35 @@ static class E2E
 		ev.Identity["os"] ??= RuntimeInformation.OSDescription;
 		var toolset = HasTool(await cli.CallAsync("search_tools", new JsonObject { ["query"] = "ns_call_endpoint" }, connect: pid), "ns_call_endpoint");
 		ev.Identity["dedicatedDriver"] = toolset ? "network_storage toolset" : "run_csharp";
-		await RuntimeProbeAsync(ev, cli, pid, server, "dedicated", toolset);
+		await RuntimeProbeAsync(ev, cli, pid, server, fixture, "dedicated", toolset);
 		File.WriteAllText(Path.Combine(ev.Dir, "dedicated-console.txt"), (await cli.CallAsync("read_console", new JsonObject { ["filter"] = "NetworkStorage", ["limit"] = 200 }, connect: pid)).Text);
 	}
 
+	/// <summary>
+	/// docs/compatibility.md: a library whose default root is /api is pinned to v3 on servers that do not serve /api.
+	/// Only libraries with a non-v3 default and the apiVersion Configure overload are pinned, and only when the server
+	/// does not advertise the api-root capability. Every other combination keeps the library's own default.
+	/// </summary>
+	static async Task<string?> ConfigureApiRootAsync(Evidence ev, Server server, string fixture, string target)
+	{
+		var lib = Library.FromInstalled(Path.Combine(fixture, "Libraries", PackageIdent), "");
+		var info = await Http.GetJsonAsync($"{server.Url}/v3/server-info");
+		var advertised = info?["capabilities"] is JsonArray caps && caps.Any(c => c is JsonValue v && v.TryGetValue<string>(out var s) && s == "api-root");
+		var pin = lib.ConfigureTakesApiRoot && lib.DefaultApiRoot is { Length: > 0 } d && d != "v3" && !advertised;
+		var root = pin ? "v3" : null;
+		ev.Observe($"api-root.{target}", $"library default {lib.DefaultApiRoot ?? "unknown"}; apiVersion overload {(lib.ConfigureTakesApiRoot ? "yes" : "no")}; server advertises api-root {(advertised ? "yes" : "no")}; configured root {root ?? "library default"}");
+		Console.WriteLine($"api root ({target}): {root ?? "library default"}");
+		return root;
+	}
+
 	/// <summary>Real library calls in play mode (editor) or on the dedicated server, checked against the fixture definitions.</summary>
-	static async Task RuntimeProbeAsync(Evidence ev, SboxCli cli, string? pid, Server server, string target, bool toolset)
+	static async Task RuntimeProbeAsync(Evidence ev, SboxCli cli, string? pid, Server server, string fixture, string target, bool toolset)
 	{
 		var dedicated = target == "dedicated";
-		var configure = toolset
+		var apiRoot = await ConfigureApiRootAsync(ev, server, fixture, target);
+		var configure = toolset && apiRoot is null
 			? await cli.CallAsync("ns_configure", new JsonObject { ["projectId"] = server.ProjectId, ["apiKey"] = server.PublicKey, ["baseUrl"] = server.Url }, connect: pid)
-			: await cli.CallAsync("run_csharp", new JsonObject { ["code"] = Scripts.Configure(server) }, connect: pid);
+			: await cli.CallAsync("run_csharp", new JsonObject { ["code"] = Scripts.Configure(server, apiRoot) }, connect: pid);
 		ev.Step($"{target}.configure", configure);
 		var allowed = J.Bool(configure.Json, "httpAllowed") || J.Bool(configure.Json, "allowed");
 		ev.Check($"{target}.http-allowed", "C", allowed, $"game code may reach {server.Url} (Http.IsAllowed)", required: true);
@@ -492,12 +514,17 @@ sealed class Library
 	public string Source = "";
 	public string? Commit;
 	public long? Revision;
+	public string? DefaultApiRoot;
+	public bool ConfigureTakesApiRoot;
 
 	public static Library FromInstalled(string folder, string source)
 	{
 		var lib = new Library { Source = source };
 		var client = Path.Combine(folder, "Code", "Core", "NetworkStorageClient.cs");
-		if (File.Exists(client) && Regex.Match(File.ReadAllText(client), "LibraryVersion\\s*=\\s*\"([^\"]+)\"") is { Success: true } m) lib.Version = m.Groups[1].Value;
+		var text = File.Exists(client) ? File.ReadAllText(client) : "";
+		if (Regex.Match(text, "LibraryVersion\\s*=\\s*\"([^\"]+)\"") is { Success: true } m) lib.Version = m.Groups[1].Value;
+		if (Regex.Match(text, @"ApiVersion\s*\{\s*get;\s*private set;\s*\}\s*=\s*""([^""]*)""") is { Success: true } root) lib.DefaultApiRoot = root.Groups[1].Value;
+		lib.ConfigureTakesApiRoot = Regex.IsMatch(text, @"Configure\(\s*string projectId[^)]*\bapiVersion\b");
 		// Library Manager writes .version as 1.0.<revision> on install; only trust it for package installs.
 		var marker = Path.Combine(folder, ".version");
 		if (source == "library-manager" && File.Exists(marker) && Regex.Match(File.ReadAllText(marker), @"^\d+\.\d+\.(\d+)") is { Success: true } r) lib.Revision = long.Parse(r.Groups[1].Value);
@@ -584,8 +611,8 @@ static class Scripts
 
 	// No NetworkStorage.LibraryVersion here: libraries published before 1.1.0 do not have the constant, and the
 	// snippet would not compile against them. The version comes from the library source instead.
-	public static string Configure(Server s) => $$"""
-		NetworkStorage.Configure( {{Lit(s.ProjectId)}}, {{Lit(s.PublicKey)}}, {{Lit(s.Url)}} );
+	public static string Configure(Server s, string? apiRoot) => $$"""
+		NetworkStorage.Configure( {{Lit(s.ProjectId)}}, {{Lit(s.PublicKey)}}, {{Lit(s.Url)}}{{(apiRoot is null ? "" : $", apiVersion: {Lit(apiRoot)}")}} );
 		return new { allowed = Http.IsAllowed( new Uri( {{Lit(s.Url + "/v3/server-info")}} ) ) };
 		""";
 
@@ -758,7 +785,7 @@ sealed class Evidence(string dir)
 			["result"] = !editorRan ? "ci-only" : Passed ? "pass" : "fail",
 			["date"] = DateTime.UtcNow.ToString("yyyy-MM-dd"),
 			["evidence"] = new JsonArray(o.EvidenceRefs.Select(e => (JsonNode)e).ToArray()),
-			["notes"] = $"tools/sbox-cli-e2e ({o.Targets}{(editorRan ? "" : ", no editor run")}); sections exercised: {sections}; driver: {Identity["driver"] ?? Identity["dedicatedDriver"]}.",
+			["notes"] = $"tools/sbox-cli-e2e ({o.Targets}{(editorRan ? "" : ", no editor run")}); sections exercised: {sections}; driver: {Identity["driver"] ?? Identity["dedicatedDriver"]}{(engine is null && Identity["engine"]?["commit"] is JsonNode engineCommit ? $"; engine: source build of sbox-public {engineCommit}" : "")}.",
 		};
 		foreach (var key in row.Where(p => p.Value is null).Select(p => p.Key).ToList()) row.Remove(key);
 	}

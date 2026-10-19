@@ -213,6 +213,7 @@ public abstract class LibraryPolicyHttpTests<TFactory> : IClassFixture<TFactory>
     {
         public virtual Task<NetworkStorageProjectCreateResult> CreateProjectAsync(long userId, string name, string? description, bool enabled, bool requireSboxAuth, string keyMode, string organizationId, CancellationToken cancellationToken, string? hostingProfile = null) => throw new NotSupportedException();
         public virtual Task<NetworkStorageProjectAccessResult?> ResolveProjectAccessAsync(long userId, string projectId, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public virtual Task<WorkspaceProject?> FindProjectAsync(string projectId, CancellationToken cancellationToken) => throw new NotSupportedException();
         public virtual Task<NetworkStorageProjectResources?> GetProjectResourcesAsync(long userId, string projectId, CancellationToken cancellationToken) => throw new NotSupportedException();
         public virtual Task<NetworkStorageProjectResources?> GetProjectResourcesForOwnerAsync(long storageOwnerUserId, string projectId, CancellationToken cancellationToken) => throw new NotSupportedException();
         public virtual Task<NetworkStorageTeamData?> GetProjectTeamAsync(long storageOwnerUserId, string projectId, string? organizationId, string callerRole, CancellationToken cancellationToken) => throw new NotSupportedException();

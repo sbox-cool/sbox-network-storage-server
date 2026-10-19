@@ -98,7 +98,11 @@ public sealed record WorkspaceProject(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? LibraryMinimum = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? LibraryAlertPercent = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Color = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] GameLogSettings? GameLogs = null
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] GameLogSettings? GameLogs = null,
+    // Media store policy (per project, off by default). Shape: { enabled, purposes: { <name>: {...} } }; parsed by MediaPolicyParser.
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] Dictionary<string, object>? Media = null,
+    /// <summary>Opt-in (off when absent): endpoint webhook steps enqueue to the durable outbox instead of sending inline.</summary>
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? WebhookOutbox = null
 );
 public static class WorkspaceProjectProfiles
 {

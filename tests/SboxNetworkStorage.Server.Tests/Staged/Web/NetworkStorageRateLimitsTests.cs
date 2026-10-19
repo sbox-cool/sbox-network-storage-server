@@ -297,6 +297,9 @@ public abstract class NetworkStorageRateLimitsTests<TFactory> : IClassFixture<TF
             string keyMode, string organizationId, CancellationToken cancellationToken, string? hostingProfile = null)
             => throw new NotSupportedException();
 
+        public Task<WorkspaceProject?> FindProjectAsync(string projectId, CancellationToken cancellationToken)
+            => Task.FromResult<WorkspaceProject?>(null);
+
         public Task<NetworkStorageProjectAccessResult?> ResolveProjectAccessAsync(
             long userId, string projectId, CancellationToken cancellationToken)
             => throw new NotSupportedException();

@@ -80,6 +80,16 @@ public sealed class PostgresNetworkStorageStore : RelationalNetworkStorageStore
         await command.ExecuteNonQueryAsync(ct);
     }
 
+    /// <summary>Transaction-scoped advisory lock: concurrent grant gates for one owner and purpose run one at a time.</summary>
+    protected override async Task LockMediaGrantOwnerAsync(DbConnection connection, DbTransaction transaction, string key, CancellationToken ct)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "SELECT pg_advisory_xact_lock(hashtext(@lock_key))";
+        AddText(command, "lock_key", $"sbox-ns:media-grant:{_schema}:{key}");
+        await command.ExecuteNonQueryAsync(ct);
+    }
+
     protected override async Task<bool> SchemaVersionTableExistsAsync(DbConnection connection, CancellationToken ct)
     {
         await using var command = connection.CreateCommand();

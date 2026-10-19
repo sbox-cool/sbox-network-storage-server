@@ -22,12 +22,30 @@ public static class SqliteMigrations
         new(5, "Daily client-version aggregates; errors record the caller's library identity", SchemaChange.Additive, V5),
         new(6, "Integrity flags, player blocks and player action log for the integrity and insights modules", SchemaChange.Additive, V6),
         new(7, "Hourly per-library request outcomes by server version for post-update regression checks", SchemaChange.Additive, V7),
-        new(8, "Structured game logs: per-project entries with an FTS5 free-text index (off by default)", SchemaChange.Additive, V8),
+        new(8, "Durable Discord webhook outbox and per-target delivery state for endpoint webhook steps", SchemaChange.Additive, V8),
+        new(9, "Media objects and single-use upload grant records for the media store", SchemaChange.Additive, V9),
+        new(10, "Structured game logs: per-project entries with an FTS5 free-text index (off by default)", SchemaChange.Additive, V10),
     ];
+
+    // Additive: two new tables with indexes. Nothing existing is touched; older binaries never read them.
+    private static string V9(string p) => $"""
+        CREATE TABLE {p}media_objects (
+            project_id TEXT NOT NULL, media_id TEXT NOT NULL, purpose TEXT NOT NULL, sha256 TEXT NOT NULL,
+            content_type TEXT NOT NULL, size_bytes INTEGER NOT NULL, width INTEGER NOT NULL, height INTEGER NOT NULL,
+            owner_steam_id TEXT NOT NULL, visibility TEXT NOT NULL, created_at_unix_ms INTEGER NOT NULL,
+            expires_at_unix_ms INTEGER NOT NULL,
+            PRIMARY KEY (project_id, media_id)) STRICT, WITHOUT ROWID;
+        CREATE TABLE {p}media_grants (
+            project_id TEXT NOT NULL, grant_id TEXT NOT NULL, purpose TEXT NOT NULL, owner_steam_id TEXT NOT NULL,
+            issued_at_unix_ms INTEGER NOT NULL, expires_at_unix_ms INTEGER NOT NULL, used_at_unix_ms INTEGER,
+            PRIMARY KEY (project_id, grant_id)) STRICT, WITHOUT ROWID;
+        CREATE INDEX ix_media_grants_rate ON {p}media_grants (project_id, owner_steam_id, purpose, issued_at_unix_ms);
+        CREATE INDEX ix_media_grants_issued ON {p}media_grants (issued_at_unix_ms);
+        """;
 
     // Additive: one new table, its indexes, an FTS5 external-content mirror and two triggers. Older binaries never touch them.
     // seq is an INTEGER PRIMARY KEY (rowid alias) so the FTS5 content link survives VACUUM.
-    private static string V8(string p) => $"""
+    private static string V10(string p) => $"""
         CREATE TABLE {p}game_log_entries (
             seq INTEGER PRIMARY KEY, project_id TEXT NOT NULL, entry_id TEXT NOT NULL, ts_unix_ms INTEGER NOT NULL,
             stream TEXT NOT NULL, level TEXT NOT NULL, event TEXT NOT NULL,
@@ -56,6 +74,23 @@ public static class SqliteMigrations
         CREATE TABLE {p}player_blocks (project_id TEXT NOT NULL, steam_id TEXT NOT NULL, scope TEXT NOT NULL, reason TEXT, created_at_unix_ms INTEGER NOT NULL, expires_at_unix_ms INTEGER, created_by TEXT, PRIMARY KEY (project_id, steam_id)) STRICT, WITHOUT ROWID;
         CREATE TABLE {p}player_action_log (project_id TEXT NOT NULL, steam_id TEXT NOT NULL, created_at_unix_ms INTEGER NOT NULL, entry_id TEXT NOT NULL, endpoint_slug TEXT, revision_id INTEGER, outcome TEXT, changed_fields_json TEXT, body_json TEXT, PRIMARY KEY (project_id, steam_id, created_at_unix_ms DESC, entry_id)) STRICT, WITHOUT ROWID;
         CREATE INDEX ix_player_action_log_project_time ON {p}player_action_log (project_id, created_at_unix_ms DESC);
+        """;
+
+    // Additive: two new tables. Only binaries with the outbox write them; the previous binary never reads them.
+    private static string V8(string p) => $"""
+        CREATE TABLE {p}webhook_outbox (
+            project_id TEXT NOT NULL, outbox_id TEXT NOT NULL, target_url TEXT NOT NULL, payload_json TEXT NOT NULL,
+            status TEXT NOT NULL, attempts INTEGER NOT NULL, next_attempt_at_unix_ms INTEGER NOT NULL,
+            lease_until_unix_ms INTEGER, last_status INTEGER, last_error TEXT,
+            created_at_unix_ms INTEGER NOT NULL, updated_at_unix_ms INTEGER NOT NULL,
+            PRIMARY KEY (project_id, outbox_id)) STRICT, WITHOUT ROWID;
+        CREATE INDEX ix_webhook_outbox_due ON {p}webhook_outbox (status, next_attempt_at_unix_ms);
+        CREATE INDEX ix_webhook_outbox_target ON {p}webhook_outbox (project_id, target_url, status);
+        CREATE TABLE {p}webhook_targets (
+            project_id TEXT NOT NULL, target_url TEXT NOT NULL, consecutive_failures INTEGER NOT NULL,
+            failing_since_unix_ms INTEGER, last_status INTEGER, last_error TEXT,
+            disabled_at_unix_ms INTEGER, disabled_reason TEXT, updated_at_unix_ms INTEGER NOT NULL,
+            PRIMARY KEY (project_id, target_url)) STRICT, WITHOUT ROWID;
         """;
 
     // Additive: one new table. Older binaries never read or write it, so they keep working on the result.

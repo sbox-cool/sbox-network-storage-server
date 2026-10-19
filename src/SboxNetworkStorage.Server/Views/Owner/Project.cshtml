@@ -215,6 +215,10 @@
     @{
         var gameLogPolicy = new SboxNetworkStorage.Application.NetworkStorage.GameLogs.GameLogPolicy(project.GameLogs ?? new SboxNetworkStorage.Domain.Workspace.GameLogSettings());
         var gameLogCounters = (SboxNetworkStorage.Infrastructure.NetworkStorage.GameLogs.GameLogCounterSnapshot?)ViewData["GameLogCounters"];
+        var mediaRoot = project.Media is null ? default : System.Text.Json.JsonSerializer.SerializeToElement(project.Media);
+        var mediaOn = mediaRoot.ValueKind == System.Text.Json.JsonValueKind.Object
+            && mediaRoot.TryGetProperty("enabled", out var mediaEnabledValue)
+            && mediaEnabledValue.ValueKind == System.Text.Json.JsonValueKind.True;
     }
     <details class="card settings-advanced">
         <summary>Game logs</summary>
@@ -241,6 +245,23 @@
                 <textarea name="gameLogsAllowedEvents" rows="3">@string.Join("\n", gameLogPolicy.AllowedEvents)</textarea></label>
             <label>Rate limit per minute for the project <input type="number" name="gameLogsRateLimitPerMinute" value="@gameLogPolicy.RateLimitPerMinute" min="1" /></label>
             <button type="submit">Save game-log settings</button>
+        </form>
+    </details>
+    <details class="card settings-advanced">
+        <summary>Media uploads</summary>
+        <p class="muted">Lets games upload PNG, JPEG or WebP images through single-use upload grants. Off by default. Each purpose sets its own size, quota and retention. Saving this form rewrites only the purpose named below; other purposes are kept.</p>
+        <form method="post" action="@url/settings">
+            @Html.AntiForgeryToken()<input type="hidden" name="tab" value="media" />
+            <label class="check"><input type="checkbox" name="mediaEnabled" value="true" checked="@(mediaOn)" /> Enable media uploads for this project</label>
+            <label>Purpose name <input type="text" name="mediaPurpose" maxlength="32" pattern="[a-z0-9-]{1,32}" placeholder="avatar" /></label>
+            <label class="check"><input type="checkbox" name="mediaPurposeEnabled" value="true" /> Enable this purpose</label>
+            <label class="check"><input type="checkbox" name="mediaAllowClientSelfGrant" value="true" /> Allow game clients to request grants for this purpose (default: server or secret-key callers only)</label>
+            <label>Visibility <select name="mediaVisibility"><option value="private">Private (owner and secret-key reads)</option><option value="public">Public</option></select></label>
+            <label>Max bytes <input type="number" name="mediaMaxBytes" min="1" value="1048576" /></label>
+            <label>Uploads per player per hour <input type="number" name="mediaPerPlayerPerHour" min="1" max="100000" value="30" /></label>
+            <label>Project quota bytes (0 = unlimited) <input type="number" name="mediaProjectQuotaBytes" min="0" value="0" /></label>
+            <label>Retention days <input type="number" name="mediaRetentionDays" min="1" max="3650" value="30" /></label>
+            <button type="submit">Save media settings</button>
         </form>
     </details>
     <details class="card settings-advanced">

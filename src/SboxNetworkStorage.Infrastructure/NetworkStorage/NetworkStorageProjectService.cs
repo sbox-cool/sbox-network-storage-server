@@ -7,6 +7,7 @@ using System.Text.Json;
 using System.Threading;
 using SboxNetworkStorage.Application.NetworkStorage;
 using SboxNetworkStorage.Application.NetworkStorage.GameLogs;
+using SboxNetworkStorage.Application.NetworkStorage.Media;
 using SboxNetworkStorage.Contracts.NetworkStorage;
 using SboxNetworkStorage.Application.Workspace;
 using SboxNetworkStorage.Domain.Workspace;
@@ -14,6 +15,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using SboxNetworkStorage.Infrastructure.NetworkStorage.Storage;
+using SboxNetworkStorage.Storage;
 
 namespace SboxNetworkStorage.Infrastructure.NetworkStorage;
 
@@ -27,7 +29,8 @@ public sealed class NetworkStorageProjectService(
     IStorageKeyCdnWriter keyCdnWriter,
     INetworkStorageStore networkStore,
     ILogger<NetworkStorageProjectService> logger,
-    IApiKeyCacheInvalidator? keyCache = null)
+    IApiKeyCacheInvalidator? keyCache = null,
+    IWebhookOutboxStore? webhookOutbox = null)
     : INetworkStorageProjectService
 {
     // Most-recent audit-log entries pulled from the store for the dashboard
@@ -67,6 +70,17 @@ public sealed class NetworkStorageProjectService(
         var updatedProjects = projects.Concat([project]).ToList();
         await workspaceStore.SaveUserProjectsAsync(userId, updatedProjects, cancellationToken);
         return new NetworkStorageProjectCreateResult(projectId);
+    }
+
+    public async Task<WorkspaceProject?> FindProjectAsync(string projectId, CancellationToken cancellationToken)
+    {
+        if (!StorageIdValidation.IsValidCollectionId(projectId))
+        {
+            return null;
+        }
+
+        var payload = await networkStore.ReadProjectAsync(projectId, cancellationToken);
+        return payload is not { } row ? null : StoreMetadataWorkspaceClient.ReconstructProject(row, projectId);
     }
 
     // Self-hosted servers have one owner and no organizations, so a stored project is the owner's project.
@@ -432,6 +446,9 @@ public sealed class NetworkStorageProjectService(
         var projects = await workspaceStore.GetUserProjectsAsync(storageOwnerUserId, cancellationToken);
         var updated = projects.Where(p => !string.Equals(p.Id, projectId, StringComparison.OrdinalIgnoreCase)).ToList();
         await workspaceStore.SaveUserProjectsAsync(storageOwnerUserId, updated, cancellationToken);
+        // Queued sends for a deleted project must not go out after the project is gone.
+        if (webhookOutbox is not null)
+            await webhookOutbox.CancelPendingAsync(projectId, "project deleted", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), cancellationToken);
     }
 
     // ── Settings ──
@@ -552,6 +569,11 @@ public sealed class NetworkStorageProjectService(
                         ["captureStorage"] = IsChecked(formValues.GetValueOrDefault("captureStorage"))
                     };
                     project = project with { Analytics = analytics };
+                    break;
+                }
+            case "media":
+                {
+                    project = project with { Media = BuildMediaSettings(project.Media, formValues) };
                     break;
                 }
             case "revisions":
@@ -691,6 +713,52 @@ public sealed class NetworkStorageProjectService(
         project = project with { UpdatedAt = DateTimeOffset.UtcNow };
         projects[idx] = project;
         await workspaceStore.SaveUserProjectsAsync(storageOwnerUserId, projects, cancellationToken);
+    }
+
+    /// <summary>
+    /// Builds the project's <c>media</c> object from the owner form. Only the purpose named by
+    /// <c>mediaPurpose</c> is rewritten; other configured purposes are carried forward unchanged.
+    /// The parser clamps every value at read time, so these defaults only shape the stored object.
+    /// </summary>
+    private static Dictionary<string, object> BuildMediaSettings(Dictionary<string, object>? current, Dictionary<string, string> formValues)
+    {
+        var purposes = new Dictionary<string, object>(StringComparer.Ordinal);
+        if (current is not null
+            && JsonSerializer.SerializeToElement(current) is { ValueKind: JsonValueKind.Object } root
+            && root.TryGetProperty("purposes", out var stored)
+            && stored.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var entry in stored.EnumerateObject())
+                purposes[entry.Name] = entry.Value.Clone();
+        }
+
+        var name = (formValues.GetValueOrDefault("mediaPurpose") ?? "").Trim();
+        if (MediaPolicyParser.IsValidPurposeName(name))
+        {
+            var visibility = formValues.GetValueOrDefault("mediaVisibility") == MediaPolicyParser.VisibilityPublic
+                ? MediaPolicyParser.VisibilityPublic
+                : MediaPolicyParser.VisibilityPrivate;
+            var selfGrant = IsChecked(formValues.GetValueOrDefault("mediaAllowClientSelfGrant"));
+            var quota = long.TryParse(formValues.GetValueOrDefault("mediaProjectQuotaBytes"), out var parsedQuota) ? Math.Max(0L, parsedQuota) : 0L;
+            if (MediaPolicyParser.ValidateForSave(name, selfGrant, quota) is { } refused)
+                throw new MediaPolicyValidationException(refused);
+            purposes[name] = new Dictionary<string, object>
+            {
+                ["enabled"] = IsChecked(formValues.GetValueOrDefault("mediaPurposeEnabled")),
+                ["allowClientSelfGrant"] = selfGrant,
+                ["visibility"] = visibility,
+                ["maxBytes"] = ParseIntOrDefault(formValues.GetValueOrDefault("mediaMaxBytes"), 1048576, 1, int.MaxValue),
+                ["perPlayerPerHour"] = ParseIntOrDefault(formValues.GetValueOrDefault("mediaPerPlayerPerHour"), MediaPolicyParser.DefaultPerPlayerPerHour, 1, 100000),
+                ["projectQuotaBytes"] = quota,
+                ["retentionDays"] = ParseIntOrDefault(formValues.GetValueOrDefault("mediaRetentionDays"), MediaPolicyParser.DefaultRetentionDays, 1, MediaPolicyParser.MaxRetentionDays)
+            };
+        }
+
+        return new Dictionary<string, object>
+        {
+            ["enabled"] = IsChecked(formValues.GetValueOrDefault("mediaEnabled")),
+            ["purposes"] = purposes
+        };
     }
 
     // ── Usage ──

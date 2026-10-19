@@ -20,6 +20,7 @@ public sealed partial class EndpointExecutor
 {
     private readonly IEndpointDataSource _dataSource;
     private readonly IEndpointWebhookSender? _webhookSender;
+    private readonly IEndpointWebhookOutbox? _webhookOutbox;
     private readonly IPlayerAnalyticsService? _analyticsService;
     private readonly EndpointStepExecutor _executor = new();
     /// <summary>
@@ -32,16 +33,18 @@ public sealed partial class EndpointExecutor
     public EndpointExecutor(
         IEndpointDataSource dataSource,
         IEndpointWebhookSender? webhookSender = null,
-        IPlayerAnalyticsService? analyticsService = null)
+        IPlayerAnalyticsService? analyticsService = null,
+        IEndpointWebhookOutbox? webhookOutbox = null)
     {
         _dataSource = dataSource ?? throw new ArgumentNullException(nameof(dataSource));
         _webhookSender = webhookSender;
         _analyticsService = analyticsService;
+        _webhookOutbox = webhookOutbox;
     }
 
     /// <summary>The same executor reading definitions and records through <paramref name="dataSource"/>.</summary>
     public EndpointExecutor WithDataSource(IEndpointDataSource dataSource)
-        => new(dataSource, _webhookSender, _analyticsService);
+        => new(dataSource, _webhookSender, _analyticsService, _webhookOutbox);
 
     /// <summary>
     /// Execute an endpoint natively using the deterministic executor.
@@ -102,7 +105,13 @@ public sealed partial class EndpointExecutor
         // authoritative legacy server path so a notification can never be silently dropped.
         // (Dry-run mode never refuses: it dry-runs webhooks and keeps writes in-memory,
         // which is exactly what a read-only parity comparison needs.)
-        if (liveServe && _webhookSender is null && EndpointStepExecutor.RequiresLiveWebhookSender(endpointDef))
+        // Outbox mode is a per-project opt-in (default off). When on, webhook steps enqueue for the background worker
+        // and need no live sender, so the deferral below does not apply.
+        var webhookOutbox = liveServe && _webhookOutbox is not null && EndpointStepExecutor.RequiresLiveWebhookSender(endpointDef)
+            && await _dataSource.IsWebhookOutboxEnabledAsync(projectId, ct)
+                ? _webhookOutbox
+                : null;
+        if (liveServe && _webhookSender is null && webhookOutbox is null && EndpointStepExecutor.RequiresLiveWebhookSender(endpointDef))
             return null;
         var execTime = executionTime ?? DateTimeOffset.UtcNow;
 
@@ -418,10 +427,14 @@ public sealed partial class EndpointExecutor
             // Live serve sends real Discord webhooks via the injected sender; dry-run
             // mode dry-runs them (deterministic, for parity). SkipSleep is honored only
             // when serving live traffic.
-            ExecuteWebhookAsync: liveServe && _webhookSender is not null
+            ExecuteWebhookAsync: liveServe && webhookOutbox is null && _webhookSender is not null
                 ? (url, payload, wct) => _webhookSender.SendAsync(url, payload, wct)
                 : null,
-            SkipWebhooks: !liveServe || _webhookSender is null,
+            // Outbox mode (opt-in): webhook steps enqueue and report "queued"; nothing is sent on this request.
+            EnqueueWebhookAsync: webhookOutbox is null
+                ? null
+                : (url, payload, wct) => webhookOutbox.EnqueueAsync(projectId, url, payload, wct),
+            SkipWebhooks: !liveServe || (_webhookSender is null && webhookOutbox is null),
             SkipSleep: !liveServe,
             OnStep: trace is null ? null : trace.Steps.Add);
 

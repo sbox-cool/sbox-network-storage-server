@@ -15,7 +15,7 @@ public static class ServerInfoEndpoints
     /// <summary>Capabilities this server answers on.</summary>
     public static readonly string[] Capabilities =
         ["records", "global-records", "endpoints", "workflows", "queries", "game-values",
-            "rate-limits", "auth-sessions", "analytics", "package-sync", "https-tunnel", "api-root"];
+            "rate-limits", "auth-sessions", "analytics", "package-sync", "https-tunnel", "api-root", "media"];
 
     public static IEndpointRouteBuilder MapServerInfo(this IEndpointRouteBuilder endpoints)
     {
