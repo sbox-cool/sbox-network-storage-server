@@ -523,8 +523,17 @@ With **Deliver webhooks in the background** on, the step returns at once with
 - Repeated failures show **Failing since** with the consecutive-failure count.
 - A message can be repeated if a send succeeds at Discord but the server stops
   before it records the result. Discord has no idempotency key for webhooks.
+- At most 500 deliveries can wait for one project and webhook profile. Past that, the step returns
+  `webhook queue full` and nothing is queued. The limit is `WebhookOutboxWriter.MaxPendingPerTarget`.
+- A delivery still waiting after 1 hour is marked failed with reason `expired` and is never sent late.
+- Embed titles, descriptions, field names and values, and footers are cut to Discord's documented limits
+  before queueing. Titles are capped at 256 characters, descriptions at 4096, field names at 256, field values at 1024,
+  fields at 25, footers at 2048, and the whole embed at 6000.
+- The worker sends only to `https://discord.com/api/webhooks/` or `https://discordapp.com/api/webhooks/` URLs,
+  and fails any other queued row without sending.
 
-Turning background delivery off applies to later calls only.
+Turning background delivery off, or deleting the project, marks its pending deliveries suppressed
+(reason `outbox disabled` or `project deleted`). Later calls send inline.
 
 ### Request log and errors
 

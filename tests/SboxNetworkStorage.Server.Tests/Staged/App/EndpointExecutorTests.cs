@@ -482,6 +482,56 @@ public sealed class NativeEndpointExecutorTests
         Assert.Equal("""{"ok":true,"webhookOk":true,"webhookStatus":202,"webhookError":{},"webhookQueued":true}""", BodyJson(result.Body));
     }
 
+    [Fact]
+    public async Task TryExecute_WebhookOutbox_QueueFull_ReportsFixedErrorAndSendsNothing()
+    {
+        var sender = new FakeWebhookSender();
+        var outbox = new FakeWebhookOutbox { Outcome = WebhookEnqueueOutcome.QueueFull };
+
+        var body = await RunQueuedWebhookAsync(outbox, sender);
+
+        Assert.Empty(outbox.Enqueued);
+        Assert.Empty(sender.Sent);
+        Assert.Contains("\"webhookOk\":false", body);
+        Assert.Contains("\"webhookError\":\"webhook queue full\"", body);
+        Assert.DoesNotContain("\"webhookQueued\":true", body);
+    }
+
+    [Fact]
+    public async Task TryExecute_WebhookOutbox_EnqueueFailure_ReturnsFixedErrorWithoutExceptionText()
+    {
+        var sender = new FakeWebhookSender();
+        var outbox = new FakeWebhookOutbox { Failure = new InvalidOperationException("Host=db.internal;Password=hunter2") };
+
+        var body = await RunQueuedWebhookAsync(outbox, sender);
+
+        Assert.Empty(sender.Sent);
+        Assert.Contains("\"webhookError\":\"webhook enqueue failed\"", body);
+        Assert.DoesNotContain("hunter2", body);
+        Assert.DoesNotContain("db.internal", body);
+    }
+
+    private static async Task<string> RunQueuedWebhookAsync(FakeWebhookOutbox outbox, FakeWebhookSender sender)
+    {
+        var store = new Dictionary<string, object?>
+        {
+            ["proj:ep:notify"] = MakeEndpointDef(
+                steps: new List<object?> { MakeWebhookStep("notify") },
+                body: WebhookEndpointBody()),
+        };
+        var ds = new FakeDataSource(store, new Dictionary<string, object?>()) { WebhookOutboxEnabled = true };
+        var executor = new EndpointExecutor(ds, sender, webhookOutbox: outbox);
+
+        var result = await executor.TryExecuteAsync(
+            "proj", "notify",
+            input: new Dictionary<string, object?>(), steamId: "steam1", userId: "u1",
+            gameValues: new Dictionary<string, object?>(),
+            hasSecretKey: true, isDedicatedServer: true, CancellationToken.None, liveServe: true);
+
+        Assert.NotNull(result);
+        return BodyJson(result!.Body);
+    }
+
     private static Dictionary<string, object?> WebhookEndpointBody() => new()
     {
         ["ok"] = true,
@@ -496,11 +546,14 @@ public sealed class NativeEndpointExecutorTests
     private sealed class FakeWebhookOutbox : IEndpointWebhookOutbox
     {
         public List<(string ProjectId, string Url, IReadOnlyDictionary<string, object?> Payload)> Enqueued { get; } = new();
+        public WebhookEnqueueOutcome Outcome { get; init; } = WebhookEnqueueOutcome.Queued;
+        public Exception? Failure { get; init; }
 
-        public Task EnqueueAsync(string projectId, string webhookUrl, IReadOnlyDictionary<string, object?> payload, CancellationToken ct)
+        public Task<WebhookEnqueueOutcome> EnqueueAsync(string projectId, string webhookUrl, IReadOnlyDictionary<string, object?> payload, CancellationToken ct)
         {
-            Enqueued.Add((projectId, webhookUrl, payload));
-            return Task.CompletedTask;
+            if (Failure is not null) throw Failure;
+            if (Outcome == WebhookEnqueueOutcome.Queued) Enqueued.Add((projectId, webhookUrl, payload));
+            return Task.FromResult(Outcome);
         }
     }
 

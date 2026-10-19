@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http;
 using Microsoft.Extensions.Logging.Abstractions;
+using SboxNetworkStorage.Application.NetworkStorage.Endpoints;
 using SboxNetworkStorage.Infrastructure.NetworkStorage;
 using SboxNetworkStorage.Storage;
 using Xunit;
@@ -12,6 +13,7 @@ public sealed class WebhookOutboxTests
 {
     private const string ProjectId = "proj_outbox";
     private const string Hook = "https://discord.com/api/webhooks/123/token-secret";
+    private const string OtherHook = "https://discord.com/api/webhooks/456/token-other";
     private static readonly Dictionary<string, object?> Payload = new() { ["content"] = "hi" };
     private static readonly CancellationToken Ct = CancellationToken.None;
 
@@ -131,6 +133,192 @@ public sealed class WebhookOutboxTests
         Assert.Equal(1, await store.ReapExpiredLeasesAsync(NowMs(time), Ct));
         Assert.Equal(0, await Dispatcher(store, handler, time).DrainOnceAsync(10, Ct));
         Assert.Equal(0, handler.Calls);
+    }
+
+    [Fact]
+    public async Task EnqueueRefusesAtPendingCapPerTargetWhileOtherTargetsStillQueue()
+    {
+        var time = new ManualTime();
+        var store = new InMemoryWebhookOutboxStore();
+        var writer = new WebhookOutboxWriter(store, time);
+        for (var i = 0; i < WebhookOutboxWriter.MaxPendingPerTarget; i++)
+            Assert.Equal(WebhookEnqueueOutcome.Queued, await writer.EnqueueAsync(ProjectId, Hook, Payload, Ct));
+
+        Assert.Equal(WebhookEnqueueOutcome.QueueFull, await writer.EnqueueAsync(ProjectId, Hook, Payload, Ct));
+        Assert.Equal(WebhookEnqueueOutcome.Queued, await writer.EnqueueAsync(ProjectId, OtherHook, Payload, Ct));
+        Assert.Equal(WebhookEnqueueOutcome.Queued, await writer.EnqueueAsync("proj_other", Hook, Payload, Ct));
+
+        var rows = await store.ClaimDueAsync(NowMs(time), NowMs(time) + 60_000, 10_000, Ct);
+        Assert.Equal(WebhookOutboxWriter.MaxPendingPerTarget, rows.Count(r => r.ProjectId == ProjectId && r.TargetUrl == Hook));
+        Assert.Equal(WebhookOutboxWriter.MaxPendingPerTarget + 2, rows.Count);
+    }
+
+    [Fact]
+    public async Task DeliveredRowFreesAPendingSlot()
+    {
+        var time = new ManualTime();
+        var store = new InMemoryWebhookOutboxStore();
+        var handler = new ScriptedHandler(_ => new HttpResponseMessage(HttpStatusCode.NoContent));
+        var writer = new WebhookOutboxWriter(store, time);
+        for (var i = 0; i < WebhookOutboxWriter.MaxPendingPerTarget; i++)
+            await writer.EnqueueAsync(ProjectId, Hook, Payload, Ct);
+        Assert.Equal(WebhookEnqueueOutcome.QueueFull, await writer.EnqueueAsync(ProjectId, Hook, Payload, Ct));
+
+        Assert.Equal(1, await Dispatcher(store, handler, time).DrainOnceAsync(1, Ct));
+        Assert.Equal(WebhookEnqueueOutcome.Queued, await writer.EnqueueAsync(ProjectId, Hook, Payload, Ct));
+    }
+
+    [Fact]
+    public async Task PendingRowsOlderThanMaxAgeExpireAndAreNeverSent()
+    {
+        var time = new ManualTime();
+        var store = new InMemoryWebhookOutboxStore();
+        var handler = new ScriptedHandler(_ => new HttpResponseMessage(HttpStatusCode.NoContent));
+        var writer = new WebhookOutboxWriter(store, time);
+        await writer.EnqueueAsync(ProjectId, Hook, Payload, Ct);
+        time.Advance(WebhookOutboxWriter.MaxPendingAge + TimeSpan.FromMinutes(1));
+        await writer.EnqueueAsync(ProjectId, Hook, Payload, Ct);
+
+        var cutoff = NowMs(time) - (long)WebhookOutboxWriter.MaxPendingAge.TotalMilliseconds;
+        Assert.Equal(1, await store.ExpirePendingAsync(cutoff, NowMs(time), Ct));
+
+        // Only the fresh row is delivered; the expired one is failed and never sent late.
+        Assert.Equal(1, await Dispatcher(store, handler, time).DrainOnceAsync(10, Ct));
+        Assert.Equal(1, handler.Calls);
+    }
+
+    [Fact]
+    public async Task CancelPendingSuppressesQueuedRowsWithoutSending()
+    {
+        var time = new ManualTime();
+        var store = new InMemoryWebhookOutboxStore();
+        var handler = new ScriptedHandler(_ => new HttpResponseMessage(HttpStatusCode.NoContent));
+        var writer = new WebhookOutboxWriter(store, time);
+        await writer.EnqueueAsync(ProjectId, Hook, Payload, Ct);
+        await writer.EnqueueAsync(ProjectId, Hook, Payload, Ct);
+
+        Assert.Equal(2, await store.CancelPendingAsync(ProjectId, "outbox disabled", NowMs(time), Ct));
+        Assert.Equal(0, await Dispatcher(store, handler, time).DrainOnceAsync(10, Ct));
+        Assert.Equal(0, handler.Calls);
+    }
+
+    [Fact]
+    public async Task PruneRemovesOnlyIdleEnabledTargetsWithoutOutboxRows()
+    {
+        const string idleHook = "https://discord.com/api/webhooks/789/idle";
+        const string disabledHook = "https://discord.com/api/webhooks/790/disabled";
+        var time = new ManualTime();
+        var store = new InMemoryWebhookOutboxStore();
+        await store.WriteTargetAsync(new WebhookTargetState(ProjectId, idleHook, 0, null, null, null, null, null, 1), Ct);
+        await store.WriteTargetAsync(new WebhookTargetState(ProjectId, Hook, 0, null, null, null, null, null, 1), Ct);
+        await store.WriteTargetAsync(new WebhookTargetState(ProjectId, disabledHook, 5, 1, 404, "x", 1, "HTTP 404: webhook not found", 1), Ct);
+        await new WebhookOutboxWriter(store, time).EnqueueAsync(ProjectId, Hook, Payload, Ct);
+
+        Assert.Equal(1, await store.PruneStaleTargetsAsync(2, Ct));
+        Assert.Null(await store.ReadTargetAsync(ProjectId, idleHook, Ct));
+        Assert.NotNull(await store.ReadTargetAsync(ProjectId, Hook, Ct));
+        Assert.NotNull(await store.ReadTargetAsync(ProjectId, disabledHook, Ct));
+    }
+
+    [Fact]
+    public async Task QueuedRowCarriesTruncatedEmbedText()
+    {
+        var time = new ManualTime();
+        var store = new InMemoryWebhookOutboxStore();
+        var payload = new Dictionary<string, object?>
+        {
+            ["embeds"] = new List<object?> { new Dictionary<string, object?> { ["title"] = new string('x', 1000) } },
+        };
+        await new WebhookOutboxWriter(store, time).EnqueueAsync(ProjectId, Hook, payload, Ct);
+
+        var row = Assert.Single(await store.ClaimDueAsync(NowMs(time), NowMs(time) + 60_000, 10, Ct));
+        Assert.DoesNotContain(new string('x', 257), row.PayloadJson);
+        Assert.Contains(new string('x', 256), row.PayloadJson);
+    }
+
+    [Fact]
+    public void EmbedTextIsCutToDiscordLimits()
+    {
+        var fields = Enumerable.Range(0, 30).Select(_ => (object?)new Dictionary<string, object?>
+        {
+            ["name"] = new string('n', 300),
+            ["value"] = new string('v', 1500),
+            ["inline"] = false,
+        }).ToList();
+        var payload = new Dictionary<string, object?>
+        {
+            ["embeds"] = new List<object?>
+            {
+                new Dictionary<string, object?>
+                {
+                    ["title"] = new string('t', 400),
+                    ["description"] = new string('d', 5000),
+                    ["fields"] = fields,
+                    ["footer"] = new Dictionary<string, object?> { ["text"] = new string('f', 3000) },
+                },
+            },
+        };
+
+        var embed = (Dictionary<string, object?>)((List<object?>)DiscordEmbedLimits.Apply(payload)["embeds"]!)[0]!;
+        var title = Assert.IsType<string>(embed["title"]);
+        var description = Assert.IsType<string>(embed["description"]);
+        var footer = Assert.IsType<string>(((Dictionary<string, object?>)embed["footer"]!)["text"]);
+        var outFields = Assert.IsType<List<Dictionary<string, object?>>>(embed["fields"]);
+
+        Assert.Equal(256, title.Length);
+        Assert.Equal(2048, footer.Length);
+        Assert.True(outFields.Count <= 25);
+        Assert.All(outFields, f =>
+        {
+            Assert.True(((string)f["name"]!).Length <= 256);
+            Assert.True(((string)f["value"]!).Length <= 1024);
+        });
+        var total = title.Length + description.Length + footer.Length
+            + outFields.Sum(f => ((string)f["name"]!).Length + ((string)f["value"]!).Length);
+        Assert.True(total <= 6000);
+        // The caller's payload is not modified.
+        Assert.Equal(400, ((string)((Dictionary<string, object?>)((List<object?>)payload["embeds"]!)[0]!)["title"]!).Length);
+    }
+
+    [Fact]
+    public void EmbedTruncationDoesNotSplitASurrogatePair()
+    {
+        var payload = new Dictionary<string, object?>
+        {
+            ["embeds"] = new List<object?> { new Dictionary<string, object?> { ["title"] = new string('a', 255) + "\U0001F600" } },
+        };
+
+        var title = (string)((Dictionary<string, object?>)((List<object?>)DiscordEmbedLimits.Apply(payload)["embeds"]!)[0]!)["title"]!;
+        Assert.Equal(255, title.Length);
+        Assert.False(char.IsHighSurrogate(title[^1]));
+    }
+
+    [Theory]
+    [InlineData("https://discord.com/api/webhooks/1/tok", true)]
+    [InlineData("https://discordapp.com/api/webhooks/1/tok", true)]
+    [InlineData("http://discord.com/api/webhooks/1/tok", false)]
+    [InlineData("https://user@discord.com/api/webhooks/1/tok", false)]
+    [InlineData("https://discord.com:8443/api/webhooks/1/tok", false)]
+    [InlineData("https://discord.com.evil.example/api/webhooks/1/tok", false)]
+    [InlineData("https://discord.com/api/v10/channels/1/messages", false)]
+    [InlineData("https://evil.example/api/webhooks/1/tok", false)]
+    [InlineData("not a url", false)]
+    [InlineData(null, false)]
+    public void OnlyDiscordWebhookUrlsAreAllowedAtSendTime(string? url, bool allowed)
+        => Assert.Equal(allowed, DiscordWebhookUrl.IsAllowed(url));
+
+    [Fact]
+    public async Task DispatcherFailsRowWithNonDiscordTargetWithoutSending()
+    {
+        var time = new ManualTime();
+        var store = new InMemoryWebhookOutboxStore();
+        var handler = new ScriptedHandler(_ => new HttpResponseMessage(HttpStatusCode.NoContent));
+        await new WebhookOutboxWriter(store, time).EnqueueAsync(ProjectId, "https://evil.example/api/webhooks/1/tok", Payload, Ct);
+
+        await Dispatcher(store, handler, time).DrainOnceAsync(10, Ct);
+
+        Assert.Equal(0, handler.Calls);
+        Assert.Empty(await store.ClaimDueAsync(NowMs(time), NowMs(time) + 60_000, 10, Ct));
     }
 
     private static WebhookOutboxDispatcher Dispatcher(IWebhookOutboxStore store, ScriptedHandler handler, TimeProvider time)

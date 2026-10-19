@@ -45,6 +45,7 @@ public static class PostgresMigrations
             created_at_unix_ms bigint NOT NULL, updated_at_unix_ms bigint NOT NULL,
             PRIMARY KEY (project_id, outbox_id));
         CREATE INDEX ix_webhook_outbox_due ON {p}webhook_outbox (status, next_attempt_at_unix_ms);
+        CREATE INDEX ix_webhook_outbox_target ON {p}webhook_outbox (project_id, target_url, status);
         CREATE TABLE {p}webhook_targets (
             project_id {Key}, target_url {Key}, consecutive_failures integer NOT NULL,
             failing_since_unix_ms bigint, last_status integer, last_error text,

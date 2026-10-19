@@ -86,6 +86,7 @@ public sealed partial class OwnerWebhooksController(INetworkStorageProjectServic
     {
         var model = await LoadAsync(projectId, ct);
         if (model is null) return NotFound();
+        if (!enabled) await outbox.CancelPendingAsync(projectId, "outbox disabled", time.GetUtcNow().ToUnixTimeMilliseconds(), ct);
         await UpdateProjectAsync(projectId, project => project with { WebhookOutbox = enabled ? true : null, UpdatedAt = DateTimeOffset.UtcNow }, ct);
         await OwnerProjectScope.AuditAsync(audit, projectId, "webhooks.outbox", new { enabled }, ct);
         OwnerFlash.Success(this, enabled ? "Webhook deliveries are now queued in the background." : "Webhook deliveries are sent inline again.");

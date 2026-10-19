@@ -40,6 +40,13 @@ public sealed class WebhookOutboxDispatcher(
     private async Task DeliverAsync(WebhookOutboxRow row, CancellationToken ct)
     {
         var now = NowMs();
+        if (!DiscordWebhookUrl.IsAllowed(row.TargetUrl))
+        {
+            // The step validates the URL before enqueue; re-check here so a row written any other way is never sent.
+            logger.LogWarning("Webhook outbox row {OutboxId} has a target that is not a Discord webhook URL; not sent", row.OutboxId);
+            await store.UpdateAsync(Finish(row, WebhookOutboxStatus.Failed, row.Attempts, now, null, "target is not a Discord webhook URL", now), ct);
+            return;
+        }
         var target = await store.ReadTargetAsync(row.ProjectId, row.TargetUrl, ct);
         if (target?.DisabledAtUnixMs is not null)
         {

@@ -44,6 +44,7 @@ public static class SqliteMigrations
             created_at_unix_ms INTEGER NOT NULL, updated_at_unix_ms INTEGER NOT NULL,
             PRIMARY KEY (project_id, outbox_id)) STRICT, WITHOUT ROWID;
         CREATE INDEX ix_webhook_outbox_due ON {p}webhook_outbox (status, next_attempt_at_unix_ms);
+        CREATE INDEX ix_webhook_outbox_target ON {p}webhook_outbox (project_id, target_url, status);
         CREATE TABLE {p}webhook_targets (
             project_id TEXT NOT NULL, target_url TEXT NOT NULL, consecutive_failures INTEGER NOT NULL,
             failing_since_unix_ms INTEGER, last_status INTEGER, last_error TEXT,

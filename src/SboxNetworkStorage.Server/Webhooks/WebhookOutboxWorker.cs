@@ -6,8 +6,9 @@ namespace SboxNetworkStorage.Server.Webhooks;
 
 /// <summary>
 /// Drains <c>webhook_outbox</c> about once a second. Each tick reaps expired leases (interrupted sends become
-/// failed, never resent), delivers due rows in batches, and about every 10 minutes purges finished rows older
-/// than 7 days. Endpoint execution never waits on this worker.
+/// failed, never resent) and delivers due rows in batches. About every 10 minutes it expires pending rows older
+/// than <see cref="WebhookOutboxWriter.MaxPendingAge"/>, purges finished rows older than 7 days, and prunes stale
+/// target state. Endpoint execution never waits on this worker.
 /// </summary>
 public sealed class WebhookOutboxWorker(
     IWebhookOutboxStore store,
@@ -42,7 +43,13 @@ public sealed class WebhookOutboxWorker(
 
                     if (time.GetUtcNow() >= nextPurge)
                     {
-                        await store.PurgeFinishedAsync(time.GetUtcNow().Subtract(Retention).ToUnixTimeMilliseconds(), stoppingToken);
+                        var current = time.GetUtcNow();
+                        var expired = await store.ExpirePendingAsync(current.Subtract(WebhookOutboxWriter.MaxPendingAge).ToUnixTimeMilliseconds(), current.ToUnixTimeMilliseconds(), stoppingToken);
+                        if (expired > 0)
+                            logger.LogWarning("Expired {Count} webhook deliveries pending longer than {MaxAge}", expired, WebhookOutboxWriter.MaxPendingAge);
+                        var retentionCutoff = current.Subtract(Retention).ToUnixTimeMilliseconds();
+                        await store.PurgeFinishedAsync(retentionCutoff, stoppingToken);
+                        await store.PruneStaleTargetsAsync(retentionCutoff, stoppingToken);
                         nextPurge = time.GetUtcNow().Add(PurgeInterval);
                     }
                 }

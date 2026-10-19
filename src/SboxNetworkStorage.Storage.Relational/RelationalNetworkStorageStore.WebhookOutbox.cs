@@ -9,13 +9,16 @@ public abstract partial class RelationalNetworkStorageStore : IWebhookOutboxStor
     private const string OutboxColumns = "project_id, outbox_id, target_url, payload_json, status, attempts, next_attempt_at_unix_ms, lease_until_unix_ms, last_status, last_error, created_at_unix_ms, updated_at_unix_ms";
     private const string TargetColumns = "project_id, target_url, consecutive_failures, failing_since_unix_ms, last_status, last_error, disabled_at_unix_ms, disabled_reason, updated_at_unix_ms";
 
-    public async Task EnqueueAsync(WebhookOutboxRow row, CancellationToken ct)
+    public async Task<bool> EnqueueAsync(WebhookOutboxRow row, int maxPendingPerTarget, CancellationToken ct)
     {
         StoreValidation.Id(row.ProjectId);
-        await ExecuteAsync($"""
+        // One statement counts and inserts, so the cap holds under concurrent enqueues.
+        var inserted = await ExecuteCountAsync($"""
             INSERT INTO {T("webhook_outbox")} ({OutboxColumns})
-            VALUES (@project, @outbox, @target, @payload, @status, @attempts, @next, @lease, @last_status, @last_error, @created, @updated)
-            """, ct, OutboxArgs(row));
+            SELECT @project, @outbox, @target, @payload, @status, @attempts, @next, @lease, @last_status, @last_error, @created, @updated
+            WHERE (SELECT COUNT(*) FROM {T("webhook_outbox")} WHERE project_id = @project AND target_url = @target AND status = 'pending') < @cap
+            """, ct, [.. OutboxArgs(row), Int32("cap", maxPendingPerTarget)]);
+        return inserted == 1;
     }
 
     public async Task<IReadOnlyList<WebhookOutboxRow>> ClaimDueAsync(long nowUnixMs, long leaseUntilUnixMs, int limit, CancellationToken ct)
@@ -54,6 +57,28 @@ public abstract partial class RelationalNetworkStorageStore : IWebhookOutboxStor
     public Task<int> PurgeFinishedAsync(long beforeUnixMs, CancellationToken ct)
         => ExecuteCountAsync($"""
             DELETE FROM {T("webhook_outbox")} WHERE status IN ('delivered', 'failed', 'suppressed') AND updated_at_unix_ms < @before
+            """, ct, Int64("before", beforeUnixMs));
+
+    public Task<int> ExpirePendingAsync(long createdBeforeUnixMs, long nowUnixMs, CancellationToken ct)
+        => ExecuteCountAsync($"""
+            UPDATE {T("webhook_outbox")} SET status = 'failed', last_error = 'expired', updated_at_unix_ms = @now
+            WHERE status = 'pending' AND created_at_unix_ms < @before
+            """, ct, Int64("before", createdBeforeUnixMs), Int64("now", nowUnixMs));
+
+    public async Task<int> CancelPendingAsync(string projectId, string reason, long nowUnixMs, CancellationToken ct)
+    {
+        StoreValidation.Id(projectId);
+        return await ExecuteCountAsync($"""
+            UPDATE {T("webhook_outbox")} SET status = 'suppressed', lease_until_unix_ms = NULL, last_error = @reason, updated_at_unix_ms = @now
+            WHERE project_id = @project AND status = 'pending'
+            """, ct, Text("project", projectId), Text("reason", reason), Int64("now", nowUnixMs));
+    }
+
+    public Task<int> PruneStaleTargetsAsync(long beforeUnixMs, CancellationToken ct)
+        => ExecuteCountAsync($"""
+            DELETE FROM {T("webhook_targets")} AS t
+            WHERE t.disabled_at_unix_ms IS NULL AND t.updated_at_unix_ms < @before
+              AND NOT EXISTS (SELECT 1 FROM {T("webhook_outbox")} AS o WHERE o.project_id = t.project_id AND o.target_url = t.target_url)
             """, ct, Int64("before", beforeUnixMs));
 
     public async Task<WebhookTargetState?> ReadTargetAsync(string projectId, string targetUrl, CancellationToken ct)

@@ -590,12 +590,15 @@ public sealed partial class EndpointStepExecutor
                     {
                         try
                         {
-                            await request.EnqueueWebhookAsync(webhookUrl, payload, ct);
-                            context[asKey ?? id] = new Dictionary<string, object?> { ["ok"] = true, ["status"] = 202, ["queued"] = true };
+                            var outcome = await request.EnqueueWebhookAsync(webhookUrl, payload, ct);
+                            context[asKey ?? id] = outcome == WebhookEnqueueOutcome.Queued
+                                ? new Dictionary<string, object?> { ["ok"] = true, ["status"] = 202, ["queued"] = true }
+                                : new Dictionary<string, object?> { ["ok"] = false, ["status"] = 0, ["error"] = "webhook queue full" };
                         }
                         catch (Exception ex) when (ex is not OperationCanceledException)
                         {
-                            context[asKey ?? id] = new Dictionary<string, object?> { ["ok"] = false, ["status"] = 0, ["error"] = ex.Message };
+                            // Fixed text: the exception message may carry connection or SQL detail that must not reach the game.
+                            context[asKey ?? id] = new Dictionary<string, object?> { ["ok"] = false, ["status"] = 0, ["error"] = "webhook enqueue failed" };
                         }
                         return null;
                     }
@@ -1484,7 +1487,7 @@ public sealed record EndpointExecutionRequest(
     Func<string, CancellationToken, Task<Dictionary<string, object?>?>>? LoadWorkflow = null,
     Func<string, Dictionary<string, object?>, CancellationToken, Task<(bool Ok, int Status, string? Error)>>? ExecuteWebhookAsync = null,
     // Outbox mode: when set, webhook steps enqueue the send instead of calling ExecuteWebhookAsync; the step reports "queued".
-    Func<string, Dictionary<string, object?>, CancellationToken, Task>? EnqueueWebhookAsync = null,
+    Func<string, Dictionary<string, object?>, CancellationToken, Task<WebhookEnqueueOutcome>>? EnqueueWebhookAsync = null,
     bool SkipWebhooks = false,
     bool SkipSleep = false,
     Action<EndpointStepTrace>? OnStep = null);

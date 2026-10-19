@@ -7,7 +7,8 @@ namespace SboxNetworkStorage.Storage;
 /// </summary>
 public interface IWebhookOutboxStore
 {
-    Task EnqueueAsync(WebhookOutboxRow row, CancellationToken ct);
+    /// <summary>Stores a pending row unless its (project, target) already holds <paramref name="maxPendingPerTarget"/> pending rows. Returns false, storing nothing, when full.</summary>
+    Task<bool> EnqueueAsync(WebhookOutboxRow row, int maxPendingPerTarget, CancellationToken ct);
 
     /// <summary>Claims up to <paramref name="limit"/> pending rows due at <paramref name="nowUnixMs"/> (pending to sending, leased until <paramref name="leaseUntilUnixMs"/>).</summary>
     Task<IReadOnlyList<WebhookOutboxRow>> ClaimDueAsync(long nowUnixMs, long leaseUntilUnixMs, int limit, CancellationToken ct);
@@ -20,6 +21,15 @@ public interface IWebhookOutboxStore
 
     /// <summary>Deletes finished rows (delivered, failed, suppressed) last updated before <paramref name="beforeUnixMs"/>.</summary>
     Task<int> PurgeFinishedAsync(long beforeUnixMs, CancellationToken ct);
+
+    /// <summary>Marks pending rows created before <paramref name="createdBeforeUnixMs"/> failed ("expired"). They are never sent late.</summary>
+    Task<int> ExpirePendingAsync(long createdBeforeUnixMs, long nowUnixMs, CancellationToken ct);
+
+    /// <summary>Suppresses a project's pending rows with <paramref name="reason"/> (outbox turned off, project deleted).</summary>
+    Task<int> CancelPendingAsync(string projectId, string reason, long nowUnixMs, CancellationToken ct);
+
+    /// <summary>Deletes target state last updated before the cutoff that has no outbox rows and is not disabled.</summary>
+    Task<int> PruneStaleTargetsAsync(long beforeUnixMs, CancellationToken ct);
 
     Task<WebhookTargetState?> ReadTargetAsync(string projectId, string targetUrl, CancellationToken ct);
     Task<IReadOnlyList<WebhookTargetState>> ListTargetsAsync(string projectId, CancellationToken ct);
