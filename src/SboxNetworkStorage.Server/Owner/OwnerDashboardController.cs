@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text.Json;
 using Microsoft.AspNetCore.Authorization;
@@ -72,7 +73,7 @@ public sealed record OwnerProjectModel(WorkspaceProject Project, NetworkStorageP
 [Authorize(AuthenticationSchemes = OwnerHostingExtensions.Scheme)]
 public sealed class OwnerDashboardController(INetworkStorageProjectService projects, IWorkspaceStore workspace,
     IAuditLogger audit, INetworkStorageStore store, EffectiveConfig config, IMemoryCache cache, TimeProvider time, GameLogQueue gameLogs,
-    ReleaseStatusService releaseStatus, RequestEncryptionKeyStore encryptionKeys) : Controller
+    ReleaseStatusService releaseStatus, RequestEncryptionKeyStore encryptionKeys, OwnerAccountService accounts) : Controller
 {
     private const long Owner = NetworkStorageServices.LocalOwnerUserId;
     private const int RecentRequests = 200;
@@ -191,11 +192,21 @@ public sealed class OwnerDashboardController(INetworkStorageProjectService proje
         return Redirect(ProjectUrl(projectId));
     }
 
-    /// <summary>Rotates the server-wide request encryption key. The previous key stays valid for the grace period.</summary>
+    /// <summary>Rotates the server-wide request encryption key. The previous key stays valid for the grace period. Needs the owner's password, and the authenticator or a recovery code when enabled, as for export.</summary>
     [HttpPost("/dashboard/projects/{projectId}/encryption/rotate")]
-    public async Task<IActionResult> RotateEncryptionKey(string projectId, [FromForm] string? graceSeconds, CancellationToken ct)
+    public async Task<IActionResult> RotateEncryptionKey(string projectId, [FromForm] string? graceSeconds,
+        [FromForm] string? password, [FromForm] string? secondFactor, CancellationToken ct)
     {
         if (await LoadProjectAsync(projectId, ct) is null) return NotFound();
+        try
+        {
+            if (!await accounts.ConfirmAsync(User.Identity!.Name!, User.FindFirstValue(OwnerHostingExtensions.StampClaim), password, secondFactor, ct))
+                return await ProjectErrorAsync(projectId, "Enter your password, and your authenticator or recovery code if you enabled one.", ct);
+        }
+        catch (OwnerAuthenticatorUnavailableException)
+        {
+            return await ProjectErrorAsync(projectId, "This server cannot read your authenticator. Use a recovery code, or run sbox-ns admin reset-2fa on the server.", ct);
+        }
         if (!int.TryParse(graceSeconds, NumberStyles.None, CultureInfo.InvariantCulture, out var grace)
             || grace < 0 || grace > RequestEncryptionKeyring.MaxGraceSeconds)
             return await ProjectErrorAsync(projectId, $"Grace period must be a whole number of seconds from 0 to {RequestEncryptionKeyring.MaxGraceSeconds}.", ct);

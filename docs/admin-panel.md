@@ -272,7 +272,8 @@ only the v2 modes use it.
 **grace** period, in seconds: default 86400 (one day), maximum 2592000 (30 days). Until
 it ends, v2 calls made with the old key still succeed. After it ends they are refused
 with `SECURITY_CONFIG_STALE`, and the library fetches the new key. Grace 0 ends the old
-key at once. Rotation does not affect v1 calls. Only the owner can rotate. On the server
+key at once. Rotation does not affect v1 calls. Rotating needs the owner's current
+password, plus the authenticator or a recovery code when two-factor is enabled. On the server
 host, `sbox-ns security rotate-key [--grace-seconds N]` does the same, and
 `sbox-ns security status` lists the current and retired keys.
 

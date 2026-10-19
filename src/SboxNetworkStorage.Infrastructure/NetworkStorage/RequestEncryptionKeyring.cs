@@ -12,6 +12,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using System.Threading;
+using Microsoft.Extensions.Logging;
 
 namespace SboxNetworkStorage.Infrastructure.NetworkStorage;
 
@@ -85,6 +86,10 @@ public sealed class RequestEncryptionKeyring
                 $"Grace must be between 0 and {MaxGraceSeconds} seconds.");
         }
 
+        if (!File.Exists(path)) throw new FileNotFoundException("Request encryption keys file does not exist.", path);
+
+        // Held across the read-modify-write so concurrent rotations cannot both start from the same file.
+        using var lockFile = AcquireLock(path);
         var existing = Load(path);
         var previous = existing._entries[0];
         var retired = previous with
@@ -267,6 +272,29 @@ public sealed class RequestEncryptionKeyring
         }
     }
 
+    /// <summary>
+    /// Exclusive lock on the keys file's sibling <c>.lock</c> file. FileShare.None is an OS lock (sharing mode on
+    /// Windows, flock on Unix), so it is released if the process dies. Waits up to ten seconds for another rotation.
+    /// </summary>
+    private static FileStream AcquireLock(string path)
+    {
+        var lockPath = Path.GetFullPath(path) + ".lock";
+        var deadline = Stopwatch.GetTimestamp() + Stopwatch.Frequency * 10;
+        for (var attempt = 1; ; attempt++)
+        {
+            var options = new FileStreamOptions { Mode = FileMode.OpenOrCreate, Access = FileAccess.ReadWrite, Share = FileShare.None };
+            if (!OperatingSystem.IsWindows()) options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+            try
+            {
+                return new FileStream(lockPath, options);
+            }
+            catch (IOException) when (Stopwatch.GetTimestamp() < deadline)
+            {
+                Thread.Sleep(Math.Min(attempt * 20, 200));
+            }
+        }
+    }
+
     private static DateTimeOffset ParseTime(string path, string? text)
         => DateTimeOffset.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.None, out var value)
             ? value
@@ -317,10 +345,13 @@ public sealed class RequestEncryptionKeyStore
     private RequestEncryptionKeyring? _snapshot;
     private DateTime _snapshotWriteTimeUtc;
     private long _nextCheckTicks;
+    private readonly ILogger<RequestEncryptionKeyStore>? _logger;
+    private bool _missingReported;
 
-    public RequestEncryptionKeyStore(string path)
+    public RequestEncryptionKeyStore(string path, ILogger<RequestEncryptionKeyStore>? logger = null)
     {
         Path = path;
+        _logger = logger;
     }
 
     public string Path { get; }
@@ -357,6 +388,19 @@ public sealed class RequestEncryptionKeyStore
 
     private void RefreshIfChanged()
     {
+        if (_snapshot is not null && !File.Exists(Path))
+        {
+            // Keep serving the loaded keys so an accidental delete does not break decryption, but say so once.
+            if (!_missingReported)
+            {
+                _missingReported = true;
+                _logger?.LogWarning("Request encryption keys file {Path} is missing; continuing with the keys already loaded.", Path);
+            }
+
+            return;
+        }
+
+        _missingReported = false;
         var writeTime = File.GetLastWriteTimeUtc(Path);
         if (_snapshot is not null && writeTime == _snapshotWriteTimeUtc) return;
 

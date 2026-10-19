@@ -209,6 +209,8 @@
             <form method="post" action="@url/encryption/rotate">
                 @Html.AntiForgeryToken()
                 <label>Grace period for the previous key (seconds) <input type="number" name="graceSeconds" value="@RequestEncryptionKeyring.DefaultGraceSeconds" min="0" max="@RequestEncryptionKeyring.MaxGraceSeconds" required /></label>
+                <label>Current password <input type="password" name="password" autocomplete="current-password" required maxlength="1024" /></label>
+                <label>Authenticator or recovery code (if enabled) <input name="secondFactor" maxlength="32" autocomplete="one-time-code" /></label>
                 <button type="submit" class="secondary">Rotate request encryption key</button>
             </form>
         </details>

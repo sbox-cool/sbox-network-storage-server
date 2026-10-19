@@ -40,6 +40,18 @@ public sealed class OwnerAccountService(INetworkStorageStore store, EffectiveCon
             && string.Equals(account.Username, username.Trim(), StringComparison.OrdinalIgnoreCase) ? account : null;
     }
 
+    /// <summary>
+    /// Re-entry for sensitive owner actions such as rotating the server-wide request key: the current password,
+    /// plus the authenticator or a recovery code when enabled. Same rule as the export dialog.
+    /// </summary>
+    public async Task<bool> ConfirmAsync(string username, string? stamp, string? password, string? secondFactor, CancellationToken ct)
+    {
+        if (password is not { Length: >= 1 and <= 1024 }) return false;
+        var owner = await AuthenticateAsync(username, password, ct);
+        if (owner is null || owner.SecurityStamp != stamp) return false;
+        return owner.TotpSecret is null || await VerifySecondFactorAsync(owner.SecurityStamp, secondFactor, ct);
+    }
+
     public Task<OwnerAccount> CreateAsync(string username, string password, CancellationToken ct)
         => MutateAsync(username, password, reset: false, ct);
 

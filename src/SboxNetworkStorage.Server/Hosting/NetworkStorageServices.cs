@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Logging;
 using SboxNetworkStorage.Application.Common;
 
 using SboxNetworkStorage.Application.Errors;
@@ -224,7 +225,9 @@ public static class NetworkStorageServices
         services.AddScoped<RevisionInitHandler>();
         services.AddScoped<NativeStatsHeartbeatHandler>();
 
-        services.AddSingleton(new RequestEncryptionKeyStore(config.GetPath("auth.request_encryption_keys_file", config.RuntimeDirectory)));
+        services.AddSingleton(sp => new RequestEncryptionKeyStore(
+            config.GetPath("auth.request_encryption_keys_file", config.RuntimeDirectory),
+            sp.GetRequiredService<ILogger<RequestEncryptionKeyStore>>()));
         services.AddSingleton<IAuthSessionSecretProvider, ConfigurationAuthSessionSecretProvider>();
         services.AddSingleton<INetworkStorageAuthSessionService, NetworkStorageAuthSessionService>();
         services.AddHostedService<AuthSessionSecretValidationHostedService>();

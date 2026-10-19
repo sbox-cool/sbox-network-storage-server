@@ -26,7 +26,7 @@ public abstract class EncryptedEndpointRequestTests<TFactory> : IDisposable wher
     private async Task<SelfHostProject> ProjectAsync(bool encrypted = true)
     {
         var project = await factory.CreateProjectAsync("Encrypted requests");
-        if (encrypted) await factory.UpdateProjectAsync(project.ProjectId, p => p with { EnableEncryptedRequests = true });
+        if (encrypted) await factory.UpdateProjectAsync(project.ProjectId, p => p with { EncryptedRequestMode = "v1" });
         await using var scope = factory.Services.CreateAsyncScope();
         var store = scope.ServiceProvider.GetRequiredService<INetworkStorageStore>();
         await store.UpsertCollectionAsync(project.ProjectId, "players", "Players", "public",
