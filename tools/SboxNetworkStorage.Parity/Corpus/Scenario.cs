@@ -88,4 +88,11 @@ public sealed class Expectation
     /// <summary>JSON path → expected value (string values are template-expanded).</summary>
     [JsonPropertyName("equals")]
     public Dictionary<string, JsonElement>? FieldEquals { get; set; }
+
+    /// <summary>
+    /// Replacement expectations keyed by a capability in the target's <c>/v3/server-info</c> <c>capabilities</c>. The first
+    /// key (in authored order) the target advertises replaces this expectation; when none match, this expectation applies,
+    /// so older servers keep the stable behaviour. Replacements are whole expectations and may not nest another <c>ifCapability</c>.
+    /// </summary>
+    public Dictionary<string, Expectation>? IfCapability { get; set; }
 }
