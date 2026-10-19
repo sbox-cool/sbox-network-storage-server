@@ -727,14 +727,18 @@ public sealed class NetworkStorageProjectService(
             var visibility = formValues.GetValueOrDefault("mediaVisibility") == MediaPolicyParser.VisibilityPublic
                 ? MediaPolicyParser.VisibilityPublic
                 : MediaPolicyParser.VisibilityPrivate;
+            var selfGrant = IsChecked(formValues.GetValueOrDefault("mediaAllowClientSelfGrant"));
+            var quota = long.TryParse(formValues.GetValueOrDefault("mediaProjectQuotaBytes"), out var parsedQuota) ? Math.Max(0L, parsedQuota) : 0L;
+            if (MediaPolicyParser.ValidateForSave(name, selfGrant, quota) is { } refused)
+                throw new MediaPolicyValidationException(refused);
             purposes[name] = new Dictionary<string, object>
             {
                 ["enabled"] = IsChecked(formValues.GetValueOrDefault("mediaPurposeEnabled")),
-                ["allowClientSelfGrant"] = IsChecked(formValues.GetValueOrDefault("mediaAllowClientSelfGrant")),
+                ["allowClientSelfGrant"] = selfGrant,
                 ["visibility"] = visibility,
                 ["maxBytes"] = ParseIntOrDefault(formValues.GetValueOrDefault("mediaMaxBytes"), 1048576, 1, int.MaxValue),
                 ["perPlayerPerHour"] = ParseIntOrDefault(formValues.GetValueOrDefault("mediaPerPlayerPerHour"), MediaPolicyParser.DefaultPerPlayerPerHour, 1, 100000),
-                ["projectQuotaBytes"] = long.TryParse(formValues.GetValueOrDefault("mediaProjectQuotaBytes"), out var quota) ? Math.Max(0L, quota) : 0L,
+                ["projectQuotaBytes"] = quota,
                 ["retentionDays"] = ParseIntOrDefault(formValues.GetValueOrDefault("mediaRetentionDays"), MediaPolicyParser.DefaultRetentionDays, 1, MediaPolicyParser.MaxRetentionDays)
             };
         }

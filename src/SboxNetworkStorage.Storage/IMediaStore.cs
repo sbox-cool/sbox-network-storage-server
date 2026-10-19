@@ -4,10 +4,12 @@ namespace SboxNetworkStorage.Storage;
 public interface IMediaStore
 {
     /// <summary>
-    /// Records an issued grant. Grant rows issued before <paramref name="pruneIssuedBeforeUnixMs"/> are deleted in the
-    /// same call; the caller passes a cutoff no later than its rate-limit window start, so pruned rows are never counted.
+    /// Records an issued grant unless the owner already holds <paramref name="perOwnerLimit"/> grants for this purpose
+    /// issued since <paramref name="windowStartUnixMs"/> (used or not). Returns false, and records nothing, when the
+    /// limit is reached. The check, the prune of grants issued before the window, and the insert run as one unit:
+    /// parallel calls for the same owner and purpose cannot exceed the limit.
     /// </summary>
-    Task InsertMediaGrantAsync(MediaGrantRecord grant, long pruneIssuedBeforeUnixMs, CancellationToken ct);
+    Task<bool> TryInsertMediaGrantAsync(MediaGrantRecord grant, long windowStartUnixMs, int perOwnerLimit, CancellationToken ct);
 
     /// <summary>
     /// Marks a grant used when it is unused and unexpired. Returns false when it was already used, has expired,
@@ -15,16 +17,17 @@ public interface IMediaStore
     /// </summary>
     Task<bool> TryConsumeGrantAsync(string projectId, string grantId, long nowUnixMs, CancellationToken ct);
 
-    /// <summary>Grants issued to one owner for one purpose since <paramref name="sinceUnixMs"/>, used or not.</summary>
-    Task<long> CountMediaGrantsSinceAsync(string projectId, string ownerSteamId, string purpose, long sinceUnixMs, CancellationToken ct);
-
     Task InsertMediaObjectAsync(MediaObjectRecord record, CancellationToken ct);
 
     /// <summary>Returns the object row, or null when the id is unknown in this project.</summary>
     Task<MediaObjectRecord?> GetMediaObjectAsync(string projectId, string mediaId, CancellationToken ct);
 
-    /// <summary>Sum of stored object sizes for one purpose in one project (unexpired and expired rows alike, until the sweeper ships).</summary>
-    Task<long> SumMediaObjectBytesAsync(string projectId, string purpose, CancellationToken ct);
+    /// <summary>
+    /// Sum of stored object sizes for one purpose in one project, counting only rows still unexpired at
+    /// <paramref name="nowUnixMs"/>. Expired rows stop counting toward the quota at read time; the sweeper that
+    /// deletes them has not shipped yet.
+    /// </summary>
+    Task<long> SumMediaObjectBytesAsync(string projectId, string purpose, long nowUnixMs, CancellationToken ct);
 }
 
 public sealed record MediaGrantRecord(

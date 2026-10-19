@@ -6,23 +6,66 @@ namespace SboxNetworkStorage.Storage.Relational;
 /// <summary>Media object rows and upload grant rows (schema v8).</summary>
 public abstract partial class RelationalNetworkStorageStore : IMediaStore
 {
-    public async Task InsertMediaGrantAsync(MediaGrantRecord grant, long pruneIssuedBeforeUnixMs, CancellationToken ct)
+    /// <summary>
+    /// Atomic grant gate; see <see cref="IMediaStore.TryInsertMediaGrantAsync"/>. Joins the bound transaction when one
+    /// is open; otherwise runs its own.
+    /// </summary>
+    public async Task<bool> TryInsertMediaGrantAsync(MediaGrantRecord grant, long windowStartUnixMs, int perOwnerLimit, CancellationToken ct)
     {
         StoreValidation.Id(grant.ProjectId);
-        await using var lease = await LeaseAsync(ct);
-        await using (var prune = Command(lease, $"DELETE FROM {TablePrefix}media_grants WHERE issued_at_unix_ms < @cutoff",
-            [Int64("cutoff", pruneIssuedBeforeUnixMs)]))
+        if (_transaction is { } bound)
+            return await InsertMediaGrantWithinAsync(bound.Connection!, bound, grant, windowStartUnixMs, perOwnerLimit, ct);
+
+        await using var connection = await OpenConnectionAsync(ct);
+        await using var transaction = await connection.BeginTransactionAsync(ct);
+        var inserted = await InsertMediaGrantWithinAsync(connection, transaction, grant, windowStartUnixMs, perOwnerLimit, ct);
+        await transaction.CommitAsync(ct);
+        return inserted;
+    }
+
+    /// <summary>
+    /// Runs the gate inside one transaction. The owner lock comes first (PostgreSQL takes an advisory lock), so the
+    /// count below sees every grant committed by a concurrent call. The prune is the first write statement, so SQLite
+    /// takes its database write lock here and serialises the same way.
+    /// </summary>
+    private async Task<bool> InsertMediaGrantWithinAsync(DbConnection connection, DbTransaction transaction, MediaGrantRecord grant,
+        long windowStartUnixMs, int perOwnerLimit, CancellationToken ct)
+    {
+        await LockMediaGrantOwnerAsync(connection, transaction, $"{grant.ProjectId}:{grant.OwnerSteamId}:{grant.Purpose}", ct);
+
+        await using (var prune = Command(connection,
+            $"DELETE FROM {TablePrefix}media_grants WHERE issued_at_unix_ms < @windowStart",
+            [Int64("windowStart", windowStartUnixMs)], transaction))
         {
             await prune.ExecuteNonQueryAsync(ct);
         }
-        await using var insert = Command(lease, $"""
+
+        await using var insert = Command(connection, $"""
             INSERT INTO {TablePrefix}media_grants (project_id, grant_id, purpose, owner_steam_id, issued_at_unix_ms, expires_at_unix_ms)
-            VALUES (@project, @grant, @purpose, @owner, @issued, @expires)
+            SELECT @project, @grant, @purpose, @owner, @issued, @expires
+            WHERE (SELECT COUNT(*) FROM {TablePrefix}media_grants
+                   WHERE project_id = @project AND owner_steam_id = @owner AND purpose = @purpose
+                     AND issued_at_unix_ms >= @windowStart) < @limit
             """,
-            [Text("project", grant.ProjectId), Text("grant", grant.GrantId), Text("purpose", grant.Purpose),
-                Text("owner", grant.OwnerSteamId), Int64("issued", grant.IssuedAtUnixMs), Int64("expires", grant.ExpiresAtUnixMs)]);
-        await insert.ExecuteNonQueryAsync(ct);
+            [
+                Text("project", grant.ProjectId),
+                Text("grant", grant.GrantId),
+                Text("purpose", grant.Purpose),
+                Text("owner", grant.OwnerSteamId),
+                Int64("issued", grant.IssuedAtUnixMs),
+                Int64("expires", grant.ExpiresAtUnixMs),
+                Int64("windowStart", windowStartUnixMs),
+                Int32("limit", perOwnerLimit)
+            ], transaction);
+        return await insert.ExecuteNonQueryAsync(ct) == 1;
     }
+
+    /// <summary>
+    /// Provider hook that serialises concurrent grant gates for one owner and purpose. The base takes no lock; a
+    /// provider with row-snapshot isolation (PostgreSQL) overrides it.
+    /// </summary>
+    protected virtual Task LockMediaGrantOwnerAsync(DbConnection connection, DbTransaction transaction, string key, CancellationToken ct) =>
+        Task.CompletedTask;
 
     public async Task<bool> TryConsumeGrantAsync(string projectId, string grantId, long nowUnixMs, CancellationToken ct)
     {
@@ -35,15 +78,6 @@ public abstract partial class RelationalNetworkStorageStore : IMediaStore
             WHERE project_id = @project AND grant_id = @grant AND used_at_unix_ms IS NULL AND expires_at_unix_ms > @now
             """, [Text("project", projectId), Text("grant", grantId), Int64("now", nowUnixMs)]);
         return await update.ExecuteNonQueryAsync(ct) == 1;
-    }
-
-    public Task<long> CountMediaGrantsSinceAsync(string projectId, string ownerSteamId, string purpose, long sinceUnixMs, CancellationToken ct)
-    {
-        StoreValidation.Id(projectId);
-        return QueryInt64ScalarAsync($"""
-            SELECT COUNT(*) FROM {TablePrefix}media_grants
-            WHERE project_id = @project AND owner_steam_id = @owner AND purpose = @purpose AND issued_at_unix_ms >= @since
-            """, ct, Text("project", projectId), Text("owner", ownerSteamId), Text("purpose", purpose), Int64("since", sinceUnixMs));
     }
 
     public async Task InsertMediaObjectAsync(MediaObjectRecord record, CancellationToken ct)
@@ -80,10 +114,13 @@ public abstract partial class RelationalNetworkStorageStore : IMediaStore
             reader.GetString(9), reader.GetInt64(10), reader.GetInt64(11));
     }
 
-    public Task<long> SumMediaObjectBytesAsync(string projectId, string purpose, CancellationToken ct)
+    public Task<long> SumMediaObjectBytesAsync(string projectId, string purpose, long nowUnixMs, CancellationToken ct)
     {
         StoreValidation.Id(projectId);
-        return QueryInt64ScalarAsync($"SELECT COALESCE(SUM(size_bytes), 0) FROM {TablePrefix}media_objects WHERE project_id = @project AND purpose = @purpose",
-            ct, Text("project", projectId), Text("purpose", purpose));
+        // Expired rows stop counting here, at read time; the sweeper that deletes them has not shipped yet.
+        return QueryInt64ScalarAsync($"""
+            SELECT COALESCE(SUM(size_bytes), 0) FROM {TablePrefix}media_objects
+            WHERE project_id = @project AND purpose = @purpose AND expires_at_unix_ms > @now
+            """, ct, Text("project", projectId), Text("purpose", purpose), Int64("now", nowUnixMs));
     }
 }

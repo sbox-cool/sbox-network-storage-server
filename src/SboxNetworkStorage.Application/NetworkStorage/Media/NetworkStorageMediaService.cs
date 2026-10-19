@@ -69,24 +69,24 @@ public sealed class NetworkStorageMediaService
         if (!SteamIdPattern.IsMatch(ownerSteamId))
             return MediaResult<IssuedMediaGrant>.Fail(400, "MEDIA_INVALID_REQUEST", "forSteamId must be a 17-digit Steam ID.");
 
-        // Grants count, used or not, so minting is rate limited as well as completed uploads.
-        var recent = await _store.CountMediaGrantsSinceAsync(projectId, ownerSteamId, purpose.Name, nowUnixMs - MillisPerHour, ct);
-        if (recent >= purpose.PerPlayerPerHour)
-            return MediaResult<IssuedMediaGrant>.Fail(429, "MEDIA_RATE_LIMITED", "Upload limit reached for this player. Try again later.");
-
-        var quotaFailure = await CheckQuotaAsync(projectId, purpose, request.SizeBytes, ct);
+        var quotaFailure = await CheckQuotaAsync(projectId, purpose, request.SizeBytes, nowUnixMs, ct);
         if (quotaFailure is not null) return MediaResult<IssuedMediaGrant>.Fail(quotaFailure.Status, quotaFailure.Code, quotaFailure.Message);
 
         var expiresAt = nowUnixMs + MediaGrantTokens.TtlSeconds * 1000L;
         var mediaId = MediaGrantTokens.NewId();
         var grantId = MediaGrantTokens.NewId();
+        // Grants count, used or not, so minting is rate limited as well as completed uploads. The limit check and the
+        // insert are one store call, so parallel requests for one player cannot overrun the limit.
+        var recorded = await _store.TryInsertMediaGrantAsync(
+            new MediaGrantRecord(projectId, grantId, purpose.Name, ownerSteamId, nowUnixMs, expiresAt),
+            nowUnixMs - MillisPerHour, purpose.PerPlayerPerHour, ct);
+        if (!recorded)
+            return MediaResult<IssuedMediaGrant>.Fail(429, "MEDIA_RATE_LIMITED", "Upload limit reached for this player. Try again later.");
+
         var claims = new MediaGrantClaims(
             Version: 1, ProjectId: projectId, Purpose: purpose.Name, ContentType: request.ContentType!,
             MaxBytes: request.SizeBytes, Sha256: request.Sha256!, MediaId: mediaId, OwnerSteamId: ownerSteamId,
             ExpiresAtUnixMs: expiresAt, GrantId: grantId);
-        await _store.InsertMediaGrantAsync(
-            new MediaGrantRecord(projectId, grantId, purpose.Name, ownerSteamId, nowUnixMs, expiresAt),
-            nowUnixMs - MillisPerHour, ct);
         return MediaResult<IssuedMediaGrant>.Success(new IssuedMediaGrant(
             _tokens.Issue(claims), mediaId, request.ContentType!, request.SizeBytes, expiresAt));
     }
@@ -130,7 +130,7 @@ public sealed class NetworkStorageMediaService
         if (digest != claims.Sha256)
             return MediaResult<MediaObjectRecord>.Fail(422, "MEDIA_HASH_MISMATCH", "Body sha256 does not match the grant.");
 
-        var quotaFailure = await CheckQuotaAsync(claims.ProjectId, purpose, body.LongLength, ct);
+        var quotaFailure = await CheckQuotaAsync(claims.ProjectId, purpose, body.LongLength, nowUnixMs, ct);
         if (quotaFailure is not null) return MediaResult<MediaObjectRecord>.Fail(quotaFailure.Status, quotaFailure.Code, quotaFailure.Message);
 
         if (!await _store.TryConsumeGrantAsync(claims.ProjectId, claims.GrantId, nowUnixMs, ct))
@@ -149,25 +149,38 @@ public sealed class NetworkStorageMediaService
     }
 
     /// <summary>
-    /// Metadata plus bytes for one object. Private objects are visible only to secret-key callers.
-    /// Every other miss (unknown, expired, private to a public caller, blob gone) is the same 404.
+    /// Metadata for one object, plus its blob when <paramref name="includeBody"/> is set. A HEAD request passes false,
+    /// so the blob is checked for presence but never read. Private objects are visible only to secret-key callers.
+    /// Every other miss (unknown, expired, private to a public caller, blob gone or of the wrong length) is the same
+    /// 404. The caller disposes the blob it receives.
     /// </summary>
-    public async Task<MediaResult<(MediaObjectRecord Record, byte[] Bytes)>> ReadObjectAsync(
-        string projectId, string mediaId, bool callerIsSecret, long nowUnixMs, CancellationToken ct)
+    public async Task<MediaResult<(MediaObjectRecord Record, MediaBlob? Blob)>> ReadObjectAsync(
+        string projectId, string mediaId, bool callerIsSecret, bool includeBody, long nowUnixMs, CancellationToken ct)
     {
-        var notFound = MediaResult<(MediaObjectRecord, byte[])>.Fail(404, "MEDIA_NOT_FOUND", "Media object not found.");
+        var notFound = MediaResult<(MediaObjectRecord, MediaBlob?)>.Fail(404, "MEDIA_NOT_FOUND", "Media object not found.");
         var record = await _store.GetMediaObjectAsync(projectId, mediaId, ct);
         if (record is null || record.ExpiresAtUnixMs <= nowUnixMs) return notFound;
         if (record.Visibility != MediaPolicyParser.VisibilityPublic && !callerIsSecret) return notFound;
-        var bytes = await _blobs.ReadAsync(projectId, record.Sha256, ct);
-        if (bytes is null) return notFound;
-        return MediaResult<(MediaObjectRecord, byte[])>.Success((record, bytes));
+        if (!includeBody)
+        {
+            return await _blobs.ExistsAsync(projectId, record.Sha256, ct)
+                ? MediaResult<(MediaObjectRecord, MediaBlob?)>.Success((record, null))
+                : notFound;
+        }
+        var blob = await _blobs.OpenReadAsync(projectId, record.Sha256, ct);
+        if (blob is null) return notFound;
+        if (blob.Length != record.SizeBytes)
+        {
+            blob.Dispose();
+            return notFound;
+        }
+        return MediaResult<(MediaObjectRecord, MediaBlob?)>.Success((record, blob));
     }
 
-    private async Task<MediaFailure?> CheckQuotaAsync(string projectId, MediaPurposePolicy purpose, long incomingBytes, CancellationToken ct)
+    private async Task<MediaFailure?> CheckQuotaAsync(string projectId, MediaPurposePolicy purpose, long incomingBytes, long nowUnixMs, CancellationToken ct)
     {
         if (purpose.ProjectQuotaBytes <= 0) return null;
-        var stored = await _store.SumMediaObjectBytesAsync(projectId, purpose.Name, ct);
+        var stored = await _store.SumMediaObjectBytesAsync(projectId, purpose.Name, nowUnixMs, ct);
         return stored + incomingBytes > purpose.ProjectQuotaBytes
             ? new MediaFailure(413, "MEDIA_QUOTA_EXCEEDED", "Project media quota for this purpose is exhausted.")
             : null;

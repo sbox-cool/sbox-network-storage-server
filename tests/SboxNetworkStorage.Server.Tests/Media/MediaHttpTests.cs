@@ -105,7 +105,62 @@ public abstract class MediaHttpTests<TFactory> : IClassFixture<TFactory>
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
     }
 
-    private async Task<Setup> CreateAsync(bool enableMedia, bool allowClientSelfGrant, bool verifyPlayers = false)
+    [SkippableFact]
+    public async Task Head_returns_read_headers_without_a_body_and_get_serves_the_record_length()
+    {
+        using var setup = await CreateAsync(enableMedia: true, allowClientSelfGrant: false);
+        var jpeg = Jpeg(120, 80);
+        var mediaId = await UploadJpegAsync(setup, jpeg);
+        var objectPath = $"/v3/media/{setup.Project.ProjectId}/objects/{mediaId}";
+
+        using var head = await setup.Client.SendAsync(ReadRequest(HttpMethod.Head, objectPath));
+        Assert.Equal(HttpStatusCode.OK, head.StatusCode);
+        Assert.Equal("image/jpeg", head.Content.Headers.ContentType!.MediaType);
+        Assert.Equal(jpeg.Length, head.Content.Headers.ContentLength);
+        Assert.Equal("nosniff", head.Headers.GetValues("X-Content-Type-Options").Single());
+        Assert.Equal("sandbox", head.Headers.GetValues("Content-Security-Policy").Single());
+        Assert.Empty(await head.Content.ReadAsByteArrayAsync());
+
+        using var get = await setup.Client.SendAsync(ReadRequest(HttpMethod.Get, objectPath));
+        Assert.Equal(HttpStatusCode.OK, get.StatusCode);
+        Assert.Equal(jpeg.Length, get.Content.Headers.ContentLength);
+        Assert.Equal(jpeg, await get.Content.ReadAsByteArrayAsync());
+    }
+
+    [SkippableFact]
+    public async Task Secret_key_in_the_query_string_is_not_read_for_private_objects()
+    {
+        using var setup = await CreateAsync(enableMedia: true, allowClientSelfGrant: false, visibility: "private");
+        var jpeg = Jpeg(120, 80);
+        var mediaId = await UploadJpegAsync(setup, jpeg);
+        var objectPath = $"/v3/media/{setup.Project.ProjectId}/objects/{mediaId}";
+
+        using var viaHeader = await setup.Client.SendAsync(ReadRequest(HttpMethod.Get, objectPath, setup.Project.SecretKey));
+        Assert.Equal(HttpStatusCode.OK, viaHeader.StatusCode);
+
+        using var viaQuery = await setup.Client.SendAsync(ReadRequest(HttpMethod.Get,
+            $"{objectPath}?apiKey={Uri.EscapeDataString(setup.Project.SecretKey)}"));
+        Assert.Equal(HttpStatusCode.NotFound, viaQuery.StatusCode);
+    }
+
+    [SkippableFact]
+    public async Task Disabled_project_refuses_upload_and_read_with_project_disabled()
+    {
+        using var setup = await CreateAsync(enableMedia: true, allowClientSelfGrant: false);
+        var jpeg = Jpeg(120, 80);
+        var mediaId = await UploadJpegAsync(setup, jpeg);
+        var objectPath = $"/v3/media/{setup.Project.ProjectId}/objects/{mediaId}";
+        var pendingToken = await IssueGrantAsync(setup, secret: true, Sha256Hex(jpeg), jpeg.Length);
+
+        await DisableProjectAsync(setup);
+
+        using var upload = await setup.Client.SendAsync(Upload(setup, pendingToken, jpeg));
+        await AssertErrorAsync(upload, HttpStatusCode.Forbidden, "PROJECT_DISABLED");
+        using var read = await setup.Client.SendAsync(ReadRequest(HttpMethod.Get, objectPath));
+        await AssertErrorAsync(read, HttpStatusCode.Forbidden, "PROJECT_DISABLED");
+    }
+
+    private async Task<Setup> CreateAsync(bool enableMedia, bool allowClientSelfGrant, bool verifyPlayers = false, string visibility = "public")
     {
         var facepunch = new FacepunchTransport();
         var factory = _factory.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
@@ -121,7 +176,7 @@ public abstract class MediaHttpTests<TFactory> : IClassFixture<TFactory>
                     ["mediaPurpose"] = "avatar",
                     ["mediaPurposeEnabled"] = "true",
                     ["mediaAllowClientSelfGrant"] = allowClientSelfGrant ? "true" : "false",
-                    ["mediaVisibility"] = "public",
+                    ["mediaVisibility"] = visibility,
                     ["mediaMaxBytes"] = "1048576",
                 }, CancellationToken.None);
         }
@@ -161,6 +216,28 @@ public abstract class MediaHttpTests<TFactory> : IClassFixture<TFactory>
         };
         request.Content.Headers.ContentType = new MediaTypeHeaderValue("image/jpeg");
         return request;
+    }
+
+    private static async Task<string> UploadJpegAsync(Setup setup, byte[] jpeg)
+    {
+        var token = await IssueGrantAsync(setup, secret: true, Sha256Hex(jpeg), jpeg.Length);
+        using var response = await setup.Client.SendAsync(Upload(setup, token, jpeg));
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        return (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("mediaId").GetString()!;
+    }
+
+    private static HttpRequestMessage ReadRequest(HttpMethod method, string path, string? apiKey = null)
+    {
+        var request = new HttpRequestMessage(method, path);
+        if (apiKey is not null) request.Headers.Add("x-api-key", apiKey);
+        return request;
+    }
+
+    private static async Task DisableProjectAsync(Setup setup)
+    {
+        await using var scope = setup.Factory.Services.CreateAsyncScope();
+        await scope.ServiceProvider.GetRequiredService<INetworkStorageProjectService>().UpdateProjectSettingsAsync(
+            NetworkStorageServices.LocalOwnerUserId, setup.Project.ProjectId, "project", new() { ["enabled"] = "false" }, CancellationToken.None);
     }
 
     // Signs a grant whose expiry is already in the past, so the expiry branch is exercised without waiting out the TTL.

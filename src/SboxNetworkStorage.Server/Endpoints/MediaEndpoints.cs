@@ -160,6 +160,11 @@ public static class MediaEndpoints
             await ServeNotFoundAsync(context);
             return;
         }
+        if (!project.Enabled)
+        {
+            await FailAsync(context, requestId, StatusCodes.Status403Forbidden, "PROJECT_DISABLED", "Project is disabled.");
+            return;
+        }
 
         var media = services.GetRequiredService<NetworkStorageMediaService>();
         var now = NowUnixMs();
@@ -231,21 +236,27 @@ public static class MediaEndpoints
             await ServeNotFoundAsync(context);
             return;
         }
+        if (!project.Enabled)
+        {
+            await FailAsync(context, requestId, StatusCodes.Status403Forbidden, "PROJECT_DISABLED", "Project is disabled.");
+            return;
+        }
 
         var callerIsSecret = await IsSecretKeyAsync(services, ReadApiKey(context), projectId, ct);
         var media = services.GetRequiredService<NetworkStorageMediaService>();
-        var result = await media.ReadObjectAsync(projectId, mediaId, callerIsSecret, NowUnixMs(), ct);
+        var result = await media.ReadObjectAsync(projectId, mediaId, callerIsSecret, HttpMethods.IsGet(context.Request.Method), NowUnixMs(), ct);
         if (!result.Ok)
         {
             await FailAsync(context, requestId, result.Failure!);
             return;
         }
 
-        var (record, bytes) = result.Value;
+        var (record, blob) = result.Value;
+        using var body = blob;
         var response = context.Response;
         response.StatusCode = StatusCodes.Status200OK;
         response.ContentType = record.ContentType;
-        response.ContentLength = bytes.Length;
+        response.ContentLength = record.SizeBytes;
         response.Headers["X-Request-Id"] = requestId;
         // Uploads are untrusted bytes: never let a browser sniff them into another type, and
         // render them inside a sandboxed origin if they are opened directly.
@@ -255,8 +266,9 @@ public static class MediaEndpoints
         response.Headers.CacheControl = record.Visibility == MediaPolicyParser.VisibilityPublic
             ? "public, max-age=3600"
             : "private, no-store";
-        if (HttpMethods.IsGet(context.Request.Method))
-            await response.Body.WriteAsync(bytes, ct);
+        // HEAD carries headers only; GET streams the blob to the response without buffering it.
+        if (blob is not null)
+            await blob.Content.CopyToAsync(response.Body, ct);
     }
 
     /// <summary>
@@ -291,8 +303,12 @@ public static class MediaEndpoints
         return auth is { Enabled: true } && string.Equals(auth.KeyType, "secret", StringComparison.Ordinal);
     }
 
-    private static string? ReadApiKey(HttpContext context)
-        => FirstNonEmpty(context.Request.Headers["x-api-key"].FirstOrDefault(), context.Request.Query["apiKey"].FirstOrDefault());
+    /// <summary>
+    /// The API key comes from the x-api-key header only. A query-string key is never read: proxies and browser
+    /// history record query strings, so a secret key there would leak.
+    /// </summary>
+    private static string? ReadApiKey(HttpContext context) =>
+        context.Request.Headers["x-api-key"].FirstOrDefault() is { Length: > 0 } key ? key : null;
 
     private static async Task<JsonElement?> ReadJsonObjectAsync(HttpContext context)
     {
@@ -322,13 +338,6 @@ public static class MediaEndpoints
         => body.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Number && value.TryGetInt64(out var number)
             ? number
             : 0;
-
-    private static string? FirstNonEmpty(params string?[] values)
-    {
-        foreach (var value in values)
-            if (!string.IsNullOrEmpty(value)) return value;
-        return null;
-    }
 
     private static long NowUnixMs() => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 

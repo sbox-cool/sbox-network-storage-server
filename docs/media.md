@@ -42,7 +42,7 @@ Each route is also served under `/api/media/...` through the API root aliases.
 | --- | --- | --- | --- |
 | POST | `/v3/media/{projectId}/grants` | `x-api-key` (secret or public key) | Mint a grant |
 | PUT | `/v3/media/{projectId}/upload/{grantToken}` | none; the grant is the credential | Upload the raw body |
-| GET, HEAD | `/v3/media/{projectId}/objects/{mediaId}` | `x-api-key` for private objects | Read the bytes |
+| GET, HEAD | `/v3/media/{projectId}/objects/{mediaId}` | `x-api-key` header for private objects (a query-string key is not read) | Read the bytes (HEAD returns headers only) |
 
 ### Minting a grant
 
@@ -121,10 +121,15 @@ Response `201`:
 
 ### Reading
 
-`GET` returns the bytes with `Content-Type`, `ETag` (the SHA-256),
-`X-Content-Type-Options: nosniff` and `Content-Security-Policy: sandbox`. Public
-objects send `Cache-Control: public, max-age=3600`; private objects send
-`private, no-store`.
+`GET` and `HEAD` return the same headers: `Content-Type`, `Content-Length` (from the
+stored record), `ETag` (the SHA-256), `X-Content-Type-Options: nosniff` and
+`Content-Security-Policy: sandbox`. `HEAD` never opens the blob and sends no body.
+`GET` streams the blob. Public objects send `Cache-Control: public, max-age=3600`;
+private objects send `private, no-store`.
+
+The API key is read from the `x-api-key` header only. A `?apiKey=` query value is
+ignored, because query strings end up in proxy and browser logs. A private object
+read with a key in the query string returns `404 MEDIA_NOT_FOUND`.
 
 - `public` visibility: anyone with the URL can read.
 - `private` visibility: only a secret-key caller can read. Other callers get
@@ -145,7 +150,7 @@ Each project has a `media` object. Each **purpose** is an entry in
 | `maxBytes` | `media.max_object_bytes` | Per-object cap; clamped to the server cap |
 | `maxWidth`, `maxHeight` | 4096 | Pixel limits (1–16384) |
 | `perPlayerPerHour` | 30 | Grants a player may be issued per purpose per hour |
-| `projectQuotaBytes` | 0 (unlimited) | Total stored bytes for the purpose |
+| `projectQuotaBytes` | 0 (unlimited) | Total stored bytes for the purpose. Must be above 0 when `allowClientSelfGrant` is on (see Quota) |
 | `retentionDays` | 30 | Object lifetime, 1–3650 days |
 
 ### Who may mint a grant
@@ -160,13 +165,20 @@ Each project has a `media` object. Each **purpose** is an entry in
 
 Each minted grant counts toward `perPlayerPerHour` for the player it is issued
 to, per purpose, over a rolling hour. Exceeding it returns `429 MEDIA_RATE_LIMITED`.
-Grants count whether or not they are later used.
+Grants count whether or not they are later used. The count and the insert run in one
+transaction (a per-owner lock on PostgreSQL, the write lock on SQLite), so parallel
+grant requests cannot exceed the limit.
 
 ### Quota
 
-`projectQuotaBytes` is checked before the upload is stored. The check and the
-insert are not atomic, so concurrent uploads near the limit can overshoot by up
-to one object per concurrent request.
+`projectQuotaBytes` is checked before the upload is stored. Only objects that have not
+expired count toward the total. The check and the insert are not atomic, so concurrent
+uploads near the limit can overshoot by up to one object per concurrent request.
+
+A purpose with `allowClientSelfGrant` on must set `projectQuotaBytes` above 0. Saving
+project settings that enable client self-grant with no quota (0 or unlimited) is
+refused with a validation message, so a public key cannot fill the project without a
+bound.
 
 ## Limits and sizes
 
@@ -176,7 +188,10 @@ to one object per concurrent request.
   `413` before the media checks run. This is also true for a project where media
   is disabled: the body limit can answer before the not-found response. This is
   deliberate; the global limits are not changed for media.
-- Objects are stored as the exact bytes uploaded. Nothing is re-encoded.
+- Objects are stored and served as the exact bytes uploaded. Nothing is re-encoded,
+  and embedded metadata (for example EXIF camera or location fields in a JPEG) is kept
+  and served as uploaded. Metadata stripping is deferred; until it ships, uploads can
+  carry that metadata to every reader.
 
 ## Errors
 
@@ -199,7 +214,7 @@ Errors use the standard envelope:
 | 401 | `UNAUTHORIZED` | Missing or invalid API key on a grant request |
 | 403 | `MEDIA_PURPOSE_DISABLED` | Purpose not enabled |
 | 403 | `MEDIA_GRANT_FORBIDDEN` | Public-key self-grant without `allowClientSelfGrant` |
-| 403 | `PROJECT_DISABLED` | Project disabled |
+| 403 | `PROJECT_DISABLED` | Project disabled; returned by the grant, upload, and read routes |
 | 404 | `NOT_FOUND` | Media disabled, or unknown project (the standard unrecognized-route answer) |
 | 404 | `MEDIA_NOT_FOUND` | Unknown or unreadable object |
 | 409 | `GRANT_USED` | Grant already consumed |
@@ -207,7 +222,7 @@ Errors use the standard envelope:
 | 413 | `MEDIA_TOO_LARGE` | Body larger than the grant's `sizeBytes` |
 | 413 | `MEDIA_QUOTA_EXCEEDED` | Purpose quota would be exceeded |
 | 415 | `MEDIA_TYPE_MISMATCH` | Declared or sniffed type not allowed or not matching |
-| 422 | `MEDIA_INVALID_IMAGE` | Bytes are not a decodable image of the declared type |
+| 422 | `MEDIA_INVALID_IMAGE` | Magic bytes do not match the declared type, or the header dimensions cannot be read. The image is not decoded |
 | 422 | `MEDIA_DIMENSIONS_EXCEEDED` | Width or height over the purpose limit |
 | 422 | `MEDIA_HASH_MISMATCH` | SHA-256 of the bytes differs from the grant |
 | 429 | `MEDIA_RATE_LIMITED` | Per-player hourly grant limit reached |
@@ -230,10 +245,10 @@ same bytes share one blob file; each upload still gets its own object row.
 ## Retention and deletion
 
 **Not implemented yet.** `retentionDays` is recorded on each object as
-`expiresAtUnixMs`. After that time the object is unreadable (`GET` returns
-`404 MEDIA_NOT_FOUND`), but neither the object row nor the blob is deleted. No
-background job purges expired media. Until one exists, stored bytes grow for as
-long as the blob backend has room.
+`expiresAtUnixMs`. Expiry is enforced at read time: after that time `GET` and `HEAD`
+return `404 MEDIA_NOT_FOUND`, and expired objects no longer count toward the project
+quota. Neither the object row nor the blob is deleted yet. The M5 sweeper will purge
+them; until it ships, stored bytes grow for as long as the blob backend has room.
 
 ## Backups and export
 

@@ -40,11 +40,14 @@ public sealed class LocalDiskMediaBlobStore : IMediaBlobStore
         }
     }
 
-    public async Task<byte[]?> ReadAsync(string projectId, string sha256, CancellationToken ct)
+    public Task<MediaBlob?> OpenReadAsync(string projectId, string sha256, CancellationToken ct)
     {
         var path = PathFor(projectId, sha256);
-        if (!File.Exists(path)) return null;
-        return await File.ReadAllBytesAsync(path, ct);
+        if (!File.Exists(path)) return Task.FromResult<MediaBlob?>(null);
+        // Streamed: the endpoint copies the bytes to the response as they are read, never buffering the whole file.
+        var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 81920,
+            FileOptions.Asynchronous | FileOptions.SequentialScan);
+        return Task.FromResult<MediaBlob?>(new MediaBlob(stream, stream.Length, owner: null));
     }
 
     private string PathFor(string projectId, string sha256)

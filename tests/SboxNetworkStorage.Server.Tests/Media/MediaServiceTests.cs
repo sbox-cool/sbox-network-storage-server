@@ -286,10 +286,50 @@ public sealed class MediaServiceTests
         store.Objects.Add(new MediaObjectRecord(ProjectId, "med_public", "avatar", sha, "image/png", bytes.Length, 4, 4,
             Owner, "public", Now, Now + 1000));
 
-        Assert.Equal(404, (await service.ReadObjectAsync(ProjectId, "med_private", false, Now, default)).Failure!.Status);
-        Assert.True((await service.ReadObjectAsync(ProjectId, "med_private", true, Now, default)).Ok);
-        Assert.True((await service.ReadObjectAsync(ProjectId, "med_public", false, Now, default)).Ok);
-        Assert.Equal(404, (await service.ReadObjectAsync(ProjectId, "med_public", false, Now + 1000, default)).Failure!.Status);
+        Assert.Equal(404, (await service.ReadObjectAsync(ProjectId, "med_private", false, true, Now, default)).Failure!.Status);
+        Assert.True((await service.ReadObjectAsync(ProjectId, "med_private", true, true, Now, default)).Ok);
+        Assert.True((await service.ReadObjectAsync(ProjectId, "med_public", false, true, Now, default)).Ok);
+        Assert.Equal(404, (await service.ReadObjectAsync(ProjectId, "med_public", false, true, Now + 1000, default)).Failure!.Status);
+    }
+
+    [Fact]
+    public async Task Head_reads_metadata_without_opening_the_blob()
+    {
+        var (service, store, blobs, _) = Build();
+        var bytes = Png(4, 4);
+        var sha = Hex(SHA256.HashData(bytes));
+        blobs.Items[(ProjectId, sha)] = bytes;
+        store.Objects.Add(new MediaObjectRecord(ProjectId, "med_public", "avatar", sha, "image/png", bytes.Length, 4, 4,
+            Owner, "public", Now, Now + 1000));
+
+        var head = await service.ReadObjectAsync(ProjectId, "med_public", false, false, Now, default);
+        Assert.True(head.Ok);
+        Assert.Null(head.Value!.Blob);
+        Assert.Equal(bytes.Length, head.Value.Record.SizeBytes);
+        Assert.Equal(0, blobs.OpenReads);
+    }
+
+    [Fact]
+    public async Task Read_refuses_a_blob_whose_length_disagrees_with_the_record()
+    {
+        var (service, store, blobs, _) = Build();
+        var bytes = Png(4, 4);
+        var sha = Hex(SHA256.HashData(bytes));
+        blobs.Items[(ProjectId, sha)] = bytes;
+        store.Objects.Add(new MediaObjectRecord(ProjectId, "med_public", "avatar", sha, "image/png", bytes.Length + 1, 4, 4,
+            Owner, "public", Now, Now + 1000));
+
+        Assert.Equal(404, (await service.ReadObjectAsync(ProjectId, "med_public", false, true, Now, default)).Failure!.Status);
+    }
+
+    [Fact]
+    public void Self_grant_purpose_requires_a_project_quota()
+    {
+        var refused = MediaPolicyParser.ValidateForSave("avatar", allowClientSelfGrant: true, projectQuotaBytes: 0);
+        Assert.Equal("MEDIA_QUOTA_REQUIRED", refused!.Code);
+        Assert.Equal(422, refused.Status);
+        Assert.Null(MediaPolicyParser.ValidateForSave("avatar", allowClientSelfGrant: true, projectQuotaBytes: 1_000_000));
+        Assert.Null(MediaPolicyParser.ValidateForSave("avatar", allowClientSelfGrant: false, projectQuotaBytes: 0));
     }
 
     [Fact]
@@ -317,10 +357,13 @@ public sealed class MediaServiceTests
         public List<MediaObjectRecord> Objects { get; } = [];
         public List<MediaGrantRecord> Grants { get; } = [];
 
-        public Task InsertMediaGrantAsync(MediaGrantRecord grant, long pruneIssuedBeforeUnixMs, CancellationToken ct)
+        public Task<bool> TryInsertMediaGrantAsync(MediaGrantRecord grant, long windowStartUnixMs, int perOwnerLimit, CancellationToken ct)
         {
+            var inWindow = Grants.Count(g => g.ProjectId == grant.ProjectId && g.OwnerSteamId == grant.OwnerSteamId
+                && g.Purpose == grant.Purpose && g.IssuedAtUnixMs >= windowStartUnixMs);
+            if (inWindow >= perOwnerLimit) return Task.FromResult(false);
             Grants.Add(grant);
-            return Task.CompletedTask;
+            return Task.FromResult(true);
         }
 
         public Task<bool> TryConsumeGrantAsync(string projectId, string grantId, long nowUnixMs, CancellationToken ct) =>
@@ -335,12 +378,8 @@ public sealed class MediaServiceTests
         public Task<MediaObjectRecord?> GetMediaObjectAsync(string projectId, string mediaId, CancellationToken ct) =>
             Task.FromResult(Objects.FirstOrDefault(o => o.ProjectId == projectId && o.MediaId == mediaId));
 
-        public Task<long> CountMediaGrantsSinceAsync(string projectId, string ownerSteamId, string purpose, long sinceUnixMs, CancellationToken ct) =>
-            Task.FromResult((long)Grants.Count(g => g.ProjectId == projectId && g.OwnerSteamId == ownerSteamId
-                && g.Purpose == purpose && g.IssuedAtUnixMs >= sinceUnixMs));
-
-        public Task<long> SumMediaObjectBytesAsync(string projectId, string purpose, CancellationToken ct) =>
-            Task.FromResult(Objects.Where(o => o.ProjectId == projectId && o.Purpose == purpose).Sum(o => o.SizeBytes));
+        public Task<long> SumMediaObjectBytesAsync(string projectId, string purpose, long nowUnixMs, CancellationToken ct) =>
+            Task.FromResult(Objects.Where(o => o.ProjectId == projectId && o.Purpose == purpose && o.ExpiresAtUnixMs > nowUnixMs).Sum(o => o.SizeBytes));
     }
 
     private sealed class FakeBlobStore : IMediaBlobStore
@@ -356,7 +395,13 @@ public sealed class MediaServiceTests
             return Task.CompletedTask;
         }
 
-        public Task<byte[]?> ReadAsync(string projectId, string sha256, CancellationToken ct) =>
-            Task.FromResult(Items.TryGetValue((projectId, sha256), out var bytes) ? bytes : null);
+        public int OpenReads { get; private set; }
+
+        public Task<MediaBlob?> OpenReadAsync(string projectId, string sha256, CancellationToken ct)
+        {
+            if (!Items.TryGetValue((projectId, sha256), out var bytes)) return Task.FromResult<MediaBlob?>(null);
+            OpenReads++;
+            return Task.FromResult<MediaBlob?>(new MediaBlob(new MemoryStream(bytes), bytes.Length, null));
+        }
     }
 }

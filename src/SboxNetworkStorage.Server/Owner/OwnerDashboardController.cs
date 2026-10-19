@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Caching.Memory;
 using SboxNetworkStorage.Application.Common;
 using SboxNetworkStorage.Application.NetworkStorage;
+using SboxNetworkStorage.Application.NetworkStorage.Media;
 using SboxNetworkStorage.Application.Workspace;
 using SboxNetworkStorage.Domain.Workspace;
 using SboxNetworkStorage.Server.Authority;
@@ -151,7 +152,15 @@ public sealed class OwnerDashboardController(INetworkStorageProjectService proje
             || !IsOptionalIntRange(values.GetValueOrDefault("revisionGracePeriodMinutes"), 0, 10080)
             || !IsOptionalIntRange(values.GetValueOrDefault("revisionRetentionCount"), 0, 20)))
             return await ProjectErrorAsync(projectId, "Choose an enforcement mode, in-grace and post-grace action, a minimum revision, a grace period of 0-10080 minutes and retention of 0-20; the notice may contain at most 500 characters.", ct);
-        await projects.UpdateProjectSettingsAsync(Owner, projectId, tab, values, ct);
+        try
+        {
+            await projects.UpdateProjectSettingsAsync(Owner, projectId, tab, values, ct);
+        }
+        catch (MediaPolicyValidationException ex)
+        {
+            // Refused before anything was written; show the reason on the project page.
+            return await ProjectErrorAsync(projectId, ex.Failure.Message, ct);
+        }
         await AuditAsync(projectId, "project.settings", new { tab }, ct);
         OwnerFlash.Success(this, "Settings saved");
         return Redirect(ProjectUrl(projectId));

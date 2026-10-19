@@ -8,12 +8,34 @@ public interface IMediaBlobStore
 {
     Task<bool> ExistsAsync(string projectId, string sha256, CancellationToken ct);
     Task WriteAsync(string projectId, string sha256, byte[] bytes, CancellationToken ct);
-    /// <summary>Returns null when the blob is missing.</summary>
-    Task<byte[]?> ReadAsync(string projectId, string sha256, CancellationToken ct);
+    /// <summary>
+    /// Opens the blob for streaming, or returns null when it is missing. The caller disposes the result. Bytes are
+    /// never buffered here: the endpoint copies the stream straight to the response.
+    /// </summary>
+    Task<MediaBlob?> OpenReadAsync(string projectId, string sha256, CancellationToken ct);
+}
+
+/// <summary>An open blob: a readable stream and its exact length. Disposing releases the file or HTTP response behind it.</summary>
+public sealed class MediaBlob(Stream content, long length, IDisposable? owner) : IDisposable
+{
+    public Stream Content { get; } = content;
+    public long Length { get; } = length;
+
+    public void Dispose()
+    {
+        Content.Dispose();
+        owner?.Dispose();
+    }
 }
 
 /// <summary>Typed outcome of a media operation; the endpoint layer maps it to HTTP.</summary>
 public sealed record MediaFailure(int Status, string Code, string Message);
+
+/// <summary>Thrown by the save path when a purpose is refused. The owner page shows <see cref="Failure"/>'s message.</summary>
+public sealed class MediaPolicyValidationException(MediaFailure failure) : Exception(failure.Message)
+{
+    public MediaFailure Failure { get; } = failure;
+}
 
 public sealed record MediaResult<T>(T? Value, MediaFailure? Failure)
 {
@@ -80,6 +102,16 @@ public static class MediaPolicyParser
 
     /// <summary>True when the purpose name is safe to store and use as a key (lowercase letters, digits, hyphen).</summary>
     public static bool IsValidPurposeName(string? name) => name is not null && PurposeName.IsMatch(name);
+
+    /// <summary>
+    /// Save-time rule for one purpose: client self-grant needs a finite project quota, otherwise any player holding a
+    /// public key could fill the project's storage. Returns null when the purpose may be saved.
+    /// </summary>
+    public static MediaFailure? ValidateForSave(string purpose, bool allowClientSelfGrant, long projectQuotaBytes) =>
+        allowClientSelfGrant && projectQuotaBytes <= 0
+            ? new MediaFailure(422, "MEDIA_QUOTA_REQUIRED",
+                $"Purpose '{purpose}' allows client self-grant, so it needs a project quota in bytes. Set a quota, or turn client self-grant off.")
+            : null;
 
     private static MediaPurposePolicy ParsePurpose(string name, JsonElement p, long hardMaxBytes)
     {

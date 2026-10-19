@@ -67,14 +67,13 @@ public sealed class S3MediaBlobStore : IMediaBlobStore, IDisposable
         }, ct);
     }
 
-    public async Task<byte[]?> ReadAsync(string projectId, string sha256, CancellationToken ct)
+    public async Task<MediaBlob?> OpenReadAsync(string projectId, string sha256, CancellationToken ct)
     {
         try
         {
-            using var response = await _client.GetObjectAsync(_bucket, KeyFor(projectId, sha256), ct);
-            using var buffer = new MemoryStream();
-            await response.ResponseStream.CopyToAsync(buffer, ct);
-            return buffer.ToArray();
+            // The response owns the connection; MediaBlob.Dispose releases it after the caller has copied the stream.
+            var response = await _client.GetObjectAsync(_bucket, KeyFor(projectId, sha256), ct);
+            return new MediaBlob(response.ResponseStream, response.ContentLength, response);
         }
         catch (AmazonS3Exception ex) when (ex.StatusCode == HttpStatusCode.NotFound)
         {
