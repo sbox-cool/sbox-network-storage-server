@@ -63,7 +63,15 @@ jobs:
           canary_feed="$(fetch "$FEED_URL?channel=canary")"
           channel_version="$(jq -r '.version // empty' <<<"$canary_feed")"
           promoted_at="$(jq -r '.promotedAt // empty' <<<"$canary_feed")"
-          stable_feed="$(fetch "$FEED_URL?channel=stable")"
+          # The stable channel 404s until its first promotion; treat that as "no stable version yet".
+          stable_feed="$(curl -sS --max-time 30 --retry 3 --retry-delay 10 --retry-all-errors \
+            -w '\n%{http_code}' "$FEED_URL?channel=stable")"
+          stable_status="${stable_feed##*$'\n'}"; stable_feed="${stable_feed%$'\n'*}"
+          case "$stable_status" in
+            200) ;;
+            404) stable_feed='{}' ;;
+            *) echo "::error::Stable feed returned HTTP $stable_status."; exit 1 ;;
+          esac
           stable_version="$(jq -r '.version // empty' <<<"$stable_feed")"
           if [ "$(jq -r '.held // false' <<<"$canary_feed")" = true ] || [ "$(jq -r '.held // false' <<<"$stable_feed")" = true ]; then
             echo "::error::Canary or stable channel is held; automatic promotion is disabled."
