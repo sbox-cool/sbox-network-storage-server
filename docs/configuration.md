@@ -370,6 +370,19 @@ of slowing requests down. Reading a record produces no analytics event.
 | --- | --- | --- |
 | `analytics.retention_days` | `90` | Timeline events and project issues older than this many days are deleted once a day. `0` keeps them forever. Player profiles and sessions are never purged. |
 
+### Custom analytics events
+
+Games send custom Player Analytics events with `NetworkStorage.TrackAnalyticsEvent`
+(or the `NetworkStorageAnalytics.TrackEvent` facade). The owner's **Player analytics
+settings** on the project's owner page lists the names the project accepts. Defaults:
+`death`, `respawn`, `cast_line`, `caught_fish`, `sold_fish`. The list is published in the
+signed security config as `analytics.allowedEventTypes`, and the game library sends a
+custom event only when its normalized name is on that list. Other names are dropped in
+the game and counted in the library's `Dropped N analytics event(s)` warning. Names are
+lowercase letters, digits, `_ . : -`, up to 48 characters, one per line or
+comma-separated, at most 100. The server stores the custom events it receives; the list
+is enforced by the game library before it sends.
+
 ### Scripted endpoints
 
 `endpoints.scripts` in `server.toml` (default `true`) runs JavaScript and TypeScript endpoints. Off makes every scripted endpoint answer `503 SCRIPTS_DISABLED`; YAML endpoints are unaffected. Restart the server after changing it. Limits and error codes are in [endpoints-javascript.md](endpoints-javascript.md).
