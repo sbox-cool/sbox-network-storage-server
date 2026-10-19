@@ -176,6 +176,7 @@ public abstract class MediaHttpTests<TFactory> : IClassFixture<TFactory>
                     ["mediaPurpose"] = "avatar",
                     ["mediaPurposeEnabled"] = "true",
                     ["mediaAllowClientSelfGrant"] = allowClientSelfGrant ? "true" : "false",
+                    ["mediaProjectQuotaBytes"] = allowClientSelfGrant ? "1048576" : "0",
                     ["mediaVisibility"] = visibility,
                     ["mediaMaxBytes"] = "1048576",
                 }, CancellationToken.None);
