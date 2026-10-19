@@ -20,6 +20,8 @@ public enum ServerReleaseState
     Unknown,
     UpToDate,
     UpdateAvailable,
+    /// <summary>A development build older than the latest release. It is not on the release line, so it is never offered that release.</summary>
+    DevelopmentBuild,
     /// <summary>Running a build newer than the latest published release, such as a pre-release.</summary>
     AheadOfRelease,
 }
@@ -69,6 +71,7 @@ public sealed record OwnerReleaseStatusCard(ReleaseStatusDocument? Document, Dat
 
             return running.CompareTo(newest) switch
             {
+                < 0 when BuildInfo.IsDevelopmentVersion(RunningVersion) => ServerReleaseState.DevelopmentBuild,
                 < 0 => ServerReleaseState.UpdateAvailable,
                 0 => ServerReleaseState.UpToDate,
                 _ => ServerReleaseState.AheadOfRelease,
@@ -88,6 +91,7 @@ public sealed record OwnerReleaseStatusCard(ReleaseStatusDocument? Document, Dat
     public static (string Label, string CssClass) ServerBadge(ServerReleaseState state, string? latestVersion) => state switch
     {
         ServerReleaseState.UpToDate => ("Up to date", "badge positive"),
+        ServerReleaseState.DevelopmentBuild => ("Development build", "badge"),
         ServerReleaseState.UpdateAvailable => ($"Update available: {latestVersion}", "badge attention"),
         ServerReleaseState.AheadOfRelease => ("Ahead of the latest release", "badge"),
         _ => ("Version comparison unavailable", "badge"),

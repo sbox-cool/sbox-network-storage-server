@@ -23,6 +23,10 @@
   --danger-bg: color-mix(in srgb, var(--danger) 14%, transparent);
   --green: var(--success); --accent-text: var(--on-accent);
   --radius: 10px; --radius-sm: 6px;
+  --syn-keyword: #c678dd; --syn-string: var(--accent-fg); --syn-number: #d19a66; --syn-boolean: #ff8fb1;
+  --syn-comment: #8b93a1; --syn-property: #61afef; --syn-function: #82aaff; --syn-type: #e5c07b;
+  --syn-variable: #d7dae0; --syn-operator: #abb2bf; --syn-punctuation: #9ba3b1; --syn-template: #5fd7c4;
+  --syn-regex: #e5a07a; --syn-builtin: #56d4dd;
 }
 :root[data-theme="light"] {
   color-scheme: light;
@@ -39,6 +43,10 @@
   --danger-bg: color-mix(in srgb, var(--danger) 14%, transparent);
   --green: var(--success); --accent-text: var(--on-accent);
   --radius: 10px; --radius-sm: 6px;
+  --syn-keyword: #cf222e; --syn-string: var(--accent-fg); --syn-number: #0550ae; --syn-boolean: #bc4c00;
+  --syn-comment: #57606a; --syn-property: #0a3069; --syn-function: #8250df; --syn-type: #0b6e75;
+  --syn-variable: #24292f; --syn-operator: #24292f; --syn-punctuation: #57606a; --syn-template: #bc4c00;
+  --syn-regex: #116329; --syn-builtin: #953800;
 }
 :root[data-theme="contrast"] {
   color-scheme: dark;
@@ -55,6 +63,10 @@
   --danger-bg: color-mix(in srgb, var(--danger) 14%, transparent);
   --green: var(--success); --accent-text: var(--on-accent);
   --radius: 10px; --radius-sm: 6px;
+  --syn-keyword: #ff9be0; --syn-string: var(--accent-fg); --syn-number: #ffcc66; --syn-boolean: #ffa6a6;
+  --syn-comment: #c8c8c8; --syn-property: #8ed0ff; --syn-function: #ffe27a; --syn-type: #8be9fd;
+  --syn-variable: #f2f2f2; --syn-operator: #e6e6e6; --syn-punctuation: #d4d4d4; --syn-template: #ffb86b;
+  --syn-regex: #ffb3d1; --syn-builtin: #6ef0c0;
 }
 :root { --r-xs: 4px; --r-lg: 14px; --pill: 999px; --blur: saturate(180%) blur(16px); }
 /* Bootstrap components follow the owner theme instead of Bootstrap defaults. */
@@ -193,8 +205,8 @@ button.danger:hover, .button.danger:hover { background: color-mix(in srgb, var(-
 .security { border-color: var(--warning); }
 .error { color: var(--danger); background: color-mix(in srgb, var(--danger) 14%, transparent); padding: 1rem; border: 1px solid var(--danger); border-radius: var(--radius); }
 .success { border-color: var(--success); color: var(--success); }
-code { overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: .88em; color: var(--accent-fg); }
-pre code, .copy-row code, .connect-fields code { color: inherit; }
+code { overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: .88em; color: var(--text); background: var(--fill); border: 1px solid var(--line); border-radius: 4px; padding: .05em .3em; }
+pre code, .copy-row code, .connect-fields code { color: inherit; background: none; border: 0; padding: 0; }
 pre { white-space: pre-wrap; overflow-wrap: anywhere; overflow: auto; padding: 1rem; border-radius: var(--radius-sm); background: var(--code); border: 1px solid var(--line-faint); font-size: .85rem; }
 pre.json { white-space: pre; max-height: 70vh; margin: 0; }
 .selectable { user-select: all; }

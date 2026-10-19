@@ -314,6 +314,7 @@ public sealed class ReleaseStatusTests
     [InlineData("0.5.3", "0.5.4", ServerReleaseState.UpdateAvailable)]
     [InlineData("0.5.4", "0.5.4", ServerReleaseState.UpToDate)]
     [InlineData("0.5.5-dev", "0.5.4", ServerReleaseState.AheadOfRelease)]
+    [InlineData("0.1.0-dev", "0.5.4", ServerReleaseState.DevelopmentBuild)]
     [InlineData("0.5.3", null, ServerReleaseState.Unknown)]
     public void The_server_state_compares_the_running_build_with_the_latest_release(string running, string? latest, ServerReleaseState expected)
     {

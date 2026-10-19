@@ -32,7 +32,7 @@
     {
         ("cpu", "CPU", Percent(s?.Cpu), $"{scope}, {cores} cores"),
         ("processCpu", "Server process CPU", Percent(s?.ProcessCpu), "sbox-ns only"),
-        ("load1", "Load average (1 min)", Number(s?.Load1), "not reported on Windows"),
+        ("load1", "Load average (1 min)", Number(s?.Load1), MetricHints.LoadAverage(MetricHints.LoadAverageReported(), MetricHints.CurrentOsName())),
         ("memory", "Memory in use", s?.MemoryPercent is { } mp ? $"{Percent(mp)} of {Bytes(s.MemoryTotal)}" : "Unavailable", scope),
         ("processMemory", "Server process memory", s is null ? "Unavailable" : Bytes(s.ProcessMemory), "working set"),
         ("gcHeap", ".NET heap", s is null ? "Unavailable" : Bytes(s.GcHeap), "managed memory"),

@@ -124,7 +124,9 @@ public sealed class UpdateCheckService(
 
     public static UpdateNotice Evaluate(string currentVersion, ReleaseInfo latest, DateTimeOffset checkedAt)
     {
-        var available = SemanticVersion.TryParse(currentVersion, out var current)
+        // A development build is not on the release line, so an older release is never an update for it.
+        var available = !BuildInfo.IsDevelopmentVersion(currentVersion)
+            && SemanticVersion.TryParse(currentVersion, out var current)
             && SemanticVersion.TryParse(latest.Version, out var candidate)
             && candidate.CompareTo(current) > 0;
         return new UpdateNotice(currentVersion, latest, available, checkedAt);
