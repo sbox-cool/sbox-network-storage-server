@@ -163,7 +163,7 @@ public abstract class LibraryWireCompatibilityTests<TFactory> : IDisposable wher
         {
             Content = JsonContent.Create(new
             {
-                security = new { configVersion = "", clientMode = "editor", authSessions = false, encryptedRequests = false },
+                security = new { configVersion = "", clientMode = "legacy", authSessions = "disabled", encryptedRequests = "disabled" },
                 _endpointSlug = "ping",
             }),
         };
@@ -171,6 +171,7 @@ public abstract class LibraryWireCompatibilityTests<TFactory> : IDisposable wher
         request.Headers.Add("x-ns-client-type", "editor");
         using var called = await client.SendAsync(request);
         Assert.Equal(HttpStatusCode.OK, called.StatusCode);
+        Assert.False((await JsonAsync(called)).TryGetProperty("error", out _));
 
         using var values = await client.GetAsync($"/v3/values/{project.ProjectId}?apiKey={project.PublicKey}");
         Assert.Equal(HttpStatusCode.OK, values.StatusCode);

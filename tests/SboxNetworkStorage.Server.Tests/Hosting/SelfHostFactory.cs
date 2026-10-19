@@ -7,6 +7,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Npgsql;
 using SboxNetworkStorage.Application.NetworkStorage;
+using SboxNetworkStorage.Application.Workspace;
+using SboxNetworkStorage.Domain.Workspace;
 using SboxNetworkStorage.Server.Configuration;
 using SboxNetworkStorage.Server.Hosting;
 using SboxNetworkStorage.Storage.Postgres;
@@ -199,6 +201,19 @@ public abstract class SelfHostFactory : IDisposable
         var (_, publicKey) = await projects.CreateProjectKeyAsync(owner, projectId, "Game client", "public", permissions: null, CancellationToken.None);
         var (_, secretKey) = await projects.CreateProjectKeyAsync(owner, projectId, "Editor sync", "secret", permissions: null, CancellationToken.None);
         return new SelfHostProject(projectId, publicKey, secretKey);
+    }
+
+    /// <summary>Applies a change to the stored project record, the way the owner dashboard saves project settings.</summary>
+    public async Task UpdateProjectAsync(string projectId, Func<WorkspaceProject, WorkspaceProject> change)
+    {
+        await using var scope = Services.CreateAsyncScope();
+        var workspace = scope.ServiceProvider.GetRequiredService<IWorkspaceStore>();
+        var owner = NetworkStorageServices.LocalOwnerUserId;
+        var list = (await workspace.GetUserProjectsAsync(owner, CancellationToken.None)).ToList();
+        var index = list.FindIndex(project => string.Equals(project.Id, projectId, StringComparison.Ordinal));
+        if (index < 0) throw new InvalidOperationException($"project '{projectId}' not found");
+        list[index] = change(list[index]);
+        await workspace.SaveUserProjectsAsync(owner, list, CancellationToken.None);
     }
 
     public void Dispose()

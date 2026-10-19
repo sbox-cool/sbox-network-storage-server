@@ -3,6 +3,7 @@ using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using SboxNetworkStorage.Application.NetworkStorage;
 using SboxNetworkStorage.Application.NetworkStorage.Endpoints;
+using SboxNetworkStorage.Application.NetworkStorage.Endpoints.Scripting;
 using SboxNetworkStorage.Application.Workspace;
 using SboxNetworkStorage.Domain.Workspace;
 using SboxNetworkStorage.Infrastructure.NetworkStorage.Storage;
@@ -38,6 +39,7 @@ public sealed partial class ManagementMutationHandler : INetworkStorageHandler
     private readonly TimeProvider _time;
     private readonly EndpointExecutor? _endpointExecutor;
     private readonly IQueryValuesContextProvider? _valuesProvider;
+    private readonly IReadOnlyList<IEndpointScriptRuntime> _scriptRuntimes;
     private readonly INetworkStorageProjectService? _keyRevocation;
     private readonly ManagementSyncJobStore _syncJobs;
 
@@ -57,6 +59,7 @@ public sealed partial class ManagementMutationHandler : INetworkStorageHandler
         TimeProvider time,
         EndpointExecutor? endpointExecutor,
         IQueryValuesContextProvider? valuesProvider = null,
+        IReadOnlyList<IEndpointScriptRuntime>? scriptRuntimes = null,
         INetworkStorageProjectService? keyRevocation = null,
         ManagementSyncJobStore? syncJobs = null)
     {
@@ -66,6 +69,7 @@ public sealed partial class ManagementMutationHandler : INetworkStorageHandler
         _time = time;
         _endpointExecutor = endpointExecutor;
         _valuesProvider = valuesProvider;
+        _scriptRuntimes = scriptRuntimes ?? [];
         _keyRevocation = keyRevocation;
         _syncJobs = syncJobs ?? new ManagementSyncJobStore(time);
     }
@@ -1144,6 +1148,7 @@ public sealed partial class ManagementMutationHandler : INetworkStorageHandler
         var index = 0;
         var failed = 0;
         var warnings = 0;
+        var validation = new DefinitionValidationContext { ScriptRuntimes = _scriptRuntimes };
 
         foreach (var item in incoming.EnumerateArray())
         {
@@ -1198,19 +1203,26 @@ public sealed partial class ManagementMutationHandler : INetworkStorageHandler
                 // The push path stores what it is given, as the hosted backend does, so these never fail
                 // preflight. Each one would fail when the resource runs (for example a condition with no
                 // check answers 400 ENDPOINT_ERROR.CONDITION), so say so before the game does.
-                foreach (var finding in NetworkStorageDefinitionValidator.Validate(resourceKind, definition, DefinitionValidationContext.None))
+                foreach (var finding in NetworkStorageDefinitionValidator.Validate(resourceKind, definition, validation))
                 {
-                    if (!finding.IsError) continue;
+                    // Import findings need the project's globals, which preflight does not load.
+                    if (!finding.IsError || finding.Code.StartsWith("GLOBAL_", StringComparison.Ordinal)) continue;
                     warnings++;
-                    diagnostics.Add(new
+                    var diagnostic = new Dictionary<string, object?>
                     {
-                        severity = "warning",
-                        code = finding.Code,
-                        message = finding.Message,
-                        resourceKind,
-                        resourceId,
-                        sourcePath = finding.Path,
-                    });
+                        ["severity"] = "warning",
+                        ["code"] = finding.Code,
+                        ["message"] = finding.Message,
+                        ["resourceKind"] = resourceKind,
+                        ["resourceId"] = resourceId,
+                        ["sourcePath"] = finding.Path,
+                    };
+                    if (finding.Line is { } errorLine)
+                    {
+                        diagnostic["line"] = errorLine;
+                        diagnostic["column"] = finding.Column;
+                    }
+                    diagnostics.Add(diagnostic);
                 }
             }
 
