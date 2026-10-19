@@ -9,6 +9,7 @@ using SboxNetworkStorage.Application.NetworkStorage;
 using SboxNetworkStorage.Application.NetworkStorage.GameLogs;
 using SboxNetworkStorage.Application.NetworkStorage.Media;
 using SboxNetworkStorage.Contracts.NetworkStorage;
+using SboxNetworkStorage.Application.NetworkStorage.Endpoints.Scripting;
 using SboxNetworkStorage.Application.Workspace;
 using SboxNetworkStorage.Domain.Workspace;
 using Microsoft.Extensions.Configuration;
@@ -574,6 +575,20 @@ public sealed class NetworkStorageProjectService(
             case "media":
                 {
                     project = project with { Media = BuildMediaSettings(project.Media, formValues) };
+                    break;
+                }
+            case "fetch":
+                {
+                    project = project with
+                    {
+                        FetchAllowedHosts = FetchPolicyForm.ParseAllowList(formValues.GetValueOrDefault("fetchAllowedHosts")),
+                        FetchAllowAllPublic = IsChecked(formValues.GetValueOrDefault("fetchAllowAllPublic")) ? true : null
+                    };
+                    break;
+                }
+            case "fetch-allow-host":
+                {
+                    project = project with { FetchAllowedHosts = FetchPolicyForm.AddExactHost(project.FetchAllowedHosts, formValues.GetValueOrDefault("host")) };
                     break;
                 }
             case "revisions":

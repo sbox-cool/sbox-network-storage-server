@@ -9,6 +9,7 @@ using SboxNetworkStorage.Application.NetworkStorage;
 using SboxNetworkStorage.Application.NetworkStorage.GameLogs;
 using SboxNetworkStorage.Infrastructure.NetworkStorage.GameLogs;
 using SboxNetworkStorage.Application.NetworkStorage.Media;
+using SboxNetworkStorage.Application.NetworkStorage.Endpoints.Scripting;
 using SboxNetworkStorage.Application.Workspace;
 using SboxNetworkStorage.Domain.Workspace;
 using SboxNetworkStorage.Server.Authority;
@@ -157,7 +158,7 @@ public sealed class OwnerDashboardController(INetworkStorageProjectService proje
     public async Task<IActionResult> Settings(string projectId, [FromForm] string? tab, CancellationToken ct)
     {
         if (await LoadProjectAsync(projectId, ct) is null) return NotFound();
-        if (tab is not ("project" or "security" or "player-keys" or "legacy-projections" or "revisions" or "game-logs" or "media")) return BadRequest("Unknown settings tab.");
+        if (tab is not ("project" or "security" or "player-keys" or "legacy-projections" or "revisions" or "game-logs" or "media" or "fetch" or "fetch-allow-host")) return BadRequest("Unknown settings tab.");
         var form = await Request.ReadFormAsync(ct);
         var values = form.ToDictionary(pair => pair.Key, pair => pair.Value.ToString(), StringComparer.Ordinal);
         if (tab == "project" && (values.GetValueOrDefault("name")?.Trim().Length is not (>= 1 and <= 64)
@@ -183,6 +184,11 @@ public sealed class OwnerDashboardController(INetworkStorageProjectService proje
         {
             // Refused before anything was written; show the reason on the project page.
             return await ProjectErrorAsync(projectId, ex.Failure.Message, ct);
+        }
+        catch (FetchPolicyValidationException ex)
+        {
+            // Refused before anything was written; show the reason on the project page.
+            return await ProjectErrorAsync(projectId, ex.Message, ct);
         }
         await AuditAsync(projectId, "project.settings", new { tab }, ct);
         OwnerFlash.Success(this, "Settings saved");
