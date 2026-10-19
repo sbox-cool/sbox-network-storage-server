@@ -56,6 +56,23 @@ test("yaml keys inside list items are properties", () => {
   assert.ok(got.some((t) => t[0] === "property" && t[1] === "size"));
 });
 
+test("yaml unquoted scalar values are strings; keys, numbers, booleans, comments and indicators keep their kinds", () => {
+  const text = "kind: collection\nmethod: POST # verb\nurl: https://x.test/a:b\nvalue: 10\nok: true\nitems:\n  - alpha beta\n  - id: grant\nbody: |\n  text\nkey: \"{{steamId}}\"\n";
+  const got = kinds(text, "yaml");
+  assert.deepEqual(got.find((t) => t[1] === "collection"), ["string", "collection"]);
+  assert.deepEqual(got.find((t) => t[1] === "POST"), ["string", "POST"]);
+  assert.deepEqual(got.find((t) => t[1] === "# verb"), ["comment", "# verb"]);
+  assert.deepEqual(got.find((t) => t[1] === "https://x.test/a:b"), ["string", "https://x.test/a:b"]);
+  assert.deepEqual(got.find((t) => t[1] === "10"), ["number", "10"]);
+  assert.deepEqual(got.find((t) => t[1] === "true"), ["boolean", "true"]);
+  assert.deepEqual(got.find((t) => t[1] === "alpha beta"), ["string", "alpha beta"]);
+  assert.deepEqual(got.find((t) => t[1] === "id"), ["property", "id"]);
+  assert.deepEqual(got.find((t) => t[1] === "grant"), ["string", "grant"]);
+  assert.ok(!got.some((t) => t[1].includes("|")), "block indicator stays plain");
+  assert.ok(got.some((t) => t[0] === "template" && t[1] === "{{"));
+  assertLossless(text, "yaml");
+});
+
 test("json property keys are distinct from string values", () => {
   const text = "{\"key\": \"value\", \"n\": -1.5e3, \"ok\": null}";
   const got = kinds(text, "json");
