@@ -122,6 +122,14 @@ public sealed partial class EndpointExecutor
         if (protectedCollections is not null && _dataSource is not IEndpointSnapshotDataSource)
             return Denied(500, "STORAGE_WRITE_FAILED", "This provider cannot protect endpoint record versions.");
 
+        // Admission comes before any store read or script work. A full gate answers at once; it never queues.
+        using var slot = _scriptGate.TryEnter(inv.ProjectId);
+        if (slot is null)
+            return ScriptFailure(503, "SCRIPT_BUSY", "Too many scripted requests are running on this server. Try again shortly.", null);
+
+        // One budget for the whole request: every round shares its time, statement and workflow limits.
+        using var budget = new ScriptRunBudget(runtime.Limits, ct);
+
         var state = new ScriptState(protectedCollections is null ? null : new EndpointReadSet(protectedCollections));
         // Catalogs are loaded whole, once per request. A failed load propagates: a script must not run against a
         // silently shorter catalog.
@@ -131,7 +139,7 @@ public sealed partial class EndpointExecutor
         for (var round = 1; ; round++)
         {
             var attempt = new ScriptRound();
-            var run = RunScriptRound(runtime, source, inv, state, attempt, ct);
+            var run = RunScriptRound(runtime, source, inv, state, attempt, budget, ct);
             if (attempt.Misses == 0)
                 return await FinishScriptRunAsync(inv, state, attempt, run, ct);
             if (round >= MaxScriptRounds)
@@ -149,6 +157,7 @@ public sealed partial class EndpointExecutor
         ScriptInvocation inv,
         ScriptState state,
         ScriptRound round,
+        ScriptRunBudget budget,
         CancellationToken ct)
     {
         string Cid(string collection) => inv.ResolveCollection(collection);
@@ -214,7 +223,7 @@ public sealed partial class EndpointExecutor
             SkipWebhooks: true,
             SkipSleep: true,
             OnStep: round.TraceSteps.Add,
-            ScriptBudget: new ScriptWorkflowBudget(runtime.Limits.Timeout));
+            ScriptBudget: budget.Workflows);
 
         object? RunWorkflow(string id, Dictionary<string, object?> input)
         {
@@ -248,7 +257,7 @@ public sealed partial class EndpointExecutor
             inv.Method,
             inv.EndpointSlug,
             inv.Revision);
-        return new ScriptRun(host, runtime.Execute(source, scriptRequest, host, ct));
+        return new ScriptRun(host, runtime.Execute(source, scriptRequest, host, budget));
     }
 
     /// <summary>Loads the records, scans, workflows and globals one run missed. Returns a denial when a load fails closed.</summary>

@@ -25,6 +25,7 @@ public sealed partial class EndpointExecutor
     private readonly IPlayerAnalyticsService? _analyticsService;
     private readonly EndpointStepExecutor _executor = new();
     private readonly IReadOnlyList<IEndpointScriptRuntime> _scriptRuntimes;
+    private readonly ScriptConcurrencyGate _scriptGate;
     /// <summary>
     /// Maximum rows scanned per collection per endpoint request. Scans feed
     /// lookup/filter/lookup_many/random_select steps; exceeding the cap fails
@@ -37,18 +38,22 @@ public sealed partial class EndpointExecutor
         IEndpointWebhookSender? webhookSender = null,
         IPlayerAnalyticsService? analyticsService = null,
         IEndpointWebhookOutbox? webhookOutbox = null,
-        IReadOnlyList<IEndpointScriptRuntime>? scriptRuntimes = null)
+        IReadOnlyList<IEndpointScriptRuntime>? scriptRuntimes = null,
+        ScriptConcurrencyGate? scriptGate = null)
     {
         _dataSource = dataSource ?? throw new ArgumentNullException(nameof(dataSource));
         _webhookSender = webhookSender;
         _analyticsService = analyticsService;
         _webhookOutbox = webhookOutbox;
         _scriptRuntimes = scriptRuntimes ?? CreateScriptRuntimes(scriptsEnabled: true);
+        // Register one gate as a singleton in production. The executor is scoped, so a gate it created itself would
+        // be per request and bound nothing.
+        _scriptGate = scriptGate ?? new ScriptConcurrencyGate();
     }
 
     /// <summary>The same executor reading definitions and records through <paramref name="dataSource"/>.</summary>
     public EndpointExecutor WithDataSource(IEndpointDataSource dataSource)
-        => new(dataSource, _webhookSender, _analyticsService, _webhookOutbox, _scriptRuntimes);
+        => new(dataSource, _webhookSender, _analyticsService, _webhookOutbox, _scriptRuntimes, _scriptGate);
 
     /// <summary>
     /// Execute an endpoint natively using the deterministic executor.

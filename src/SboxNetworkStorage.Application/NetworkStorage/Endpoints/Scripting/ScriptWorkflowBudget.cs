@@ -3,9 +3,9 @@ using System.Diagnostics;
 namespace SboxNetworkStorage.Application.NetworkStorage.Endpoints.Scripting;
 
 /// <summary>
-/// Bounds nesting depth, step count and elapsed time for the workflows that one script round runs through
-/// <c>ns.workflows.run</c>. A fresh budget is created for every round, so reruns start clean. Exceeding a bound throws
-/// <see cref="ScriptLimitExceededException"/>, which the host maps to <c>SCRIPT_LIMIT_EXCEEDED</c>; scripts cannot catch it.
+/// Bounds nesting depth, step count and elapsed time for the workflows that a scripted request runs through
+/// <c>ns.workflows.run</c>. <see cref="ScriptRunBudget"/> creates one per request and shares it across every round, so reruns count toward the same bounds.
+/// Exceeding a bound throws <see cref="ScriptLimitExceededException"/>, which the host maps to <c>SCRIPT_LIMIT_EXCEEDED</c>; scripts cannot catch it.
 /// </summary>
 public sealed class ScriptWorkflowBudget
 {

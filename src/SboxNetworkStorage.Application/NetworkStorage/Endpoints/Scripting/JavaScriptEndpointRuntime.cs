@@ -60,7 +60,8 @@ public sealed class JavaScriptEndpointRuntime : IEndpointScriptRuntime
             return [new EndpointScriptDiagnostic(1, 1, $"Script is {size} bytes; the limit is {Limits.MaxSourceBytes}.")];
         try
         {
-            using var engine = CreateEngine(CancellationToken.None, loader: null);
+            using var budget = new ScriptRunBudget(Limits, CancellationToken.None);
+            using var engine = CreateEngine(budget, loader: null);
             Prepare(source, engine);
             return [];
         }
@@ -75,11 +76,11 @@ public sealed class JavaScriptEndpointRuntime : IEndpointScriptRuntime
 
     public string ToJavaScript(string source) => source;
 
-    public EndpointScriptOutcome Execute(string source, EndpointScriptRequest request, EndpointScriptHost host, CancellationToken ct)
+    public EndpointScriptOutcome Execute(string source, EndpointScriptRequest request, EndpointScriptHost host, ScriptRunBudget budget)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(host);
-        using var engine = CreateEngine(ct, new GlobalModuleLoader(host.GlobalModuleSource));
+        using var engine = CreateEngine(budget, new GlobalModuleLoader(host.GlobalModuleSource));
         try
         {
             var prepared = Prepare(source, engine);
@@ -129,34 +130,33 @@ public sealed class JavaScriptEndpointRuntime : IEndpointScriptRuntime
             using var document = JsonDocument.Parse(text);
             return new EndpointScriptOutcome(EndpointScriptOutcomeKind.Returned, document.RootElement.Clone());
         }
-        catch (Exception error) when (error is not OperationCanceledException || !ct.IsCancellationRequested)
+        catch (Exception error) when (error is not OperationCanceledException || !budget.ClientCancelled)
         {
             return Classify(error);
         }
     }
 
-    /// <summary>Engine options for an endpoint run. Internal so tests can assert the guards are on before running anything.</summary>
-    internal Options CreateOptions(CancellationToken ct, IModuleLoader? loader)
+    /// <summary>Engine options for an endpoint run. Statements and time come from <paramref name="budget"/>, shared by every engine entry of the request. Internal so tests can assert the guards are on before running anything.</summary>
+    internal Options CreateOptions(ScriptRunBudget budget, IModuleLoader? loader)
     {
         var options = new Options
         {
             Strict = true,
         };
-        options.TimeoutInterval(Limits.Timeout)
-            .MaxStatements(Limits.MaxStatements)
+        options.Constraint(budget.CreateStatementConstraint())
             .LimitMemory(Limits.MemoryBytes)
             .LimitRecursion(Limits.MaxRecursionDepth)
             .DisableStringCompilation(true)
-            .CancellationToken(ct);
+            .CancellationToken(budget.Token);
         ScriptEngineGuards.Configure(options, Limits.Timeout);
         if (loader is not null)
             options.EnableModules(loader);
         return options;
     }
 
-    private Engine CreateEngine(CancellationToken ct, IModuleLoader? loader)
+    private Engine CreateEngine(ScriptRunBudget budget, IModuleLoader? loader)
     {
-        var engine = new Engine(CreateOptions(ct, loader));
+        var engine = new Engine(CreateOptions(budget, loader));
         ScriptEngineGuards.Apply(engine, keepBinaryBuffers: false);
         return engine;
     }
@@ -205,6 +205,10 @@ public sealed class JavaScriptEndpointRuntime : IEndpointScriptRuntime
             return new EndpointScriptOutcome(EndpointScriptOutcomeKind.ScriptError, null, LocationPrefix(error) + script.Message);
         if (error is TimeoutException)
             return new EndpointScriptOutcome(EndpointScriptOutcomeKind.LimitExceeded, null, "Time limit exceeded.");
+        if (error is OperationCanceledException)
+            return new EndpointScriptOutcome(EndpointScriptOutcomeKind.LimitExceeded, null, "Time limit exceeded.");
+        if (error is ScriptLimitExceededException limit)
+            return new EndpointScriptOutcome(EndpointScriptOutcomeKind.LimitExceeded, null, limit.Message);
 
         // Jint's statement, memory and recursion guards throw internal exception types; match them by name.
         var name = error.GetType().Name;

@@ -95,6 +95,89 @@ public sealed class ScriptedEndpointExecutorTests
     }
 
     [Fact]
+    public async Task Script_StatementBudget_IsSharedAcrossModuleScopeHandlerAndToJson()
+    {
+        // Each part runs about 20k loop iterations: under a 50k limit alone, over it together. Jint resets its own
+        // statement counter at every engine entry, so only the request budget stops this run.
+        var script = """
+            const warm = (() => { for (let i = 0; i < 20000; i++) {} return 1; })();
+            export default function handle() {
+              for (let i = 0; i < 20000; i++) {}
+              return { ok: warm === 1, toJSON() { for (let i = 0; i < 20000; i++) {} return { ok: true }; } };
+            }
+            """;
+
+        var limited = await Run(ExecutorWithLimits(script, EndpointScriptLimits.Defaults with { MaxStatements = 50_000 }));
+        Assert.False(limited.Ok);
+        Assert.Contains("SCRIPT_LIMIT_EXCEEDED", JsonSerializer.Serialize(limited.Body));
+
+        // The same script passes under the default budget, so the failure above comes from the shared budget alone.
+        var unlimited = await Run(Executor(script));
+        Assert.True(unlimited.Ok);
+    }
+
+    [Fact]
+    public void Gate_PerProjectLimit_RefusesExtraSlotForSameProjectOnly()
+    {
+        var gate = new ScriptConcurrencyGate(globalLimit: 8, perProjectLimit: 2);
+        using var first = gate.TryEnter("proj");
+        using var second = gate.TryEnter("proj");
+        Assert.NotNull(first);
+        Assert.NotNull(second);
+
+        using var third = gate.TryEnter("proj");
+        Assert.Null(third);
+        using var otherProject = gate.TryEnter("other");
+        Assert.NotNull(otherProject);
+    }
+
+    [Fact]
+    public void Gate_GlobalLimit_RefusesWhenTheServerIsFull()
+    {
+        var gate = new ScriptConcurrencyGate(globalLimit: 2, perProjectLimit: 2);
+        using var a = gate.TryEnter("a");
+        using var b = gate.TryEnter("b");
+        Assert.NotNull(a);
+        Assert.NotNull(b);
+
+        using var c = gate.TryEnter("c");
+        Assert.Null(c);
+    }
+
+    [Fact]
+    public void Gate_DisposedSlot_FreesCapacityAndDoubleDisposeReleasesOnce()
+    {
+        var gate = new ScriptConcurrencyGate(globalLimit: 1, perProjectLimit: 1);
+        var slot = gate.TryEnter("proj");
+        Assert.NotNull(slot);
+        Assert.Null(gate.TryEnter("proj"));
+
+        slot.Dispose();
+        slot.Dispose(); // a second release would overflow the one-permit semaphore and throw
+
+        using var again = gate.TryEnter("proj");
+        Assert.NotNull(again);
+    }
+
+    [Fact]
+    public async Task Script_GateFull_ReturnsScriptBusy503_AndRecoversWhenASlotFrees()
+    {
+        var gate = new ScriptConcurrencyGate(globalLimit: 4, perProjectLimit: 1);
+        var executor = ExecutorWithGate("export default function handle() { return { ok: true }; }", gate);
+
+        using var held = gate.TryEnter("proj");
+        Assert.NotNull(held);
+        var busy = await Run(executor);
+        Assert.False(busy.Ok);
+        Assert.Equal(503, busy.Status);
+        Assert.Contains("SCRIPT_BUSY", JsonSerializer.Serialize(busy.Body));
+
+        held.Dispose();
+        var ok = await Run(executor);
+        Assert.True(ok.Ok);
+    }
+
+    [Fact]
     public async Task Script_AtomicsWait_FailsFastWithTypedError()
     {
         // Atomics.wait would park the host thread for the full 5 s; the global is removed, so it fails at once.
@@ -119,8 +202,9 @@ public sealed class ScriptedEndpointExecutorTests
     {
         // Prove the guard is on for the engine the runtime will build, before running anything. Without it, the deep
         // array below ends the test host instead of producing an error.
+        using var budget = new ScriptRunBudget(EndpointScriptLimits.Defaults, CancellationToken.None);
         var runtimeOptions = new JavaScriptEndpointRuntime(enabled: true, EndpointScriptLimits.Defaults)
-            .CreateOptions(CancellationToken.None, loader: null);
+            .CreateOptions(budget, loader: null);
         Assert.True(runtimeOptions.Constraints.StackOverflowGuard);
 
         var executor = Executor("""
@@ -528,6 +612,30 @@ public sealed class ScriptedEndpointExecutorTests
         return new EndpointExecutor(
             new FakeDataSource(definitions, records ?? new Dictionary<string, object?>()),
             scriptRuntimes: EndpointExecutor.CreateScriptRuntimes(scriptsEnabled));
+    }
+
+    private static EndpointExecutor ExecutorWithLimits(string script, EndpointScriptLimits limits)
+    {
+        var definitions = new Dictionary<string, object?>
+        {
+            ["proj:ep:script"] = new Dictionary<string, object?> { ["runtime"] = "javascript", ["script"] = script },
+        };
+        var javaScript = new JavaScriptEndpointRuntime(enabled: true, limits);
+        return new EndpointExecutor(
+            new FakeDataSource(definitions, new Dictionary<string, object?>()),
+            scriptRuntimes: [javaScript, new TypeScriptEndpointRuntime(javaScript)]);
+    }
+
+    private static EndpointExecutor ExecutorWithGate(string script, ScriptConcurrencyGate gate)
+    {
+        var definitions = new Dictionary<string, object?>
+        {
+            ["proj:ep:script"] = new Dictionary<string, object?> { ["runtime"] = "javascript", ["script"] = script },
+        };
+        return new EndpointExecutor(
+            new FakeDataSource(definitions, new Dictionary<string, object?>()),
+            scriptRuntimes: EndpointExecutor.CreateScriptRuntimes(scriptsEnabled: true),
+            scriptGate: gate);
     }
 
     private static EndpointExecutor TypeScriptExecutor(string script)

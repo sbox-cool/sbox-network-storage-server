@@ -141,14 +141,21 @@ JavaScript. Nothing else is transformed.
 
 ## Limits
 
-Every run is bounded. These are the defaults.
+Every scripted request is bounded. These are the defaults.
+
+The time and statement limits are one budget for the whole request. Module evaluation, the handler call, response
+serialisation and every re-run round all draw from it, and a re-run does not reset it. Memory is per engine: each
+round runs in its own engine, and rounds run one after another, so the peak is one engine's limit.
 
 | Limit | Default | When exceeded |
 | --- | --- | --- |
-| Time per run | 1 s | `SCRIPT_LIMIT_EXCEEDED` |
-| Statements per run | 1,000,000 | `SCRIPT_LIMIT_EXCEEDED` |
-| Memory per run | 64 MiB | `SCRIPT_LIMIT_EXCEEDED` |
-| Call depth (including workflow nesting) | 200 | `SCRIPT_LIMIT_EXCEEDED` |
+| Time per request | 1 s, counted from the start of script work (includes store reads between rounds) | `SCRIPT_LIMIT_EXCEEDED` |
+| Statements per request | 1,000,000, across all engine entries and rounds | `SCRIPT_LIMIT_EXCEEDED` |
+| Memory per engine | 64 MiB (each round has its own engine) | `SCRIPT_LIMIT_EXCEEDED` |
+| Call depth (including workflow nesting) | 200 per engine | `SCRIPT_LIMIT_EXCEEDED` |
+| Re-run rounds per request | 8 | `SCRIPT_LIMIT_EXCEEDED` |
+| Workflow nesting and steps per request | depth 5, 10,000 steps | `SCRIPT_LIMIT_EXCEEDED` |
+| Concurrent scripted requests | one per processor on the server; two per project | `SCRIPT_BUSY` (503), at once, without queuing |
 | Script source | 64 KiB | Rejected at save time |
 | Response body | 256 KiB | `SCRIPT_LIMIT_EXCEEDED` |
 | Log output per run | 8 KiB | Capped. Logging past the cap is not kept. |
@@ -165,6 +172,7 @@ changing it.
 | `SCRIPT_ERROR` | Run, 500 | The script threw an error that it did not handle. |
 | `SCRIPT_LIMIT_EXCEEDED` | Run, 500 | A run limit was hit. See [Limits](#limits). |
 | `SCRIPTS_DISABLED` | Run, 503 | `endpoints.scripts` is off. |
+| `SCRIPT_BUSY` | Run, 503 | The server or the project is already running its maximum number of scripted requests. Retry shortly. |
 | `ENDPOINT_NOT_FOUND` | Run, 404 | Unknown slug, or a `scope: global` endpoint called publicly. |
 | `SCRIPT_SYNTAX` | Save | The source cannot be parsed. Reports the line and column. |
 | `SCRIPT_AND_STEPS` | Save | An endpoint has both `script` and `steps`. |

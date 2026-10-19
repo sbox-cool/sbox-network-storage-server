@@ -66,13 +66,13 @@ public sealed partial class TypeScriptEndpointRuntime : IEndpointScriptRuntime
         return stripped.Code ?? throw new InvalidOperationException(stripped.Diagnostic?.Message ?? "TypeScript could not be compiled.");
     }
 
-    public EndpointScriptOutcome Execute(string source, EndpointScriptRequest request, EndpointScriptHost host, CancellationToken ct)
+    public EndpointScriptOutcome Execute(string source, EndpointScriptRequest request, EndpointScriptHost host, ScriptRunBudget budget)
     {
         var stripped = Strip(source);
         if (stripped.Diagnostic is not null)
             return new EndpointScriptOutcome(EndpointScriptOutcomeKind.ScriptError, null,
                 $"line {stripped.Diagnostic.Line}, column {stripped.Diagnostic.Column}: {stripped.Diagnostic.Message}");
-        return _javaScript.Execute(stripped.Code!, request, host, ct);
+        return _javaScript.Execute(stripped.Code!, request, host, budget);
     }
 
     /// <summary>Returns the JavaScript for a TypeScript source, cached by source hash.</summary>

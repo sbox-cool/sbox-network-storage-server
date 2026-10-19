@@ -185,6 +185,8 @@ public static class NetworkStorageServices
         services.AddScoped<StoreEndpointDataSource>();
         services.AddScoped<IEndpointDataSource>(sp => sp.GetRequiredService<StoreEndpointDataSource>());
         services.AddSingleton<IReadOnlyList<IEndpointScriptRuntime>>(_ => EndpointExecutor.CreateScriptRuntimes(config.GetBoolean("endpoints.scripts")));
+        // One gate for the process: the executor is scoped, so a per-request gate would bound nothing.
+        services.AddSingleton<ScriptConcurrencyGate>();
         services.AddScoped<EndpointExecutor>();
         services.AddScoped<IEndpointWebhookSender, HttpEndpointWebhookSender>();
         // Webhook delivery outbox (docs/alerting.md, "Endpoint webhook outbox"). Only projects that set

@@ -31,8 +31,11 @@ public interface IEndpointScriptRuntime
     /// </summary>
     string ToJavaScript(string source);
 
-    /// <summary>Runs the endpoint handler once, synchronously, against <paramref name="host"/>.</summary>
-    EndpointScriptOutcome Execute(string source, EndpointScriptRequest request, EndpointScriptHost host, CancellationToken ct);
+    /// <summary>
+    /// Runs the endpoint handler once, synchronously, against <paramref name="host"/>. Every engine entry of the run
+    /// draws from <paramref name="budget"/>, which is shared by all rounds of the same request.
+    /// </summary>
+    EndpointScriptOutcome Execute(string source, EndpointScriptRequest request, EndpointScriptHost host, ScriptRunBudget budget);
 }
 
 /// <summary>A syntax error with its 1-based position in the source.</summary>
