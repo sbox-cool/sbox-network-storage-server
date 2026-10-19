@@ -1,9 +1,23 @@
 # JavaScript and TypeScript endpoints
 
-A scripted endpoint is a YAML endpoint whose logic is a function instead of
-`steps`. Set `runtime: javascript` or `runtime: typescript` and put the code in
-`script`. The server runs it on your server, against the same records, game
-values and clock that YAML endpoints use. YAML endpoints are unchanged.
+Endpoints can be written in **YAML** (steps) or in **JavaScript / TypeScript**
+(code). Collections stay YAML. More languages are planned; YAML endpoints are
+unchanged and stay supported.
+
+- **Code endpoints.** Set `runtime: javascript` or `runtime: typescript` and put
+  the code in `script`. The server runs it against the same records, game values,
+  access rules and clock that YAML endpoints use.
+- **A full global environment.** Any endpoint can be `scope: global`: it gets no
+  HTTP route and shares its exported functions, classes and constants with every
+  other script, via `import { x } from "globals/<id>"` or `globals.<id>.x`
+  without an import. Existing YAML workflows are callable as
+  `workflows.<name>(input)`.
+- **Sandboxed.** Scripts run inside the server in an isolated interpreter with
+  no file system, network, process or .NET access, and with per-request limits
+  on time, statements, memory, recursion and storage operations (see
+  [Limits](#limits)). One project's scripts cannot see another project's data.
+
+Available on `main` now and in the next server release (0.5.5).
 
 ```yaml
 method: POST
