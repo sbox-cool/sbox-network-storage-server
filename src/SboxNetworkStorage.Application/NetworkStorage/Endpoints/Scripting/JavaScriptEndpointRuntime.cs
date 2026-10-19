@@ -92,9 +92,8 @@ public sealed class JavaScriptEndpointRuntime : IEndpointScriptRuntime
         Engine? engine = null;
         try
         {
-            // Engine setup is not counted against the request's time budget; Start() arms it before user code runs.
+            // Engine setup, the prelude and the module parse are host work and are not counted. Start() arms the request clock just before the module, which is user code, is evaluated.
             engine = CreateEngine(budget, new GlobalModuleLoader(host.GlobalModuleSource));
-            budget.Start();
             var prepared = Prepare(source, budget.Limits);
             engine.Modules.Add(ModuleSpecifier, builder => builder.AddModule(in prepared));
 
@@ -123,6 +122,7 @@ public sealed class JavaScriptEndpointRuntime : IEndpointScriptRuntime
             engine.SetValue("workflows", environment.Get("workflows"));
             engine.SetValue("globals", environment.Get("globals"));
 
+            budget.Start();
             var handler = engine.Modules.Import(ModuleSpecifier).Get("default");
             if (handler is not Function handlerFunction)
                 return new EndpointScriptOutcome(EndpointScriptOutcomeKind.ScriptError, null,
