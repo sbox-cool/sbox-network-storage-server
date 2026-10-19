@@ -1,3 +1,4 @@
+using SboxNetworkStorage.Application.NetworkStorage.Endpoints.Scripting;
 using System.Text.Json;
 
 namespace SboxNetworkStorage.Infrastructure.NetworkStorage;
@@ -20,6 +21,8 @@ public sealed class DefinitionValidationContext
     public IReadOnlySet<string> ValueTables { get; init; } = new HashSet<string>(StringComparer.Ordinal);
     /// <summary>The id of the resource being saved (detects self-referencing workflows).</summary>
     public string? ResourceId { get; init; }
+    /// <summary>The script runtimes this server can parse; used to check scripted endpoint source at save time.</summary>
+    public IReadOnlyList<IEndpointScriptRuntime> ScriptRuntimes { get; init; } = [];
 }
 
 internal sealed class DiagnosticBag
@@ -46,7 +49,7 @@ public static class NetworkStorageDefinitionValidator
     };
     private static readonly Dictionary<string, HashSet<string>> BodyKeys = new(StringComparer.Ordinal)
     {
-        ["endpoint"] = new(StringComparer.Ordinal) { "method", "enabled", "deprecated", "input", "steps", "response", "rateLimits", "skipSboxAuth", "requiresSecretKey", "requireReauth", "exposure", "publiclyCallable", "internalOnly", "internal", "visibility", "routes", "let" },
+        ["endpoint"] = new(StringComparer.Ordinal) { "method", "enabled", "deprecated", "input", "steps", "response", "rateLimits", "skipSboxAuth", "requiresSecretKey", "requireReauth", "exposure", "publiclyCallable", "internalOnly", "internal", "visibility", "routes", "let", "runtime", "script", "scriptFile", "scope" },
         ["workflow"] = new(StringComparer.Ordinal) { "condition", "check", "onFail", "params", "input", "steps", "returns", "response", "enabled", "exposure", "internalOnly", "visibility", "budgets", "routes", "let" },
         ["collection"] = new(StringComparer.Ordinal) { "schema", "fields", "collectionType", "accessMode", "visibility", "rateLimits", "rateLimitAction", "webhookOnRateLimit", "maxRecords", "allowRecordDelete", "requireSaveVersion", "constants", "tables" },
         ["query"] = new(StringComparer.Ordinal) { "type", "sources", "config", "cache", "requiresSecretKey", "enabled" },
@@ -101,7 +104,13 @@ public static class NetworkStorageDefinitionValidator
         ValidateInputSchema(definition, bag);
         ValidateLet(definition, bag);
 
-        if (!definition.TryGetProperty("steps", out var steps))
+        if (IsScriptedEndpoint(definition))
+        {
+            ValidateScriptEndpoint(definition, bag, context);
+            if (definition.TryGetProperty("steps", out _))
+                bag.Error("SCRIPT_AND_STEPS", "A scripted endpoint runs its script instead of steps. Remove steps, or remove runtime and script.", "/steps");
+        }
+        else if (!definition.TryGetProperty("steps", out var steps))
             bag.Warning("NO_STEPS", "This endpoint has no steps; it only returns its response.", "/steps");
         else new NetworkStorageStepValidator(bag, context, workflow: false).ValidateSteps(steps, "/steps");
 
@@ -121,6 +130,55 @@ public static class NetworkStorageDefinitionValidator
                         bag.Warning("RESPONSE_FIELD_IGNORED", $"response.{property.Name} is ignored. Put returned data under response.body.", "/response/" + property.Name);
             }
         }
+    }
+
+    /// <summary>A scripted endpoint sets <c>runtime</c>, <c>script</c>, <c>scope</c> or the <c>scriptFile</c> authoring reference.</summary>
+    private static bool IsScriptedEndpoint(JsonElement definition) =>
+        definition.TryGetProperty("runtime", out _) || definition.TryGetProperty("script", out _)
+        || definition.TryGetProperty("scriptFile", out _) || definition.TryGetProperty("scope", out _);
+
+    private static void ValidateScriptEndpoint(JsonElement definition, DiagnosticBag bag, DefinitionValidationContext context)
+    {
+        string? runtimeName = null;
+        if (!definition.TryGetProperty("runtime", out var runtime))
+            bag.Error("MISSING_RUNTIME", "A scripted endpoint needs runtime: javascript or runtime: typescript.", "/runtime");
+        else if (runtime.ValueKind != JsonValueKind.String || runtime.GetString() is not ("javascript" or "typescript"))
+            bag.Error("INVALID_RUNTIME", "runtime must be javascript or typescript.", "/runtime");
+        else runtimeName = runtime.GetString();
+
+        if (definition.TryGetProperty("scope", out var scope)
+            && (scope.ValueKind != JsonValueKind.String || scope.GetString() is not ("public" or "global")))
+            bag.Error("INVALID_SCOPE", "scope must be public or global.", "/scope");
+
+        if (!definition.TryGetProperty("script", out var script))
+        {
+            if (definition.TryGetProperty("scriptFile", out _))
+                bag.Error("SCRIPT_FILE_WITHOUT_SCRIPT", "scriptFile is an authoring reference. The script text itself belongs under script.", "/scriptFile");
+            else
+                bag.Error("MISSING_SCRIPT", "A scripted endpoint needs script: the handler source.", "/script");
+            return;
+        }
+        if (script.ValueKind != JsonValueKind.String)
+        {
+            bag.Error("INVALID_SCRIPT", "script must be a string.", "/script");
+            return;
+        }
+        if (runtimeName is null) return;
+
+        var source = script.GetString()!;
+        var engine = context.ScriptRuntimes.FirstOrDefault(candidate => candidate.Language == runtimeName);
+        if (engine is null)
+        {
+            bag.Warning("RUNTIME_UNSUPPORTED", $"This server cannot check {runtimeName} scripts yet, so the endpoint returns RUNTIME_UNSUPPORTED when called.", "/runtime");
+            return;
+        }
+        if (System.Text.Encoding.UTF8.GetByteCount(source) > engine.Limits.MaxSourceBytes)
+        {
+            bag.Error("SCRIPT_TOO_LARGE", $"script is larger than this server allows ({engine.Limits.MaxSourceBytes} bytes).", "/script");
+            return;
+        }
+        foreach (var problem in engine.Check(source))
+            bag.Error("SCRIPT_SYNTAX", $"Line {problem.Line}, column {problem.Column}: {problem.Message}", "/script");
     }
 
     private static void ValidateWorkflow(JsonElement definition, DiagnosticBag bag, DefinitionValidationContext context)

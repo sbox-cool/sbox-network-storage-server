@@ -14,11 +14,16 @@ internal sealed class GlobalModuleLoader(Func<string, string?> source) : ModuleL
 {
     public const string Prefix = "globals/";
 
+    /// <summary>The module name the entry script is registered under. It resolves to the registered module, never to a file or a global.</summary>
+    public const string EntryModule = "endpoint";
+
     private static readonly Regex ValidId = new("^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$", RegexOptions.CultureInvariant);
 
     public override ResolvedSpecifier Resolve(string? referencingModuleLocation, ModuleRequest moduleRequest)
     {
         var specifier = moduleRequest.Specifier;
+        if (specifier == EntryModule)
+            return new ResolvedSpecifier(moduleRequest, specifier, null, SpecifierType.Bare);
         if (!specifier.StartsWith(Prefix, StringComparison.Ordinal) || !ValidId.IsMatch(specifier[Prefix.Length..]))
             throw new JavaScriptException(
                 $"Module \"{specifier}\" is not available. Scripts can only import globals/<endpointId>.");

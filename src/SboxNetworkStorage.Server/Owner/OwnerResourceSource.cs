@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using SboxNetworkStorage.Application.NetworkStorage;
+using SboxNetworkStorage.Application.NetworkStorage.Endpoints.Scripting;
 using SboxNetworkStorage.Application.Common;
 using SboxNetworkStorage.Infrastructure.NetworkStorage;
 using SboxNetworkStorage.Infrastructure.NetworkStorage.Storage;
@@ -63,7 +64,7 @@ internal static class OwnerResourceSource
 
     /// <summary>Parses the text and runs the save-time validator without saving. Parse failures become one INVALID_DEFINITION error.</summary>
     public static IReadOnlyList<DefinitionDiagnostic> Check(string kind, string? definition, string? id, OwnerProjectResources resources,
-        int maxPayloadBytes, out JsonElement? source, out string? resourceId)
+        int maxPayloadBytes, IReadOnlyList<IEndpointScriptRuntime> scriptRuntimes, out JsonElement? source, out string? resourceId)
     {
         source = null;
         resourceId = null;
@@ -71,7 +72,7 @@ internal static class OwnerResourceSource
         {
             if (!string.IsNullOrWhiteSpace(definition)) source = OwnerYamlDefinitions.ParseDefinition(definition, out _);
             var resource = Parse(kind, definition, id, maxPayloadBytes, out resourceId);
-            return NetworkStorageDefinitionValidator.ValidateResource(resource, kind, resources.ValidationContext(resourceId), out _);
+            return NetworkStorageDefinitionValidator.ValidateResource(resource, kind, resources.ValidationContext(resourceId, scriptRuntimes), out _);
         }
         catch (Exception error) when (error is JsonException or ArgumentException)
         {
@@ -85,9 +86,9 @@ internal static class OwnerResourceSource
     /// </summary>
     public static async Task<(IReadOnlyList<DefinitionDiagnostic> Diagnostics, NetworkStorageResult? Result)> SaveAsync(
         ManagementMutationHandler mutations, IAuditLogger audit, string actorType, string projectId, string kind,
-        JsonElement resource, string? resourceId, OwnerProjectResources resources, bool targetsNext, CancellationToken ct)
+        JsonElement resource, string? resourceId, OwnerProjectResources resources, IReadOnlyList<IEndpointScriptRuntime> scriptRuntimes, bool targetsNext, CancellationToken ct)
     {
-        var diagnostics = NetworkStorageDefinitionValidator.ValidateResource(resource, kind, resources.ValidationContext(resourceId), out _);
+        var diagnostics = NetworkStorageDefinitionValidator.ValidateResource(resource, kind, resources.ValidationContext(resourceId, scriptRuntimes), out _);
         if (diagnostics.Any(item => item.IsError)) return (diagnostics, null);
         var result = await mutations.SaveOwnerResourceAsync(OwnerProjectScope.Owner, projectId, kind, resource, ct,
             versionSource: actorType, targetsNext: targetsNext);

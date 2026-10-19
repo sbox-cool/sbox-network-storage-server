@@ -43,7 +43,7 @@ public sealed partial class EndpointExecutor
         _webhookSender = webhookSender;
         _analyticsService = analyticsService;
         _webhookOutbox = webhookOutbox;
-        _scriptRuntimes = scriptRuntimes ?? DefaultScriptRuntimes();
+        _scriptRuntimes = scriptRuntimes ?? CreateScriptRuntimes(scriptsEnabled: true);
     }
 
     /// <summary>The same executor reading definitions and records through <paramref name="dataSource"/>.</summary>

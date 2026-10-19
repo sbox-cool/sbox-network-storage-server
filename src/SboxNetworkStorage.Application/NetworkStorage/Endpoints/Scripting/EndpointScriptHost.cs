@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace SboxNetworkStorage.Application.NetworkStorage.Endpoints.Scripting;
 
@@ -115,7 +116,10 @@ public sealed class EndpointScriptHost
     private static string Envelope(bool ok, object? value, string? error)
         => JsonSerializer.Serialize(new HostEnvelope(ok, value, error));
 
-    private sealed record HostEnvelope(bool Ok, object? Value, string? Error);
+    private sealed record HostEnvelope(
+        [property: JsonPropertyName("ok")] bool Ok,
+        [property: JsonPropertyName("value")] object? Value,
+        [property: JsonPropertyName("error")] string? Error);
 
     // ── Records ──────────────────────────────────────────────────────────────────────────────
 

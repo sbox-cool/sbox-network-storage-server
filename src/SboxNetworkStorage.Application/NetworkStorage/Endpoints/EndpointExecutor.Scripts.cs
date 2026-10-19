@@ -20,9 +20,13 @@ public sealed partial class EndpointExecutor
     /// <summary>Store records, scans, workflow definitions and global modules one request may load across all rounds.</summary>
     public const int MaxScriptStateLoads = 512;
 
-    private static IReadOnlyList<IEndpointScriptRuntime> DefaultScriptRuntimes()
+    /// <summary>
+    /// The script runtimes this server offers. <paramref name="scriptsEnabled"/> is the <c>endpoints.scripts</c> kill
+    /// switch: when false, a scripted endpoint fails with <c>SCRIPTS_DISABLED</c> instead of running.
+    /// </summary>
+    public static IReadOnlyList<IEndpointScriptRuntime> CreateScriptRuntimes(bool scriptsEnabled)
     {
-        var javaScript = new JavaScriptEndpointRuntime(enabled: true, EndpointScriptLimits.Defaults);
+        var javaScript = new JavaScriptEndpointRuntime(scriptsEnabled, EndpointScriptLimits.Defaults);
         return [javaScript, new TypeScriptEndpointRuntime(javaScript)];
     }
 
@@ -122,7 +126,7 @@ public sealed partial class EndpointExecutor
         // Catalogs are loaded whole, once per request. A failed load propagates: a script must not run against a
         // silently shorter catalog.
         state.WorkflowIds = await _dataSource.ListWorkflowIdsAsync(inv.ProjectId, ct);
-        state.GlobalIds = await _dataSource.ListGlobalEndpointIdsAsync(inv.ProjectId, ct);
+        state.GlobalIds = await _dataSource.ListEndpointIdsAsync(inv.ProjectId, ct);
 
         for (var round = 1; ; round++)
         {
@@ -426,9 +430,6 @@ public sealed partial class EndpointExecutor
             JsonElement { ValueKind: JsonValueKind.String } element => element.GetString(),
             _ => null,
         };
-
-    private static bool IsFalse(object? value) =>
-        value is false || value is JsonElement { ValueKind: JsonValueKind.False };
 
     /// <summary>The runtime an endpoint definition names, or null for a YAML endpoint.</summary>
     private IEndpointScriptRuntime? FindScriptRuntime(Dictionary<string, object?> definition) =>

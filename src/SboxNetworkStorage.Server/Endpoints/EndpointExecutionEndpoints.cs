@@ -395,7 +395,9 @@ public static class EndpointExecutionEndpoints
                 // Public HTTP request: honour exposure/enabled/deprecated and the
                 // endpoint's requiresSecretKey flag.
                 enforcePublicAccessGates: true,
-                isModuleDisabled: isModuleDisabled);
+                isModuleDisabled: isModuleDisabled,
+                httpMethod: context.Request.Method,
+                revision: revisionClientId?.ToString(System.Globalization.CultureInfo.InvariantCulture));
         }
         catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested)
         {
@@ -474,9 +476,14 @@ public static class EndpointExecutionEndpoints
                 var (code, message) = ExtractNativeError(result.Body);
                 try
                 {
-                    await reporter.CaptureErrorResultAsync(
-                        projectId, endpointSlug, context.Request.Method, steamId,
-                        result.Status, code, message, CancellationToken.None);
+                    if (result.OwnerDetail is not null)
+                        await reporter.CaptureScriptFailureAsync(
+                            projectId, endpointSlug, context.Request.Method, steamId,
+                            result.Status, code, message, result.OwnerDetail, CancellationToken.None);
+                    else
+                        await reporter.CaptureErrorResultAsync(
+                            projectId, endpointSlug, context.Request.Method, steamId,
+                            result.Status, code, message, CancellationToken.None);
                 }
                 catch { /* reporting is best-effort; never block the response */ }
             }

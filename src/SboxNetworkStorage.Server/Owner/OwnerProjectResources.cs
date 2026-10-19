@@ -1,3 +1,4 @@
+using SboxNetworkStorage.Application.NetworkStorage.Endpoints.Scripting;
 using System.Text.Json;
 using SboxNetworkStorage.Infrastructure.NetworkStorage;
 
@@ -52,7 +53,7 @@ internal sealed class OwnerProjectResources
         ? ValueItems().Select(item => item.Id).ToHashSet(StringComparer.Ordinal)
         : Rows(kind).Select(row => Text(row, kind + "_id")).OfType<string>().ToHashSet(StringComparer.Ordinal);
 
-    public DefinitionValidationContext ValidationContext(string? resourceId)
+    public DefinitionValidationContext ValidationContext(string? resourceId, IReadOnlyList<IEndpointScriptRuntime> scriptRuntimes)
     {
         var collections = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var row in Collections)
@@ -67,6 +68,7 @@ internal sealed class OwnerProjectResources
             Workflows = ExistingIds("workflow"),
             ValueTables = ValueItems().Where(item => item.Table).Select(item => item.Id).ToHashSet(StringComparer.Ordinal),
             ResourceId = resourceId,
+            ScriptRuntimes = scriptRuntimes,
         };
     }
 

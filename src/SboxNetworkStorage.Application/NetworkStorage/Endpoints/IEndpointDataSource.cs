@@ -58,7 +58,7 @@ public interface IEndpointDataSource
     /// The slugs of every endpoint in the project (script <c>globals</c> catalog and global module lookup). Errors
     /// propagate.
     /// </summary>
-    Task<IReadOnlyList<string>> ListGlobalEndpointIdsAsync(string projectId, CancellationToken ct);
+    Task<IReadOnlyList<string>> ListEndpointIdsAsync(string projectId, CancellationToken ct);
 
     /// <summary>
     /// Opens the transaction the live-serve endpoint path flushes its queued writes and deletes through. Every

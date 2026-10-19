@@ -1,3 +1,4 @@
+using SboxNetworkStorage.Application.NetworkStorage.Endpoints.Scripting;
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
@@ -192,7 +193,7 @@ public static class DevCommands
                 var kind = RequireKind(Required(a, "kind"));
                 var resources = await OwnerProjectResources.LoadAsync(store, projectId, ct);
                 var diagnostics = OwnerResourceSource.Check(kind, Required(a, "source", trim: false), Optional(a, "id"), resources,
-                    store.MaxPayloadBytes, out _, out var resourceId);
+                    store.MaxPayloadBytes, sp.GetRequiredService<IReadOnlyList<IEndpointScriptRuntime>>(), out _, out var resourceId);
                 return Diagnostics(diagnostics, new JsonObject { ["resourceId"] = resourceId });
             }
             case "definition_save":
@@ -209,7 +210,7 @@ public static class DevCommands
                 if (Optional(a, "confirm") != expected)
                     return Fail("CONFIRM_REQUIRED", $"Set confirm to \"{expected}\" to save this {kind}.");
                 var (diagnostics, saved) = await OwnerResourceSource.SaveAsync(sp.GetRequiredService<ManagementMutationHandler>(),
-                    sp.GetRequiredService<IAuditLogger>(), "mcp", projectId, kind, resource, resourceId, resources, target == "next", ct);
+                    sp.GetRequiredService<IAuditLogger>(), "mcp", projectId, kind, resource, resourceId, resources, sp.GetRequiredService<IReadOnlyList<IEndpointScriptRuntime>>(), target == "next", ct);
                 if (saved is null) return Diagnostics(diagnostics, new JsonObject { ["saved"] = false });
                 var body = JsonSerializer.SerializeToNode(saved.Body) as JsonObject;
                 return new JsonObject

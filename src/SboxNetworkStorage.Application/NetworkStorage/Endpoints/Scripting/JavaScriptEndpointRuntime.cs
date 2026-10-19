@@ -1,7 +1,9 @@
 using System.Collections.Concurrent;
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Acornima;
 using Jint;
 using Jint.Native;
@@ -28,11 +30,14 @@ public sealed class JavaScriptEndpointRuntime : IEndpointScriptRuntime
 {
     public const string LanguageName = "javascript";
 
-    private const string ModuleSpecifier = "endpoint";
+    private const string ModuleSpecifier = GlobalModuleLoader.EntryModule;
     private const int PreparedCacheLimit = 256;
 
     // Member names come from ScriptApiAttribute values, which are fixed identifiers, and are quoted anyway.
     private static readonly string Prelude = BuildPrelude();
+
+    private static readonly Regex SyntaxLocation = new(
+        @"^(?<message>.*) \(.*:(?<line>\d+):(?<column>\d+)\)$", RegexOptions.Singleline | RegexOptions.CultureInvariant);
 
     private readonly ConcurrentDictionary<string, Prepared<Acornima.Ast.Module>> _prepared = new(StringComparer.Ordinal);
 
@@ -59,9 +64,12 @@ public sealed class JavaScriptEndpointRuntime : IEndpointScriptRuntime
             Prepare(source, engine);
             return [];
         }
-        catch (ParseErrorException error)
+        catch (Exception error)
         {
-            return [new EndpointScriptDiagnostic(error.LineNumber, error.Column + 1, error.Description)];
+            var diagnostic = SyntaxDiagnostic(error);
+            if (diagnostic is null)
+                throw;
+            return [diagnostic];
         }
     }
 
@@ -81,14 +89,15 @@ public sealed class JavaScriptEndpointRuntime : IEndpointScriptRuntime
                 new JsString(host.Invoke(args[0].AsString(), args[1].AsString())), 2);
             var importGlobal = new ClrFunction(engine, "importGlobal", (_, args) =>
                 engine.Modules.Import(GlobalModuleLoader.Prefix + args[0].AsString()), 1);
-            var environment = engine.Call(engine.Evaluate(Prelude), JsValue.Undefined, hostFunction, importGlobal).AsObject();
+            engine.SetValue("__hostCall", hostFunction);
+            var environment = engine.Call(engine.Evaluate(Prelude), JsValue.Undefined, new JsValue[] { importGlobal }).AsObject();
             var ns = environment.Get("ns");
             var serialize = environment.Get("serialize");
 
             var reqValue = engine.Evaluate("(" + JsonSerializer.Serialize(new
             {
                 input = request.Input,
-                player = request.PlayerSteamId is null ? null : new { steamId = request.PlayerSteamId },
+                playerSteamId = request.PlayerSteamId,
                 method = request.Method,
                 endpoint = request.Endpoint,
                 revision = request.Revision,
@@ -104,8 +113,8 @@ public sealed class JavaScriptEndpointRuntime : IEndpointScriptRuntime
                 return new EndpointScriptOutcome(EndpointScriptOutcomeKind.ScriptError, null,
                     "The script must `export default function handle(req, ns)`.");
 
-            var result = engine.Call(handlerFunction, JsValue.Undefined, reqValue, ns);
-            var json = engine.Call(serialize, JsValue.Undefined, result);
+            var result = engine.Call(handlerFunction, JsValue.Undefined, new JsValue[] { reqValue, ns });
+            var json = engine.Call(serialize, JsValue.Undefined, new JsValue[] { result });
             if (json.IsUndefined())
                 return new EndpointScriptOutcome(EndpointScriptOutcomeKind.Returned, null);
 
@@ -154,11 +163,34 @@ public sealed class JavaScriptEndpointRuntime : IEndpointScriptRuntime
         return prepared;
     }
 
+    /// <summary>
+    /// Finds the source location of a parse failure. Jint wraps Acornima's errors, so the location is taken from the
+    /// innermost parse error that carries one: an Acornima <c>ParseErrorException</c>, or a <c>SyntaxErrorException</c>
+    /// read from its <c>(source:line:column)</c> suffix.
+    /// </summary>
+    private static EndpointScriptDiagnostic? SyntaxDiagnostic(Exception error)
+    {
+        if (error.InnerException is { } inner && SyntaxDiagnostic(inner) is { } nested)
+            return nested;
+        if (error is ParseErrorException parse)
+            return new EndpointScriptDiagnostic(parse.LineNumber, parse.Column + 1, parse.Description);
+        if (error is SyntaxErrorException)
+        {
+            var match = SyntaxLocation.Match(error.Message);
+            if (match.Success)
+                return new EndpointScriptDiagnostic(
+                    int.Parse(match.Groups["line"].Value, CultureInfo.InvariantCulture),
+                    int.Parse(match.Groups["column"].Value, CultureInfo.InvariantCulture),
+                    match.Groups["message"].Value);
+        }
+        return null;
+    }
+
     private static EndpointScriptOutcome Classify(Exception error)
     {
-        if (error is ParseErrorException syntax)
+        if (SyntaxDiagnostic(error) is { } syntax)
             return new EndpointScriptOutcome(EndpointScriptOutcomeKind.ScriptError, null,
-                $"line {syntax.LineNumber}, column {syntax.Column + 1}: {syntax.Description}");
+                $"line {syntax.Line}, column {syntax.Column}: {syntax.Message}");
         if (error is JavaScriptException script)
             return new EndpointScriptOutcome(EndpointScriptOutcomeKind.ScriptError, null, LocationPrefix(error) + script.Message);
         if (error is TimeoutException)
@@ -189,13 +221,15 @@ public sealed class JavaScriptEndpointRuntime : IEndpointScriptRuntime
     private static string BuildPrelude()
     {
         var builder = new StringBuilder();
-        builder.Append("(function (host, importGlobal) {\n");
+        builder.Append("(function (importGlobal) {\n");
+        builder.Append("  var hostCall = __hostCall;\n");
+        builder.Append("  delete globalThis.__hostCall;\n");
         builder.Append("  var stringify = JSON.stringify;\n");
         builder.Append("  var parse = JSON.parse;\n");
         builder.Append("  var slice = Array.prototype.slice;\n");
         builder.Append("  var freeze = Object.freeze;\n");
         builder.Append("  function call(name, args) {\n");
-        builder.Append("    var reply = parse(host(name, stringify(args)));\n");
+        builder.Append("    var reply = parse(hostCall(name, stringify(args)));\n");
         builder.Append("    if (!reply.ok) throw new Error(reply.error);\n");
         builder.Append("    return reply.value;\n");
         builder.Append("  }\n");

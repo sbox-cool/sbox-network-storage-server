@@ -1,3 +1,5 @@
+using SboxNetworkStorage.Application.NetworkStorage.Endpoints;
+using SboxNetworkStorage.Application.NetworkStorage.Endpoints.Scripting;
 using SboxNetworkStorage.Application.NetworkStorage;
 using SboxNetworkStorage.Server.Hosting;
 using SboxNetworkStorage.Server.Compat;
@@ -17,9 +19,13 @@ public static class ServerInfoEndpoints
         ["records", "global-records", "endpoints", "workflows", "queries", "game-values",
             "rate-limits", "auth-sessions", "analytics", "package-sync", "https-tunnel", "api-root", "media"];
 
+    /// <summary>The capabilities list, plus <c>endpoint-js</c> while the JavaScript runtime is enabled (<c>endpoints.scripts</c>).</summary>
+    public static string[] CapabilitiesFor(IEnumerable<IEndpointScriptRuntime> scriptRuntimes) =>
+        scriptRuntimes.Any(runtime => runtime.Language == "javascript" && runtime.Enabled) ? [.. Capabilities, "endpoint-js"] : Capabilities;
+
     public static IEndpointRouteBuilder MapServerInfo(this IEndpointRouteBuilder endpoints)
     {
-        endpoints.MapGet("/v3/server-info", (UpdateNoticeState updates, INetworkStorageStoreAdmin store, TunnelConnectorState tunnel, LibraryCompatProvider compat) =>
+        endpoints.MapGet("/v3/server-info", (UpdateNoticeState updates, INetworkStorageStoreAdmin store, TunnelConnectorState tunnel, LibraryCompatProvider compat, IReadOnlyList<IEndpointScriptRuntime> scriptRuntimes) =>
             {
                 var notice = updates.Current;
                 return Results.Json(new
@@ -29,7 +35,7 @@ public static class ServerInfoEndpoints
                     version = BuildInfo.Version,
                     apiVersions = ApiVersions,
                     database = store.ProviderName,
-                    capabilities = Capabilities,
+                    capabilities = CapabilitiesFor(scriptRuntimes),
                     api = new { root = NetworkStorageRoots.Api, aliases = new[] { NetworkStorageRoots.ApiV3, NetworkStorageRoots.V3 }, since = NetworkStorageRoots.ApiSince },
                     tunnel = tunnel.Current,
                     compat = compat.Current.ToServerInfo(),
