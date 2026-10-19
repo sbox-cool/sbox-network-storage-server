@@ -52,7 +52,7 @@
     },
     "tested": {
       "type": "array",
-      "description": "One row per test run: which library, on which engine build, was tested with which server, and where the proof is. Editor runs (docs/editor-test-plan.md) write these rows.",
+      "description": "One row per test run: which library, on which engine build, was tested with which server, and where the proof is. Compat engine runs (ci-only) and native editor runs (pass) write these rows (docs/editor-test-plan.md).",
       "items": { "$ref": "#/$defs/tested" }
     }
   },
@@ -125,7 +125,7 @@
           "uniqueItems": true,
           "items": { "enum": ["sqlite", "postgres"] }
         },
-        "result": { "enum": ["pass", "fail", "ci-only"], "description": "'ci-only' means no editor run; the release notes call it out." },
+        "result": { "enum": ["pass", "fail", "ci-only"], "description": "'ci-only' is a green Compat engine run with no native s&box editor run; the release notes call it out. 'pass' is a native editor run." },
         "date": { "$ref": "#/$defs/date" },
         "evidence": {
           "type": "array",
@@ -136,7 +136,7 @@
       },
       "allOf": [
         {
-          "description": "A 'pass' is an editor run, and a run without its engine build, OS and backend kind is not evidence (docs/editor-test-plan.md). Use 'ci-only' when no editor ran.",
+          "description": "A 'pass' is a native s&box editor run, and a run without its engine build, OS and backend kind is not evidence (docs/editor-test-plan.md). Use 'ci-only' for a green Compat engine run with no native editor run.",
           "if": { "properties": { "result": { "const": "pass" } }, "required": ["result"] },
           "then": { "required": ["engine", "os", "kind", "librarySource"] }
         }

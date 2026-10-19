@@ -69,7 +69,7 @@ public sealed class CompatibilityReleaseEvidenceTests
         Assert.Equal(0, valid.Exit);
         var missing = await RunAsync(python!, ["--server", "0.5.0", "--commit", new string('a', 40)]);
         Assert.NotEqual(0, missing.Exit);
-        Assert.Contains("No editor-verified pass", missing.Output);
+        Assert.Contains("No matching-commit evidence row", missing.Output);
         var path = Path.GetTempFileName();
         try
         {
@@ -99,10 +99,10 @@ public sealed class CompatibilityReleaseEvidenceTests
             matrix["recommended"] = recommended;
             matrix["tested"]![0]!["result"] = "ci-only";
             File.WriteAllText(path, matrix.ToJsonString());
-            Assert.NotEqual(0, (await RunAsync(python!, ["--matrix", path, "--server", "0.5.0", "--commit", new string('a', 40)])).Exit);
-            var explicitCi = await RunAsync(python!, ["--matrix", path, "--server", "0.5.0", "--commit", new string('a', 40), "--allow-ci-only"]);
-            Assert.Equal(0, explicitCi.Exit);
-            Assert.Contains("CI-only release", explicitCi.Output);
+            var ciOnly = await RunAsync(python!, ["--matrix", path, "--server", "0.5.0", "--commit", new string('a', 40)]);
+            Assert.Equal(0, ciOnly.Exit);
+            Assert.Contains("CI-only release", ciOnly.Output);
+            Assert.DoesNotContain("CI-only release", rightCommit.Output);
         }
         finally { File.Delete(path); }
     }

@@ -5,10 +5,11 @@ Works on the committed ``compat/library-matrix.json`` shape (no network, no
 third-party packages): JSON-schema validation against
 ``compat/library-matrix.schema.json``, semantic rules the schema cannot
 express (server parser bounds, range tokens, real sunset dates, minimum moves
-only on top of a completed deprecation), the release gate (an editor-verified
-``pass`` row for the recommended library on the exact release commit), and
-rendering of the "Tested with" table. Preserved-data rollback targets are
-attached from target-binary ``compatibility --json`` reports.
+only on top of a completed deprecation), the release gate (a matching-commit
+evidence row for the recommended library on the exact release commit: a
+``ci-only`` row from the green Compat engine legs, or a ``pass`` row from a
+native editor run), and rendering of the "Tested with" table. Preserved-data
+rollback targets are attached from target-binary ``compatibility --json`` reports.
 """
 import argparse
 import calendar
@@ -296,12 +297,13 @@ def select_rows(matrix, server, commit):
     return rows
 
 
-def render(matrix, server, commit, allow_ci_only):
+def render(matrix, server, commit):
     rows = select_rows(matrix, server, commit)
     recommended = matrix.get("recommended")
-    passed = [r for r in rows if r.get("library") == recommended and r.get("result") == "pass"]
-    if not passed and not (allow_ci_only and any(r.get("result") == "ci-only" for r in rows)):
-        raise ValueError("No editor-verified pass for the recommended library on this exact commit; record evidence, or explicitly --allow-ci-only with a ci-only evidence row")
+    evidence = [r for r in rows if r.get("library") == recommended and r.get("result") in ("pass", "ci-only")]
+    if not evidence:
+        raise ValueError("No matching-commit evidence row for the recommended library on this exact commit; record the Compat engine legs (ci-only) or a native editor run (pass)")
+    native = any(r.get("result") == "pass" for r in evidence)
     lines = ["## Tested with", "",
              "| Library | Revision | Engine | OS | Database | Result | Evidence |",
              "| --- | --- | --- | --- | --- | --- | --- |"]
@@ -312,8 +314,8 @@ def render(matrix, server, commit, allow_ci_only):
                  row.get("os") or "-", ", ".join(row.get("database", [])), row.get("result"),
                  ", ".join(row.get("evidence", []))]
         lines.append("| " + " | ".join(escape(c) for c in cells) + " |")
-    if not passed:
-        lines += ["", "**CI-only release: this commit has not passed the real s&box editor gate.**"]
+    if not native:
+        lines += ["", "**CI-only release: no native s&box editor run is recorded for this commit. The green Compat engine legs (real library inside the real s&box engine) are the certification.**"]
     return "\n".join(lines)
 
 
@@ -347,7 +349,6 @@ def main():
     parser.add_argument("--matrix", type=Path, default=ROOT / "compat/library-matrix.json")
     parser.add_argument("--server")
     parser.add_argument("--commit")
-    parser.add_argument("--allow-ci-only", action="store_true")
     parser.add_argument("--baseline", type=Path, help="Previous release's matrix; verifies its announced sunsets are not shortened")
     parser.add_argument("--policy-source", type=Path, help="Tested source matrix; a detached artifact may change only tested evidence")
     parser.add_argument("--rollback-report", type=Path, action="append", default=[], help="Target binary compatibility --json report against the release schema/config")
@@ -363,7 +364,7 @@ def main():
                 raise ValueError("Detached release evidence cannot change the tested source policy")
         output = []
         if args.server:
-            output.append(render(matrix, args.server, args.commit or "", args.allow_ci_only))
+            output.append(render(matrix, args.server, args.commit or ""))
         output.append(rollback_notes(args.rollback_report))
         print("\n".join(line for line in output if line))
     except (ValueError, FileNotFoundError, json.JSONDecodeError) as error:
