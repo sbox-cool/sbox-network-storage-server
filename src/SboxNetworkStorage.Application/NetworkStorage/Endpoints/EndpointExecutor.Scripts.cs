@@ -244,7 +244,7 @@ public sealed partial class EndpointExecutor
         var host = new EndpointScriptHost(bindings, runtime.Limits.MaxLogBytes);
         var scriptRequest = new EndpointScriptRequest(
             inv.Input,
-            inv.SteamId == "anonymous" ? null : inv.SteamId,
+            inv.SteamId == "anonymous" || inv.HasSecretKey ? null : inv.SteamId,
             inv.Method,
             inv.EndpointSlug,
             inv.Revision);

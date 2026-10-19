@@ -1,5 +1,6 @@
 using System.Text.Json;
 using SboxNetworkStorage.Application.NetworkStorage.Endpoints;
+using SboxNetworkStorage.Application.NetworkStorage.Endpoints.Scripting;
 using SboxNetworkStorage.Infrastructure.NetworkStorage;
 
 namespace SboxNetworkStorage.Server.Tests.NetworkStorage;
@@ -12,7 +13,7 @@ public sealed class ScriptedEndpointExecutorTests
     {
         var script = """
             export default function handle(req, ns) {
-              const player = ns.records.get("players", req.playerSteamId);
+              const player = ns.records.get("players", req.player.steamId);
               return { ok: true, coins: player.coins + req.input.price };
             }
             """;
@@ -47,7 +48,7 @@ public sealed class ScriptedEndpointExecutorTests
         };
         var yamlResult = await Run(new EndpointExecutor(new FakeDataSource(yaml, PlayerRecord(42d))), endpoint: "yaml");
 
-        var scripted = Executor("export default function handle(req, ns) { return { ok: true, coins: ns.records.get(\"players\", req.playerSteamId).coins }; }", records);
+        var scripted = Executor("export default function handle(req, ns) { return { ok: true, coins: ns.records.get(\"players\", req.player.steamId).coins }; }", records);
         var scriptedResult = await Run(scripted);
 
         Assert.True(yamlResult.Ok);
@@ -79,6 +80,104 @@ public sealed class ScriptedEndpointExecutorTests
         Assert.Equal(500, result.Status);
         Assert.Contains("SCRIPT_LIMIT_EXCEEDED", JsonSerializer.Serialize(result.Body));
     }
+
+    private const string BankScript = """
+        export function coinsOf() { return ns.records.get("players", req.player.steamId).coins; }
+        export function whoAmI() { return req.player.steamId; }
+        export const VERSION = 2;
+        """;
+
+    [Fact]
+    public async Task Global_NamedImport_ReadsTheCallersRecordThroughTheGlobal()
+    {
+        var executor = Project(PlayerRecord(250d),
+            ("bank", Global(BankScript)),
+            ("caller", Scripted("""
+                import { coinsOf, whoAmI } from "globals/bank";
+                export default function handle(req, ns) { return { ok: true, coins: coinsOf(), who: whoAmI() }; }
+                """)));
+
+        var result = await Run(executor, endpoint: "caller");
+
+        Assert.True(result.Ok, result.OwnerDetail);
+        var json = JsonSerializer.Serialize(result.Body);
+        Assert.Contains("\"coins\":250", json);
+        Assert.Contains("\"who\":\"steam1\"", json);
+    }
+
+    [Fact]
+    public async Task Global_GlobalsNamespace_ExposesExportsByEndpointId()
+    {
+        var executor = Project(PlayerRecord(7d),
+            ("bank", Global(BankScript)),
+            ("caller", Scripted("""
+                export default function handle(req, ns) { return { ok: true, coins: globals.bank.coinsOf(), version: globals.bank.VERSION }; }
+                """)));
+
+        var result = await Run(executor, endpoint: "caller");
+
+        Assert.True(result.Ok, result.OwnerDetail);
+        var json = JsonSerializer.Serialize(result.Body);
+        Assert.Contains("\"coins\":7", json);
+        Assert.Contains("\"version\":2", json);
+    }
+
+    [Fact]
+    public async Task Global_OverHttpGate_IsAnsweredLikeAnUnknownEndpoint()
+    {
+        var executor = Project(PlayerRecord(1d), ("bank", Global(BankScript)));
+
+        var global = await TryPublic(executor, "bank");
+        var unknown = await TryPublic(executor, "missing");
+
+        Assert.Null(unknown);
+        Assert.NotNull(global);
+        Assert.False(global.Ok);
+        Assert.Equal(404, global.Status);
+        Assert.Equal(NotFoundBody("bank"), JsonSerializer.Serialize(global.Body));
+    }
+
+    [Fact]
+    public async Task Global_LoopInside_StopsTheCallerWithTheLimitError()
+    {
+        var executor = Project(new Dictionary<string, object?>(),
+            ("spin", Global("export function spin() { while (true) {} }")),
+            ("caller", Scripted("""
+                import { spin } from "globals/spin";
+                export default function handle() { spin(); return { ok: true }; }
+                """)));
+
+        var result = await Run(executor, endpoint: "caller");
+
+        Assert.False(result.Ok);
+        Assert.Equal(500, result.Status);
+        Assert.Contains("SCRIPT_LIMIT_EXCEEDED", JsonSerializer.Serialize(result.Body));
+    }
+
+    private static EndpointExecutor Project(Dictionary<string, object?> records,
+        params (string Slug, Dictionary<string, object?> Definition)[] endpoints)
+    {
+        var definitions = endpoints.ToDictionary(e => $"proj:ep:{e.Slug}", e => (object?)e.Definition);
+        return new EndpointExecutor(new FakeDataSource(definitions, records),
+            scriptRuntimes: EndpointExecutor.CreateScriptRuntimes(scriptsEnabled: true));
+    }
+
+    private static Dictionary<string, object?> Global(string script) =>
+        new() { ["runtime"] = "javascript", ["scope"] = "global", ["script"] = script };
+
+    private static Dictionary<string, object?> Scripted(string script) =>
+        new() { ["runtime"] = "javascript", ["script"] = script };
+
+    private static Task<EndpointExecutionResult?> TryPublic(EndpointExecutor executor, string endpoint) =>
+        executor.TryExecuteAsync("proj", endpoint,
+            input: new Dictionary<string, object?>(), steamId: "steam1", userId: "u1",
+            gameValues: new Dictionary<string, object?>(),
+            hasSecretKey: false, isDedicatedServer: false, CancellationToken.None,
+            enforcePublicAccessGates: true);
+
+    /// <summary>The body the HTTP layer writes for an unknown slug (<c>WriteEndpointErrorAsync</c>).</summary>
+    private static string NotFoundBody(string slug) =>
+        JsonSerializer.Serialize(new { ok = false, error = new { code = "ENDPOINT_NOT_FOUND", message = $"Endpoint \"{slug}\" was not found." } });
 
     [Fact]
     public async Task Script_NoHostOrClrAccess()
@@ -180,7 +279,11 @@ public sealed class ScriptedEndpointExecutorTests
             => Task.FromResult<IReadOnlyList<string>>([]);
 
         public Task<IReadOnlyList<string>> ListEndpointIdsAsync(string projectId, CancellationToken ct)
-            => Task.FromResult<IReadOnlyList<string>>([]);
+        {
+            var prefix = $"{projectId}:ep:";
+            return Task.FromResult<IReadOnlyList<string>>(
+                _definitions.Keys.Where(key => key.StartsWith(prefix, StringComparison.Ordinal)).Select(key => key[prefix.Length..]).ToList());
+        }
 
         public Task<IEndpointWriteTransaction> BeginWriteTransactionAsync(CancellationToken ct)
             => throw new InvalidOperationException("These tests never write.");
@@ -251,6 +354,94 @@ public sealed class ScriptedEndpointValidationTests
 
         Assert.DoesNotContain(diagnostics, d => d.Code.StartsWith("SCRIPT", StringComparison.Ordinal) && d.IsError);
     }
+
+    [Fact]
+    public void Validate_ImportOfExportedGlobal_HasNoErrors()
+    {
+        var context = ContextWith("caller", ("bank", "export function coinsOf() { return 1; }"));
+
+        var diagnostics = ValidateWith(context, Script("import { coinsOf } from \"globals/bank\";\nexport default function handle() { return { ok: true, c: coinsOf() }; }"));
+
+        Assert.DoesNotContain(diagnostics, d => d.IsError);
+    }
+
+    [Fact]
+    public void Validate_ImportOfMissingGlobal_NamesTheImporter()
+    {
+        var context = ContextWith("caller", ("bank", "export function coinsOf() { return 1; }"));
+
+        var diagnostics = ValidateWith(context, Script("import { x } from \"globals/nope\";\nexport default function handle() { return { ok: true }; }"));
+
+        var error = Assert.Single(diagnostics, d => d.Code == "GLOBAL_NOT_FOUND");
+        Assert.True(error.IsError);
+        Assert.Contains("\"caller\"", error.Message);
+        Assert.Contains("globals/nope", error.Message);
+    }
+
+    [Fact]
+    public void Validate_ImportOfMissingExport_NamesTheImporter()
+    {
+        var context = ContextWith("caller", ("bank", "export function coinsOf() { return 1; }"));
+
+        var diagnostics = ValidateWith(context, Script("import { nope } from \"globals/bank\";\nexport default function handle() { return { ok: true }; }"));
+
+        var error = Assert.Single(diagnostics, d => d.Code == "GLOBAL_EXPORT_NOT_FOUND");
+        Assert.True(error.IsError);
+        Assert.Contains("\"caller\"", error.Message);
+        Assert.Contains("\"nope\"", error.Message);
+        Assert.Contains("globals/bank", error.Message);
+    }
+
+    [Fact]
+    public void Validate_GlobalImportingItselfThroughAnotherGlobal_IsACycle()
+    {
+        var context = ContextWith("a", ("b", "import { y } from \"globals/a\"; export function x() { return y(); }"));
+
+        var diagnostics = ValidateWith(context, Script("import { x } from \"globals/b\"; export function y() { return x(); }", scope: "global"));
+
+        var error = Assert.Single(diagnostics, d => d.Code == "GLOBAL_CYCLE");
+        Assert.True(error.IsError);
+        Assert.Contains("globals/a -> globals/b -> globals/a", error.Message);
+    }
+
+    [Fact]
+    public void Validate_GlobalImportingItself_IsACycle()
+    {
+        var context = ContextWith("a");
+
+        var diagnostics = ValidateWith(context, Script("import { y } from \"globals/a\"; export function z() { return y(); }", scope: "global"));
+
+        Assert.Contains(diagnostics, d => d.Code == "GLOBAL_CYCLE" && d.IsError);
+    }
+
+    [Fact]
+    public void Validate_ReExportFromGlobal_IsUnsupported()
+    {
+        var context = ContextWith("caller", ("bank", "export function coinsOf() { return 1; }"));
+
+        var diagnostics = ValidateWith(context, Script("export * from \"globals/bank\";"));
+
+        var error = Assert.Single(diagnostics, d => d.Code == "SCRIPT_MODULE_UNSUPPORTED");
+        Assert.True(error.IsError);
+        Assert.StartsWith("Line 1, column", error.Message);
+    }
+
+    private static DefinitionValidationContext ContextWith(string resourceId, params (string Id, string Source)[] globals) => new()
+    {
+        ResourceId = resourceId,
+        ScriptRuntimes = EndpointExecutor.CreateScriptRuntimes(scriptsEnabled: true),
+        GlobalModules = globals.ToDictionary(g => g.Id, g => ScriptModuleAnalysis.Analyze(g.Source)),
+    };
+
+    private static Dictionary<string, object?> Script(string script, string? scope = null)
+    {
+        var definition = new Dictionary<string, object?> { ["runtime"] = "javascript", ["script"] = script };
+        if (scope is not null) definition["scope"] = scope;
+        return definition;
+    }
+
+    private static IReadOnlyList<DefinitionDiagnostic> ValidateWith(DefinitionValidationContext context, Dictionary<string, object?> endpoint) =>
+        NetworkStorageDefinitionValidator.Validate("endpoint", JsonSerializer.SerializeToElement(endpoint), context);
 
     private static IReadOnlyList<DefinitionDiagnostic> Validate(Dictionary<string, object?> endpoint) =>
         NetworkStorageDefinitionValidator.Validate(

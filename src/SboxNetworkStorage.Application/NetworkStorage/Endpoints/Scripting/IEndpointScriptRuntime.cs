@@ -40,7 +40,7 @@ public sealed record EndpointScriptDiagnostic(int Line, int Column, string Messa
 
 /// <summary>The request a script handler receives as its first argument (<c>req</c>).</summary>
 /// <param name="Input">The endpoint input (query string for GET, JSON body for POST), as the YAML steps see it.</param>
-/// <param name="PlayerSteamId">The verified player identity the YAML steps see, or null when anonymous.</param>
+/// <param name="PlayerSteamId">The server-verified player identity, exposed as <c>req.player.steamId</c>; null (<c>req.player</c> is null) when anonymous or called with a secret key.</param>
 /// <param name="Method">HTTP method, <c>GET</c> or <c>POST</c>.</param>
 /// <param name="Endpoint">Endpoint slug.</param>
 /// <param name="Revision">The game client's revision id, or null when the client did not send one.</param>

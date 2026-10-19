@@ -5,9 +5,14 @@ using Acornima.Ast;
 namespace SboxNetworkStorage.Application.NetworkStorage.Endpoints.Scripting;
 
 /// <summary>What a script module imports and exports, read from the JavaScript the runtime executes.</summary>
-/// <param name="GlobalImports">The endpoint ids of every <c>globals/&lt;id&gt;</c> import, in source order, without duplicates.</param>
+/// <param name="GlobalImports">Every <c>globals/&lt;id&gt;</c> import, in source order, one entry per endpoint id.</param>
 /// <param name="Exports">Every export. Re-exports and <c>export *</c> are rejected, so each export is declared in this module.</param>
-public sealed record ScriptModuleInfo(IReadOnlyList<string> GlobalImports, IReadOnlyList<ScriptExport> Exports);
+public sealed record ScriptModuleInfo(IReadOnlyList<ScriptImport> GlobalImports, IReadOnlyList<ScriptExport> Exports);
+
+/// <summary>A <c>globals/&lt;id&gt;</c> import: the endpoint id and the names taken from it. <c>default</c> is the default export, <c>*</c> a namespace import; empty for a bare side-effect import.</summary>
+/// <param name="EndpointId">The imported global endpoint's id.</param>
+/// <param name="Names">The imported names, deduplicated, in source order.</param>
+public sealed record ScriptImport(string EndpointId, IReadOnlyList<string> Names);
 
 /// <summary>An export of a script module.</summary>
 /// <param name="Name">The exported name; <c>default</c> for the default export.</param>
@@ -65,15 +70,14 @@ public static class ScriptModuleAnalysis
     public static ScriptModuleInfo Analyze(string javaScript)
     {
         var module = new Parser().ParseModule(javaScript);
-        var imports = new List<string>();
+        var imports = new List<ScriptImport>();
         var exports = new List<ScriptExport>();
         foreach (var statement in module.Body)
         {
             switch (statement)
             {
                 case ImportDeclaration import:
-                    var id = GlobalImportId(import);
-                    if (!imports.Contains(id, StringComparer.Ordinal)) imports.Add(id);
+                    AddImport(imports, import);
                     break;
 
                 case ExportAllDeclaration all:
@@ -103,6 +107,26 @@ public static class ScriptModuleAnalysis
             }
         }
         return new ScriptModuleInfo(imports, exports);
+    }
+
+    /// <summary>Adds an import, merging the names of repeated imports of the same endpoint.</summary>
+    private static void AddImport(List<ScriptImport> imports, ImportDeclaration import)
+    {
+        var id = GlobalImportId(import);
+        var names = new List<string>();
+        foreach (var specifier in import.Specifiers)
+        {
+            names.Add(specifier switch
+            {
+                ImportDefaultSpecifier => "default",
+                ImportNamespaceSpecifier => "*",
+                ImportSpecifier named => ExportedName(named.Imported, import),
+                _ => throw Unsupported(import, "This import form is not supported in a script."),
+            });
+        }
+        var index = imports.FindIndex(existing => existing.EndpointId == id);
+        if (index < 0) imports.Add(new ScriptImport(id, names.Distinct(StringComparer.Ordinal).ToList()));
+        else imports[index] = imports[index] with { Names = imports[index].Names.Union(names, StringComparer.Ordinal).ToList() };
     }
 
     /// <summary>

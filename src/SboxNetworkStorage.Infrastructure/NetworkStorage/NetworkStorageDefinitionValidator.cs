@@ -23,6 +23,11 @@ public sealed class DefinitionValidationContext
     public string? ResourceId { get; init; }
     /// <summary>The script runtimes this server can parse; used to check scripted endpoint source at save time.</summary>
     public IReadOnlyList<IEndpointScriptRuntime> ScriptRuntimes { get; init; } = [];
+    /// <summary>
+    /// The project's enabled global endpoints, by id, with their analysed imports and exports. Excludes the resource being
+    /// saved, whose own source the save analyses. Import checks of scripted endpoints resolve against this.
+    /// </summary>
+    public IReadOnlyDictionary<string, ScriptModuleInfo> GlobalModules { get; init; } = new Dictionary<string, ScriptModuleInfo>();
 }
 
 internal sealed class DiagnosticBag
@@ -177,8 +182,74 @@ public static class NetworkStorageDefinitionValidator
             bag.Error("SCRIPT_TOO_LARGE", $"script is larger than this server allows ({engine.Limits.MaxSourceBytes} bytes).", "/script");
             return;
         }
-        foreach (var problem in engine.Check(source))
-            bag.Error("SCRIPT_SYNTAX", $"Line {problem.Line}, column {problem.Column}: {problem.Message}", "/script");
+        var problems = engine.Check(source);
+        if (problems.Count > 0)
+        {
+            foreach (var problem in problems)
+                bag.Error("SCRIPT_SYNTAX", $"Line {problem.Line}, column {problem.Column}: {problem.Message}", "/script");
+            return;
+        }
+        ValidateScriptImports(source, engine, IsGlobalScope(definition), bag, context);
+    }
+
+    /// <summary>A scripted endpoint with <c>scope: global</c> is a module other scripts import, never an HTTP route.</summary>
+    private static bool IsGlobalScope(JsonElement definition) =>
+        definition.TryGetProperty("scope", out var scope) && scope.ValueKind == JsonValueKind.String && scope.GetString() == "global";
+
+    /// <summary>
+    /// Checks the <c>globals/&lt;id&gt;</c> imports of a script: the import forms are supported, every imported id is an
+    /// enabled global endpoint of the project, every named import is exported by it, and a global does not import itself
+    /// back through other globals.
+    /// </summary>
+    private static void ValidateScriptImports(string source, IEndpointScriptRuntime engine, bool isGlobal, DiagnosticBag bag, DefinitionValidationContext context)
+    {
+        ScriptModuleInfo module;
+        try
+        {
+            module = ScriptModuleAnalysis.Analyze(engine.ToJavaScript(source));
+        }
+        catch (ScriptModuleException ex)
+        {
+            bag.Error("SCRIPT_MODULE_UNSUPPORTED", $"Line {ex.Line}, column {ex.Column}: {ex.Message}", "/script");
+            return;
+        }
+        var self = context.ResourceId ?? "this endpoint";
+        if (isGlobal && context.ResourceId is { } selfId && FindGlobalCycle(selfId, module, context.GlobalModules) is { } cycle)
+            bag.Error("GLOBAL_CYCLE", $"Global endpoint \"{selfId}\" imports itself: {string.Join(" -> ", cycle.Select(id => ScriptModuleAnalysis.GlobalPrefix + id))}.", "/script");
+
+        foreach (var import in module.GlobalImports)
+        {
+            if (isGlobal && import.EndpointId == context.ResourceId) continue; // reported as a cycle above
+            if (!context.GlobalModules.TryGetValue(import.EndpointId, out var target))
+            {
+                bag.Error("GLOBAL_NOT_FOUND", $"Endpoint \"{self}\" imports {ScriptModuleAnalysis.GlobalPrefix}{import.EndpointId}, which is not an enabled global endpoint of this project.", "/script");
+                continue;
+            }
+            foreach (var name in import.Names)
+            {
+                if (name != "*" && !target.Exports.Any(export => export.Name == name))
+                    bag.Error("GLOBAL_EXPORT_NOT_FOUND", $"Endpoint \"{self}\" imports \"{name}\" from {ScriptModuleAnalysis.GlobalPrefix}{import.EndpointId}, which does not export it.", "/script");
+            }
+        }
+    }
+
+    /// <summary>The import path from <paramref name="self"/> back to itself through global modules, or null when there is none.</summary>
+    private static IReadOnlyList<string>? FindGlobalCycle(string self, ScriptModuleInfo module, IReadOnlyDictionary<string, ScriptModuleInfo> globals)
+    {
+        var path = new List<string> { self };
+        var visited = new HashSet<string>(StringComparer.Ordinal);
+        bool Visit(ScriptModuleInfo current)
+        {
+            foreach (var import in current.GlobalImports)
+            {
+                path.Add(import.EndpointId);
+                if (import.EndpointId == self) return true;
+                if (visited.Add(import.EndpointId) && globals.TryGetValue(import.EndpointId, out var next) && Visit(next)) return true;
+                path.RemoveAt(path.Count - 1);
+            }
+            return false;
+        }
+        return Visit(module) ? path : null;
     }
 
     private static void ValidateWorkflow(JsonElement definition, DiagnosticBag bag, DefinitionValidationContext context)

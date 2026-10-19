@@ -97,7 +97,7 @@ public sealed class JavaScriptEndpointRuntime : IEndpointScriptRuntime
             var reqValue = engine.Evaluate("(" + JsonSerializer.Serialize(new
             {
                 input = request.Input,
-                playerSteamId = request.PlayerSteamId,
+                player = request.PlayerSteamId is null ? null : new { steamId = request.PlayerSteamId },
                 method = request.Method,
                 endpoint = request.Endpoint,
                 revision = request.Revision,

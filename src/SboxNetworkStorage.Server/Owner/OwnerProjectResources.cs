@@ -69,8 +69,40 @@ internal sealed class OwnerProjectResources
             ValueTables = ValueItems().Where(item => item.Table).Select(item => item.Id).ToHashSet(StringComparer.Ordinal),
             ResourceId = resourceId,
             ScriptRuntimes = scriptRuntimes,
+            GlobalModules = ProjectGlobalModules(resourceId, scriptRuntimes),
         };
     }
+
+    /// <summary>
+    /// Analysed imports and exports of the project's enabled global endpoints, excluding <paramref name="resourceId"/>.
+    /// A global whose source does not analyse is left out: its own save rejected it.
+    /// </summary>
+    private Dictionary<string, ScriptModuleInfo> ProjectGlobalModules(string? resourceId, IReadOnlyList<IEndpointScriptRuntime> scriptRuntimes)
+    {
+        var modules = new Dictionary<string, ScriptModuleInfo>(StringComparer.Ordinal);
+        foreach (var row in Endpoints)
+        {
+            if (Text(row, "endpoint_id") is not { } id || id == resourceId) continue;
+            if (Column(row, "definition_json") is not { ValueKind: JsonValueKind.Object } definition) continue;
+            if (StringProperty(definition, "scope") != "global" || StringProperty(definition, "runtime") is not { } language) continue;
+            if (definition.TryGetProperty("enabled", out var enabled) && enabled.ValueKind == JsonValueKind.False) continue;
+            if (StringProperty(definition, "script") is not { } source) continue;
+            var engine = scriptRuntimes.FirstOrDefault(candidate => candidate.Language == language);
+            if (engine is null) continue;
+            try
+            {
+                modules[id] = ScriptModuleAnalysis.Analyze(engine.ToJavaScript(source));
+            }
+            catch (Exception ex) when (ex is ScriptModuleException or InvalidOperationException or Acornima.ParseErrorException)
+            {
+                // A global that does not analyse was rejected at its own save; importers see it as missing.
+            }
+        }
+        return modules;
+    }
+
+    private static string? StringProperty(JsonElement element, string name) =>
+        element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
 
     /// <summary>Compact JSON for the builder pickers, embedded in the Resources page.</summary>
     public string BuilderJson() => JsonSerializer.Serialize(new

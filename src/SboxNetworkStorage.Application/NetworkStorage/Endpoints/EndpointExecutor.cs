@@ -628,6 +628,10 @@ public sealed partial class EndpointExecutor
     private static EndpointExecutionResult? CheckPublicAccess(
         Dictionary<string, object?> endpointDef, string endpointSlug, bool hasSecretKey)
     {
+        // A global endpoint is a module other scripts import, never an HTTP route: answer exactly as an unknown slug does.
+        if (string.Equals(ScriptStringField(endpointDef, "scope"), "global", StringComparison.Ordinal))
+            return Denied(404, "ENDPOINT_NOT_FOUND", $"Endpoint \"{endpointSlug}\" was not found.");
+
         // Only an EXPLICIT false disables. A definition with no "enabled" key stays
         // enabled, so a source-compiled endpoint that never wrote the flag keeps working.
         if (IsFalse(endpointDef.GetValueOrDefault("enabled")))
