@@ -760,7 +760,7 @@ sealed class OwnerConsole
 			["authSessionTtlSeconds"] = Input(html, "authSessionTtlSeconds") ?? "3600",
 			["encryptedRequestWindowSeconds"] = Input(html, "encryptedRequestWindowSeconds") ?? "120",
 		};
-		foreach (var name in new[] { "requireSboxAuth", "enableAuthSessions" })
+		foreach (var name in new[] { "requireSboxAuth", "enableAuthSessions", "requireAuthSessions" })
 			if (Checked(html, name)) form[name] = "on";
 		if (enable) form["enableEncryptedRequests"] = "on";
 		var saved = await http.PostAsync(projectPath + "/settings", new FormUrlEncodedContent(form));
@@ -768,7 +768,7 @@ sealed class OwnerConsole
 	}
 
 	static string? Antiforgery(string html) => Input(html, "__RequestVerificationToken");
-	static bool Checked(string html, string name) => Tag(html, name) is { } tag && Regex.IsMatch(tag, @"\schecked\b");
+	static bool Checked(string html, string name) => Tag(html, name) is { } tag && Regex.IsMatch(tag, @"\schecked\b") && !tag.Contains("checked=\"False\"");
 	static string? Input(string html, string name) => Tag(html, name) is { } tag && Regex.Match(tag, "\\svalue=\"([^\"]*)\"") is { Success: true } v ? v.Groups[1].Value : null;
 	static string? Tag(string html, string name) => Regex.Match(html, $"<input\\b[^>]*\\sname=\"{Regex.Escape(name)}\"[^>]*>") is { Success: true } m ? m.Value : null;
 }
