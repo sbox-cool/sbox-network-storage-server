@@ -1,0 +1,12 @@
+{
+  "name": "ns-strip-build",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Build inputs for strip.js. Run build.sh; do not install these packages into the server.",
+  "devDependencies": {
+    "esbuild": "0.25.12",
+    "lines-and-columns": "1.2.4",
+    "sucrase": "3.35.1",
+    "ts-interface-checker": "0.1.13"
+  }
+}

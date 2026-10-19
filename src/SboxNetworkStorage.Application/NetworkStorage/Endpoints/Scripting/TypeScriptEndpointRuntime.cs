@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
@@ -39,7 +38,11 @@ public sealed partial class TypeScriptEndpointRuntime : IEndpointScriptRuntime
     private static readonly Lazy<Prepared<Acornima.Ast.Script>> StripperScript = new(LoadStripperScript);
 
     private readonly JavaScriptEndpointRuntime _javaScript;
-    private readonly ConcurrentDictionary<string, string> _stripped = new(StringComparer.Ordinal);
+    private readonly BoundedLruCache<string, string> _stripped = new(StrippedCacheLimit);
+    private int _stripInvocations;
+
+    /// <summary>How many times this runtime ran sucrase. A cache hit does not count; tests use it to show that a saved endpoint runs without stripping.</summary>
+    internal int StripInvocations => Volatile.Read(ref _stripInvocations);
 
     public TypeScriptEndpointRuntime(JavaScriptEndpointRuntime javaScript)
     {
@@ -84,7 +87,7 @@ public sealed partial class TypeScriptEndpointRuntime : IEndpointScriptRuntime
             return StripResult.Fail(1, 1, $"Script is {size} bytes; the limit is {Limits.MaxSourceBytes}.");
 
         var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(source)));
-        if (_stripped.TryGetValue(key, out var cached))
+        if (_stripped.TryGet(key, out var cached))
             return StripResult.Ok(cached);
 
         var unsupported = UnsupportedNamespace().Match(source);
@@ -95,13 +98,12 @@ public sealed partial class TypeScriptEndpointRuntime : IEndpointScriptRuntime
                 "TypeScript namespace and module declarations are not supported; use plain objects or ES module exports.");
         }
 
+        Interlocked.Increment(ref _stripInvocations);
         var code = StripWithSucrase(source);
         if (code.Diagnostic is not null)
             return code;
 
-        if (_stripped.Count >= StrippedCacheLimit)
-            _stripped.Clear();
-        _stripped[key] = code.Code!;
+        _stripped.Set(key, code.Code!);
         return code;
     }
 

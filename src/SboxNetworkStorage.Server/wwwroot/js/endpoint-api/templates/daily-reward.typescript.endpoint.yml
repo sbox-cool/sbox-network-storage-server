@@ -19,7 +19,7 @@ script: |
     if (req.player === null) ns.fail("AUTH_REQUIRED", "Sign in to claim the daily reward.", 401);
     const reward = (ns.values.get("rewards.dailyReward") ?? 10) as number;
     if (!Number.isInteger(reward) || reward < 0) {
-      ns.fail("REWARD_NOT_CONFIGURED", "The rewards.dailyReward game value must be a whole number.", 500);
+      ns.fail("REWARD_NOT_CONFIGURED", "The rewards.dailyReward game value must be a whole number.", 422);
     }
     const now: number = ns.now();
     const key = req.player!.steamId;

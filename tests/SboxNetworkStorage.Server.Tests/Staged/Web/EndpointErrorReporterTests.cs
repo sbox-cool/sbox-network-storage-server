@@ -119,6 +119,43 @@ public sealed class EndpointErrorReporterTests
     }
 
     [Fact]
+    public async Task RepeatedScriptLimitFailure_ReportsOncePerWindow()
+    {
+        // A player-triggered script failure that recurs on every request must not write one row and send one alert each time.
+        var clock = new ManualClock(DateTimeOffset.UnixEpoch);
+        var (reporter, archive, alerts) = Build(clock);
+
+        for (var i = 0; i < 5; i++)
+        {
+            await reporter.CaptureScriptFailureAsync(ProjectId, Slug, "POST", SteamId,
+                500, "SCRIPT_LIMIT_EXCEEDED", "Statement limit exceeded.", "owner detail", CancellationToken.None);
+        }
+
+        var captured = Assert.Single(archive.Captured);
+        Assert.Equal("EndpointScript.SCRIPT_LIMIT_EXCEEDED", captured.Classification);
+        Assert.Single(alerts.Notified);
+    }
+
+    [Fact]
+    public async Task RepeatedScriptFailure_ReportsAgainAfterWindow()
+    {
+        var clock = new ManualClock(DateTimeOffset.UnixEpoch);
+        var (reporter, archive, alerts) = Build(clock);
+
+        await reporter.CaptureScriptFailureAsync(ProjectId, Slug, "POST", SteamId,
+            500, "SCRIPT_ERROR", "boom", null, CancellationToken.None);
+        clock.Advance(EndpointConflictReportThrottle.Window - TimeSpan.FromSeconds(1));
+        await reporter.CaptureScriptFailureAsync(ProjectId, Slug, "POST", SteamId,
+            500, "SCRIPT_ERROR", "boom", null, CancellationToken.None); // still suppressed
+        clock.Advance(TimeSpan.FromSeconds(2));
+        await reporter.CaptureScriptFailureAsync(ProjectId, Slug, "POST", SteamId,
+            500, "SCRIPT_ERROR", "boom", null, CancellationToken.None);
+
+        Assert.Equal(2, archive.Captured.Count);
+        Assert.Equal(2, alerts.Notified.Count);
+    }
+
+    [Fact]
     public async Task RepeatedConflict_ReAlertsAfterWindow()
     {
         // The loop stays visible: once the suppression window elapses, the next

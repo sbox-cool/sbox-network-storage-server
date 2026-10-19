@@ -65,7 +65,7 @@ The second argument. Its type is `Ns` in `ns.d.ts`.
 | `ns.values.get(path)` | Reads a game value by `"group"` or `"group.key"`. Returns `null` when absent. |
 | `ns.workflows.run(id, input)` | Runs a workflow of this project and returns its result. See [Legacy workflows](#legacy-workflows). |
 | `ns.now()` | Server time in milliseconds since the Unix epoch. |
-| `ns.log(value)` | Writes a value to the server log. Capped by `MaxLogBytes`. |
+| `ns.log(value)` | Keeps a line for this request, capped by `MaxLogBytes`. Endpoint tests and the owner's error detail show the lines when the call fails. Successful live calls do not keep them, and lines are not written to the server log. |
 | `ns.fail(code, message, status?)` | Ends the request with a typed error. |
 
 Writes made by a script apply when the endpoint returns normally. A request
@@ -120,10 +120,12 @@ can run them in two ways:
 - `workflows.<alias>(input)`, where the alias is the workflow id in camelCase
 
 A workflow's writes apply only if the workflow succeeds, as they do for YAML
-endpoints. Nested workflow calls stop at `MaxRecursionDepth`.
+endpoints. Nested workflow calls stop at the workflow depth limit (see [Limits](#limits)).
 
 An endpoint has either `script` or `steps`, never both. Setting both answers
 `SCRIPT_AND_STEPS` at save time.
+
+Save-time checks (script syntax, source size and runtime) run when the owner dashboard saves an endpoint. The Sync Tool, the package sync and the management push and patch paths store the definition as received and do not run them. A script with a syntax error that arrives through those paths is stored, and its first call fails with `SCRIPT_ERROR`.
 
 ## TypeScript
 
@@ -133,15 +135,14 @@ vendored [sucrase](https://github.com/alangpierce/sucrase) stripper (MIT, see
 JavaScript. Nothing else is transformed.
 
 - Types are removed, not checked. A type error does not stop the endpoint.
-- Code the stripper cannot read is rejected at save time as `SCRIPT_SYNTAX`,
-  with a line and column.
+- Code the stripper cannot read is rejected as `SCRIPT_SYNTAX`, with a line and column, when the owner dashboard saves it.
 - The `ns.d.ts` declarations give editors the types. The project typings
   endpoint adds the project's collections, game values, workflow aliases and
   global exports.
 
 ## Limits
 
-Every scripted request is bounded. These are the defaults.
+Every scripted request is bounded. These limits are fixed in code. The only script setting is `endpoints.scripts`; no limit is read from `server.toml`.
 
 The time and statement limits are one budget for the whole request. Module evaluation, the handler call, response
 serialisation and every re-run round all draw from it, and a re-run does not reset it. Memory is per engine: each
@@ -152,13 +153,18 @@ round runs in its own engine, and rounds run one after another, so the peak is o
 | Time per request | 1 s, counted from the start of script work (includes store reads between rounds) | `SCRIPT_LIMIT_EXCEEDED` |
 | Statements per request | 1,000,000, across all engine entries and rounds | `SCRIPT_LIMIT_EXCEEDED` |
 | Memory per engine | 64 MiB (each round has its own engine) | `SCRIPT_LIMIT_EXCEEDED` |
-| Call depth (including workflow nesting) | 200 per engine | `SCRIPT_LIMIT_EXCEEDED` |
+| Call depth per engine | 200 | `SCRIPT_LIMIT_EXCEEDED` |
 | Re-run rounds per request | 8 | `SCRIPT_LIMIT_EXCEEDED` |
 | Workflow nesting and steps per request | depth 5, 10,000 steps | `SCRIPT_LIMIT_EXCEEDED` |
+| Record reads per request (record gets and lists, workflow definitions, global modules) | 64, across all rounds | `SCRIPT_LIMIT_EXCEEDED` |
+| Rows per collection scan | 1,000 | `SCAN_TOO_LARGE` (400), checked before any row is read |
+| Record writes and staged data per run | 1,000 writes and 1 MiB of record data | `SCRIPT_LIMIT_EXCEEDED`; the run's writes do not apply |
 | Concurrent scripted requests | one per processor on the server; two per project | `SCRIPT_BUSY` (503), at once, without queuing |
-| Script source | 64 KiB | Rejected at save time |
+| Script source | 64 KiB | Rejected when the owner dashboard saves it |
 | Response body | 256 KiB | `SCRIPT_LIMIT_EXCEEDED` |
-| Log output per run | 8 KiB | Capped. Logging past the cap is not kept. |
+| Log output per run | 8 KiB | Lines past the cap are dropped and a `[log truncated]` line is kept. |
+
+Caches: the server keeps the 256 most recently used compiled JavaScript scripts and the 256 most recently used stripped TypeScript outputs in memory, and evicts the least recently used first. Each process starts with empty caches, so the first call after a restart parses or strips again.
 
 Kill switch: the server setting `endpoints.scripts` (default `true`) turns
 scripted endpoints off. While it is off, every scripted endpoint answers `503
@@ -237,8 +243,9 @@ Until it lands, put the script text in `script`.
 
 ## Third-party notice
 
-The TypeScript runtime uses sucrase 3.35.1, MIT License, Copyright (c) 2012-2018
-various contributors. The bundled stripper and its license are in
-`src/SboxNetworkStorage.Application/NetworkStorage/Endpoints/Scripting/ThirdParty/sucrase/`.
-The code runs inside the isolated script engine. It is not compiled into the
-server.
+The TypeScript runtime bundles sucrase 3.35.1 (MIT) with its dependencies:
+lines-and-columns 1.2.4 (MIT), ts-interface-checker 0.1.13 (Apache-2.0) and the
+@jridgewell source-map packages (MIT). The bundle, the licence texts and a build
+script are in `src/SboxNetworkStorage.Application/NetworkStorage/Endpoints/Scripting/ThirdParty/sucrase/`
+(see its `README.md`). The code runs inside the isolated script engine. It is
+not compiled into the server.

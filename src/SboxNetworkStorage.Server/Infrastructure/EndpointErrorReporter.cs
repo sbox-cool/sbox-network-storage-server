@@ -70,10 +70,24 @@ public sealed class EndpointErrorReporter(
     /// Capture a failed JavaScript endpoint run. The owner-only diagnostic (script
     /// error location, log lines) goes into the stack trace field; it is never sent
     /// to the game client.
+    ///
+    /// Repeats are throttled with the same fingerprint and window as native conflicts. A player-triggered
+    /// SCRIPT_ERROR or SCRIPT_LIMIT_EXCEEDED that recurs on every request produces one report per window,
+    /// not one archive row and one alert per request.
     /// </summary>
     public Task CaptureScriptFailureAsync(string projectId, string endpointSlug, string method, string? steamId,
         int statusCode, string errorCode, string message, string? ownerDetail, CancellationToken ct)
-        => CaptureAsync(projectId, endpointSlug, method, steamId, statusCode, $"EndpointScript.{errorCode}", message, ownerDetail, ct);
+    {
+        var fingerprint = $"script|{projectId}|{steamId}|{endpointSlug}|{statusCode}|{errorCode}";
+        if (!conflictThrottle.ShouldReport(fingerprint))
+        {
+            logger.LogDebug(
+                "Suppressed duplicate script failure report {Classification} ({Status}) for {ProjectId}/{Slug} player {SteamId} (throttled within {WindowMinutes}m)",
+                errorCode, statusCode, projectId, endpointSlug, steamId, EndpointConflictReportThrottle.Window.TotalMinutes);
+            return Task.CompletedTask;
+        }
+        return CaptureAsync(projectId, endpointSlug, method, steamId, statusCode, $"EndpointScript.{errorCode}", message, ownerDetail, ct);
+    }
 
     private async Task CaptureAsync(
         string projectId, string endpointSlug, string method, string? steamId,

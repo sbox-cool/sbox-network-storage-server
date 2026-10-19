@@ -2,7 +2,7 @@ namespace SboxNetworkStorage.Application.NetworkStorage.Endpoints.Scripting;
 
 /// <summary>
 /// Per-invocation sandbox limits. The defaults are deliberately tight: an endpoint is a request handler, not a
-/// batch job. Operators can raise them in server.toml (<c>[endpoints]</c>); they are never unbounded.
+/// batch job. The limits are fixed in code (they are not read from server.toml) and are never unbounded.
 /// </summary>
 public sealed record EndpointScriptLimits(
     TimeSpan Timeout,

@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Microsoft.Extensions.Logging;
 using SboxNetworkStorage.Application.NetworkStorage.Endpoints.Scripting;
 using SboxNetworkStorage.Application.NetworkStorage;
 
@@ -26,6 +27,7 @@ public sealed partial class EndpointExecutor
     private readonly EndpointStepExecutor _executor = new();
     private readonly IReadOnlyList<IEndpointScriptRuntime> _scriptRuntimes;
     private readonly ScriptConcurrencyGate _scriptGate;
+    private readonly ILogger<EndpointExecutor>? _logger;
     /// <summary>
     /// Maximum rows scanned per collection per endpoint request. Scans feed
     /// lookup/filter/lookup_many/random_select steps; exceeding the cap fails
@@ -39,13 +41,15 @@ public sealed partial class EndpointExecutor
         IPlayerAnalyticsService? analyticsService = null,
         IEndpointWebhookOutbox? webhookOutbox = null,
         IReadOnlyList<IEndpointScriptRuntime>? scriptRuntimes = null,
-        ScriptConcurrencyGate? scriptGate = null)
+        ScriptConcurrencyGate? scriptGate = null,
+        ILogger<EndpointExecutor>? logger = null)
     {
         _dataSource = dataSource ?? throw new ArgumentNullException(nameof(dataSource));
         _webhookSender = webhookSender;
         _analyticsService = analyticsService;
         _webhookOutbox = webhookOutbox;
         _scriptRuntimes = scriptRuntimes ?? CreateScriptRuntimes(scriptsEnabled: true);
+        _logger = logger;
         // Register one gate as a singleton in production. The executor is scoped, so a gate it created itself would
         // be per request and bound nothing.
         _scriptGate = scriptGate ?? new ScriptConcurrencyGate();
@@ -53,7 +57,7 @@ public sealed partial class EndpointExecutor
 
     /// <summary>The same executor reading definitions and records through <paramref name="dataSource"/>.</summary>
     public EndpointExecutor WithDataSource(IEndpointDataSource dataSource)
-        => new(dataSource, _webhookSender, _analyticsService, _webhookOutbox, _scriptRuntimes, _scriptGate);
+        => new(dataSource, _webhookSender, _analyticsService, _webhookOutbox, _scriptRuntimes, _scriptGate, _logger);
 
     /// <summary>
     /// Execute an endpoint natively using the deterministic executor.
@@ -318,6 +322,9 @@ public sealed partial class EndpointExecutor
             if (scannedCollections.ContainsKey(collectionId)) continue;
             try
             {
+                if (await ScanExceedsCapAsync(projectId, collectionId, ct))
+                    return Denied(400, "SCAN_TOO_LARGE",
+                        $"Collection '{collection}' holds more records than the per-request scan cap of {MaxScanRows}. Narrow the collection or split the endpoint.");
                 IReadOnlyList<object?> records;
                 if (readSet is not null)
                 {

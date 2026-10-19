@@ -81,6 +81,15 @@ public sealed class EndpointTemplatesTests
             var fromGameValue = await configured.Call("daily-reward", Obj(), gameValues: gameValues);
             Assert.True(fromGameValue.Ok, Body(fromGameValue));
             Assert.Contains("\"reward\":25", Body(fromGameValue));
+
+            // A non-whole game value is owner misconfiguration: a 4xx with the script's own code, not a generic SCRIPT_ERROR.
+            var misconfigured = await configured.Call("daily-reward", Obj(), gameValues: new Dictionary<string, object?>
+            {
+                ["rewards"] = new Dictionary<string, object?> { ["dailyReward"] = 2.5d },
+            });
+            Assert.False(misconfigured.Ok);
+            Assert.InRange(misconfigured.Status, 400, 499);
+            Assert.Contains("REWARD_NOT_CONFIGURED", Body(misconfigured));
         },
 
         ["profile"] = async fixture =>
@@ -120,7 +129,7 @@ public sealed class EndpointTemplatesTests
 
             var owned = await fixture.Call("buy-item", Obj(("itemId", "sword")));
             Assert.False(owned.Ok);
-            Assert.Equal(409, owned.Status);
+            Assert.Equal(422, owned.Status);
             Assert.Contains("ITEM_OWNED", Body(owned));
 
             // 100 starting coins, 50 per item: the second item empties the purse, the third is refused.

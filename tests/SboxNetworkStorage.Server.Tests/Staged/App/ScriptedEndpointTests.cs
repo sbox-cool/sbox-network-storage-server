@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
 using SboxNetworkStorage.Application.NetworkStorage.Endpoints;
 using SboxNetworkStorage.Application.NetworkStorage.Endpoints.Scripting;
 using SboxNetworkStorage.Infrastructure.NetworkStorage;
@@ -114,6 +115,47 @@ public sealed class ScriptedEndpointExecutorTests
         // The same script passes under the default budget, so the failure above comes from the shared budget alone.
         var unlimited = await Run(Executor(script));
         Assert.True(unlimited.Ok);
+    }
+
+    [Fact]
+    public async Task StoredTypeScriptEndpoint_RunsWithoutStripping_WhenSaveAlreadyCompiledIt()
+    {
+        const string source = """
+            export default function handle(req: { input: { n: number } }): { doubled: number } {
+              return { doubled: req.input.n * 2 };
+            }
+            """;
+        var javaScript = new JavaScriptEndpointRuntime(enabled: true, EndpointScriptLimits.Defaults);
+        var typeScript = new TypeScriptEndpointRuntime(javaScript);
+        // Save-time validation compiles the source once; the request then reuses that result.
+        Assert.Empty(typeScript.Check(source));
+        var compiledAtSave = typeScript.StripInvocations;
+
+        var definitions = new Dictionary<string, object?> { ["proj:ep:script"] = TypeScript(source) };
+        var executor = new EndpointExecutor(
+            new FakeDataSource(definitions, new Dictionary<string, object?>()),
+            scriptRuntimes: [javaScript, typeScript]);
+
+        var result = await Run(executor, input: new Dictionary<string, object?> { ["n"] = 4d });
+
+        Assert.True(result.Ok);
+        Assert.Contains("8", JsonSerializer.Serialize(result.Body));
+        Assert.Equal(compiledAtSave, typeScript.StripInvocations);
+    }
+
+    [Fact]
+    public void CompiledCache_EvictsTheLeastRecentlyUsedEntry_NotEverything()
+    {
+        var cache = new BoundedLruCache<string, int>(2);
+        cache.Set("a", 1);
+        cache.Set("b", 2);
+        Assert.True(cache.TryGet("a", out _)); // a is now the most recently used
+        cache.Set("c", 3);                     // evicts b, the least recently used
+
+        Assert.True(cache.TryGet("a", out var a) && a == 1);
+        Assert.False(cache.TryGet("b", out _));
+        Assert.True(cache.TryGet("c", out var c) && c == 3);
+        Assert.Equal(2, cache.Count);
     }
 
     [Fact]
@@ -471,6 +513,117 @@ public sealed class ScriptedEndpointExecutorTests
         Assert.Contains("SCRIPT_LIMIT_EXCEEDED", JsonSerializer.Serialize(run.Body));
     }
 
+    [Fact]
+    public async Task Script_MoreStagedWritesThanTheCap_YieldsScriptLimitExceeded()
+    {
+        var result = await Run(Executor("""
+            export default function handle(req, ns) {
+              for (let i = 0; i <= 1000; i++) ns.records.put("players", "p" + i, { coins: i });
+              return { ok: true };
+            }
+            """));
+
+        Assert.False(result.Ok);
+        Assert.Contains("SCRIPT_LIMIT_EXCEEDED", JsonSerializer.Serialize(result.Body));
+    }
+
+    [Fact]
+    public async Task Script_StagedBytesOverTheCap_YieldsScriptLimitExceeded()
+    {
+        var result = await Run(Executor("""
+            export default function handle(req, ns) {
+              const blob = "x".repeat(600000);
+              ns.records.put("players", "a", { blob });
+              ns.records.put("players", "b", { blob });
+              return { ok: true };
+            }
+            """));
+
+        Assert.False(result.Ok);
+        Assert.Contains("SCRIPT_LIMIT_EXCEEDED", JsonSerializer.Serialize(result.Body));
+    }
+
+    [Fact]
+    public async Task Script_ScanOverTheRowCap_IsRefusedBeforeAnyRowIsRead()
+    {
+        var records = new Dictionary<string, object?>();
+        for (var i = 0; i <= 1000; i++) records[$"proj:players:p{i}"] = new Dictionary<string, object?> { ["coins"] = (double)i };
+        var definitions = new Dictionary<string, object?>
+        {
+            ["proj:ep:script"] = new Dictionary<string, object?>
+            {
+                ["runtime"] = "javascript",
+                ["script"] = "export default function handle(req, ns) { return { n: ns.records.list(\"players\").length }; }",
+            },
+        };
+        var source = new FakeDataSource(definitions, records);
+        var executor = new EndpointExecutor(source, scriptRuntimes: EndpointExecutor.CreateScriptRuntimes(scriptsEnabled: true));
+
+        var result = await Run(executor);
+
+        Assert.Equal(400, result.Status);
+        Assert.Contains("SCAN_TOO_LARGE", JsonSerializer.Serialize(result.Body));
+        Assert.Equal(0, source.ScanCalls);
+    }
+
+    [Fact]
+    public async Task ScriptError_OwnerDetailHasMessageAndLocation_NotAStackTrace()
+    {
+        var result = await Run(Executor("export default function handle(req, ns) {\n  throw new Error(\"bad\");\n}"));
+
+        Assert.False(result.Ok);
+        Assert.Contains("SCRIPT_ERROR", JsonSerializer.Serialize(result.Body));
+        Assert.Contains("bad", result.OwnerDetail);
+        Assert.Contains("line 2", result.OwnerDetail);
+        Assert.DoesNotContain("   at ", result.OwnerDetail);
+    }
+
+    [Fact]
+    public void UnclassifiedFault_OwnerGetsTypeAndMessage_FullExceptionGoesToTheLog()
+    {
+        var logger = new RecordingLogger<JavaScriptEndpointRuntime>();
+        var runtime = new JavaScriptEndpointRuntime(enabled: true, EndpointScriptLimits.Defaults, logger);
+        Exception fault;
+        try { throw new InvalidOperationException("boom"); }
+        catch (InvalidOperationException error) { fault = error; }
+
+        var outcome = runtime.Classify(fault);
+
+        Assert.Equal(EndpointScriptOutcomeKind.ScriptError, outcome.Kind);
+        Assert.Equal("System.InvalidOperationException: boom", outcome.OwnerDetail);
+        Assert.Same(fault, Assert.Single(logger.Errors));
+    }
+
+    /// <summary>Keeps the exceptions a runtime logs, so a test can check the full trace reached the log.</summary>
+    private sealed class RecordingLogger<T> : ILogger<T>
+    {
+        public List<Exception> Errors { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            if (exception is not null) Errors.Add(exception);
+        }
+    }
+
+    [Fact]
+    public async Task Script_ReadsBeyondTheLoadCap_YieldLimitExceeded()
+    {
+        var result = await Run(Executor("""
+            export default function handle(req, ns) {
+              for (let i = 0; i < 65; i++) ns.records.get("players", "p" + i);
+              return { ok: true };
+            }
+            """));
+
+        Assert.Equal(500, result.Status);
+        Assert.Contains("SCRIPT_LIMIT_EXCEEDED", JsonSerializer.Serialize(result.Body));
+    }
+
 
     private static EndpointExecutor Project(Dictionary<string, object?> records,
         params (string Slug, Dictionary<string, object?> Definition)[] endpoints) =>
@@ -665,10 +818,13 @@ public sealed class ScriptedEndpointExecutorTests
         new() { ["proj:players:steam1"] = new Dictionary<string, object?> { ["coins"] = coins } };
 
     /// <summary>Minimal store: endpoint definitions by "proj:ep:slug" and records by "proj:collection:key".</summary>
-    internal sealed class FakeDataSource : IEndpointDataSource
+    internal sealed class FakeDataSource : IEndpointDataSource, IEndpointScanCounter
     {
         private readonly Dictionary<string, object?> _definitions;
         private readonly Dictionary<string, object?> _records;
+
+        /// <summary>Row-reading scans issued. A scan refused by its count must leave this at zero.</summary>
+        public int ScanCalls { get; private set; }
 
         public FakeDataSource(Dictionary<string, object?> definitions, Dictionary<string, object?> records)
         {
@@ -694,9 +850,16 @@ public sealed class ScriptedEndpointExecutorTests
 
         public Task<IReadOnlyList<object?>> ScanCollectionAsync(string projectId, string collectionId, CancellationToken ct)
         {
+            ScanCalls++;
             var prefix = $"{projectId}:{collectionId}:";
             var results = _records.Where(kv => kv.Key.StartsWith(prefix, StringComparison.Ordinal)).Select(kv => kv.Value).ToList();
             return Task.FromResult<IReadOnlyList<object?>>(results);
+        }
+
+        public Task<long> CountCollectionAsync(string projectId, string collectionId, CancellationToken ct)
+        {
+            var prefix = $"{projectId}:{collectionId}:";
+            return Task.FromResult((long)_records.Keys.Count(key => key.StartsWith(prefix, StringComparison.Ordinal)));
         }
 
         public Task<Dictionary<string, object?>?> ReadWorkflowDefinitionAsync(string projectId, string workflowId, CancellationToken ct)

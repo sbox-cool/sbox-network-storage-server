@@ -19,7 +19,7 @@ script: |
     const key = req.player.steamId;
     const player = ns.records.get("players", key) ?? {};
     const owned = new Inventory(player.items ?? []);
-    if (owned.has(itemId)) ns.fail("ITEM_OWNED", "You already own this item.", 409);
+    if (owned.has(itemId)) ns.fail("ITEM_OWNED", "You already own this item.", 422);
     const coins = player.coins ?? 0;
     if (coins < ITEM_PRICE) ns.fail("INSUFFICIENT_COINS", "You need more coins for this item.", 402);
     const items = globals.inventory.add_item(owned.items, itemId);

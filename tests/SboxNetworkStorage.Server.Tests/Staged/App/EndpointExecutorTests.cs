@@ -71,6 +71,7 @@ public sealed class NativeEndpointExecutorTests
         Assert.Equal(400, result.Status);
         var error = (Dictionary<string, object?>)((Dictionary<string, object?>)result.Body!)["error"];
         Assert.Equal("SCAN_TOO_LARGE", error["code"]);
+        Assert.Equal(0, ds.ScanCalls); // refused from the count, before any row was read
     }
 
     [Fact]
@@ -1400,10 +1401,13 @@ public sealed class NativeEndpointExecutorTests
 
     // ── Fake data sources ──
 
-    private sealed class FakeDataSource : IEndpointDataSource
+    private sealed class FakeDataSource : IEndpointDataSource, IEndpointScanCounter
     {
         private readonly Dictionary<string, object?> _definitions;
         private readonly Dictionary<string, object?> _records;
+
+        /// <summary>Row-reading scans issued. A scan refused by its count must leave this at zero.</summary>
+        public int ScanCalls { get; private set; }
 
         public FakeDataSource(Dictionary<string, object?> definitions, Dictionary<string, object?> records)
         {
@@ -1428,10 +1432,17 @@ public sealed class NativeEndpointExecutorTests
 
         public Task<IReadOnlyList<object?>> ScanCollectionAsync(string projectId, string collectionId, CancellationToken ct)
         {
+            ScanCalls++;
             // Return records whose key starts with the collection prefix
             var prefix = $"{projectId}:{collectionId}:";
             var results = _records.Where(kv => kv.Key.StartsWith(prefix)).Select(kv => kv.Value).ToList();
             return Task.FromResult<IReadOnlyList<object?>>(results);
+        }
+
+        public Task<long> CountCollectionAsync(string projectId, string collectionId, CancellationToken ct)
+        {
+            var prefix = $"{projectId}:{collectionId}:";
+            return Task.FromResult((long)_records.Keys.Count(key => key.StartsWith(prefix, StringComparison.Ordinal)));
         }
 
         public Task<Dictionary<string, object?>?> ReadWorkflowDefinitionAsync(string projectId, string workflowId, CancellationToken ct)

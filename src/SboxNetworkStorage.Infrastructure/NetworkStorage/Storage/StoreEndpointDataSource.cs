@@ -24,7 +24,7 @@ namespace SboxNetworkStorage.Infrastructure.NetworkStorage.Storage;
 /// workspace record while the dashboard shows the current store record is
 /// impossible.
 /// </summary>
-public sealed partial class StoreEndpointDataSource : IEndpointDataSource, IEndpointRecordSizeLimit, IEndpointSnapshotDataSource
+public sealed partial class StoreEndpointDataSource : IEndpointDataSource, IEndpointRecordSizeLimit, IEndpointSnapshotDataSource, IEndpointScanCounter
 {
     private readonly INetworkStorageStore _store;
     private readonly ILogger<StoreEndpointDataSource> _logger;
@@ -255,6 +255,22 @@ public sealed partial class StoreEndpointDataSource : IEndpointDataSource, IEndp
         {
             _logger.LogDebug(ex, "Failed to scan collection {ProjectId}/{CollectionId} from Store", projectId, collectionId);
             return Array.Empty<object?>();
+        }
+    }
+
+    /// <summary>Live row count for the collection's routing (global or per-steamid), read without loading any row.</summary>
+    public async Task<long> CountCollectionAsync(string projectId, string collectionId, CancellationToken ct)
+    {
+        try
+        {
+            var global = await IsGlobalCollectionAsync(projectId, collectionId, ct);
+            return await _store.CountLiveRecordsAsync(projectId, collectionId, global, null, ct);
+        }
+        catch (Exception ex)
+        {
+            // A failed count is not a refusal: the scan that follows reports its own failure, as it always has.
+            _logger.LogDebug(ex, "Failed to count collection {ProjectId}/{CollectionId} in the store", projectId, collectionId);
+            return 0;
         }
     }
 

@@ -184,7 +184,7 @@ public static class NetworkStorageServices
         // Concrete registrations let staged ("next") endpoint calls derive revision-overlay copies.
         services.AddScoped<StoreEndpointDataSource>();
         services.AddScoped<IEndpointDataSource>(sp => sp.GetRequiredService<StoreEndpointDataSource>());
-        services.AddSingleton<IReadOnlyList<IEndpointScriptRuntime>>(_ => EndpointExecutor.CreateScriptRuntimes(config.GetBoolean("endpoints.scripts")));
+        services.AddSingleton<IReadOnlyList<IEndpointScriptRuntime>>(sp => EndpointExecutor.CreateScriptRuntimes(config.GetBoolean("endpoints.scripts"), sp.GetRequiredService<ILogger<JavaScriptEndpointRuntime>>()));
         // One gate for the process: the executor is scoped, so a per-request gate would bound nothing.
         services.AddSingleton<ScriptConcurrencyGate>();
         services.AddScoped<EndpointExecutor>();

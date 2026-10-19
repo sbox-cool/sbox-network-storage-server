@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
@@ -11,6 +10,7 @@ using Jint.Native.Function;
 using Jint.Runtime;
 using Jint.Runtime.Interop;
 using Jint.Runtime.Modules;
+using Microsoft.Extensions.Logging;
 
 namespace SboxNetworkStorage.Application.NetworkStorage.Endpoints.Scripting;
 
@@ -39,12 +39,15 @@ public sealed class JavaScriptEndpointRuntime : IEndpointScriptRuntime
     private static readonly Regex SyntaxLocation = new(
         @"^(?<message>.*) \(.*:(?<line>\d+):(?<column>\d+)\)$", RegexOptions.Singleline | RegexOptions.CultureInvariant);
 
-    private readonly ConcurrentDictionary<string, Prepared<Acornima.Ast.Module>> _prepared = new(StringComparer.Ordinal);
+    private readonly BoundedLruCache<string, Prepared<Acornima.Ast.Module>> _prepared = new(PreparedCacheLimit);
 
-    public JavaScriptEndpointRuntime(bool enabled, EndpointScriptLimits limits)
+    private readonly ILogger? _logger;
+
+    public JavaScriptEndpointRuntime(bool enabled, EndpointScriptLimits limits, ILogger<JavaScriptEndpointRuntime>? logger = null)
     {
         Enabled = enabled;
         Limits = limits ?? throw new ArgumentNullException(nameof(limits));
+        _logger = logger;
     }
 
     public string Language => LanguageName;
@@ -164,12 +167,10 @@ public sealed class JavaScriptEndpointRuntime : IEndpointScriptRuntime
     private Prepared<Acornima.Ast.Module> Prepare(string source, Engine engine)
     {
         var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(source)));
-        if (_prepared.TryGetValue(key, out var cached))
+        if (_prepared.TryGet(key, out var cached))
             return cached;
         var prepared = Engine.PrepareModule(source, ModuleSpecifier, ScriptEngineGuards.ModulePreparation(Limits.Timeout));
-        if (_prepared.Count >= PreparedCacheLimit)
-            _prepared.Clear();
-        _prepared[key] = prepared;
+        _prepared.Set(key, prepared);
         return prepared;
     }
 
@@ -196,7 +197,7 @@ public sealed class JavaScriptEndpointRuntime : IEndpointScriptRuntime
         return null;
     }
 
-    private static EndpointScriptOutcome Classify(Exception error)
+    internal EndpointScriptOutcome Classify(Exception error)
     {
         if (SyntaxDiagnostic(error) is { } syntax)
             return new EndpointScriptOutcome(EndpointScriptOutcomeKind.ScriptError, null,
@@ -222,7 +223,9 @@ public sealed class JavaScriptEndpointRuntime : IEndpointScriptRuntime
         if (RegexTimeout(error))
             return new EndpointScriptOutcome(EndpointScriptOutcomeKind.LimitExceeded, null, "Regular expression time limit exceeded.");
 
-        return new EndpointScriptOutcome(EndpointScriptOutcomeKind.ScriptError, null, error.ToString());
+        // An unclassified fault: the owner gets the type and message; the full trace goes to the server log.
+        _logger?.LogError(error, "Endpoint script failed with an unclassified error");
+        return new EndpointScriptOutcome(EndpointScriptOutcomeKind.ScriptError, null, EndpointScriptHost.DescribeForOwner(error));
     }
 
     private static bool RegexTimeout(Exception error)

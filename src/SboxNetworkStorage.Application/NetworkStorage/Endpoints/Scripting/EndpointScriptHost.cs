@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Microsoft.Extensions.Logging;
 
 namespace SboxNetworkStorage.Application.NetworkStorage.Endpoints.Scripting;
 
@@ -23,11 +24,13 @@ public sealed class EndpointScriptHost
     private readonly List<string> _logs = [];
     private int _logBytes;
     private bool _logTruncated;
+    private readonly ILogger? _logger;
 
-    public EndpointScriptHost(EndpointScriptBindings bindings, int maxLogBytes)
+    public EndpointScriptHost(EndpointScriptBindings bindings, int maxLogBytes, ILogger? logger = null)
     {
         _bindings = bindings ?? throw new ArgumentNullException(nameof(bindings));
         _maxLogBytes = maxLogBytes;
+        _logger = logger;
     }
 
     /// <summary>The names of every script API member, sorted. Runtimes generate their bindings from this list.</summary>
@@ -93,10 +96,15 @@ public sealed class EndpointScriptHost
         }
         if (error is ArgumentException or JsonException or InvalidCastException)
             return Envelope(false, null, error.Message);
-        // Unexpected host fault: the endpoint fails closed as a server error and the detail goes to the owner.
-        Failure ??= new EndpointScriptFailureException(500, "SCRIPT_HOST_ERROR", "The endpoint could not complete this request.", error.ToString());
+        // Unexpected host fault: the endpoint fails closed as a server error. The owner gets the type and message;
+        // the full trace goes to the server log.
+        _logger?.LogError(error, "Endpoint script host fault");
+        Failure ??= new EndpointScriptFailureException(500, "SCRIPT_HOST_ERROR", "The endpoint could not complete this request.", DescribeForOwner(error));
         return Envelope(false, null, Failure.Message);
     }
+
+    /// <summary>The owner-facing description of an unexpected exception: its type and message, never a stack trace.</summary>
+    internal static string DescribeForOwner(Exception error) => $"{error.GetType().FullName}: {error.Message}";
 
     private static object? Convert(JsonElement element, Type type, string name, int index)
     {

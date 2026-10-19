@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using SboxNetworkStorage.Application.NetworkStorage.Endpoints.Scripting;
+using Microsoft.Extensions.Logging;
 
 namespace SboxNetworkStorage.Application.NetworkStorage.Endpoints;
 
@@ -18,15 +19,21 @@ public sealed partial class EndpointExecutor
     public const int MaxScriptRounds = 8;
 
     /// <summary>Store records, scans, workflow definitions and global modules one request may load across all rounds.</summary>
-    public const int MaxScriptStateLoads = 512;
+    public const int MaxScriptStateLoads = 64;
+
+    /// <summary>Record writes one handler run may stage. Only the run that completes without misses commits.</summary>
+    public const int MaxStagedWrites = 1000;
+
+    /// <summary>Serialized bytes of record data one handler run may stage.</summary>
+    public const long MaxStagedBytes = 1024 * 1024;
 
     /// <summary>
     /// The script runtimes this server offers. <paramref name="scriptsEnabled"/> is the <c>endpoints.scripts</c> kill
     /// switch: when false, a scripted endpoint fails with <c>SCRIPTS_DISABLED</c> instead of running.
     /// </summary>
-    public static IReadOnlyList<IEndpointScriptRuntime> CreateScriptRuntimes(bool scriptsEnabled)
+    public static IReadOnlyList<IEndpointScriptRuntime> CreateScriptRuntimes(bool scriptsEnabled, ILogger<JavaScriptEndpointRuntime>? logger = null)
     {
-        var javaScript = new JavaScriptEndpointRuntime(scriptsEnabled, EndpointScriptLimits.Defaults);
+        var javaScript = new JavaScriptEndpointRuntime(scriptsEnabled, EndpointScriptLimits.Defaults, logger);
         return [javaScript, new TypeScriptEndpointRuntime(javaScript)];
     }
 
@@ -87,6 +94,9 @@ public sealed partial class EndpointExecutor
         public List<(string Collection, string Key, Dictionary<string, object?>? Data, bool IsDelete)> DurableWrites { get; } = [];
 
         public List<EndpointTraceWrite> TraceWrites { get; } = [];
+
+        /// <summary>Serialized bytes of record data this run staged, checked against <see cref="MaxStagedBytes"/>.</summary>
+        public long StagedBytes { get; set; }
 
         public List<EndpointStepTrace> TraceSteps { get; } = [];
 
@@ -177,6 +187,14 @@ public sealed partial class EndpointExecutor
         {
             var cid = Cid(collection);
             var rk = ResolveRecordKey(key);
+            if (round.DurableWrites.Count >= MaxStagedWrites)
+                throw new ScriptLimitExceededException($"The endpoint wrote more than {MaxStagedWrites} records in one run.");
+            if (data is not null)
+            {
+                round.StagedBytes += JsonSerializer.SerializeToUtf8Bytes(data).LongLength;
+                if (round.StagedBytes > MaxStagedBytes)
+                    throw new ScriptLimitExceededException($"The endpoint staged more than {MaxStagedBytes} bytes of record data in one run.");
+            }
             round.Writes[RecordCacheKey(cid, rk)] = data;
             round.DurableWrites.Add((cid, rk, data, isDelete));
             round.TraceWrites.Add(new EndpointTraceWrite(collection, key, data, isDelete));
@@ -250,7 +268,7 @@ public sealed partial class EndpointExecutor
             EndpointIds: () => state.GlobalIds,
             GlobalSource: GlobalSource);
 
-        var host = new EndpointScriptHost(bindings, runtime.Limits.MaxLogBytes);
+        var host = new EndpointScriptHost(bindings, runtime.Limits.MaxLogBytes, _logger);
         var scriptRequest = new EndpointScriptRequest(
             inv.Input,
             inv.SteamId == "anonymous" || inv.HasSecretKey ? null : inv.SteamId,
@@ -304,6 +322,8 @@ public sealed partial class EndpointExecutor
         foreach (var cid in round.MissedScans)
         {
             if (++state.Loads > MaxScriptStateLoads) return ScriptLoadLimit();
+            if (await ScanExceedsCapAsync(projectId, cid, ct))
+                return Denied(400, "SCAN_TOO_LARGE", $"Collection scan exceeded the {MaxScanRows}-row limit.");
             List<object?> rows;
             if (state.ReadSet is not null)
             {
@@ -332,6 +352,14 @@ public sealed partial class EndpointExecutor
 
         return null;
     }
+
+    /// <summary>
+    /// True when the source can count the collection and it holds more rows than one scan may return. Counting
+    /// first refuses an over-cap collection before any of its rows are materialised.
+    /// </summary>
+    private async Task<bool> ScanExceedsCapAsync(string projectId, string collectionId, CancellationToken ct)
+        => _dataSource is IEndpointScanCounter counter
+           && await counter.CountCollectionAsync(projectId, collectionId, ct) > MaxScanRows;
 
     private async Task<Dictionary<string, object?>?> ReadWorkflowDefinitionOrNullAsync(string projectId, string id, CancellationToken ct)
     {
