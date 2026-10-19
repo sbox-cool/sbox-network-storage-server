@@ -201,6 +201,16 @@ public sealed class OwnerResourcesController(INetworkStorageProjectService proje
         }, Web);
     }
 
+    /// <summary>TypeScript declarations for this project's endpoint scripts: the shipped ns.d.ts plus the project's own names.</summary>
+    [HttpGet(Root + "/endpoint-typings")]
+    public async Task<IActionResult> EndpointTypingsDocument(string projectId, CancellationToken ct)
+    {
+        var loaded = await LoadAsync(projectId, "endpoint", null, ct);
+        if (loaded is null) return NotFound();
+        var scriptRuntimes = HttpContext.RequestServices.GetRequiredService<IReadOnlyList<IEndpointScriptRuntime>>();
+        return Content(EndpointTypings.ForProject(loaded.Value.Resources, scriptRuntimes), "text/plain; charset=utf-8");
+    }
+
     /// <summary>Creates the companion definitions an example needs (never overwrites existing resources).</summary>
     [HttpPost(Root + "/catalog/{exampleId}/companions")]
     public async Task<IActionResult> CreateCompanions(string projectId, string exampleId, CancellationToken ct)

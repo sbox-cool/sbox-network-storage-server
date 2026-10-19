@@ -53,6 +53,16 @@ internal sealed class OwnerProjectResources
         ? ValueItems().Select(item => item.Id).ToHashSet(StringComparer.Ordinal)
         : Rows(kind).Select(row => Text(row, kind + "_id")).OfType<string>().ToHashSet(StringComparer.Ordinal);
 
+    /// <summary>Sorted collection ids, for the endpoint script typings.</summary>
+    public IReadOnlyList<string> CollectionIds() => ExistingIds("collection").Order(StringComparer.Ordinal).ToList();
+
+    /// <summary>Sorted workflow ids, for the endpoint script typings.</summary>
+    public IReadOnlyList<string> WorkflowIds() => ExistingIds("workflow").Order(StringComparer.Ordinal).ToList();
+
+    /// <summary>Analysed exports of the project's enabled global endpoints, keyed by endpoint id.</summary>
+    public IReadOnlyDictionary<string, ScriptModuleInfo> GlobalExports(IReadOnlyList<IEndpointScriptRuntime> scriptRuntimes) =>
+        ProjectGlobalModules(null, scriptRuntimes);
+
     public DefinitionValidationContext ValidationContext(string? resourceId, IReadOnlyList<IEndpointScriptRuntime> scriptRuntimes)
     {
         var collections = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
