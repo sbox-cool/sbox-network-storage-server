@@ -367,8 +367,8 @@ public sealed class ManagementReadHandler : INetworkStorageHandler
             ["enableAuthSessions"] = project.EnableAuthSessions == true,
             ["requireAuthSessions"] = project.RequireAuthSessions == true,
             ["authSessionTtlSeconds"] = project.AuthSessionTtlSeconds ?? 3600,
-            ["enableEncryptedRequests"] = project.EnableEncryptedRequests == true,
-            ["encryptedRequestWindowSeconds"] = project.EncryptedRequestWindowSeconds ?? 120,
+            ["enableEncryptedRequests"] = EncryptedRequestModes.RequiresEncryption(project.EncryptedRequestMode),
+            ["encryptedRequestWindowSeconds"] = project.EncryptedRequestWindowSeconds ?? 300,
             ["playerKeyMode"] = project.PlayerKeyMode ?? "player",
             ["revisionEnforcementEnabled"] = project.RevisionEnforcementEnabled == true,
             ["revisionEnforcementMode"] = project.RevisionEnforcementMode ?? "allow_continue",
@@ -390,10 +390,12 @@ public sealed class ManagementReadHandler : INetworkStorageHandler
         if (project.RevisionInGraceAction is { } inGraceAction) settings["revisionInGraceAction"] = inGraceAction;
         if (project.RevisionServerEnforcementEnabled == true) settings["revisionServerEnforcementEnabled"] = true;
         if (project.RevisionRetentionCount is { } retention) settings["revisionRetentionCount"] = retention;
+        // The v2 mode is additive: published only when the project offers v2, so off and v1 bodies stay unchanged.
+        if (EncryptedRequestModes.OffersV2(project.EncryptedRequestMode)) settings["encryptedRequestMode"] = project.EncryptedRequestMode;
 
         // legacy server structures for backward compatibility — settings and config carry the same data
         var enableAuthSessions = project.EnableAuthSessions == true;
-        var enableEncryptedRequests = project.EnableEncryptedRequests == true;
+        var enableEncryptedRequests = EncryptedRequestModes.RequiresEncryption(project.EncryptedRequestMode);
 
         var response = new Dictionary<string, object?>
         {

@@ -199,9 +199,18 @@ public static class EndpointExecutionEndpoints
 
         // Security-mode gate (reference execution-routes.js order). It runs before identity, so a call that the
         // project's security mode refuses costs no Steam or session lookup.
-        var encryptedEnvelope = HttpMethods.IsPost(context.Request.Method) && EncryptedEndpointEnvelope.TryRead(body, out _);
+        var hasEnvelope = EncryptedEndpointEnvelope.TryRead(body, out var gateEnvelope);
+        var envelopeKind = HttpMethods.IsPost(context.Request.Method) && hasEnvelope
+            ? EndpointSecurityGate.EnvelopeKindOf(gateEnvelope)
+            : EndpointSecurityGate.EnvelopeKind.None;
+        // v2 names its server key. Resolved once: the gate needs presence, decryption needs the key itself.
+        var envelopePrivateKey = envelopeKind == EndpointSecurityGate.EnvelopeKind.V2
+            ? context.RequestServices.GetRequiredService<RequestEncryptionKeyStore>().Current()
+                .FindPrivate(EncryptedEndpointEnvelope.Str(gateEnvelope, "keyId"), DateTimeOffset.UtcNow)
+            : null;
         var securityDenial = EndpointSecurityGate.Check(access.Project, EndpointSecurityGate.ConfigVersionOf(access.Project),
-            body, hasSecretKey, PlayerIdentity.ReadSessionToken(context.Request, body) is not null, encryptedEnvelope);
+            body, hasSecretKey, PlayerIdentity.ReadSessionToken(context.Request, body) is not null, envelopeKind,
+            envelopePrivateKey is not null);
         if (securityDenial is { } gateDenial)
         {
             await WriteEndpointErrorAsync(context, gateDenial.Status, gateDenial.Code, gateDenial.Message,
@@ -307,19 +316,35 @@ public static class EndpointExecutionEndpoints
                 return;
             }
         }
-        // Projects with enableEncryptedRequests advertise it in the signed security
-        // config; the library then sends only {security, encrypted, envelope}.
+        // Projects with encryption enabled advertise it in the signed security config; the library then sends only
+        // {security, encrypted, envelope}. v1 derives its key from the public ApiKey; v2 unwraps an AES key with the
+        // server's request-encryption key.
         EncryptedEndpointEnvelope.Result? decryptedEnvelope = null;
-        if (HttpMethods.IsPost(context.Request.Method) && EncryptedEndpointEnvelope.TryRead(body, out var envelope))
+        if (envelopeKind is EndpointSecurityGate.EnvelopeKind.V1)
         {
             // The library derives the envelope key from its public ApiKey (x-public-key / ?apiKey).
-            var decrypted = EncryptedEndpointEnvelope.Decrypt(envelope, FirstNonEmpty(publicKey, apiKeyQuery) ?? "",
+            var decrypted = EncryptedEndpointEnvelope.Decrypt(gateEnvelope, FirstNonEmpty(publicKey, apiKeyQuery) ?? "",
                 projectId, endpointSlug, hasSecretKey ? null : steamId, ResolveAuthSessionId(context, body, projectId));
             if (!decrypted.Ok)
             {
                 await WriteEndpointErrorAsync(context, decrypted.Status, decrypted.Code!, decrypted.Message!);
                 return;
             }
+            decryptedEnvelope = decrypted;
+            body = decrypted.Payload;
+        }
+        else if (envelopeKind is EndpointSecurityGate.EnvelopeKind.V2)
+        {
+            // The gate denied a v2 envelope without a key, so envelopePrivateKey is set here.
+            var decrypted = EncryptedRequestV2.Decrypt(gateEnvelope, envelopePrivateKey!, projectId, endpointSlug,
+                hasSecretKey ? null : steamId, ResolveAuthSessionId(context, body, projectId), out var responseKey);
+            if (!decrypted.Ok)
+            {
+                await WriteEndpointErrorAsync(context, decrypted.Status, decrypted.Code!, decrypted.Message!);
+                return;
+            }
+            // C5: from here on every response body, errors included, is sealed under this request's AES key.
+            context.Items[EncryptedRequestV2.ItemKey] = responseKey;
             decryptedEnvelope = decrypted;
             body = decrypted.Payload;
         }
@@ -558,7 +583,7 @@ public static class EndpointExecutionEndpoints
         if (revisionStatus is not null)
             responseBody = RevisionStatusInjector.WithStatus(responseBody, revisionStatus);
         context.Response.StatusCode = result.Status > 0 ? result.Status : StatusCodes.Status200OK;
-        await context.Response.WriteAsJsonAsync(responseBody, JsonOptions);
+        await context.Response.WriteAsJsonAsync(ResponseBodyFor(context, responseBody), JsonOptions);
     }
 
     private static async Task ReportNativeEndpointFailureAsync(
@@ -593,7 +618,7 @@ public static class EndpointExecutionEndpoints
         object body = new { ok = false, error = new { code, message } };
         if (context.Items["RevisionStatus"] is Dictionary<string, object?> revisionStatus)
             body = RevisionStatusInjector.WithStatus(body, revisionStatus);
-        return context.Response.WriteAsJsonAsync(body, JsonOptions);
+        return context.Response.WriteAsJsonAsync(ResponseBodyFor(context, body), JsonOptions);
     }
 
     /// <summary>
@@ -625,7 +650,7 @@ public static class EndpointExecutionEndpoints
         object payload = body;
         if (context.Items["RevisionStatus"] is Dictionary<string, object?> revisionStatus)
             payload = RevisionStatusInjector.WithStatus(payload, revisionStatus);
-        return context.Response.WriteAsJsonAsync(payload, JsonOptions);
+        return context.Response.WriteAsJsonAsync(ResponseBodyFor(context, payload), JsonOptions);
     }
 
     private static bool IsSecurityErrorCode(string code)
@@ -633,6 +658,15 @@ public static class EndpointExecutionEndpoints
             || code.StartsWith("AUTH_SESSION_", StringComparison.Ordinal)
             || code.StartsWith("ENCRYPTED_REQUEST_", StringComparison.Ordinal)
             || code.StartsWith("REQUEST_SIGNATURE_", StringComparison.Ordinal);
+
+    /// <summary>
+    /// The body to write. Once a v2 request has decrypted, the final body (including _revisionStatus) is sealed under
+    /// that request's AES key (C5); before that, and for v1, it is written as-is.
+    /// </summary>
+    private static object ResponseBodyFor(HttpContext context, object body)
+        => context.Items[EncryptedRequestV2.ItemKey] is EncryptedRequestV2.ResponseKey responseKey
+            ? EncryptedRequestV2.SealResponse(responseKey, body, JsonOptions)
+            : body;
 
     /// <summary>
     /// Fire-and-forget <c>endpoint.executed</c> hook emission for module

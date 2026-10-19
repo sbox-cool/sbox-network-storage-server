@@ -57,7 +57,6 @@ public sealed record WorkspaceProject(
     bool? RequireSboxAuth = null,
     bool? EnableAuthSessions = null,
     int? AuthSessionTtlSeconds = null,
-    bool? EnableEncryptedRequests = null,
     int? EncryptedRequestWindowSeconds = null,
     string? PlayerKeyMode = null,
     string? HostingProfile = null,
@@ -106,7 +105,33 @@ public sealed record WorkspaceProject(
     // Opt-in (off when absent): every endpoint call must carry an auth session (SECURITY_SESSION_REQUIRED).
     // Not part of the signed security config, matching the reference (services/network-storage-security-config.js).
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? RequireAuthSessions = null
-);
+)
+{
+    // Stored encrypted-request mode (off | v1 | v2-preferred | v2-required). Read through EncryptedRequestMode.
+    private string? _encryptedRequestMode;
+    // Legacy enableEncryptedRequests: read only when the stored mode is absent. Never written.
+    private bool? _legacyEnableEncryptedRequests;
+
+    /// <summary>
+    /// Effective mode: the stored mode when valid, else legacy true maps to v1 and anything else to off.
+    /// Always serialized, so saving a legacy project migrates it to the stored mode.
+    /// </summary>
+    [JsonPropertyName("encryptedRequestMode")]
+    public string EncryptedRequestMode
+    {
+        get => EncryptedRequestModes.Resolve(_encryptedRequestMode, _legacyEnableEncryptedRequests);
+        init => _encryptedRequestMode = value;
+    }
+
+    /// <summary>Read-only migration input from the pre-v2 flag. Always null on write, so it is never serialized.</summary>
+    [JsonPropertyName("enableEncryptedRequests")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? LegacyEnableEncryptedRequests
+    {
+        get => null;
+        init => _legacyEnableEncryptedRequests = value;
+    }
+}
 public static class WorkspaceProjectProfiles
 {
     /// <summary>Hosting profiles: how the game is hosted. Missing or unknown values read as "unset".</summary>

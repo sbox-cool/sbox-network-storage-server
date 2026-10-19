@@ -509,7 +509,9 @@ public sealed class NetworkStorageProjectService(
                         EnableAuthSessions = IsChecked(formValues.GetValueOrDefault("enableAuthSessions")),
                         RequireAuthSessions = IsChecked(formValues.GetValueOrDefault("requireAuthSessions")),
                         AuthSessionTtlSeconds = ParseIntOrDefault(formValues.GetValueOrDefault("authSessionTtlSeconds"), 3600, 60, 86400),
-                        EnableEncryptedRequests = IsChecked(formValues.GetValueOrDefault("enableEncryptedRequests")),
+                        EncryptedRequestMode = formValues.GetValueOrDefault("encryptedRequestMode") is { } postedMode && EncryptedRequestModes.IsValid(postedMode)
+                            ? postedMode
+                            : project.EncryptedRequestMode,
                         EncryptedRequestWindowSeconds = ParseIntOrDefault(formValues.GetValueOrDefault("encryptedRequestWindowSeconds"), 120, 30, 600)
                     };
                     break;

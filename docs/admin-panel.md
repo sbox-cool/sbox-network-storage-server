@@ -239,20 +239,47 @@ carry the project's secret key are exempt. Off by default.
 
 ### Encrypted requests
 
-**Enable encrypted requests** is reported to the client library in the signed
-security config, and the library then encrypts endpoint calls (AES-256-GCM
-with a key derived from the public key, signed with HMAC-SHA256). The setting
-is enforced in both directions. While it is on, plain endpoint calls are
-refused with `SECURITY_ENCRYPTION_REQUIRED`. While it is off, encrypted calls
-are refused with `SECURITY_ENCRYPTION_DISABLED`. The library refreshes its
-security config and retries once in the matching mode, so a plain call made
-while the setting is on still succeeds (encrypted). Off by default.
+The **encrypted requests** setting is a select with four modes. The chosen mode is
+published in the signed security config, and the server enforces it on both plain
+and encrypted calls. Off by default.
 
-Each encrypted call carries a request ID. The server refuses an ID outside the
-**Encrypted request window** with `ENCRYPTED_REQUEST_STALE`, and refuses an ID
-already accepted for the same identity with `ENCRYPTED_REQUEST_REPLAY_DETECTED`.
-The window is 30 to 600 seconds, default 120. The window value is also passed
-to the client library.
+- `off`: plain calls only. Encrypted calls are refused with `SECURITY_ENCRYPTION_DISABLED`.
+- `v1`: v1 envelopes only, the format released libraries send. Its key is derived from
+  the public key, which every game build contains, so anyone who extracts it can read
+  and forge v1 requests. v1 responses are not encrypted. Plain calls are refused with
+  `SECURITY_ENCRYPTION_REQUIRED`. v2 envelopes are refused with `SECURITY_MODE_UNSUPPORTED`.
+- `v2-preferred`: v1 and v2 envelopes are accepted. Plain calls are refused with
+  `SECURITY_ENCRYPTION_REQUIRED`. Published games on v1 keep working.
+- `v2-required`: v2 envelopes only. Plain calls and v1 envelopes are refused with
+  `SECURITY_ENCRYPTION_REQUIRED`. A library without v2 support cannot call this project.
+
+The library refreshes its security config and retries once in the mode the server
+asks for, so a plain call made while encryption is required still succeeds when the
+library can send that envelope.
+
+v2 encrypts request and response payloads per call, with a key wrapped to the server's
+RSA key. It does not hide the bearer or auth tokens sent in plain headers or the outer
+`security` block, so HTTPS is still required. An active man in the middle who sees such
+a token can still act with it. The wire format is in
+[encrypted-requests-v2.md](encrypted-requests-v2.md).
+
+**Server key** shows the key ID, the fingerprint and the creation time of the server's
+RSA-2048 request encryption key. The fingerprint is grouped for reading and is the same
+value the signed config publishes. One key serves every project on the server, and
+only the v2 modes use it.
+
+**Rotate** creates a new key and makes it current. The previous key stays valid for the
+**grace** period, in seconds: default 86400 (one day), maximum 2592000 (30 days). Until
+it ends, v2 calls made with the old key still succeed. After it ends they are refused
+with `SECURITY_CONFIG_STALE`, and the library fetches the new key. Grace 0 ends the old
+key at once. Rotation does not affect v1 calls. Only the owner can rotate. On the server
+host, `sbox-ns security rotate-key [--grace-seconds N]` does the same, and
+`sbox-ns security status` lists the current and retired keys.
+
+Each encrypted call, v1 or v2, carries a request ID. The server refuses an ID outside the
+**Encrypted request window** with `ENCRYPTED_REQUEST_STALE`, and refuses an ID already
+accepted for the same identity with `ENCRYPTED_REQUEST_REPLAY_DETECTED`. The window is
+30 to 600 seconds, default 120. The window value is also passed to the client library.
 
 ### Player key mode
 

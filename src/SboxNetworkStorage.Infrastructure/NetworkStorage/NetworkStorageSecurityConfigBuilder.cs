@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using SboxNetworkStorage.Domain.Workspace;
 
 namespace SboxNetworkStorage.Infrastructure.NetworkStorage;
 
@@ -71,9 +72,10 @@ internal static class NetworkStorageSecurityConfigBuilder
             : HashPrefix(Encoding.UTF8.GetBytes(publicKeyPem));
     }
 
-    public static JsonElement Build(string projectId, JsonElement project, DateTimeOffset generatedAt)
+    public static JsonElement Build(string projectId, JsonElement project, DateTimeOffset generatedAt, RequestEncryptionKeyStore keyStore)
     {
         var settings = SettingsOf(project);
+        var mode = EncryptedRequestModeOf(project);
 
         var publicKeyPem = SigningKey.ExportSubjectPublicKeyInfoPem();
         var parameters = SigningKey.ExportParameters(includePrivateParameters: false);
@@ -88,7 +90,7 @@ internal static class NetworkStorageSecurityConfigBuilder
             ["modes"] = new JsonObject
             {
                 ["authSessions"] = ReadBoolean(project, "enableAuthSessions") ? "enabled" : "disabled",
-                ["encryptedRequests"] = ReadBoolean(project, "enableEncryptedRequests") ? "required" : "disabled",
+                ["encryptedRequests"] = EncryptedRequestModes.RequiresEncryption(mode) ? "required" : "disabled",
                 ["analytics"] = ReadAnalyticsEnabled(settings) ? "enabled" : "disabled",
             },
             ["settings"] = settings,
@@ -105,6 +107,18 @@ internal static class NetworkStorageSecurityConfigBuilder
                 },
             },
         };
+        if (EncryptedRequestModes.OffersV2(mode))
+        {
+            var key = keyStore.Current().Current;
+            payload["encryption"] = new JsonObject
+            {
+                ["algorithm"] = "rsa-oaep-256+aes-256-gcm",
+                ["keyId"] = key.KeyId,
+                ["publicKeyJwk"] = key.PublicKeyJwk.DeepClone(),
+                ["fingerprint"] = key.Fingerprint,
+                ["required"] = mode == EncryptedRequestModes.V2Required,
+            };
+        }
 
         byte[] signature;
         lock (SigningLock)
@@ -173,15 +187,24 @@ internal static class NetworkStorageSecurityConfigBuilder
         }
     }
 
-    /// <summary>The settings the config version hashes and the signed config publishes.</summary>
-    internal static JsonObject SettingsOf(JsonElement project) => new()
+    /// <summary>
+    /// The settings the config version hashes and the signed config publishes. Off and v1 projects publish the exact v1
+    /// bytes. v2 modes add <c>encryptedRequestMode</c>, so switching between v1 and v2 changes the config version.
+    /// </summary>
+    internal static JsonObject SettingsOf(JsonElement project)
     {
-        ["enableAuthSessions"] = ReadBoolean(project, "enableAuthSessions"),
-        ["authSessionTtlSeconds"] = ReadClampedInteger(project, "authSessionTtlSeconds", DefaultAuthSessionTtlSeconds, 60, 86_400),
-        ["enableEncryptedRequests"] = ReadBoolean(project, "enableEncryptedRequests"),
-        ["encryptedRequestWindowSeconds"] = ReadClampedInteger(project, "encryptedRequestWindowSeconds", DefaultEncryptedRequestWindowSeconds, 30, 600),
-        ["analytics"] = ReadObject(project, "analytics") ?? new JsonObject(),
-    };
+        var mode = EncryptedRequestModeOf(project);
+        var settings = new JsonObject
+        {
+            ["enableAuthSessions"] = ReadBoolean(project, "enableAuthSessions"),
+            ["authSessionTtlSeconds"] = ReadClampedInteger(project, "authSessionTtlSeconds", DefaultAuthSessionTtlSeconds, 60, 86_400),
+            ["enableEncryptedRequests"] = EncryptedRequestModes.RequiresEncryption(mode),
+            ["encryptedRequestWindowSeconds"] = ReadClampedInteger(project, "encryptedRequestWindowSeconds", DefaultEncryptedRequestWindowSeconds, 30, 600),
+            ["analytics"] = ReadObject(project, "analytics") ?? new JsonObject(),
+        };
+        if (EncryptedRequestModes.OffersV2(mode)) settings["encryptedRequestMode"] = mode;
+        return settings;
+    }
 
     /// <summary>Config version the server reports and enforces: the hash the signed config publishes.</summary>
     internal static string ConfigVersionOf(JsonElement project) => HashPrefix(StableSerialize(SettingsOf(project)));
@@ -190,6 +213,17 @@ internal static class NetworkStorageSecurityConfigBuilder
         project.ValueKind == JsonValueKind.Object
         && project.TryGetProperty(name, out var value)
         && value.ValueKind == JsonValueKind.True;
+
+    private static string? ReadString(JsonElement project, string name) =>
+        project.ValueKind == JsonValueKind.Object
+        && project.TryGetProperty(name, out var value)
+        && value.ValueKind == JsonValueKind.String
+            ? value.GetString()
+            : null;
+
+    /// <summary>Effective encrypted-request mode of the raw project JSON: the stored mode first, then the legacy flag.</summary>
+    private static string EncryptedRequestModeOf(JsonElement project) =>
+        EncryptedRequestModes.Resolve(ReadString(project, "encryptedRequestMode"), ReadBoolean(project, "enableEncryptedRequests"));
 
     private static int ReadClampedInteger(JsonElement project, string name, int fallback, int minimum, int maximum)
     {

@@ -8,6 +8,7 @@ using SboxNetworkStorage.Application.Common;
 using SboxNetworkStorage.Application.NetworkStorage;
 using SboxNetworkStorage.Application.NetworkStorage.GameLogs;
 using SboxNetworkStorage.Infrastructure.NetworkStorage.GameLogs;
+using SboxNetworkStorage.Infrastructure.NetworkStorage;
 using SboxNetworkStorage.Application.NetworkStorage.Media;
 using SboxNetworkStorage.Application.Workspace;
 using SboxNetworkStorage.Domain.Workspace;
@@ -64,13 +65,14 @@ public sealed record OwnerRequestSummary(DateTimeOffset At, string Method, strin
 
 public sealed record OwnerProjectModel(WorkspaceProject Project, NetworkStorageProjectResources? Resources,
     IReadOnlyList<ApiKeyInfo> Keys, OwnerConnectInfo Connect, OwnerRequestSummary? LastRequest,
-    IReadOnlyList<OwnerRequestSummary> RecentRejected, AuthorityCheckService.AuthorityCheckResult? Authority = null, string? RawKey = null, string? Error = null);
+    IReadOnlyList<OwnerRequestSummary> RecentRejected, AuthorityCheckService.AuthorityCheckResult? Authority = null, string? RawKey = null, string? Error = null,
+    RequestEncryptionKeyInfo? EncryptionKey = null);
 
 /// <summary>Standalone adaptation of the Network Storage project/settings/key management surface.</summary>
 [Authorize(AuthenticationSchemes = OwnerHostingExtensions.Scheme)]
 public sealed class OwnerDashboardController(INetworkStorageProjectService projects, IWorkspaceStore workspace,
     IAuditLogger audit, INetworkStorageStore store, EffectiveConfig config, IMemoryCache cache, TimeProvider time, GameLogQueue gameLogs,
-    ReleaseStatusService releaseStatus) : Controller
+    ReleaseStatusService releaseStatus, RequestEncryptionKeyStore encryptionKeys) : Controller
 {
     private const long Owner = NetworkStorageServices.LocalOwnerUserId;
     private const int RecentRequests = 200;
@@ -189,6 +191,22 @@ public sealed class OwnerDashboardController(INetworkStorageProjectService proje
         return Redirect(ProjectUrl(projectId));
     }
 
+    /// <summary>Rotates the server-wide request encryption key. The previous key stays valid for the grace period.</summary>
+    [HttpPost("/dashboard/projects/{projectId}/encryption/rotate")]
+    public async Task<IActionResult> RotateEncryptionKey(string projectId, [FromForm] string? graceSeconds, CancellationToken ct)
+    {
+        if (await LoadProjectAsync(projectId, ct) is null) return NotFound();
+        if (!int.TryParse(graceSeconds, NumberStyles.None, CultureInfo.InvariantCulture, out var grace)
+            || grace < 0 || grace > RequestEncryptionKeyring.MaxGraceSeconds)
+            return await ProjectErrorAsync(projectId, $"Grace period must be a whole number of seconds from 0 to {RequestEncryptionKeyring.MaxGraceSeconds}.", ct);
+        var previousKeyId = encryptionKeys.Current().Current.KeyId;
+        var keyring = RequestEncryptionKeyring.Rotate(encryptionKeys.Path, time.GetUtcNow(), grace);
+        encryptionKeys.Reload();
+        await AuditAsync(projectId, "encryption.key.rotate", new { previousKeyId, keyId = keyring.Current.KeyId, graceSeconds = grace }, ct);
+        OwnerFlash.Success(this, $"Request encryption key rotated. The previous key stays valid for {grace} seconds.");
+        return Redirect(ProjectUrl(projectId) + "#project-settings");
+    }
+
     [HttpPost("/dashboard/projects/{projectId}/keys")]
     public async Task<IActionResult> CreateKey(string projectId, [FromForm] string? label, [FromForm] string? keyType, CancellationToken ct)
     {
@@ -294,7 +312,7 @@ public sealed class OwnerDashboardController(INetworkStorageProjectService proje
         var resources = await projects.GetProjectResourcesForOwnerAsync(Owner, projectId, ct);
         var authority = AuthorityCheckService.AnalyzeLoaded(access.Project.HostingProfile, resources, keys, rawRequests);
         return new OwnerProjectModel(access.Project, resources,
-            keys, connect, requests.FirstOrDefault(), rejected, authority);
+            keys, connect, requests.FirstOrDefault(), rejected, authority, EncryptionKey: encryptionKeys.Current().Current);
     }
 
     private static OwnerRequestSummary Summary(JsonElement row) => new(
