@@ -148,6 +148,8 @@ The time and statement limits are one budget for the whole request. Module evalu
 serialisation and every re-run round all draw from it, and a re-run does not reset it. Memory is per engine: each
 round runs in its own engine, and rounds run one after another, so the peak is one engine's limit.
 
+Promises are bounded by the same time limit: a promise that does not settle before the request's deadline fails with `SCRIPT_LIMIT_EXCEEDED`, so an async handler cannot hang past it. If the caller disconnects, the run is cancelled and is not reported as `SCRIPT_ERROR`.
+
 | Limit | Default | When exceeded |
 | --- | --- | --- |
 | Time per request | 1 s, counted from the start of script work (includes store reads between rounds) | `SCRIPT_LIMIT_EXCEEDED` |
