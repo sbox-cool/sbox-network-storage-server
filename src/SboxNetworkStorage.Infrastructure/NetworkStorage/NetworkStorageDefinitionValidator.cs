@@ -1,5 +1,6 @@
 using SboxNetworkStorage.Application.NetworkStorage.Endpoints.Scripting;
 using System.Text.Json;
+using System.Diagnostics.CodeAnalysis;
 
 namespace SboxNetworkStorage.Infrastructure.NetworkStorage;
 
@@ -250,6 +251,81 @@ public static class NetworkStorageDefinitionValidator
             return false;
         }
         return Visit(module) ? path : null;
+    }
+
+    /// <summary>
+    /// Checks a global endpoint's proposed save against the stored scripted endpoints that import it. Each import the save
+    /// would break (the global is disabled, is no longer <c>scope: global</c>, or no longer exports the name) is an error on
+    /// the global's definition, naming the importer. Only those import failures are reported: the saved global's own checks
+    /// cover its imports and cycles. A proposed global whose script does not check or analyse is left to its own save, so
+    /// nothing is reported here.
+    /// </summary>
+    public static IReadOnlyList<DefinitionDiagnostic> ValidateGlobalImporters(
+        string globalId, JsonElement proposed, IReadOnlyList<(string Id, JsonElement Definition)> endpoints, DefinitionValidationContext context)
+    {
+        if (proposed.ValueKind != JsonValueKind.Object) return [];
+        var globals = new Dictionary<string, ScriptModuleInfo>(context.GlobalModules, StringComparer.Ordinal);
+        globals.Remove(globalId);
+        string path;
+        if (!IsGlobalScope(proposed))
+            path = "/scope";
+        else if (proposed.TryGetProperty("enabled", out var enabled) && enabled.ValueKind == JsonValueKind.False)
+            path = "/enabled";
+        else if (TryAnalyzeScript(proposed, context.ScriptRuntimes, out var module))
+        {
+            globals[globalId] = module;
+            path = "/script";
+        }
+        else
+            return [];
+
+        var findings = new List<DefinitionDiagnostic>();
+        foreach (var (importerId, definition) in endpoints)
+        {
+            if (importerId == globalId || !TryAnalyzeScript(definition, context.ScriptRuntimes, out var importer)) continue;
+            if (!importer.GlobalImports.Any(import => import.EndpointId == globalId)) continue;
+            var importerContext = new DefinitionValidationContext
+            {
+                HasProjectResources = true,
+                ResourceId = importerId,
+                ScriptRuntimes = context.ScriptRuntimes,
+                GlobalModules = globals,
+            };
+            // Only the imports of this global: an importer's unrelated break was there before this save.
+            var mention = $"{ScriptModuleAnalysis.GlobalPrefix}{globalId}, which";
+            foreach (var finding in Validate("endpoint", definition, importerContext))
+            {
+                if (finding.IsError && finding.Code is ("GLOBAL_NOT_FOUND" or "GLOBAL_EXPORT_NOT_FOUND") && finding.Message.Contains(mention, StringComparison.Ordinal))
+                    findings.Add(new DefinitionDiagnostic("error", finding.Code,
+                        $"Saving \"{globalId}\" would break an import in \"{importerId}\": {finding.Message}", path));
+            }
+        }
+        return findings;
+    }
+
+    /// <summary>
+    /// Analyses a scripted definition's module imports and exports. False when the definition has no script, its runtime
+    /// is not served here, or its source does not check.
+    /// </summary>
+    public static bool TryAnalyzeScript(JsonElement definition, IReadOnlyList<IEndpointScriptRuntime> runtimes, [NotNullWhen(true)] out ScriptModuleInfo? module)
+    {
+        module = null;
+        if (definition.ValueKind != JsonValueKind.Object
+            || !definition.TryGetProperty("runtime", out var runtime) || runtime.ValueKind != JsonValueKind.String
+            || !definition.TryGetProperty("script", out var script) || script.ValueKind != JsonValueKind.String)
+            return false;
+        var source = script.GetString()!;
+        var engine = runtimes.FirstOrDefault(candidate => candidate.Language == runtime.GetString());
+        if (engine is null || engine.Check(source).Count > 0) return false;
+        try
+        {
+            module = ScriptModuleAnalysis.Analyze(engine.ToJavaScript(source));
+            return true;
+        }
+        catch (ScriptModuleException)
+        {
+            return false;
+        }
     }
 
     private static void ValidateWorkflow(JsonElement definition, DiagnosticBag bag, DefinitionValidationContext context)

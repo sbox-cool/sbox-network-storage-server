@@ -84,6 +84,27 @@ internal sealed class OwnerProjectResources
     }
 
     /// <summary>
+    /// The save-time check of a global endpoint's proposed definition against the stored scripted endpoints that import
+    /// it: see <see cref="NetworkStorageDefinitionValidator.ValidateGlobalImporters"/>.
+    /// </summary>
+    public IReadOnlyList<DefinitionDiagnostic> GlobalImporterDiagnostics(string globalId, JsonElement proposed, IReadOnlyList<IEndpointScriptRuntime> scriptRuntimes)
+    {
+        var endpoints = new List<(string Id, JsonElement Definition)>();
+        foreach (var row in Endpoints)
+        {
+            if (Text(row, "endpoint_id") is { } id && Column(row, "definition_json") is { ValueKind: JsonValueKind.Object } definition)
+                endpoints.Add((id, definition));
+        }
+        var context = new DefinitionValidationContext
+        {
+            HasProjectResources = true,
+            ScriptRuntimes = scriptRuntimes,
+            GlobalModules = ProjectGlobalModules(globalId, scriptRuntimes),
+        };
+        return NetworkStorageDefinitionValidator.ValidateGlobalImporters(globalId, proposed, endpoints, context);
+    }
+
+    /// <summary>
     /// Analysed imports and exports of the project's enabled global endpoints, excluding <paramref name="resourceId"/>.
     /// A global whose source does not analyse is left out: its own save rejected it.
     /// </summary>
@@ -94,19 +115,10 @@ internal sealed class OwnerProjectResources
         {
             if (Text(row, "endpoint_id") is not { } id || id == resourceId) continue;
             if (Column(row, "definition_json") is not { ValueKind: JsonValueKind.Object } definition) continue;
-            if (StringProperty(definition, "scope") != "global" || StringProperty(definition, "runtime") is not { } language) continue;
+            if (StringProperty(definition, "scope") != "global") continue;
             if (definition.TryGetProperty("enabled", out var enabled) && enabled.ValueKind == JsonValueKind.False) continue;
-            if (StringProperty(definition, "script") is not { } source) continue;
-            var engine = scriptRuntimes.FirstOrDefault(candidate => candidate.Language == language);
-            if (engine is null) continue;
-            try
-            {
-                modules[id] = ScriptModuleAnalysis.Analyze(engine.ToJavaScript(source));
-            }
-            catch (Exception ex) when (ex is ScriptModuleException or InvalidOperationException or Acornima.ParseErrorException)
-            {
-                // A global that does not analyse was rejected at its own save; importers see it as missing.
-            }
+            // A global that does not check or analyse was rejected at its own save; importers see it as missing.
+            if (NetworkStorageDefinitionValidator.TryAnalyzeScript(definition, scriptRuntimes, out var module)) modules[id] = module;
         }
         return modules;
     }

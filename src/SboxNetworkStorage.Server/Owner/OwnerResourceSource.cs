@@ -72,12 +72,24 @@ internal static class OwnerResourceSource
         {
             if (!string.IsNullOrWhiteSpace(definition)) source = OwnerYamlDefinitions.ParseDefinition(definition, out _);
             var resource = Parse(kind, definition, id, maxPayloadBytes, out resourceId);
-            return NetworkStorageDefinitionValidator.ValidateResource(resource, kind, resources.ValidationContext(resourceId, scriptRuntimes), out _);
+            return ValidateSave(kind, resource, resourceId, resources, scriptRuntimes, out _);
         }
         catch (Exception error) when (error is JsonException or ArgumentException)
         {
             return [new DefinitionDiagnostic("error", "INVALID_DEFINITION", error.Message, "/")];
         }
+    }
+
+    /// <summary>
+    /// The save-time validator, plus a check that a saved endpoint does not break the scripted endpoints that import it.
+    /// The importer check runs only when the endpoint's own findings are clean, so it never reports imports of a broken global.
+    /// </summary>
+    private static IReadOnlyList<DefinitionDiagnostic> ValidateSave(string kind, JsonElement resource, string? resourceId,
+        OwnerProjectResources resources, IReadOnlyList<IEndpointScriptRuntime> scriptRuntimes, out JsonElement compiled)
+    {
+        var diagnostics = NetworkStorageDefinitionValidator.ValidateResource(resource, kind, resources.ValidationContext(resourceId, scriptRuntimes), out compiled);
+        if (kind != "endpoint" || resourceId is null || diagnostics.Any(item => item.IsError)) return diagnostics;
+        return [.. diagnostics, .. resources.GlobalImporterDiagnostics(resourceId, compiled, scriptRuntimes)];
     }
 
     /// <summary>
@@ -88,7 +100,7 @@ internal static class OwnerResourceSource
         ManagementMutationHandler mutations, IAuditLogger audit, string actorType, string projectId, string kind,
         JsonElement resource, string? resourceId, OwnerProjectResources resources, IReadOnlyList<IEndpointScriptRuntime> scriptRuntimes, bool targetsNext, CancellationToken ct)
     {
-        var diagnostics = NetworkStorageDefinitionValidator.ValidateResource(resource, kind, resources.ValidationContext(resourceId, scriptRuntimes), out _);
+        var diagnostics = ValidateSave(kind, resource, resourceId, resources, scriptRuntimes, out _);
         if (diagnostics.Any(item => item.IsError)) return (diagnostics, null);
         var result = await mutations.SaveOwnerResourceAsync(OwnerProjectScope.Owner, projectId, kind, resource, ct,
             versionSource: actorType, targetsNext: targetsNext);
