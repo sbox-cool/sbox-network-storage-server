@@ -250,7 +250,7 @@ public sealed class SqliteAdminTests : RelationalAdminTests
 
         var migration = await Store.MigrateAsync(Ct);
 
-        Assert.Equal([2, 3, 4, 5, 6, 7], migration.AppliedVersions);
+        Assert.Equal([2, 3, 4, 5, 6, 7, 8], migration.AppliedVersions);
         var old = (await Store.ReadProjectAsync("old1", Ct))!.Value;
         Assert.True(old.GetProperty("legacyPlayerProjections").GetBoolean());
         Assert.Equal("Old", old.GetProperty("name").GetString());
@@ -284,6 +284,8 @@ public sealed class SqliteAdminTests : RelationalAdminTests
             DROP TABLE client_outcomes_hourly;
             CREATE TABLE storage_errors (project_id TEXT NOT NULL, created_at_unix_ms INTEGER NOT NULL, error_id TEXT, message TEXT, stack_trace TEXT, source TEXT, request_path TEXT, severity TEXT, PRIMARY KEY (project_id, created_at_unix_ms DESC)) STRICT, WITHOUT ROWID;
             CREATE TABLE storage_request_log (project_id TEXT NOT NULL, created_at_unix_ms INTEGER NOT NULL, method TEXT, path TEXT, status_code INTEGER, duration_ms INTEGER, api_key_identifier TEXT, PRIMARY KEY (project_id, created_at_unix_ms DESC)) STRICT, WITHOUT ROWID;
+            DROP TABLE media_grants;
+            DROP TABLE media_objects;
             DELETE FROM schema_version WHERE version >= 2;
             """ + seed;
         await command.ExecuteNonQueryAsync();
@@ -300,7 +302,7 @@ public sealed class SqliteAdminTests : RelationalAdminTests
 
         var migration = await Store.MigrateAsync(Ct);
 
-        Assert.Equal([2, 3, 4, 5, 6, 7], migration.AppliedVersions);
+        Assert.Equal([2, 3, 4, 5, 6, 7, 8], migration.AppliedVersions);
         var log = await Store.ListStorageRequestLogAsync("p1", 10, Ct);
         Assert.Equal(new[] { "/b", "/a" }, log.Select(r => Json.Str(r, "path")));
         Json.Equal("""{"created_at_unix_ms":100,"method":"GET","path":"/a","status_code":200,"duration_ms":3,"api_key_identifier":"pk","library_version":null,"client_type":null,"engine_version":null}""", log[1]);
@@ -340,14 +342,16 @@ public sealed class SqliteAdminTests : RelationalAdminTests
                 DROP TABLE player_action_log;
                 DROP INDEX ix_client_outcomes_hour;
                 DROP TABLE client_outcomes_hourly;
-                DELETE FROM schema_version WHERE version IN (4, 5, 6, 7);
+                DROP TABLE media_grants;
+                DROP TABLE media_objects;
+                DELETE FROM schema_version WHERE version IN (4, 5, 6, 7, 8);
                 """;
             await command.ExecuteNonQueryAsync();
         }
 
         var migration = await Store.MigrateAsync(Ct);
 
-        Assert.Equal([4, 5, 6, 7], migration.AppliedVersions);
+        Assert.Equal([4, 5, 6, 7, 8], migration.AppliedVersions);
         await Store.InsertStorageRequestLogAsync("p1", 200, "GET", "/new", 200, 1, null, Ct, new RequestClientInfo("1.1.0", "game", "26.10.02"));
         var log = await Store.ListStorageRequestLogAsync("p1", 10, Ct);
         Json.Equal("""{"created_at_unix_ms":100,"method":"GET","path":"/old","status_code":200,"duration_ms":3,"api_key_identifier":"pk","library_version":null,"client_type":null,"engine_version":null}""", log[1]);
@@ -378,14 +382,16 @@ public sealed class SqliteAdminTests : RelationalAdminTests
                 DROP TABLE player_action_log;
                 DROP INDEX ix_client_outcomes_hour;
                 DROP TABLE client_outcomes_hourly;
-                DELETE FROM schema_version WHERE version IN (5, 6, 7);
+                DROP TABLE media_grants;
+                DROP TABLE media_objects;
+                DELETE FROM schema_version WHERE version IN (5, 6, 7, 8);
                 """;
             await command.ExecuteNonQueryAsync();
         }
 
         var migration = await Store.MigrateAsync(Ct);
 
-        Assert.Equal([5, 6, 7], migration.AppliedVersions);
+        Assert.Equal([5, 6, 7, 8], migration.AppliedVersions);
         Json.Equal("""{"created_at_unix_ms":100,"error_id":"e1","message":"boom","stack_trace":"trace","source":"worker","request_path":"/a","severity":"error","library_version":null,"client_type":null,"engine_version":null,"library_revision":null,"game_revision":null}""", (await Store.ListStorageErrorsAsync("p1", 10, Ct)).Single());
         var versions = (IClientVersionStore)Store;
         var key = new ClientVersionKey("p1", 1000, "1.1.0", 42, "game", 11);
@@ -466,7 +472,7 @@ public sealed class PostgresAdminTests : RelationalAdminTests
         await connection.OpenAsync();
         await using var command = new Npgsql.NpgsqlCommand("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = @s", connection);
         command.Parameters.AddWithValue("s", _schema);
-        Assert.Equal(35L, (long)(await command.ExecuteScalarAsync())!); // 34 data tables + schema_version
+        Assert.Equal(37L, (long)(await command.ExecuteScalarAsync())!); // 36 data tables + schema_version
     }
 
     [SkippableFact]
@@ -489,12 +495,14 @@ public sealed class PostgresAdminTests : RelationalAdminTests
             DROP TABLE "{_schema}".player_action_log;
             DROP INDEX "{_schema}".ix_client_outcomes_hour;
             DROP TABLE "{_schema}".client_outcomes_hourly;
-            DELETE FROM "{_schema}".schema_version WHERE version IN (5, 6, 7);
+            DROP TABLE "{_schema}".media_grants;
+            DROP TABLE "{_schema}".media_objects;
+            DELETE FROM "{_schema}".schema_version WHERE version IN (5, 6, 7, 8);
             """);
 
         var migration = await Store.MigrateAsync(Ct);
 
-        Assert.Equal([5, 6, 7], migration.AppliedVersions);
+        Assert.Equal([5, 6, 7, 8], migration.AppliedVersions);
         Json.Equal("""{"created_at_unix_ms":100,"error_id":"e1","message":"boom","stack_trace":"trace","source":"worker","request_path":"/a","severity":"error","library_version":null,"client_type":null,"engine_version":null,"library_revision":null,"game_revision":null}""", (await Store.ListStorageErrorsAsync("p1", 10, Ct)).Single());
         var versions = (IClientVersionStore)Store;
         var key = new ClientVersionKey("p1", 1000, "1.1.0", 42, "game", 11);
