@@ -359,36 +359,8 @@ public sealed class ManagementReadHandler : INetworkStorageHandler
     private Task<NetworkStorageResult> HandleSettingsAsync(
         WorkspaceProject project, long userId, string projectId, string authDecision)
     {
-        // Mirrors legacy server's projectSettingsForManage() — derives settings from the workspace project model
-        var settings = new Dictionary<string, object?>
-        {
-            ["enabled"] = project.Enabled,
-            ["requireSboxAuth"] = project.RequireSboxAuth == true,
-            ["enableAuthSessions"] = project.EnableAuthSessions == true,
-            ["authSessionTtlSeconds"] = project.AuthSessionTtlSeconds ?? 3600,
-            ["enableEncryptedRequests"] = project.EnableEncryptedRequests == true,
-            ["encryptedRequestWindowSeconds"] = project.EncryptedRequestWindowSeconds ?? 300,
-            ["playerKeyMode"] = project.PlayerKeyMode ?? "player",
-            ["revisionEnforcementEnabled"] = project.RevisionEnforcementEnabled == true,
-            ["revisionEnforcementMode"] = project.RevisionEnforcementMode ?? "allow_continue",
-            ["revisionGracePeriodMinutes"] = (object?)project.RevisionGracePeriodMinutes,
-            ["revisionPostGraceAction"] = project.RevisionPostGraceAction ?? "block_writes",
-            ["revisionForceEndpointUpgrade"] = project.RevisionForceEndpointUpgrade == true,
-            ["revisionNotifyMessage"] = project.RevisionNotifyMessage ?? "",
-            ["revisionShowDefaultMessage"] = project.RevisionShowDefaultMessage == true,
-            ["revisionShowNewVersionBanner"] = project.RevisionShowNewVersionBanner != false,
-            ["revisionShowUpdateOptions"] = project.RevisionShowUpdateOptions != false,
-            ["revisionEscalateAfterMinutes"] = (object?)project.RevisionEscalateAfterMinutes,
-            ["revisionShowPopupOnce"] = project.RevisionShowPopupOnce != false,
-            ["revisionTestOutdatedEditor"] = project.RevisionTestOutdatedEditor == true,
-            ["revisionTestOutdatedLive"] = project.RevisionTestOutdatedLive == true,
-        };
-        // Version rules (game-version-policy) are additive: the keys appear only once an owner sets them, so a
-        // project that never used them returns exactly the body older libraries and the parity corpus expect.
-        if (project.RevisionMinimumRevisionId is { } minimumRevision) settings["revisionMinimumRevisionId"] = minimumRevision;
-        if (project.RevisionInGraceAction is { } inGraceAction) settings["revisionInGraceAction"] = inGraceAction;
-        if (project.RevisionServerEnforcementEnabled == true) settings["revisionServerEnforcementEnabled"] = true;
-        if (project.RevisionRetentionCount is { } retention) settings["revisionRetentionCount"] = retention;
+        // Shared with PUT settings (ManagementSettings.View) so both routes return the same projection.
+        var settings = ManagementSettings.View(project);
 
         // legacy server structures for backward compatibility — settings and config carry the same data
         var enableAuthSessions = project.EnableAuthSessions == true;
