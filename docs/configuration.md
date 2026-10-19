@@ -374,6 +374,8 @@ of slowing requests down. Reading a record produces no analytics event.
 
 `endpoints.scripts` in `server.toml` (default `true`) runs JavaScript and TypeScript endpoints. Off makes every scripted endpoint answer `503 SCRIPTS_DISABLED`; YAML endpoints are unaffected. Restart the server after changing it. Limits and error codes are in [endpoints-javascript.md](endpoints-javascript.md).
 
+`endpoints.fetch_private_networks` in `server.toml` (default `false`) lets `ns.fetch` reach private, loopback and link-local addresses: `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `100.64.0.0/10`, `127.0.0.0/8`, `169.254.0.0/16`, and the IPv6 loopback, unique-local, link-local and site-local ranges. Metadata and reserved addresses stay blocked either way. Restart the server after changing it. Allow-lists are set per project; see [endpoints-javascript.md](endpoints-javascript.md#outbound-http-nsfetch).
+
 ### Game logs
 
 Game logs add no `server.toml` keys. They are turned on per project in the owner dashboard (Game logs section), where the streams, retention, sampling, allowed client events and per-project rate limit are set. Routes: `/api/game-logs/{projectId}`. Details, limits and error codes are in [game-logs.md](game-logs.md).
