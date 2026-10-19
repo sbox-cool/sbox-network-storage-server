@@ -198,7 +198,38 @@ public static partial class ConfigFiles
         Directory.CreateDirectory(directory);
         var temp = Path.Combine(directory, $".{Path.GetFileName(path)}.{Guid.NewGuid():N}.tmp");
         File.WriteAllText(temp, content, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
-        File.Move(temp, path, overwrite: true);
+        try
+        {
+            MoveReplacing(temp, path, static (from, to) => File.Move(from, to, overwrite: true), Thread.Sleep, OperatingSystem.IsWindows());
+        }
+        catch
+        {
+            try { File.Delete(temp); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+            throw;
+        }
+    }
+
+    internal const int ReplaceAttempts = 10;
+
+    /// <summary>
+    /// Windows refuses to replace a file another process holds open for a moment (antivirus,
+    /// the search indexer, a reader of the same config) and reports access denied or a sharing
+    /// violation. Retry for about a second there; elsewhere rename is atomic and real errors fail fast.
+    /// </summary>
+    internal static void MoveReplacing(string source, string destination, Action<string, string> move, Action<int> sleep, bool retryTransient)
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                move(source, destination);
+                return;
+            }
+            catch (Exception ex) when (retryTransient && attempt < ReplaceAttempts && ex is UnauthorizedAccessException or IOException)
+            {
+                sleep(attempt * 20);
+            }
+        }
     }
 
     [GeneratedRegex(@"^\s*\[\s*([A-Za-z0-9_.\-]+)\s*\]\s*(#.*)?$", RegexOptions.None, 100)]

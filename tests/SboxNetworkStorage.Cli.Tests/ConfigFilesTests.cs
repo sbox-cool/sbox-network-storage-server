@@ -78,4 +78,39 @@ public sealed class ConfigFilesTests : IDisposable
         Assert.Equal("[database.sqlite]\npath = \"new#path.db\" # keep this note\n", File.ReadAllText(path));
         Assert.Equal("new#path.db", Load().GetString("database.sqlite.path"));
     }
+
+    [Fact]
+    public void WriteAtomically_replaces_a_file_another_reader_holds_open_briefly()
+    {
+        // On Windows the open handle (no delete sharing) makes the first replace attempts fail;
+        // elsewhere rename succeeds at once. Either way the new content must land.
+        var path = Path.Combine(_dir, "server.toml");
+        File.WriteAllText(path, "old");
+        var reader = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        using var release = new Timer(_ => reader.Dispose(), null, 150, Timeout.Infinite);
+
+        ConfigFiles.WriteAtomically(path, "new");
+
+        reader.Dispose();
+        Assert.Equal("new", File.ReadAllText(path));
+        Assert.Single(Directory.GetFiles(_dir));
+    }
+
+    [Fact]
+    public void MoveReplacing_retries_transient_failures_then_gives_up()
+    {
+        var calls = 0;
+        var slept = new List<int>();
+        ConfigFiles.MoveReplacing("a", "b", (_, _) => { if (++calls < 3) throw new UnauthorizedAccessException(); }, slept.Add, retryTransient: true);
+        Assert.Equal(3, calls);
+        Assert.Equal([20, 40], slept);
+
+        calls = 0;
+        Assert.Throws<IOException>(() => ConfigFiles.MoveReplacing("a", "b", (_, _) => { calls++; throw new IOException(); }, _ => { }, retryTransient: true));
+        Assert.Equal(ConfigFiles.ReplaceAttempts, calls);
+
+        calls = 0;
+        Assert.Throws<UnauthorizedAccessException>(() => ConfigFiles.MoveReplacing("a", "b", (_, _) => { calls++; throw new UnauthorizedAccessException(); }, _ => { }, retryTransient: false));
+        Assert.Equal(1, calls);
+    }
 }
