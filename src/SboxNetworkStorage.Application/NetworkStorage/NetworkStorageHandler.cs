@@ -66,6 +66,10 @@ public sealed record NetworkStorageResult(
     public static NetworkStorageResult Ok(object body, IReadOnlyList<string>? storagePathsRead = null, string? authDecision = null) =>
         new(200, null, body, storagePathsRead ?? NoPaths, NoPaths, authDecision);
 
+    /// <summary>202 for work accepted into a background job; the caller polls for the outcome.</summary>
+    public static NetworkStorageResult Accepted(object body, IReadOnlyList<string>? storagePathsRead = null, string? authDecision = null) =>
+        new(202, null, body, storagePathsRead ?? NoPaths, NoPaths, authDecision);
+
     public static NetworkStorageResult Error(int statusCode, string publicErrorCode, object body, IReadOnlyList<string>? storagePathsRead = null, string? authDecision = null) =>
         new(statusCode, publicErrorCode, body, storagePathsRead ?? NoPaths, NoPaths, authDecision);
 }

@@ -12,28 +12,27 @@ namespace SboxNetworkStorage.Infrastructure.NetworkStorage;
 /// files (endpoints, collections, workflows, queries, game-values, tests, game-package, rate-limit-rules,
 /// settings/config, validate), and produces legacy-compatible response shapes.
 ///
-/// Two routes are explicitly unsupported:
-///  <list type="bullet">
-///    <item><c>sync-jobs/:jobId</c> — sync jobs are ephemeral in-memory state (Map in legacy server) with no CDN persistence.</item>
-///    <item><c>agent-manifest</c> — complex aggregate combining endpoints, game-package, and manifest
-///          metadata with URL construction; deferred.</item>
-///  </list>
-/// Unsupported routes return a 200 <c>MANAGEMENT_ROUTE_NOT_IMPLEMENTED</c> result.
+/// <c>sync-jobs/:jobId</c> reads the in-memory <see cref="ManagementSyncJobStore"/> that
+/// <c>PUT endpoints?async=true</c> writes. Routes without an implementation return a typed 501
+/// <c>MANAGEMENT_ROUTE_NOT_IMPLEMENTED</c>; they never return a 200 for work that was not done.
 /// </summary>
 public sealed class ManagementReadHandler : INetworkStorageHandler
 {
     private readonly IStorageApiKeyResolver _apiKeyResolver;
     private readonly IWorkspaceStore _workspaceClient;
     private readonly INetworkStorageProjectService _projectService;
+    private readonly ManagementSyncJobStore _syncJobs;
 
     public ManagementReadHandler(
         IStorageApiKeyResolver apiKeyResolver,
         IWorkspaceStore workspaceClient,
-        INetworkStorageProjectService projectService)
+        INetworkStorageProjectService projectService,
+        ManagementSyncJobStore? syncJobs = null)
     {
         _apiKeyResolver = apiKeyResolver;
         _workspaceClient = workspaceClient;
         _projectService = projectService;
+        _syncJobs = syncJobs ?? new ManagementSyncJobStore();
     }
 
     public NetworkStorageRouteFamily Family => NetworkStorageRouteFamily.Management;
@@ -141,7 +140,7 @@ public sealed class ManagementReadHandler : INetworkStorageHandler
             "rate-limit-rules" => await HandleRateLimitRulesAsync(ownerUserId, projectId, auth.KeyType, request.CancellationToken),
             "settings" or "config" => await HandleSettingsAsync(project, ownerUserId, projectId, auth.KeyType),
             "validate"         => await HandleValidateAsync(request, apiKey, auth, projectId, ownerUserId),
-            "sync-jobs"        => NotImplementedResult("sync-jobs/:jobId"),
+            "sync-jobs"        => HandleSyncJob(request, ownerUserId, projectId, auth.KeyType),
             "agent-manifest"   => NotImplementedResult("agent-manifest"),
             _                  => NotImplementedResult(resourceName),
         };
@@ -442,6 +441,35 @@ public sealed class ManagementReadHandler : INetworkStorageHandler
             : new { ok = false, message = "Not a public key" };
     }
 
+    // ── Sync jobs (async endpoint sync; see ManagementSyncJobStore) ──
+
+    private NetworkStorageResult HandleSyncJob(NetworkStorageRequest request, long userId, string projectId, string authDecision)
+    {
+        if (!request.Route.RouteParameters.TryGetValue("jobId", out var jobId) || string.IsNullOrWhiteSpace(jobId))
+        {
+            return NetworkStorageResult.Error(
+                400, "MISSING_JOB_ID",
+                new { ok = false, error = "MISSING_JOB_ID" },
+                storagePathsRead: Array.Empty<string>(), authDecision: authDecision);
+        }
+
+        var lookup = _syncJobs.Lookup(jobId, userId, projectId);
+        return lookup.State switch
+        {
+            SyncJobLookupState.Found => NetworkStorageResult.Ok(
+                new { ok = true, job = lookup.Job },
+                storagePathsRead: Array.Empty<string>(), authDecision: authDecision),
+            SyncJobLookupState.Expired => NetworkStorageResult.Error(
+                404, "JOB_EXPIRED",
+                new { ok = false, error = "JOB_EXPIRED", message = "Sync job has expired and been cleaned up." },
+                storagePathsRead: Array.Empty<string>(), authDecision: authDecision),
+            _ => NetworkStorageResult.Error(
+                404, "JOB_NOT_FOUND",
+                new { ok = false, error = "JOB_NOT_FOUND" },
+                storagePathsRead: Array.Empty<string>(), authDecision: authDecision),
+        };
+    }
+
     // ── Helpers ──
 
     // There are no separate package/test scopes. Those resources can contain
@@ -451,7 +479,9 @@ public sealed class ManagementReadHandler : INetworkStorageHandler
         "endpoints" or "collections" or "workflows" or "queries" => [resourceName],
         "game-values" => ["game_values"],
         "rate-limit-rules" => ["rate_limits"],
-        "settings" or "config" or "sync-jobs" => ["settings"],
+        "settings" or "config" => ["settings"],
+        // Jobs are created by endpoint sync and carry endpoint results, so they need the endpoints read scope.
+        "sync-jobs" => ["endpoints"],
         "tests" or "game-package" or "agent-manifest" =>
             ["endpoints", "queries", "collections", "workflows", "game_values", "rate_limits", "settings"],
         // Validation reports credential validity, not resource definitions.
@@ -486,7 +516,9 @@ public sealed class ManagementReadHandler : INetworkStorageHandler
 
     private static NetworkStorageResult NotImplementedResult(string routeName)
     {
-        return NetworkStorageResult.Ok(
+        return NetworkStorageResult.Error(
+            501,
+            "MANAGEMENT_ROUTE_NOT_IMPLEMENTED",
             new
             {
                 ok = false,

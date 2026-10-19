@@ -116,9 +116,9 @@ public static class NetworkStorageGatewayEndpoints
         MapManagementMutation(endpoints, [HttpMethods.Post], "/v3/manage/{projectId}/queries");
         MapManagementMutation(endpoints, [HttpMethods.Delete], "/v3/manage/{projectId}/queries/{queryId}");
         // Ported management mutations. The handlers mirror the retired legacy server
-        // manage-api surfaces (settings, saved tests, key destruction, source
-        // upgrade, test runners); logic not yet ported answers as a described
-        // dry-run via ManagementMutationHandler.
+        // manage-api surfaces (settings, saved tests, key destruction, source upgrade,
+        // test runners, suggest-tests). A mutation whose logic is not ported yet
+        // answers as a described dry-run via ManagementMutationHandler.
         MapManagementMutation(endpoints, [HttpMethods.Put], "/v3/manage/{projectId}/settings");
         MapManagementMutation(endpoints, [HttpMethods.Put], "/v3/manage/{projectId}/tests");
         MapManagementMutation(endpoints, [HttpMethods.Delete], "/v3/manage/{projectId}/keys");

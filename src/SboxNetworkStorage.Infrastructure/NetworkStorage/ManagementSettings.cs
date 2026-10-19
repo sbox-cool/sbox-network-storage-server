@@ -38,6 +38,7 @@ internal static class ManagementSettings
         {
             ["enabled"] = project.Enabled,
             ["requireSboxAuth"] = project.RequireSboxAuth == true,
+            ["requireAuthSessions"] = project.RequireAuthSessions == true,
             ["enableAuthSessions"] = project.EnableAuthSessions == true,
             ["authSessionTtlSeconds"] = project.AuthSessionTtlSeconds ?? DefaultAuthSessionTtlSeconds,
             ["enableEncryptedRequests"] = project.EnableEncryptedRequests == true,
@@ -73,6 +74,7 @@ internal static class ManagementSettings
 
         if (Field(body, "enabled") is { } enabledValue) updated = updated with { Enabled = IsTruthy(enabledValue) };
         if (Field(body, "requireSboxAuth") is { } requireAuthValue) updated = updated with { RequireSboxAuth = IsTruthy(requireAuthValue) };
+        if (Field(body, "requireAuthSessions") is { } requireAuthSessions) updated = updated with { RequireAuthSessions = IsTruthy(requireAuthSessions) };
         if (Field(body, "enableAuthSessions") is { } authSessionsValue) updated = updated with { EnableAuthSessions = IsTruthy(authSessionsValue) };
         if (Field(body, "authSessionTtlSeconds") is { } ttlValue)
             updated = updated with { AuthSessionTtlSeconds = ClampInt(ParseIntLike(ttlValue), DefaultAuthSessionTtlSeconds, MinAuthSessionTtlSeconds, MaxAuthSessionTtlSeconds) };
