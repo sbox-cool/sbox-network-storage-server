@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -650,37 +651,160 @@ public static partial class StorageApiEndpoints
 
         ClientIdentityContext.ApplyBodyLibraryVersion(context, body, "libraryVersion", "library_version");
         ClientIdentityContext.ApplyBodyGameRevision(context, body);
+        if (IsAnalyticsBatch(body))
+        {
+            await PostAnalyticsBatchAsync(context, body, projectId, analytics);
+            return;
+        }
+
+        if (!TryPrepareAnalyticsEvent(body, context.Request.Query["steamId"].FirstOrDefault(), out var analyticsEvent, out var rejection))
+        {
+            context.Response.StatusCode = rejection.Status;
+            await context.Response.WriteAsJsonAsync(new { error = rejection.Error, detail = rejection.Detail }, JsonOptions);
+            return;
+        }
+
+        context.Response.StatusCode = StatusCodes.Status200OK;
+
+        try
+        {
+            await analytics.RecordEventAsync(new PlayerEventRequest(
+                ProjectId: projectId,
+                CollectionId: "analytics",
+                RecordKey: analyticsEvent.SteamId,
+                EventType: analyticsEvent.EventType,
+                Payload: analyticsEvent.Payload), CancellationToken.None);
+
+            await context.Response.WriteAsJsonAsync(new { ok = true, stored = true, reason = (string?)null }, JsonOptions);
+        }
+        catch (Exception)
+        {
+            // Best-effort storage, matching the legacy server path which returns ok even on failure.
+            await context.Response.WriteAsJsonAsync(new { ok = true, stored = false, reason = "storage_unavailable" }, JsonOptions);
+        }
+    }
+
+    /// <summary>Batch limits: events per batch, and UTF-8 bytes of the serialized batch body.</summary>
+    private const int AnalyticsBatchMaxEvents = 50;
+    private const int AnalyticsBatchMaxBytes = 256 * 1024;
+
+    /// <summary>
+    /// Batch mode is selected only when the body is an object whose <c>events</c> property is an array. Any other
+    /// body is a single event and takes the single path unchanged.
+    /// </summary>
+    private static bool IsAnalyticsBatch(JsonElement body)
+        => body.ValueKind is JsonValueKind.Object
+           && body.TryGetProperty("events", out var events)
+           && events.ValueKind is JsonValueKind.Array;
+
+    /// <summary>
+    /// Batch body <c>{"events":[ ... ]}</c>. The envelope is checked before anything is stored: empty, more than 50
+    /// items, or more than 256 KiB is refused as a whole. Each item then goes through the single-event validation, so
+    /// an invalid item is rejected alone. The response is 200 with one result per item, in input order.
+    /// </summary>
+    private static async Task PostAnalyticsBatchAsync(HttpContext context, JsonElement body, string projectId, IPlayerAnalyticsService analytics)
+    {
+        var events = body.GetProperty("events");
+        var count = events.GetArrayLength();
+        if (count == 0)
+        {
+            context.Response.StatusCode = StatusCodes.Status400BadRequest;
+            await context.Response.WriteAsJsonAsync(new { error = "INVALID_JSON", detail = "Analytics batch must contain at least one event." }, JsonOptions);
+            return;
+        }
+
+        if (count > AnalyticsBatchMaxEvents)
+        {
+            context.Response.StatusCode = StatusCodes.Status413PayloadTooLarge;
+            await context.Response.WriteAsJsonAsync(new { error = "PAYLOAD_TOO_LARGE", detail = $"Analytics batch must contain at most {AnalyticsBatchMaxEvents} events." }, JsonOptions);
+            return;
+        }
+
+        if (Encoding.UTF8.GetByteCount(body.GetRawText()) > AnalyticsBatchMaxBytes)
+        {
+            context.Response.StatusCode = StatusCodes.Status413PayloadTooLarge;
+            await context.Response.WriteAsJsonAsync(new { error = "PAYLOAD_TOO_LARGE", detail = "Analytics batch payload is too large." }, JsonOptions);
+            return;
+        }
+
+        var querySteamId = context.Request.Query["steamId"].FirstOrDefault();
+        var results = new object[count];
+        var accepted = new List<(int Index, PreparedAnalyticsEvent Event)>(count);
+        var index = 0;
+        foreach (var item in events.EnumerateArray())
+        {
+            if (TryPrepareAnalyticsEvent(item, querySteamId, out var analyticsEvent, out var rejection))
+            {
+                accepted.Add((index, analyticsEvent));
+                results[index] = new { index, ok = true };
+            }
+            else
+            {
+                results[index] = new { index, ok = false, error = rejection.Error, message = rejection.Detail };
+            }
+            index++;
+        }
+
+        context.Response.StatusCode = StatusCodes.Status200OK;
+
+        var storedCount = 0;
+        foreach (var (position, analyticsEvent) in accepted)
+        {
+            try
+            {
+                await analytics.RecordEventAsync(new PlayerEventRequest(
+                    ProjectId: projectId,
+                    CollectionId: "analytics",
+                    RecordKey: analyticsEvent.SteamId,
+                    EventType: analyticsEvent.EventType,
+                    Payload: analyticsEvent.Payload), CancellationToken.None);
+                storedCount++;
+            }
+            catch (Exception)
+            {
+                results[position] = new { index = position, ok = false, error = "storage_unavailable", message = "Analytics event could not be stored." };
+            }
+        }
+
+        await context.Response.WriteAsJsonAsync(new { ok = true, accepted = storedCount, rejected = count - storedCount, results }, JsonOptions);
+    }
+
+    /// <summary>
+    /// Validates one analytics event body (the whole body for a single event, one item for a batch). Same checks, order,
+    /// error codes and messages as the single-event path always used.
+    /// </summary>
+    private static bool TryPrepareAnalyticsEvent(JsonElement body, string? querySteamId,
+        [NotNullWhen(true)] out PreparedAnalyticsEvent? analyticsEvent,
+        [NotNullWhen(false)] out AnalyticsEventRejection? rejection)
+    {
+        analyticsEvent = null;
+        rejection = null;
+
         var raw = body.GetRawText();
         if (raw.Length > 32_768)
         {
-            context.Response.StatusCode = StatusCodes.Status413PayloadTooLarge;
-            await context.Response.WriteAsJsonAsync(new { error = "PAYLOAD_TOO_LARGE", detail = "Analytics event payload is too large." }, JsonOptions);
-            return;
+            rejection = new AnalyticsEventRejection(StatusCodes.Status413PayloadTooLarge, "PAYLOAD_TOO_LARGE", "Analytics event payload is too large.");
+            return false;
         }
 
         if (body.ValueKind is not JsonValueKind.Object)
         {
-            context.Response.StatusCode = StatusCodes.Status400BadRequest;
-            await context.Response.WriteAsJsonAsync(new { error = "INVALID_JSON", detail = "Analytics event body must be a JSON object." }, JsonOptions);
-            return;
+            rejection = new AnalyticsEventRejection(StatusCodes.Status400BadRequest, "INVALID_JSON", "Analytics event body must be a JSON object.");
+            return false;
         }
 
-        var steamId = GetStringProperty(body, "steamId")
-            ?? context.Request.Query["steamId"].FirstOrDefault()
-            ?? "";
+        var steamId = GetStringProperty(body, "steamId") ?? querySteamId ?? "";
         if (string.IsNullOrWhiteSpace(steamId) || !NumericSteamId().IsMatch(steamId))
         {
-            context.Response.StatusCode = StatusCodes.Status400BadRequest;
-            await context.Response.WriteAsJsonAsync(new { error = "INVALID_KEY", detail = "steamId is required and must be numeric." }, JsonOptions);
-            return;
+            rejection = new AnalyticsEventRejection(StatusCodes.Status400BadRequest, "INVALID_KEY", "steamId is required and must be numeric.");
+            return false;
         }
 
         var severity = GetStringProperty(body, "severity")?.ToLowerInvariant() ?? "";
         if (!string.IsNullOrEmpty(severity) && severity is not ("warning" or "error" or "info" or "custom" or "session"))
         {
-            context.Response.StatusCode = StatusCodes.Status400BadRequest;
-            await context.Response.WriteAsJsonAsync(new { error = "INVALID_ANALYTICS_EVENT", detail = "severity must be warning, error, info, custom, or session." }, JsonOptions);
-            return;
+            rejection = new AnalyticsEventRejection(StatusCodes.Status400BadRequest, "INVALID_ANALYTICS_EVENT", "severity must be warning, error, info, custom, or session.");
+            return false;
         }
 
         var rawType = GetStringProperty(body, "type", "event", "code") ?? "";
@@ -692,9 +816,8 @@ public static partial class StorageApiEndpoints
             : type;
         if (string.IsNullOrEmpty(type) || type == "custom.")
         {
-            context.Response.StatusCode = StatusCodes.Status400BadRequest;
-            await context.Response.WriteAsJsonAsync(new { error = "INVALID_ANALYTICS_EVENT", detail = "A valid analytics event type or code is required." }, JsonOptions);
-            return;
+            rejection = new AnalyticsEventRejection(StatusCodes.Status400BadRequest, "INVALID_ANALYTICS_EVENT", "A valid analytics event type or code is required.");
+            return false;
         }
 
         var label = GetStringProperty(body, "label", "code", "message")
@@ -727,25 +850,15 @@ public static partial class StorageApiEndpoints
             }
         };
 
-        context.Response.StatusCode = StatusCodes.Status200OK;
-
-        try
-        {
-            await analytics.RecordEventAsync(new PlayerEventRequest(
-                ProjectId: projectId,
-                CollectionId: "analytics",
-                RecordKey: steamId,
-                EventType: type,
-                Payload: payload), CancellationToken.None);
-
-            await context.Response.WriteAsJsonAsync(new { ok = true, stored = true, reason = (string?)null }, JsonOptions);
-        }
-        catch (Exception)
-        {
-            // Best-effort storage, matching the legacy server path which returns ok even on failure.
-            await context.Response.WriteAsJsonAsync(new { ok = true, stored = false, reason = "storage_unavailable" }, JsonOptions);
-        }
+        analyticsEvent = new PreparedAnalyticsEvent(steamId, type, payload);
+        return true;
     }
+
+    /// <summary>An analytics event body that passed validation, ready for <see cref="IPlayerAnalyticsService"/>.</summary>
+    private sealed record PreparedAnalyticsEvent(string SteamId, string EventType, Dictionary<string, object?> Payload);
+
+    /// <summary>Why an analytics event body was refused: the HTTP status plus the error code and detail returned.</summary>
+    private sealed record AnalyticsEventRejection(int Status, string Error, string Detail);
 
     private static string GenerateNetworkStorageId()
         => Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();

@@ -33,7 +33,7 @@ natively without a database write:
   "apiVersions": ["v3"],
   "api": { "root": "/api", "aliases": ["/v3"], "since": "0.5.5" },
   "database": "sqlite",
-  "capabilities": ["records", "global-records", "endpoints", "workflows", "queries", "game-values", "rate-limits", "auth-sessions", "analytics", "package-sync", "https-tunnel", "api-root"],
+  "capabilities": ["records", "global-records", "endpoints", "workflows", "queries", "game-values", "rate-limits", "auth-sessions", "analytics", "analytics-batch", "package-sync", "https-tunnel", "api-root"],
   "tunnel": { "enabled": false, "name": "", "hostname": "", "registry": "", "connectorState": "disabled", "connectorVersion": "", "processId": null, "updatedAt": "2026-10-10T00:00:00+00:00" },
   "compat": { "library": { "minimum": "1.1.0", "recommended": "1.1.0", "latest": "1.1.0", "legacy": "supported", "deprecated": [], "blocked": [], "knownBroken": [{ "version": "1.0.165702", "revision": 165702, "engine": ">=26.10", "reason": "Stale library breaks editor startup on s&box engine 26.10 or later.", "issue": "sbox-cool/sbox-network-storage#4" }], "tested": [] }, "matrixUrl": "https://github.com/sbox-cool/sbox-network-storage-server/blob/main/compat/library-matrix.json" },
   "update": null
@@ -45,6 +45,11 @@ natively without a database write:
 an update check has run, else null. `compat` is described under
 [Library compatibility](#library-compatibility). `sbox-ns doctor` also polls
 this route to check the listener.
+
+`analytics-batch` in `capabilities` means the analytics events route also accepts
+a batch body `{"events":[ ... ]}`; see
+[configuration.md](configuration.md#analytics-retention-and-buffering). A library
+batches only when this is advertised and otherwise sends one event per request.
 
 The additive `compat` advertisement and optional `x-ns-library-*` identity/status
 headers are the whole version contract. Unidentified older libraries remain

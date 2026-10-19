@@ -553,6 +553,20 @@ up to 500 events, or the buffered partial batch every second, in one transaction
 A failed batch rolls back and is reported; it does not fail the game request.
 Shutdown drains the remaining buffered events.
 
+Analytics HTTP batch: `POST /v3/storage/{projectId}/analytics/events` (also
+`/api/storage/...`) accepts either one event, unchanged, or an opt-in batch
+`{"events":[ <event>, ... ]}`. The batch form is used only when the server
+advertises the `analytics-batch` capability. A batch holds at most 50 events and
+256 KiB of JSON. Each item is validated like a single event, with the same codes
+and the same 32 KiB per-event limit. The envelope is checked before anything is
+stored: an empty `events` array is 400 `INVALID_JSON`; more than 50 events or
+more than 256 KiB is 413 `PAYLOAD_TOO_LARGE`. Auth, project and key checks run
+once per request. A valid envelope returns 200 with `accepted`, `rejected` and
+one `results` entry per item, in input order: `{"index":0,"ok":true}` or
+`{"index":1,"ok":false,"error":"<CODE>","message":"..."}`. Invalid items are
+rejected alone and valid items are still stored. A valid item whose storage fails
+is reported as `storage_unavailable`.
+
 Collection, endpoint and game-value metadata share a per-project memory-cache
 snapshot. Management writes, sync and imports invalidate its generation token
 so the next request reloads it; endpoint definitions are parsed once per
