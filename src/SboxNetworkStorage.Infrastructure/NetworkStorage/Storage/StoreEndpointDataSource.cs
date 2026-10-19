@@ -294,7 +294,7 @@ public sealed partial class StoreEndpointDataSource : IEndpointDataSource, IEndp
         return RowIds(rows, "workflow_id", "id", "name");
     }
 
-    public async Task<IReadOnlyList<string>> ListEndpointIdsAsync(string projectId, CancellationToken ct)
+    public async Task<IReadOnlyList<string>> ListGlobalEndpointIdsAsync(string projectId, CancellationToken ct)
     {
         // Same precedence as ReadEndpointDefinitionAsync: pinned snapshot first, then live rows merged with staged ones.
         IReadOnlyList<JsonElement> rows;

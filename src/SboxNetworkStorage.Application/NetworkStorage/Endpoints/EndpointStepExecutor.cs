@@ -576,6 +576,13 @@ public sealed partial class EndpointStepExecutor
                         }
                     };
 
+                    // Scripted endpoints have no webhook side effects: refuse rather than report a fake send.
+                    if (request.ScriptBudget is not null)
+                    {
+                        context[asKey ?? id] = new Dictionary<string, object?> { ["ok"] = false, ["status"] = 0, ["error"] = "webhooks are not available to scripted endpoints" };
+                        return null;
+                    }
+
                     // Dry-run: skip sending in test/dry-run mode
                     if (context.GetValueOrDefault("_skipWebhooks") is true)
                     {

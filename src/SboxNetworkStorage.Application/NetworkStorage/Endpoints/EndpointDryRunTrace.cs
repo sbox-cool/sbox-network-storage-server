@@ -15,4 +15,5 @@ public sealed class EndpointDryRunTrace
 {
     public List<EndpointStepTrace> Steps { get; } = new();
     public List<EndpointTraceWrite> PendingWrites { get; } = new();
+    public List<string> ScriptLogs { get; } = new();
 }

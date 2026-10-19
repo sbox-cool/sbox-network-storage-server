@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using SboxNetworkStorage.Application.NetworkStorage.Endpoints.Scripting;
 using SboxNetworkStorage.Application.NetworkStorage;
 
 namespace SboxNetworkStorage.Application.NetworkStorage.Endpoints;
@@ -23,6 +24,7 @@ public sealed partial class EndpointExecutor
     private readonly IEndpointWebhookOutbox? _webhookOutbox;
     private readonly IPlayerAnalyticsService? _analyticsService;
     private readonly EndpointStepExecutor _executor = new();
+    private readonly IReadOnlyList<IEndpointScriptRuntime> _scriptRuntimes;
     /// <summary>
     /// Maximum rows scanned per collection per endpoint request. Scans feed
     /// lookup/filter/lookup_many/random_select steps; exceeding the cap fails
@@ -34,17 +36,19 @@ public sealed partial class EndpointExecutor
         IEndpointDataSource dataSource,
         IEndpointWebhookSender? webhookSender = null,
         IPlayerAnalyticsService? analyticsService = null,
-        IEndpointWebhookOutbox? webhookOutbox = null)
+        IEndpointWebhookOutbox? webhookOutbox = null,
+        IReadOnlyList<IEndpointScriptRuntime>? scriptRuntimes = null)
     {
         _dataSource = dataSource ?? throw new ArgumentNullException(nameof(dataSource));
         _webhookSender = webhookSender;
         _analyticsService = analyticsService;
         _webhookOutbox = webhookOutbox;
+        _scriptRuntimes = scriptRuntimes ?? DefaultScriptRuntimes();
     }
 
     /// <summary>The same executor reading definitions and records through <paramref name="dataSource"/>.</summary>
     public EndpointExecutor WithDataSource(IEndpointDataSource dataSource)
-        => new(dataSource, _webhookSender, _analyticsService, _webhookOutbox);
+        => new(dataSource, _webhookSender, _analyticsService, _webhookOutbox, _scriptRuntimes);
 
     /// <summary>
     /// Execute an endpoint natively using the deterministic executor.
@@ -66,7 +70,9 @@ public sealed partial class EndpointExecutor
         bool enforcePublicAccessGates = false,
         EndpointDryRunTrace? trace = null,
         Func<string, bool>? isModuleDisabled = null,
-        DateTimeOffset? executionTime = null)
+        DateTimeOffset? executionTime = null,
+        string? httpMethod = null,
+        string? revision = null)
     {
         // 1. Load endpoint definition from the store.
         Dictionary<string, object?>? endpointDef;
@@ -196,6 +202,33 @@ public sealed partial class EndpointExecutor
 
         string ResolveCollection(string collection) =>
             collectionNameToId.TryGetValue(collection, out var id) ? id : collection;
+
+        // Scripted endpoints (runtime: javascript | typescript) run their own pipeline. They skip the YAML
+        // read targets, scans, and step executor below, and share the flush and projection paths.
+        if (ScriptStringField(endpointDef, "runtime") is { } runtimeName)
+        {
+            return await ExecuteScriptEndpointAsync(new ScriptInvocation(
+                ProjectId: projectId,
+                EndpointSlug: endpointSlug,
+                EndpointDef: endpointDef,
+                RuntimeName: runtimeName,
+                Input: input,
+                SteamId: steamId,
+                UserId: userId,
+                PlayerKey: playerKey,
+                GameValues: gameValues,
+                HasSecretKey: hasSecretKey,
+                IsDedicatedServer: isDedicatedServer,
+                ExecTime: execTime,
+                LiveServe: liveServe,
+                LegacyPlayerProjections: legacyPlayerProjections,
+                CollectionNameToId: collectionNameToId,
+                VersionCheckedCollections: versionCheckedCollections,
+                ResolveCollection: ResolveCollection,
+                Trace: trace,
+                Method: httpMethod ?? "GET",
+                Revision: revision), ct);
+        }
 
         // 4. Discover read targets and pre-fetch records from the store.
         // Keys are used EXACTLY as authored in the endpoint YAML — no _default
@@ -453,80 +486,11 @@ public sealed partial class EndpointExecutor
         // 6. Live serve only: durably flush the writes/deletes the endpoint queued.
         //    The executor invokes the write/delete delegates ONLY on successful
         //    end-of-steps completion, so durableWrites is empty for error/early-return
-        //    results — matching the executor's own deferred-write semantics.
-        //
-        //    ATOMIC MULTI-COLLECTION FLUSH (spec: cross-collection-save-consistency).
-        //    A player's save spans multiple collections (players, skills, kills, …).
-        //    A partial flush that persists some writes but not others leaves the
-        //    collections at different points in time — the exact cross-collection
-        //    time-skew that stranded cerbralone/Sherwood (players header newer than
-        //    skills source). To prevent this, every write and delete of the flush runs in
-        //    ONE store transaction: it commits together, or any failure rolls the whole
-        //    flush back and surfaces a 500 (fail-closed).
+        //    results. The flush is one store transaction (see FlushDurableWritesAsync).
         if (durableWrites is { Count: > 0 })
         {
-            if (readSet is null && versionCheckedCollections is not null
-                && durableWrites.Any(write => versionCheckedCollections.Contains(write.Collection)))
-                return Denied(409, "CONFLICT", "A protected endpoint write has no observed record snapshot.");
-            // 0. Per-record size gate: reject an over-limit persisted record as
-            //    413 BEFORE anything is written (zero mutation). Each record is
-            //    measured individually against the store's actual limit — the
-            //    whole endpoint request is NOT capped, so a valid multi-record
-            //    batch whose total exceeds the single-record limit still commits.
-            //    The payload is serialized exactly as the datasource persists it,
-            //    so the measured size is the actual persisted size. Genuine
-            //    store failures still fall through to the 500 rollback below.
-            if (_dataSource is IEndpointRecordSizeLimit sizeLimit)
-            {
-                foreach (var (collection, key, data, isDelete) in durableWrites)
-                {
-                    if (isDelete || data is null) continue;
-                    var recordBytes = Encoding.UTF8.GetByteCount(
-                        JsonSerializer.SerializeToElement(data).GetRawText());
-                    if (recordBytes > sizeLimit.MaxPayloadBytes)
-                    {
-                        return Denied(413, "PAYLOAD_TOO_LARGE",
-                            $"Payload exceeds the {sizeLimit.MaxPayloadBytes}-byte limit (endpoint record {collection}/{key}).");
-                    }
-                }
-            }
-
-            try
-            {
-                await using var transaction = readSet is not null
-                    ? await checkedSource!.BeginCheckedWriteTransactionAsync(projectId, readSet, ct)
-                    : await _dataSource.BeginWriteTransactionAsync(ct);
-                foreach (var (collection, key, data, isDelete) in durableWrites)
-                {
-                    if (isDelete)
-                        await transaction.DeleteRecordAsync(projectId, collection, key, ct);
-                    else
-                        await transaction.WriteRecordAsync(projectId, collection, key, data!, ct);
-                }
-                await transaction.CommitAsync(ct);
-            }
-            catch (EndpointWriteConflictException)
-            {
-                return Denied(409, "CONFLICT", "Endpoint state changed during execution. Reload before retrying.");
-            }
-            catch (OperationCanceledException) when (ct.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch (Exception)
-            {
-                // Disposing the uncommitted transaction discarded every write.
-                // Fail-closed: surface a 500. The caller reports it to
-                // /admin/errors + Discord (Status >= 500 branch).
-                return new EndpointExecutionResult(false, 500, new Dictionary<string, object?>
-                {
-                    ["error"] = new Dictionary<string, object?>
-                    {
-                        ["code"] = "STORAGE_WRITE_FAILED",
-                        ["message"] = "Endpoint record write failed to persist; all changes were rolled back.",
-                    },
-                });
-            }
+            var flushDenial = await FlushDurableWritesAsync(projectId, durableWrites, readSet, versionCheckedCollections, ct);
+            if (flushDenial is not null) return flushDenial;
         }
 
         // 7. Post-flush projections (best-effort — never block the 200 response).
