@@ -368,7 +368,7 @@ public sealed class ManagementReadHandler : INetworkStorageHandler
             ["requireAuthSessions"] = project.RequireAuthSessions == true,
             ["authSessionTtlSeconds"] = project.AuthSessionTtlSeconds ?? 3600,
             ["enableEncryptedRequests"] = project.EnableEncryptedRequests == true,
-            ["encryptedRequestWindowSeconds"] = project.EncryptedRequestWindowSeconds ?? 120,
+            ["encryptedRequestWindowSeconds"] = project.EncryptedRequestWindowSeconds ?? 300,
             ["playerKeyMode"] = project.PlayerKeyMode ?? "player",
             ["revisionEnforcementEnabled"] = project.RevisionEnforcementEnabled == true,
             ["revisionEnforcementMode"] = project.RevisionEnforcementMode ?? "allow_continue",
