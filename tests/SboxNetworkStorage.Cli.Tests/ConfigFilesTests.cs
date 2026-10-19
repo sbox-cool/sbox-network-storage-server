@@ -87,11 +87,13 @@ public sealed class ConfigFilesTests : IDisposable
         var path = Path.Combine(_dir, "server.toml");
         File.WriteAllText(path, "old");
         var reader = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
-        using var release = new Timer(_ => reader.Dispose(), null, 150, Timeout.Infinite);
+        // A dedicated thread, not a pool timer: parallel tests can starve the pool past the retry window.
+        var release = new Thread(() => { Thread.Sleep(150); reader.Dispose(); }) { IsBackground = true };
+        release.Start();
 
         ConfigFiles.WriteAtomically(path, "new");
 
-        reader.Dispose();
+        release.Join();
         Assert.Equal("new", File.ReadAllText(path));
         Assert.Single(Directory.GetFiles(_dir));
     }
