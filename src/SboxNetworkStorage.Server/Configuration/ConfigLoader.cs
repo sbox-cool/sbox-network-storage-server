@@ -412,6 +412,8 @@ public static class ConfigLoader
                 issues.Add(Issue("adminpanel.turnstile.hostname", "Turnstile hostname must be an exact hostname without a scheme, path or port."));
         }
 
+        try { _ = Tunnels.TunnelRegistryClient.ValidateRegistry(S("adminpanel.release_status_url"), "release status URL"); }
+        catch (InvalidOperationException ex) { issues.Add(Issue("adminpanel.release_status_url", ex.Message)); }
         try { _ = Tunnels.TunnelRegistryClient.ValidateRegistry(S("tunnel.registry")); }
         catch (InvalidOperationException ex) { issues.Add(Issue("tunnel.registry", ex.Message)); }
         if ((long)values["tunnel.local_port"].Value is < 1 or > 65535)

@@ -618,6 +618,20 @@ Sorting only reorders displayed rows. Record pagination, database ordering and
 server-side filters remain unchanged. Action/preview columns and ordered
 execution steps are not sortable.
 
+## Library and release status
+
+The dashboard's **Library and release status** card compares the sbox.game library
+release with the library's `main` branch. It lists merged changes that are not in the
+release yet, how long they have waited, the CI result and s&box build the `main` build
+was tested on, and how far the release trails the latest s&box release. The server's
+own changes waiting for its next release appear in the same card.
+
+Use it to choose between waiting for the sbox.game release and installing the library
+from `main` for development. The card reads one published file and never calls GitHub
+from the dashboard. If that file cannot be read, the card says so and keeps the last
+good copy, marked as possibly out of date. Settings are in
+[configuration.md](configuration.md#library-and-release-status-card).
+
 ## Optional admin security
 
 Open **Admin security** to add a time-based authenticator. On a phone, open

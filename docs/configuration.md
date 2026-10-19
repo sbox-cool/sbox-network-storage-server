@@ -56,6 +56,22 @@ code field. Enrollment invalidates all existing sessions. Local
 password reset preserves an enabled authenticator. The existing locally issued
 single-use `admin login-link` remains a shell-authorized recovery route.
 
+### Library and release status card
+
+The owner dashboard's **Library and release status** card reads one JSON file that
+the sbox.game library repository publishes. The server fetches it over HTTPS at most
+once an hour after a successful read; a failed read is retried after five minutes,
+and opening the dashboard can trigger a refresh. The dashboard never calls GitHub.
+
+- `adminpanel.release_status` (default `true`) shows the card. It is also off when
+  `adminpanel.demo_read_only` is set, so a demonstration server makes no outbound call.
+- `adminpanel.release_status_url` (default
+  `https://raw.githubusercontent.com/sbox-cool/sbox-network-storage/release-status/release-status.json`)
+  is the feed location. It must be HTTPS; plain HTTP is accepted only on loopback for
+  local testing. An invalid value stops the server at startup.
+- `updates.check = false` (in `updates.toml`) also turns the fetch off, like the other
+  outbound update checks.
+
 ### Optional Cloudflare Turnstile
 
 Turnstile is off by default and never gates game APIs. Create and configure your

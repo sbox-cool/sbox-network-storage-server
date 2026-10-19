@@ -8,6 +8,7 @@ using SboxNetworkStorage.Server.Middleware;
 using SboxNetworkStorage.Server.Owner;
 
 using SboxNetworkStorage.Server.Updates;
+using SboxNetworkStorage.Server.Updates.ReleaseStatus;
 using SboxNetworkStorage.Server.Telemetry;
 using SboxNetworkStorage.Server.Tunnels;
 using SboxNetworkStorage.Server.SignedDns;
@@ -72,6 +73,9 @@ public static class ServerHost
         builder.Services.AddOwnerManagement(config);
         builder.Services.AddSingleton<UpdateNoticeState>();
         builder.Services.AddHostedService<UpdateCheckService>();
+        builder.Services.AddSingleton(ReleaseStatusSettings.From(config));
+        builder.Services.AddSingleton<ReleaseStatusService>();
+        builder.Services.AddHostedService(sp => sp.GetRequiredService<ReleaseStatusService>());
         builder.Services.AddSingleton<TunnelConnectorState>();
         builder.Services.AddHostedService<TunnelConnectorService>();
         builder.Services.AddDnsProof();

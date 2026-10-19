@@ -30,6 +30,7 @@
 <noscript><a class="button secondary" href="/dashboard?dialog=export">Export server</a></noscript>
 </div></div>
 @if (Model.Error is not null) { <p class="notice error" role="alert">@Model.Error</p> }
+@if (Model.ReleaseStatus is { } releaseStatus) { @await Html.PartialAsync("~/Views/Owner/_ReleaseStatusCard.cshtml", releaseStatus) }
 @if (empty)
 {
     <section class="card empty-state"><h2>No projects yet</h2><p>A project holds everything one game needs on this server: collections, endpoints, API keys and player data. Create your first project, or restore one from a portable archive.</p><div class="page-actions"><button type="button" data-dialog="create-project">Create project</button><button type="button" class="secondary" data-dialog="import">Import</button></div></section>

@@ -1,0 +1,195 @@
+@model SboxNetworkStorage.Server.Owner.OwnerReleaseStatusCard
+@using SboxNetworkStorage.Server.Updates.ReleaseStatus
+@using SboxNetworkStorage.Server.Owner
+@{
+    const int previewCount = 5;
+
+    void PendingRow(PendingChange change)
+    {
+        <li>
+            @if (change.Number is { } number) { <span class="release-number">#@number</span> }
+            @if (change.Url is { } link)
+            {
+                <a href="@link.AbsoluteUri" target="_blank" rel="noopener">@(change.Title ?? "Untitled change")</a>
+            }
+            else
+            {
+                <span>@(change.Title ?? "Untitled change")</span>
+            }
+            <span class="muted">merged @OwnerReleaseStatusCard.Date(change.MergedAt)</span>
+        </li>
+    }
+
+    void PendingList(IReadOnlyList<PendingChange> changes)
+    {
+        <ul class="release-pending">
+            @foreach (var change in changes.Take(previewCount))
+            {
+                PendingRow(change);
+            }
+        </ul>
+        @if (changes.Count > previewCount)
+        {
+            <details class="release-more">
+                <summary>Show @(changes.Count - previewCount) more</summary>
+                <ul class="release-pending">
+                    @foreach (var change in changes.Skip(previewCount))
+                    {
+                        PendingRow(change);
+                    }
+                </ul>
+            </details>
+        }
+    }
+}
+<section class="card release-status" aria-labelledby="release-status-title">
+    <div class="section-heading"><h2 id="release-status-title">Library and release status</h2></div>
+    @switch (Model.State)
+    {
+        case ReleaseCardState.Checking:
+            <p class="muted" role="status">Checking the library release feed.</p>
+            break;
+        case ReleaseCardState.Unavailable:
+            <p class="notice error" role="alert">Release status is unavailable. The server could not read the library release feed. The server log has the reason, and the next attempt runs in five minutes.</p>
+            break;
+        default:
+            var doc = Model.Document!;
+            var ci = OwnerReleaseStatusCard.CiBadge(doc.Library.Main.Ci.Conclusion);
+            var serverBadge = OwnerReleaseStatusCard.ServerBadge(Model.ServerState, doc.Server.LatestRelease.Version);
+            var libraryPending = doc.Library.Pending;
+            var serverPending = doc.Server.Pending;
+            if (Model.Stale)
+            {
+                <p class="notice security" role="status">The latest check failed. The information below was read at @OwnerReleaseStatusCard.Stamp(Model.FetchedAt) and may be out of date.</p>
+            }
+            <div class="release-grid">
+                <article class="release-panel" aria-labelledby="release-library-title">
+                    <h3 id="release-library-title">Library</h3>
+                    <dl class="release-facts">
+                        <div>
+                            <dt>sbox.game release</dt>
+                            <dd>
+                                @(doc.Library.Published.Version ?? "Version unknown")
+                                @if (doc.Library.Published.Revision is { } revision) { <span class="muted">revision @revision</span> }
+                                @if (doc.Library.Published.PublishedAt is { } publishedAt) { <span class="muted">published @OwnerReleaseStatusCard.Date(publishedAt)</span> }
+                                @if (doc.Library.Published.Url is { } publishedUrl) { <a href="@publishedUrl.AbsoluteUri" target="_blank" rel="noopener">View release</a> }
+                            </dd>
+                        </div>
+                        <div>
+                            <dt>Main</dt>
+                            <dd>
+                                @(doc.Library.Main.Version ?? "Version unknown")
+                                @if (OwnerReleaseStatusCard.Short(doc.Library.Main.Commit) is { } commit) { <span class="muted">commit @commit</span> }
+                                @if (doc.Library.Main.CommittedAt is { } committedAt) { <span class="muted">committed @OwnerReleaseStatusCard.Date(committedAt)</span> }
+                                <span class="@ci.CssClass">@ci.Label</span>
+                                @if (doc.Library.Main.Ci.RunUrl is { } runUrl) { <a href="@runUrl.AbsoluteUri" target="_blank" rel="noopener">View CI run</a> }
+                            </dd>
+                        </div>
+                        <div>
+                            <dt>Tested on</dt>
+                            <dd>@(doc.Library.Main.Ci.Engine ?? "s&box build unknown")</dd>
+                        </div>
+                    </dl>
+
+                    <div class="release-pending-block">
+                        <h4>Merged, not yet released</h4>
+                        @if (libraryPending.Count == 0)
+                        {
+                            <p class="muted">No merged changes since the sbox.game release.</p>
+                        }
+                        else
+                        {
+                            var since = Model.LibraryPendingSince;
+                            <p>
+                                @(libraryPending.Count == ReleaseStatusParser.MaxPending ? "At least " : "")@OwnerReleaseStatusCard.Count(libraryPending.Count, "change") waiting.
+                                @if (since is { } oldest)
+                                {
+                                    <span class="muted">Oldest merged @OwnerReleaseStatusCard.Date(oldest), @OwnerReleaseStatusCard.AgeText(oldest, Model.Now).</span>
+                                }
+                            </p>
+                            PendingList(libraryPending);
+                        }
+                    </div>
+
+                    @if (libraryPending.Count > 0)
+                    {
+                        <div class="release-install">
+                            <h4>Choose a build</h4>
+                            <ul>
+                                <li><strong>Wait for the sbox.game release.</strong> Use this for a game people play. The changes above arrive with the next published library release.</li>
+                                <li>
+                                    <strong>Install from main now.</strong> This build includes unreleased code. Use it for development and testing only.
+                                    @if (doc.Library.InstallMain.DocsUrl is { } docsUrl) { <a href="@docsUrl.AbsoluteUri" target="_blank" rel="noopener">Install steps</a> }
+                                    @if (doc.Library.InstallMain.ZipUrl is { } zipUrl) { <a href="@zipUrl.AbsoluteUri" rel="noopener">Download main.zip</a> }
+                                </li>
+                            </ul>
+                        </div>
+                    }
+
+                    <div class="release-engine">
+                        <p>
+                            Latest s&amp;box release: @(doc.Engine.Latest.Version ?? "unknown")
+                            @if (doc.Engine.Latest.Date is { } engineDate) { <span class="muted">released @OwnerReleaseStatusCard.Date(engineDate)</span> }
+                            @if (doc.Engine.Latest.Url is { } engineUrl) { <a href="@engineUrl.AbsoluteUri" target="_blank" rel="noopener">View release</a> }
+                        </p>
+                        @if (doc.Engine.LibraryBehind == true)
+                        {
+                            <p class="notice security" role="status">The sbox.game library release is @(OwnerReleaseStatusCard.BehindText(doc.Engine.DaysBehind)) the latest s&amp;box release.</p>
+                        }
+                        else if (doc.Engine.LibraryBehind == false)
+                        {
+                            <p class="muted">The sbox.game library release matches the latest s&amp;box release.</p>
+                        }
+                    </div>
+                </article>
+
+                <article class="release-panel" aria-labelledby="release-server-title">
+                    <h3 id="release-server-title">This server</h3>
+                    <dl class="release-facts">
+                        <div>
+                            <dt>Running</dt>
+                            <dd>Version @Model.RunningVersion <span class="@serverBadge.CssClass">@serverBadge.Label</span></dd>
+                        </div>
+                        <div>
+                            <dt>Latest release</dt>
+                            <dd>
+                                @(doc.Server.LatestRelease.Version ?? "Version unknown")
+                                @if (doc.Server.LatestRelease.PublishedAt is { } serverReleased) { <span class="muted">published @OwnerReleaseStatusCard.Date(serverReleased)</span> }
+                                @if (doc.Server.LatestRelease.Url is { } serverReleaseUrl) { <a href="@serverReleaseUrl.AbsoluteUri" target="_blank" rel="noopener">View release</a> }
+                            </dd>
+                        </div>
+                        <div>
+                            <dt>Main</dt>
+                            <dd>
+                                @if (OwnerReleaseStatusCard.Short(doc.Server.Main.Commit) is { } serverCommit) { <span>commit @serverCommit</span> }
+                                else { <span>Commit unknown</span> }
+                                @if (doc.Server.Main.CommittedAt is { } serverCommitted) { <span class="muted">committed @OwnerReleaseStatusCard.Date(serverCommitted)</span> }
+                            </dd>
+                        </div>
+                    </dl>
+
+                    <div class="release-pending-block">
+                        <h4>Merged to main, not yet released</h4>
+                        @if (serverPending.Count == 0)
+                        {
+                            <p class="muted">No changes on main since the latest release.</p>
+                        }
+                        else
+                        {
+                            var serverSince = Model.ServerPendingSince;
+                            <p>
+                                @(serverPending.Count == ReleaseStatusParser.MaxPending ? "At least " : "")@OwnerReleaseStatusCard.Count(serverPending.Count, "change") waiting.
+                                @if (serverSince is { } serverOldest)
+                                {
+                                    <span class="muted">Oldest merged @OwnerReleaseStatusCard.Date(serverOldest), @OwnerReleaseStatusCard.AgeText(serverOldest, Model.Now).</span>
+                                }
+                            </p>
+                            PendingList(serverPending);
+                        }
+                    </div>
+                </article>
+            </div>
+            <p class="muted release-footer">Feed generated @OwnerReleaseStatusCard.Stamp(doc.GeneratedAt). Checked @OwnerReleaseStatusCard.Stamp(Model.FetchedAt).</p>
+            break;
+    }
+</section>
