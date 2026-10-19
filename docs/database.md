@@ -187,7 +187,7 @@ retention and bounded buffer are documented in
 
 The record write queue (`endpoints.write_queue.*`, see [configuration.md](configuration.md#record-write-queue)) lives in memory in one server process. It orders writes to the same record only among requests that reach that process.
 
-- **Covered:** concurrent writes to one record inside one process, through the record API, YAML endpoints and script endpoints. The script `SCRIPT_BUSY` gate is per process as well.
+- **Covered:** concurrent writes to one record inside one process, through the record API, YAML endpoints and script endpoints. The script concurrency gate (`endpoints.script_gate.wait_ms`) is per process as well, so each instance admits its own scripted requests.
 - **Not covered:** two server processes writing to the same database. They do not share the queue, so it cannot order their writes.
 
 What still protects data across processes:

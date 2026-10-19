@@ -102,24 +102,49 @@ public abstract class EndpointWriteQueueConcurrencyTests<TFactory>(TFactory fact
     }
 
     [SkippableFact]
-    public async Task FourScriptWritesWithTwoSlotsEachApplyOrReturnBusy()
+    public async Task FourScriptWritesWithTwoSlotsEachAllApply()
     {
         Skip.IfNot(factory.IsAvailable, factory.SkipReason);
         var store = await factory.NewStoreAsync();
         var project = NewProjectId();
         await SeedAsync(store, project, "grant-xp-script", GrantXpScriptDefinition);
-        var executor = ScriptExecutor(new StoreEndpointDataSource(store, NullLogger<StoreEndpointDataSource>.Instance), new ScriptConcurrencyGate(globalLimit: 4, perProjectLimit: 2));
+        var gate = new ScriptConcurrencyGate(globalLimit: 4, perProjectLimit: 2, waitTime: TimeSpan.FromSeconds(10));
+        var executor = ScriptExecutor(new StoreEndpointDataSource(store, NullLogger<StoreEndpointDataSource>.Instance), gate);
 
         var results = await Task.WhenAll(Enumerable.Range(0, 4).Select(_ => InvokeAsync(executor, project, "grant-xp-script")));
 
-        Assert.All(results, result => Assert.True(result?.Status is 200 or 503, $"unexpected status {result?.Status}"));
-        Assert.All(results.Where(result => result?.Status == 503), result => Assert.Contains("SCRIPT_BUSY", JsonSerializer.Serialize(result!.Body)));
-        var applied = results.Count(result => result?.Status == 200);
-        Assert.True(applied >= 1);
+        Assert.All(results, result => Assert.Equal(200, result?.Status));
         var saved = await store.ReadRecordAsync(project, "players", SteamId, default);
         Assert.NotNull(saved);
-        Assert.Equal(applied, saved.Value.GetProperty("payload_json").GetProperty("xp").GetInt32());
-        Assert.Equal(1L + applied, saved.Value.GetProperty("version").GetInt64());
+        Assert.Equal(4, saved.Value.GetProperty("payload_json").GetProperty("xp").GetInt32());
+        Assert.Equal(5L, saved.Value.GetProperty("version").GetInt64());
+    }
+
+    [SkippableFact]
+    public async Task ScriptWriteRefusedWhileGateIsFull_IsNotRun()
+    {
+        Skip.IfNot(factory.IsAvailable, factory.SkipReason);
+        var store = await factory.NewStoreAsync();
+        var project = NewProjectId();
+        await SeedAsync(store, project, "grant-xp-script", GrantXpScriptDefinition);
+        var gate = new ScriptConcurrencyGate(globalLimit: 1, perProjectLimit: 1, waitTime: TimeSpan.Zero);
+        var executor = ScriptExecutor(new StoreEndpointDataSource(store, NullLogger<StoreEndpointDataSource>.Instance), gate);
+
+        using var held = await gate.EnterAsync(project);
+        Assert.NotNull(held);
+        var refused = await InvokeAsync(executor, project, "grant-xp-script");
+
+        Assert.Equal(429, refused?.Status);
+        var body = JsonSerializer.Serialize(refused!.Body);
+        Assert.Contains("SCRIPT_BUSY", body);
+        Assert.Contains("\"retrySafe\":true", body);
+        Assert.Equal(1, refused!.RetryAfterSeconds);
+
+        // The refused call never ran: the record is still the seeded version 1 with xp 0.
+        var saved = await store.ReadRecordAsync(project, "players", SteamId, default);
+        Assert.NotNull(saved);
+        Assert.Equal(0, saved.Value.GetProperty("payload_json").GetProperty("xp").GetInt32());
+        Assert.Equal(1L, saved.Value.GetProperty("version").GetInt64());
     }
 
     [SkippableFact]

@@ -386,6 +386,16 @@ Concurrent writes to one record (record API, YAML endpoints and script endpoints
 
 Restart the server after changing these keys.
 
+### Script concurrency gate
+
+A scripted request needs a free slot for its project and a free server-wide slot before it runs. Each project may run 2 scripted requests at once, and the server runs one per processor. A request that finds a slot full waits up to `endpoints.script_gate.wait_ms`. If no slot frees in time, the request is refused without running: `429` with `SCRIPT_BUSY`, `Retry-After`, and `retrySafe: true`, so the caller can resend it unchanged. Live counters (active slots, waiting requests, totals) appear as `scriptGate` in `/dashboard/server/stats`. The gate lives in memory; [database.md](database.md#multiple-server-instances) explains what that means across several instances.
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `endpoints.script_gate.wait_ms` | `2000` | How long a scripted request waits for a free slot before it is refused. `0` refuses at once. `Retry-After` is this value rounded up to whole seconds, at least 1. Clamped to 0 to 60,000. |
+
+Restart the server after changing `endpoints.script_gate.wait_ms`.
+
 ### Game logs
 
 Game logs add no `server.toml` keys. They are turned on per project in the owner dashboard (Game logs section), where the streams, retention, sampling, allowed client events and per-project rate limit are set. Routes: `/api/game-logs/{projectId}`. Details, limits and error codes are in [game-logs.md](game-logs.md).

@@ -140,10 +140,11 @@ public sealed partial class EndpointExecutor
         if (inv.LiveServe && inv.VersionCheckedCollections is not null && _dataSource is not IEndpointSnapshotDataSource)
             return Denied(500, "STORAGE_WRITE_FAILED", "This provider cannot protect endpoint record versions.");
 
-        // Admission comes before any store read or script work. A full gate answers at once; it never queues.
-        using var slot = _scriptGate.TryEnter(inv.ProjectId);
+        // Admission comes before any store read or script work. A busy project or server gets a bounded wait; past it
+        // the request is refused, never run, and answered 429 with a Retry-After hint.
+        using var slot = await _scriptGate.EnterAsync(inv.ProjectId, ct);
         if (slot is null)
-            return ScriptFailure(503, "SCRIPT_BUSY", "Too many scripted requests are running on this server. Try again shortly.", null);
+            return ScriptBusy();
 
         // The first pass runs without record locks. A preview, a failed run, or a run that writes nothing answers from
         // it; only a live run that stages writes goes on to commit under the locks.
@@ -545,6 +546,20 @@ public sealed partial class EndpointExecutor
 
     private static EndpointExecutionResult ScriptFailure(int status, string code, string message, string? ownerDetail) =>
         new(false, status, Denied(status, code, message).Body, ownerDetail);
+
+    /// <summary>The gate stayed full past its wait. The request never ran, so the caller may resend it unchanged.</summary>
+    private EndpointExecutionResult ScriptBusy() =>
+        new(false, 429, new Dictionary<string, object?>
+        {
+            ["ok"] = false,
+            ["error"] = new Dictionary<string, object?>
+            {
+                ["code"] = "SCRIPT_BUSY",
+                ["message"] = "Too many scripted requests are running on this server. Try again shortly.",
+            },
+            ["retryAfterSeconds"] = _scriptGate.RetryAfterSeconds,
+            ["retrySafe"] = true,
+        }, null, _scriptGate.RetryAfterSeconds);
 
     private static string? ScriptOwnerDetail(string? detail, IReadOnlyList<string> logs)
     {

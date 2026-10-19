@@ -280,6 +280,13 @@ public sealed class MonitoringAlertsTests : IDisposable
         var counters = queue.GetProperty("counters");
         Assert.Equal(0, counters.GetProperty("rejected").GetInt64());
         Assert.Equal(0, counters.GetProperty("timedOut").GetInt64());
+
+        var gate = json.RootElement.GetProperty("scriptGate");
+        Assert.Equal(2000, gate.GetProperty("waitMs").GetInt64());
+        Assert.Equal(2, gate.GetProperty("perProjectLimit").GetInt64());
+        Assert.Equal(0, gate.GetProperty("activeSlots").GetInt64());
+        Assert.Equal(0, gate.GetProperty("queuedRequests").GetInt64());
+        Assert.Equal(0, gate.GetProperty("counters").GetProperty("timedOut").GetInt64());
     }
 
     private (MonitoringStore Store, AlertRuleEngine Engine, MetricsSampler Sampler) Build()
