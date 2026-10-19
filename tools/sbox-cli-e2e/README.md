@@ -62,6 +62,11 @@ writes are `ci-only`.
    key, attached with `sbox-cli --connect <pid>`: endpoint calls, game values and a
    `requiresSecretKey` endpoint passing with the secret key. Without the editor target the runner
    pushes the fixture sources itself, as the Sync Tool would.
+   Then the **rate-limit probe**: the runner sets `server.limits.game_burst` and
+   `server.limits.game_per_second` to 1 with `sbox-ns config set`, restarts this server, and makes
+   two game-values GETs, five concurrent GETs and one POST `ping` from the game. The second GET must
+   succeed after its 429 retry, the burst must mix successes with `RATE_LIMITED`, and the POST must
+   come back `RATE_LIMITED` unretried. Required for library `main` only; other refs report it.
 5. Reads what the server recorded (`sbox-ns project clients`, `dev logs_requests`) and checks the
    library version header arrived.
 
