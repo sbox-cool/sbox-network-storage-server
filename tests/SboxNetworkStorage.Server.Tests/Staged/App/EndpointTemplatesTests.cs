@@ -123,7 +123,13 @@ public sealed class EndpointTemplatesTests
             Assert.Equal(409, owned.Status);
             Assert.Contains("ITEM_OWNED", Body(owned));
 
-            var poor = await fixture.Call("buy-item", Obj(("itemId", "axe")));
+            // 100 starting coins, 50 per item: the second item empties the purse, the third is refused.
+            var second = await fixture.Call("buy-item", Obj(("itemId", "axe")));
+            Assert.True(second.Ok, Body(second));
+            Assert.Contains("\"coins\":0", Body(second));
+            Assert.Contains("\"items\":[\"sword\",\"axe\"]", Json(fixture.Records["proj:players:steam1"]));
+
+            var poor = await fixture.Call("buy-item", Obj(("itemId", "shield")));
             Assert.False(poor.Ok);
             Assert.Equal(402, poor.Status);
             Assert.Contains("INSUFFICIENT_COINS", Body(poor));
@@ -236,7 +242,7 @@ public sealed class EndpointTemplatesTests
 
         public Fixture Fresh() => new(_compiled);
 
-        /// <summary>Calls an endpoint the way its HTTP route does: public gates on, method from its definition.</summary>
+        /// <summary>Calls an endpoint the way its HTTP route does: live serve (writes commit), public gates on, method from its definition.</summary>
         public async Task<EndpointExecutionResult> Call(
             string slug, Dictionary<string, object?> input, string steamId = "steam1", bool secretKey = false,
             Dictionary<string, object?>? gameValues = null)
@@ -245,7 +251,7 @@ public sealed class EndpointTemplatesTests
             var result = await _executor.TryExecuteAsync(
                 Project, slug, input, steamId, userId: "u1", gameValues: gameValues ?? new Dictionary<string, object?>(),
                 hasSecretKey: secretKey, isDedicatedServer: false, CancellationToken.None,
-                enforcePublicAccessGates: true, httpMethod: method);
+                enforcePublicAccessGates: true, httpMethod: method, liveServe: true);
             return result!;
         }
     }
