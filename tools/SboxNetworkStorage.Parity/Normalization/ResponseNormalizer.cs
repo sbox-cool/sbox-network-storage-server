@@ -34,6 +34,8 @@ public static partial class ResponseNormalizer
         "durationMs", "elapsedMs", "tookMs", "latencyMs", "executionMs", "totalMs", "scanMs", "queryMs", "processingMs",
         "sessionToken", "token", "signature", "versionHash", "configVersion", "contentHash", "sourceHash", "checksum", "etag",
         "_txId", "txId",
+        // Per-request correlation ids: differ on every run (library error envelope).
+        "requestId", "_requestId",
         // Per-run generated signing keys (security-config): fresh key material
         // on every server start must not fail cross-run comparison.
         "keyId", "publicKeyJwk", "publicKeyPem",
