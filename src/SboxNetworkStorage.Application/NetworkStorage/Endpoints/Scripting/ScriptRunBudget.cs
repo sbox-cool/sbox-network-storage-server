@@ -23,6 +23,9 @@ public sealed class ScriptRunBudget : IDisposable
     private readonly int _maxStatements;
     private int _statements;
     private bool _started;
+    private readonly System.Diagnostics.Stopwatch _running = new();
+    private TimeSpan _spent;
+    private bool _suspended;
 
     public ScriptRunBudget(EndpointScriptLimits limits, CancellationToken clientToken)
     {
@@ -54,8 +57,39 @@ public sealed class ScriptRunBudget : IDisposable
         if (_started)
             return;
         _started = true;
+        _running.Start();
         _deadline.CancelAfter(Limits.Timeout);
         Workflows.Start();
+    }
+
+    /// <summary>
+    /// Stops the time budget while the host waits on outbound HTTP between rounds. Script time does not run during
+    /// that wait, so a slow remote host cannot make a valid script time out. Idempotent.
+    /// </summary>
+    internal void Suspend()
+    {
+        if (!_started || _suspended)
+            return;
+        _suspended = true;
+        _spent += _running.Elapsed;
+        _running.Reset();
+        _deadline.CancelAfter(Timeout.InfiniteTimeSpan);
+        Workflows.Pause();
+    }
+
+    /// <summary>Restarts the time budget with whatever script time remains. Idempotent.</summary>
+    internal void Resume()
+    {
+        if (!_started || !_suspended)
+            return;
+        _suspended = false;
+        _running.Start();
+        Workflows.Resume();
+        var remaining = Limits.Timeout - _spent;
+        if (remaining <= TimeSpan.Zero)
+            _deadline.Cancel();
+        else
+            _deadline.CancelAfter(remaining);
     }
 
     /// <summary>A constraint for one engine. Every engine of the request must use one from this budget.</summary>

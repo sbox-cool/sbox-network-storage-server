@@ -329,6 +329,17 @@ channels. Reports are batched once per minute and player counts are approximate,
 not security attestation. See [compatibility.md](compatibility.md) for the
 limits, statuses, release evidence and deprecation guarantees.
 
+### Script fetch (ns.fetch)
+
+This folded card lets the project's script endpoints call outside hosts. What scripts can send is in [endpoints-javascript.md](endpoints-javascript.md#outbound-http-nsfetch). Nothing is allowed until a host is listed.
+
+- **Allowed hosts (one per line)** sets the list. Each line is an exact host (`api.example.com`) or a subdomain pattern (`*.example.com`, which does not match `example.com`). Save with **Save fetch settings**.
+- **Allow every public host** ignores the list. Private, loopback and link-local addresses stay blocked unless the operator enables `endpoints.fetch_private_networks` ([configuration.md](configuration.md#scripted-endpoints)). Metadata and reserved addresses are always blocked.
+- **Recently blocked calls** lists refused calls for this project, one row per host and reason, newest first. Columns: Host, Reason, Endpoint and Last seen (UTC). Reasons are `host_not_allowed`, `metadata_address`, `reserved_address` and `private_address`. A row drops out once the project allows that host. The history is kept in memory and is bounded, so old rows drop off first.
+- **Allow this host** appears only on `host_not_allowed` rows. It adds the host as an exact entry. Address-rule rows have no such button, because the list does not override the address rules.
+
+Refused live calls are also reported on the Errors page as `EndpointFetch.blocked`, throttled per project, endpoint, host and reason.
+
 ## Data browser
 
 On a project page, choose **Browse data**, or open

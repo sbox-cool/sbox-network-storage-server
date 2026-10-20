@@ -102,6 +102,10 @@ public sealed record WorkspaceProject(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] Dictionary<string, object>? Media = null,
     /// <summary>Opt-in (off when absent): endpoint webhook steps enqueue to the durable outbox instead of sending inline.</summary>
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? WebhookOutbox = null,
+    /// <summary>ns.fetch host allow-list: exact hosts or *.example.com (docs/endpoints-javascript.md). Absent = none.</summary>
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] List<string>? FetchAllowedHosts = null,
+    /// <summary>Opt-in: ns.fetch may call any public host. Private-network addresses stay blocked unless endpoints.fetch_private_networks is set; metadata and reserved addresses are always blocked.</summary>
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? FetchAllowAllPublic = null,
     // Opt-in (off when absent): every endpoint call must carry an auth session (SECURITY_SESSION_REQUIRED).
     // Not part of the signed security config, matching the reference (services/network-storage-security-config.js).
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? RequireAuthSessions = null

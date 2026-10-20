@@ -28,6 +28,7 @@ public sealed partial class EndpointExecutor
     private readonly IReadOnlyList<IEndpointScriptRuntime> _scriptRuntimes;
     private readonly ScriptConcurrencyGate _scriptGate;
     private readonly ILogger<EndpointExecutor>? _logger;
+    private readonly IScriptFetchTransport _fetchTransport;
     private readonly EndpointWriteQueue _writeQueue;
     /// <summary>
     /// Maximum rows scanned per collection per endpoint request. Scans feed
@@ -44,6 +45,7 @@ public sealed partial class EndpointExecutor
         IReadOnlyList<IEndpointScriptRuntime>? scriptRuntimes = null,
         ScriptConcurrencyGate? scriptGate = null,
         ILogger<EndpointExecutor>? logger = null,
+        IScriptFetchTransport? fetchTransport = null,
         EndpointWriteQueue? writeQueue = null)
     {
         _dataSource = dataSource ?? throw new ArgumentNullException(nameof(dataSource));
@@ -57,11 +59,13 @@ public sealed partial class EndpointExecutor
         // Register one gate as a singleton in production. The executor is scoped, so a gate it created itself would
         // be per request and bound nothing.
         _scriptGate = scriptGate ?? new ScriptConcurrencyGate();
+        // Without a transport, ns.fetch fails every call with FETCH_FAILED. Production registers the HTTP transport.
+        _fetchTransport = fetchTransport ?? new UnavailableScriptFetchTransport();
     }
 
     /// <summary>The same executor reading definitions and records through <paramref name="dataSource"/>.</summary>
     public EndpointExecutor WithDataSource(IEndpointDataSource dataSource)
-        => new(dataSource, _webhookSender, _analyticsService, _webhookOutbox, _scriptRuntimes, _scriptGate, _logger, _writeQueue);
+        => new(dataSource, _webhookSender, _analyticsService, _webhookOutbox, _scriptRuntimes, _scriptGate, _logger, _fetchTransport, _writeQueue);
 
     /// <summary>
     /// Execute an endpoint natively using the deterministic executor.

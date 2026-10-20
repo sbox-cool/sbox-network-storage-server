@@ -566,6 +566,26 @@ public static class EndpointExecutionEndpoints
             }
         }
 
+        // ns.fetch calls the allow-list or address rules refused. Reported even when the script caught the error and
+        // the response is a success, so the owner sees the host and can allow it from the project page.
+        if (result.FetchBlocked is { Count: > 0 } blockedCalls)
+        {
+            var fetchReporter = context.RequestServices.GetService<SboxNetworkStorage.Server.Infrastructure.EndpointErrorReporter>();
+            if (fetchReporter is not null)
+            {
+                foreach (var blocked in blockedCalls)
+                {
+                    try
+                    {
+                        await fetchReporter.CaptureFetchBlockedAsync(
+                            projectId, endpointSlug, context.Request.Method, steamId,
+                            blocked.Host, blocked.Reason, CancellationToken.None);
+                    }
+                    catch { /* reporting is best-effort; never block the response */ }
+                }
+            }
+        }
+
         // Record an `endpoint.call` analytics event so the game-analytics dashboard
         // shows the player's real activity (save-all / load-player / etc.) on the
         // timeline. Previously this emitted `session.heartbeat`, which the dashboard

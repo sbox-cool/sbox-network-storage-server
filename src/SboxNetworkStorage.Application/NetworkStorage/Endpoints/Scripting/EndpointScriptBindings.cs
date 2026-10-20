@@ -17,7 +17,8 @@ public sealed record EndpointScriptBindings(
     Func<string, Dictionary<string, object?>, object?> RunWorkflow,
     Func<IReadOnlyList<string>> WorkflowIds,
     Func<IReadOnlyList<string>> EndpointIds,
-    Func<string, string?> GlobalSource);
+    Func<string, string?> GlobalSource,
+    ScriptFetchSession Fetch);
 
 /// <summary>Converts <see cref="JsonElement"/> values into the plain object model the endpoint executor uses.</summary>
 public static class ScriptJson

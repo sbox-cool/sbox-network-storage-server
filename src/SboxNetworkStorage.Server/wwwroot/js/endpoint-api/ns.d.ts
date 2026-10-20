@@ -56,6 +56,36 @@ interface NsWorkflows {
   run(workflowId: string, input: Record<string, unknown>): unknown;
 }
 
+/** Options for `ns.fetch`. Every field is optional. */
+interface FetchOptions {
+  /** HTTP method. Defaults to GET. */
+  method?: "GET" | "HEAD" | "POST" | "PUT" | "PATCH" | "DELETE";
+  /** Request headers. Forbidden names are rejected: host, content-length, transfer-encoding, connection, upgrade, expect, te, trailer, keep-alive and any proxy-*. */
+  headers?: Record<string, string>;
+  /** Request body. An object or array is sent as JSON with content-type application/json, unless the headers set content-type. Not allowed with GET or HEAD. */
+  body?: string | Record<string, unknown> | unknown[];
+  /** Timeout in milliseconds, clamped to 100-10000. Defaults to 5000. */
+  timeoutMs?: number;
+}
+
+/** The response of `ns.fetch`. */
+interface FetchResponse {
+  status: number;
+  /** True when status is 200-299. */
+  ok: boolean;
+  /** Header names are lowercase. A repeated header is joined with ", ". */
+  headers: Record<string, string>;
+  /** The body, decoded as UTF-8. */
+  body: string;
+  /** The parsed JSON body, or null when the body is not JSON. */
+  json: unknown;
+}
+
+/** The error `ns.fetch` throws. `code` is a FETCH_* code. */
+interface FetchError extends Error {
+  code: string;
+}
+
 interface Ns {
   records: NsRecords;
   values: NsValues;
@@ -66,6 +96,11 @@ interface Ns {
   log(value: unknown): void;
   /** Ends the request with an error. The script cannot catch it. */
   fail(code: string, message: string, status?: number): never;
+  /**
+   * Outbound HTTP to a host on the project's allow-list. The first run of the handler gets null while the result
+   * loads, and the handler re-runs with the response. A refused or failed call throws a FetchError.
+   */
+  fetch(url: string, options?: FetchOptions): FetchResponse | null;
 }
 
 /** The `ns` object. Also the second argument of `handle(req, ns)`. */

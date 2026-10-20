@@ -18,7 +18,8 @@ public sealed class ScriptWorkflowBudget
     private readonly int _maxDepth;
     private readonly int _maxSteps;
     private readonly TimeSpan _timeout;
-    private long? _startTimestamp;
+    private readonly Stopwatch _clock = new();
+    private bool _started;
     private int _depth;
     private int _steps;
 
@@ -30,7 +31,23 @@ public sealed class ScriptWorkflowBudget
     }
 
     /// <summary>Starts the elapsed-time bound. Idempotent. Until this is called the time bound does not apply.</summary>
-    public void Start() => _startTimestamp ??= Stopwatch.GetTimestamp();
+    public void Start()
+    {
+        if (_started)
+            return;
+        _started = true;
+        _clock.Start();
+    }
+
+    /// <summary>Stops the elapsed-time bound while the host waits on outbound HTTP. Idempotent.</summary>
+    public void Pause() => _clock.Stop();
+
+    /// <summary>Restarts the elapsed-time bound after <see cref="Pause"/>. Does nothing before <see cref="Start"/>.</summary>
+    public void Resume()
+    {
+        if (_started)
+            _clock.Start();
+    }
 
     /// <summary>Called when a workflow starts. Throws when the nesting or time bound is exceeded.</summary>
     public void EnterWorkflow()
@@ -54,7 +71,7 @@ public sealed class ScriptWorkflowBudget
 
     private void CheckElapsed()
     {
-        if (_startTimestamp is { } started && Stopwatch.GetElapsedTime(started) > _timeout)
+        if (_started && _clock.Elapsed > _timeout)
             throw new ScriptLimitExceededException($"Workflow time budget exceeded ({_timeout.TotalSeconds:0.###} s).");
     }
 }

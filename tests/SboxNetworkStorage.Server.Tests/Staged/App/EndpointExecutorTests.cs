@@ -1,6 +1,7 @@
 using System.Text.Json;
 using SboxNetworkStorage.Application.NetworkStorage;
 using SboxNetworkStorage.Application.NetworkStorage.Endpoints;
+using SboxNetworkStorage.Application.NetworkStorage.Endpoints.Scripting;
 using SboxNetworkStorage.Server.Tests.Support;
 
 namespace SboxNetworkStorage.Server.Tests.NetworkStorage;
@@ -1471,6 +1472,8 @@ public sealed class NativeEndpointExecutorTests
 
         public Task<bool> IsWebhookOutboxEnabledAsync(string projectId, CancellationToken ct) => Task.FromResult(WebhookOutboxEnabled);
 
+        public Task<EndpointFetchPolicy> GetEndpointFetchPolicyAsync(string projectId, CancellationToken ct) => Task.FromResult(EndpointFetchPolicy.Closed);
+
         public Task WriteGlobalRecordAsync(string projectId, string collectionId, string recordId, IReadOnlyDictionary<string, object?> payload, CancellationToken ct)
             => Task.CompletedTask;
     }
@@ -1507,6 +1510,8 @@ public sealed class NativeEndpointExecutorTests
         public Task<bool> IsLegacyPlayerProjectionsEnabledAsync(string projectId, CancellationToken ct) => Task.FromResult(true);
 
         public Task<bool> IsWebhookOutboxEnabledAsync(string projectId, CancellationToken ct) => Task.FromResult(false);
+
+        public Task<EndpointFetchPolicy> GetEndpointFetchPolicyAsync(string projectId, CancellationToken ct) => Task.FromResult(EndpointFetchPolicy.Closed);
 
         public Task WriteGlobalRecordAsync(string projectId, string collectionId, string recordId, IReadOnlyDictionary<string, object?> payload, CancellationToken ct)
             => throw new Exception("Store unavailable");
@@ -1591,6 +1596,8 @@ public sealed class NativeEndpointExecutorTests
 
         public Task<bool> IsWebhookOutboxEnabledAsync(string projectId, CancellationToken ct) => Task.FromResult(false);
 
+        public Task<EndpointFetchPolicy> GetEndpointFetchPolicyAsync(string projectId, CancellationToken ct) => Task.FromResult(EndpointFetchPolicy.Closed);
+
         public Task WriteGlobalRecordAsync(string projectId, string collectionId, string recordId, IReadOnlyDictionary<string, object?> payload, CancellationToken ct)
         {
             GlobalRecordsWritten.Add((collectionId, recordId, payload));
@@ -1639,6 +1646,8 @@ public sealed class NativeEndpointExecutorTests
         public Task<bool> IsLegacyPlayerProjectionsEnabledAsync(string projectId, CancellationToken ct) => Task.FromResult(true);
 
         public Task<bool> IsWebhookOutboxEnabledAsync(string projectId, CancellationToken ct) => Task.FromResult(false);
+
+        public Task<EndpointFetchPolicy> GetEndpointFetchPolicyAsync(string projectId, CancellationToken ct) => Task.FromResult(EndpointFetchPolicy.Closed);
 
         public Task WriteGlobalRecordAsync(string projectId, string collectionId, string recordId, IReadOnlyDictionary<string, object?> payload, CancellationToken ct)
             => throw new Exception("Store global write failed");
@@ -1714,6 +1723,8 @@ public sealed class NativeEndpointExecutorTests
         public Task<bool> IsLegacyPlayerProjectionsEnabledAsync(string projectId, CancellationToken ct) => Task.FromResult(true);
 
         public Task<bool> IsWebhookOutboxEnabledAsync(string projectId, CancellationToken ct) => Task.FromResult(false);
+
+        public Task<EndpointFetchPolicy> GetEndpointFetchPolicyAsync(string projectId, CancellationToken ct) => Task.FromResult(EndpointFetchPolicy.Closed);
 
         public Task WriteGlobalRecordAsync(string projectId, string collectionId, string recordId, IReadOnlyDictionary<string, object?> payload, CancellationToken ct)
             => Task.CompletedTask;

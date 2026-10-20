@@ -979,6 +979,8 @@ public sealed class ScriptedEndpointExecutorTests
 
         public Task<bool> IsWebhookOutboxEnabledAsync(string projectId, CancellationToken ct) => Task.FromResult(false);
 
+        public Task<EndpointFetchPolicy> GetEndpointFetchPolicyAsync(string projectId, CancellationToken ct) => Task.FromResult(EndpointFetchPolicy.Closed);
+
         public Task WriteGlobalRecordAsync(string projectId, string collectionId, string recordId, IReadOnlyDictionary<string, object?> payload, CancellationToken ct)
             => Task.CompletedTask;
     }

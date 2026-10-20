@@ -4,6 +4,7 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Mvc.Testing;
 using SboxNetworkStorage.Application.NetworkStorage;
 using SboxNetworkStorage.Application.NetworkStorage.Endpoints;
+using SboxNetworkStorage.Application.NetworkStorage.Endpoints.Scripting;
 using SboxNetworkStorage.Application.Workspace;
 using SboxNetworkStorage.Domain.Workspace;
 using SboxNetworkStorage.Infrastructure.NetworkStorage;
@@ -1250,6 +1251,8 @@ public abstract class NetworkStorageManagementMutationTests<TFactory> : IClassFi
         public Task<bool> IsLegacyPlayerProjectionsEnabledAsync(string projectId, CancellationToken ct) => Task.FromResult(false);
 
         public Task<bool> IsWebhookOutboxEnabledAsync(string projectId, CancellationToken ct) => Task.FromResult(false);
+
+        public Task<EndpointFetchPolicy> GetEndpointFetchPolicyAsync(string projectId, CancellationToken ct) => Task.FromResult(EndpointFetchPolicy.Closed);
 
         public Task WriteGlobalRecordAsync(
             string projectId, string collectionId, string recordId,

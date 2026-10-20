@@ -196,6 +196,8 @@ public static class NetworkStorageServices
             enabled: config.GetBoolean("endpoints.write_queue.enabled"),
             maxQueued: (int)Math.Clamp(config.GetInteger("endpoints.write_queue.max_queued"), 0L, 1_000_000L),
             timeout: TimeSpan.FromMilliseconds(Math.Clamp(config.GetInteger("endpoints.write_queue.timeout_ms"), 1L, 3_600_000L))));
+        // ns.fetch network transport. endpoints.fetch_private_networks is read once at startup (restart to change).
+        services.AddSingleton<IScriptFetchTransport>(_ => new HttpScriptFetchTransport(config.GetBoolean("endpoints.fetch_private_networks")));
         services.AddScoped<EndpointExecutor>();
         services.AddScoped<IEndpointWebhookSender, HttpEndpointWebhookSender>();
         // Webhook delivery outbox (docs/alerting.md, "Endpoint webhook outbox"). Only projects that set

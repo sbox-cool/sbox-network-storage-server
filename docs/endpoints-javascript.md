@@ -80,10 +80,123 @@ The second argument. Its type is `Ns` in `ns.d.ts`.
 | `ns.workflows.run(id, input)` | Runs a workflow of this project and returns its result. See [Legacy workflows](#legacy-workflows). |
 | `ns.now()` | Server time in milliseconds since the Unix epoch. |
 | `ns.log(value)` | Keeps a line for this request, capped by `MaxLogBytes`. Endpoint tests and the owner's error detail show the lines when the call fails. Successful live calls do not keep them, and lines are not written to the server log. |
+| `ns.fetch(url, options?)` | Calls an outside HTTP or HTTPS host. The result is `null` on the first run of the handler; see [Outbound HTTP](#outbound-http-nsfetch). |
 | `ns.fail(code, message, status?)` | Ends the request with a typed error. |
 
 Writes made by a script apply when the endpoint returns normally. A request
 that ends with `ns.fail` does not keep its writes.
+
+## Outbound HTTP: `ns.fetch`
+
+`ns.fetch(url, options?)` calls an outside HTTP or HTTPS host. The owner lists the allowed hosts for each project under **Script fetch (ns.fetch)** ([admin-panel.md](admin-panel.md#script-fetch-nsfetch)). A project with no listed host refuses every call. The operator setting `endpoints.fetch_private_networks` is in [configuration.md](configuration.md#scripted-endpoints). The types `FetchOptions`, `FetchResponse` and `FetchError` are in [`ns.d.ts`](/owner-assets/endpoint-api/ns.d.ts).
+
+```js
+export default function handle(req, ns) {
+  let res;
+  try {
+    res = ns.fetch("https://api.example.com/v1/rank", {
+      method: "POST",
+      body: { steamId: req.player === null ? null : req.player.steamId },
+      timeoutMs: 3000,
+    });
+  } catch (error) {
+    if (error.code === "FETCH_BLOCKED") return { rank: null };
+    throw error; // rethrown: the request answers 502 with the error's code
+  }
+  if (res === null) return null; // first run: the handler runs again with the response
+  return { rank: res.ok && res.json !== null ? res.json.rank : null };
+}
+```
+
+### Calls run in rounds
+
+A call returns `null` until its request has finished. On the first run the handler gets `null` from every new call. The server then sends the queued requests and runs the handler again. The re-run gets each stored response and sends no second request. So:
+
+- Code after a call must handle `null`. The first run may throw on it; that run's result is discarded.
+- Writes and the response come from the final run only.
+- Each round that waits on `ns.fetch` counts toward the re-run limit that store reads share (see [Limits](#limits)). The network wait is not script time.
+
+### Request and response
+
+| Part | Rule |
+| --- | --- |
+| `url` | Absolute `http` or `https` URL with no user name or password, at most 2,048 characters. |
+| `method` | `GET`, `HEAD`, `POST`, `PUT`, `PATCH` or `DELETE`. Default `GET`. The type is uppercase; lowercase also works at run time. |
+| `headers` | An object of strings. At most 32 headers, each value at most 4 KiB, no CR, LF or NUL. These names are refused: `host`, `content-length`, `transfer-encoding`, `connection`, `upgrade`, `expect`, `te`, `trailer`, `keep-alive`, and any `proxy-*`. |
+| `body` | A string, an object or an array, at most 64 KiB. An object or array is sent as JSON with `content-type: application/json`, unless `headers` sets `content-type`. `GET` and `HEAD` take no body. |
+| `timeoutMs` | A number, rounded and clamped to 100 to 10,000. Default 5,000. |
+
+An option name other than `method`, `headers`, `body` or `timeoutMs` is refused as `FETCH_INVALID_REQUEST`.
+
+The response is a `FetchResponse`:
+
+- `status`: the HTTP status.
+- `ok`: true for 200 to 299.
+- `headers`: names in lowercase. A repeated header is joined with `, `.
+- `body`: the text, decoded as UTF-8. Empty for `HEAD`.
+- `json`: the parsed body, or `null` when it is not JSON.
+
+The response body is at most 256 KiB. The server follows redirects for 301, 302, 303, 307 and 308, up to 5 hops. A 303 turns any method except GET and HEAD into GET, and a 301 or 302 does the same for POST. A converted request sends no body and drops the `content-*` headers. A cross-origin hop drops `authorization`, `cookie` and `proxy-authorization`. Every hop repeats the allow-list and address checks.
+
+### Allow-list and address rules
+
+Checks run in this order:
+
+1. **An IP literal** (for example `https://10.0.0.5/`). The address rules run first, so a blocked address is refused even when it is listed. An allowed address still needs an exact entry in the list, unless the project allows every public host.
+2. **A host name.** The allow-list runs first. Then the server resolves the name and checks every address it gets back. One blocked address refuses the call.
+
+Allow-list entries:
+
+- `api.example.com` matches that host. `*.example.com` matches any subdomain at any depth, but not `example.com` itself.
+- Entries are host names only, lowercased, with a trailing dot removed. The port of the URL is not part of the match.
+- A list holds at most 100 entries of at most 253 characters each.
+- An IP-literal entry matches that exact address and still goes through the address rules.
+- With **Allow every public host** on, the list is not read. The address rules still apply.
+
+Address rules apply to every resolved address on every hop:
+
+| Class | Ranges | Blocked | Reason |
+| --- | --- | --- | --- |
+| Metadata | `169.254.169.254`, `169.254.170.2`, `100.100.100.200`, `fd00:ec2::254` | Always | `metadata_address` |
+| Reserved and special-use | `0.0.0.0/8`, `192.0.0.0/24`, `192.0.2.0/24`, `198.18.0.0/15`, `198.51.100.0/24`, `203.0.113.0/24`, `224.0.0.0/4`, `240.0.0.0/4`, `::/96`, `100::/64`, `2001:db8::/32`, `ff00::/8` | Always | `reserved_address` |
+| Private, loopback and link-local | `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `100.64.0.0/10`, `127.0.0.0/8`, `169.254.0.0/16`, `::1/128`, `fc00::/7`, `fe80::/10`, `fec0::/10` | Unless `endpoints.fetch_private_networks` is true | `private_address` |
+
+An IPv4 address inside an IPv4-mapped IPv6 address, a NAT64 address (`64:ff9b::/96`) or a 6to4 address (`2002::/16`) is checked as IPv4. Metadata is checked before private, so `169.254.169.254` reports `metadata_address`.
+
+### Limits, errors and the 502 rule
+
+Per execution, across all rounds:
+
+- At most 5 calls are queued. A call counts when it is queued, including one the transport refuses later (a name that resolves to a blocked address, or a redirect to one). A call refused by the allow-list or by an IP-literal address rule is refused at once and does not count. Each call counts, even when it repeats an earlier URL.
+- `timeoutMs` defaults to 5,000 ms, clamped to 100 to 10,000 ms.
+
+A failed call throws a JavaScript `Error`. Its `message` starts with `ns.fetch:`, and its `code` is one of these:
+
+| Code | When |
+| --- | --- |
+| `FETCH_INVALID_REQUEST` | The URL, an option, a header or the body breaks a rule above. Nothing is sent and the call does not count. |
+| `FETCH_BLOCKED` | The allow-list or an address rule refuses the host. The message gives the reason. |
+| `FETCH_LIMIT_EXCEEDED` | A call beyond the fifth queued call. |
+| `FETCH_TIMEOUT` | No complete response within `timeoutMs`. |
+| `FETCH_RESPONSE_TOO_LARGE` | The response is larger than 256 KiB, by `Content-Length` or as it streams. |
+| `FETCH_FAILED` | A network error, or more than 5 redirects. |
+
+The script can catch these errors. If the uncaught error is an `ns.fetch` error, the request answers `502` with that code:
+
+```json
+{ "ok": false, "error": { "code": "FETCH_BLOCKED", "message": "An outbound request failed." } }
+```
+
+A caught error that the script does not rethrow does not change the response. Any other uncaught error answers `500 SCRIPT_ERROR`.
+
+### Diagnostics
+
+- **Try-it trace.** Each call adds a `fetch#N` step with `host`, `method`, `status`, `error` and `reason`.
+- **Live requests.** A refused call is reported to the owner's Errors page as `EndpointFetch.blocked` (status 502), with the host and reason as tags. Reports are throttled per project, endpoint, host and reason. A report is made even when the script caught the error and the response succeeded. Try-it runs are not reported. The owner's **Script fetch (ns.fetch)** card lists the refusals ([admin-panel.md](admin-panel.md#script-fetch-nsfetch)).
+
+### Not implemented yet
+
+`ns.secrets.get` is not implemented yet. The server has no project secrets store, so do not build on it.
 
 ## Scope, imports and globals
 
@@ -180,11 +293,12 @@ Promises are bounded by the same time limit: a promise that does not settle befo
 
 | Limit | Default | When exceeded |
 | --- | --- | --- |
-| Time per request | 1 s, counted from the start of script work (includes store reads between rounds) | `SCRIPT_LIMIT_EXCEEDED` |
+| Time per request | 1 s, counted from the start of script work (includes store reads between rounds; waits for `ns.fetch` are not counted) | `SCRIPT_LIMIT_EXCEEDED` |
 | Statements per request | 1,000,000, across all engine entries and rounds | `SCRIPT_LIMIT_EXCEEDED` |
 | Memory per engine | 64 MiB (each round has its own engine) | `SCRIPT_LIMIT_EXCEEDED` |
 | Call depth per engine | 200 | `SCRIPT_LIMIT_EXCEEDED` |
-| Re-run rounds per request | 8 | `SCRIPT_LIMIT_EXCEEDED` |
+| Re-run rounds per request | 8. Store reads and `ns.fetch` waits share this count. | `SCRIPT_LIMIT_EXCEEDED` |
+| Outbound `ns.fetch` calls per request | 5 (see [Outbound HTTP](#outbound-http-nsfetch)) | `FETCH_LIMIT_EXCEEDED`, 502 when uncaught |
 | Workflow nesting and steps per request | depth 5, 10,000 steps | `SCRIPT_LIMIT_EXCEEDED` |
 | Record reads per request (record gets and lists, workflow definitions, global modules) | 64, across all rounds | `SCRIPT_LIMIT_EXCEEDED` |
 | Rows per collection scan | 1,000 | `SCAN_TOO_LARGE` (400), checked before any row is read |
@@ -209,6 +323,7 @@ changing it.
 | `SCRIPT_LIMIT_EXCEEDED` | Run, 500 | A run limit was hit. See [Limits](#limits). |
 | `SCRIPTS_DISABLED` | Run, 503 | `endpoints.scripts` is off. |
 | `SCRIPT_BUSY` | Run, 429 | The server or the project stayed at its maximum number of scripted requests past the wait. Nothing ran, so resend the same request after `Retry-After` (`retrySafe: true`). |
+| `FETCH_*` | Run, 502 | An `ns.fetch` call failed and the script did not catch it. The codes are in [Outbound HTTP](#outbound-http-nsfetch). |
 | `ENDPOINT_NOT_FOUND` | Run, 404 | Unknown slug, or a `scope: global` endpoint called publicly. |
 | `SCRIPT_SYNTAX` | Save, sync | The source cannot be parsed. Reports the line and column. |
 | `SCRIPT_AND_STEPS` | Save | An endpoint has both `script` and `steps`. |
