@@ -239,6 +239,7 @@ public static class NetworkStorageServices
         services.AddScoped<StorageLedgerReadHandler>();
         services.AddScoped<StatsReadHandler>();
         services.AddScoped<ManagementReadHandler>();
+        services.AddSingleton<ManagementSyncJobStore>();
         services.AddScoped<ManagementMutationHandler>();
         services.AddScoped<EndpointSlugReadHandler>();
         services.AddScoped<PackageSyncHandler>();

@@ -46,7 +46,10 @@ public sealed record NetworkStorageRequest(
     /// <summary>True when the caller targets the staged ("next") revision; see <see cref="NetworkStoragePublishTarget"/>.</summary>
     public bool TargetsNext { get; init; }
 
-    /// <summary>The game's public key when the caller sent one next to its secret key (<c>x-public-key</c>); only <c>/validate</c> reads it.</summary>
+    /// <summary>Server base URL the caller reached (server.public_url or the request origin), used in generated URLs such as the agent manifest.</summary>
+    public string? ApiBaseUrl { get; init; }
+
+    /// <summary>The game's public key when the caller sent one next to its secret key (<c>x-public-key</c>); the management routes and <c>/validate</c> read it.</summary>
     public string? PublicKey { get; init; }
 }
 
@@ -65,6 +68,10 @@ public sealed record NetworkStorageResult(
 
     public static NetworkStorageResult Ok(object body, IReadOnlyList<string>? storagePathsRead = null, string? authDecision = null) =>
         new(200, null, body, storagePathsRead ?? NoPaths, NoPaths, authDecision);
+
+    /// <summary>202 for work accepted into a background job; the caller polls for the outcome.</summary>
+    public static NetworkStorageResult Accepted(object body, IReadOnlyList<string>? storagePathsRead = null, string? authDecision = null) =>
+        new(202, null, body, storagePathsRead ?? NoPaths, NoPaths, authDecision);
 
     public static NetworkStorageResult Error(int statusCode, string publicErrorCode, object body, IReadOnlyList<string>? storagePathsRead = null, string? authDecision = null) =>
         new(statusCode, publicErrorCode, body, storagePathsRead ?? NoPaths, NoPaths, authDecision);

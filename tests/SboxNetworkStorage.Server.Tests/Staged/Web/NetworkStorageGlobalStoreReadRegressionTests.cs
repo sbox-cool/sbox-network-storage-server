@@ -260,6 +260,37 @@ public abstract class NetworkStorageGlobalStoreReadRegressionTests<TFactory> : I
             $"/v3/storage/{projectA.ProjectId}/{Collection}/list?apiKey={projectB.PublicKey}");
         Assert.Equal(HttpStatusCode.Unauthorized, listed.StatusCode);
     }
+
+    [SkippableFact]
+    public async Task AppendValidatesRecordsAgainstTheCollectionSchema()
+    {
+        var project = await _factory.CreateProjectAsync();
+        await using (var scope = _factory.Services.CreateAsyncScope())
+        {
+            var store = scope.ServiceProvider.GetRequiredService<INetworkStorageStore>();
+            await store.SeedCollectionAsync(
+                project.ProjectId, Collection, Collection, "public",
+                new { collectionType = "global", schema = new { score = new { type = "number" } } });
+        }
+        using var client = _factory.CreateClient();
+
+        using var rejected = new HttpRequestMessage(
+            HttpMethod.Post, $"/v3/storage/{project.ProjectId}/{Collection}/append?apiKey={project.SecretKey}");
+        rejected.Headers.Add("x-steam-id", "76561198000000001");
+        rejected.Content = JsonContent.Create(new { score = "seven" });
+        using var response = await client.SendAsync(rejected);
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var error = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("SCHEMA_VALIDATION_FAILED", error.GetProperty("error").GetString());
+
+        await AppendAsync(client, project.ProjectId, Collection, project.SecretKey,
+            "76561198000000001", new { score = 7 });
+        using var listed = await client.GetAsync(
+            $"/v3/storage/{project.ProjectId}/{Collection}/list?apiKey={project.PublicKey}");
+        var body = await listed.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(7, Assert.Single(body.GetProperty("records").EnumerateArray())
+            .GetProperty("score").GetInt32());
+    }
 }
 
 public sealed class NetworkStorageGlobalStoreReadRegressionTests_Sqlite(SqliteHostFactory factory)

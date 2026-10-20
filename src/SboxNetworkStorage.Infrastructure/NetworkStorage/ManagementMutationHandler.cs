@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using SboxNetworkStorage.Application.NetworkStorage;
 using SboxNetworkStorage.Application.NetworkStorage.Endpoints;
@@ -10,18 +11,12 @@ using SboxNetworkStorage.Infrastructure.NetworkStorage.Storage;
 namespace SboxNetworkStorage.Infrastructure.NetworkStorage;
 
 /// <summary>
-/// Native handler for management mutation routes under <c>/v3/manage/:projectId/*</c>.
-/// Performs real store writes when invoked from a production native route
-/// (<c>SuppressSideEffects = false</c>); returns a legacy-compatible dry-run diagnostic
-/// when invoked from the dry-run pipeline (<c>SuppressSideEffects = true</c>).
+/// Constants shared by the native management mutation handler.
 /// </summary>
 internal static class ManagementMutationConstants
 {
     /// <summary>Base CDN path segment for user/project resource files.</summary>
     public const string UserStoragePrefix = "network-storage/users";
-
-    /// <summary>Dry-run suppression reason string.</summary>
-    public const string WriteSuppressedReason = "write_suppressed_dry_run";
 
     /// <summary>Public error code for unsupported mutation routes.</summary>
     public const string NotImplementedCode = "MANAGEMENT_MUTATION_NOT_IMPLEMENTED";
@@ -39,6 +34,8 @@ public sealed partial class ManagementMutationHandler : INetworkStorageHandler
     private readonly EndpointExecutor? _endpointExecutor;
     private readonly IQueryValuesContextProvider? _valuesProvider;
     private readonly IReadOnlyList<IEndpointScriptRuntime> _scriptRuntimes;
+    private readonly INetworkStorageProjectService? _keyRevocation;
+    private readonly ManagementSyncJobStore _syncJobs;
 
     public ManagementMutationHandler(
         IStorageApiKeyResolver apiKeyResolver,
@@ -56,7 +53,9 @@ public sealed partial class ManagementMutationHandler : INetworkStorageHandler
         TimeProvider time,
         EndpointExecutor? endpointExecutor,
         IQueryValuesContextProvider? valuesProvider = null,
-        IReadOnlyList<IEndpointScriptRuntime>? scriptRuntimes = null)
+        IReadOnlyList<IEndpointScriptRuntime>? scriptRuntimes = null,
+        INetworkStorageProjectService? keyRevocation = null,
+        ManagementSyncJobStore? syncJobs = null)
     {
         _apiKeyResolver = apiKeyResolver;
         _workspaceClient = workspaceClient;
@@ -65,6 +64,8 @@ public sealed partial class ManagementMutationHandler : INetworkStorageHandler
         _endpointExecutor = endpointExecutor;
         _valuesProvider = valuesProvider;
         _scriptRuntimes = scriptRuntimes ?? [];
+        _keyRevocation = keyRevocation;
+        _syncJobs = syncJobs ?? new ManagementSyncJobStore(time);
     }
 
     public NetworkStorageRouteFamily Family => NetworkStorageRouteFamily.Management;
@@ -231,10 +232,7 @@ public sealed partial class ManagementMutationHandler : INetworkStorageHandler
 
             "DELETE:queries" => await DeleteQueriesAsync(request, projectId),
 
-            "PUT:settings" => DryRunResult(ownerUserId, projectId, auth.KeyType,
-                $"{ManagementMutationConstants.UserStoragePrefix}/{ownerUserId}/{projectId}/projects.json",
-                action: "update_project_settings", route: $"PUT /v3/manage/{projectId}/settings",
-                resourceKind: "project-settings"),
+            "PUT:settings" => await PutSettingsAsync(request, projectId, ownerUserId, projects, project),
 
             "PATCH:endpoints" => await PatchResourceAsync(request, projectId, ownerUserId, "endpoint"),
 
@@ -244,23 +242,11 @@ public sealed partial class ManagementMutationHandler : INetworkStorageHandler
 
             "PUT:tests" => await PutTestsAsync(request, projectId, ownerUserId),
 
-            "DELETE:keys" => DryRunResult(ownerUserId, projectId, auth.KeyType,
-                $"{ManagementMutationConstants.UserStoragePrefix}/{ownerUserId}/{projectId}/key-index.json",
-                $"{ManagementMutationConstants.UserStoragePrefix}/{ownerUserId}/{projectId}/keys/__{ExtractPublicKeyFromRequest(request)}.json",
-                action: "destroy_key_pair", route: $"DELETE /v3/manage/{projectId}/keys",
-                resourceKind: "api-keys"),
+            "DELETE:keys" => await DestroyKeyPairAsync(request, projectId, ownerUserId),
 
             "PUT:sync" => await PutSyncAsync(request, projectId, ownerUserId, "sync"),
 
-            "POST:source-upgrade" => DryRunResult(ownerUserId, projectId, auth.KeyType,
-                Array.Empty<string>(),
-                action: "source_upgrade", route: $"POST /v3/manage/{projectId}/source-upgrade",
-                resourceKind: "project-source"),
-
-            "POST:package-sync" => DryRunResult(ownerUserId, projectId, auth.KeyType,
-                $"{ManagementMutationConstants.UserStoragePrefix}/{ownerUserId}/{projectId}/game-package.json",
-                action: "package_sync", route: $"POST /v3/manage/{projectId}/package-sync",
-                resourceKind: "game-package"),
+            "POST:source-upgrade" => SourceUpgrade(request, auth.KeyType),
 
             "POST:auto-test" => await AutoTestAsync(request, projectId, ownerUserId, auth.KeyType),
 
@@ -268,10 +254,7 @@ public sealed partial class ManagementMutationHandler : INetworkStorageHandler
 
             "POST:test-endpoint" => await TestEndpointAsync(request, projectId, ownerUserId, project.PlayerKeyMode, auth.KeyType),
 
-            "POST:suggest-tests" => DryRunResult(ownerUserId, projectId, auth.KeyType,
-                Array.Empty<string>(),
-                action: "suggest_tests", route: $"POST /v3/manage/{projectId}/suggest-tests",
-                resourceKind: "suggest-tests"),
+            "POST:suggest-tests" => await SuggestTestsAsync(request, projectId, auth.KeyType),
 
             "POST:sync/preflight" => await PreflightSyncAsync(request, projectId, auth.KeyType),
 
@@ -290,6 +273,107 @@ public sealed partial class ManagementMutationHandler : INetworkStorageHandler
             request, projectId, ownerUserId, authDecision, _store, testContext.Executor, testContext.Overlay, testContext.Values);
     }
 
+    // Pure compile + validate: never writes. Reference: routeManageSourceUpgrade.
+    private static NetworkStorageResult SourceUpgrade(NetworkStorageRequest request, string authDecision)
+    {
+        if (!TryParseBody(request.Body, out var document, out _))
+        {
+            return InvalidJsonResult(authDecision);
+        }
+
+        using (document)
+        {
+            // A wrapped `resource` object (or array, which then fails the object check) is the payload; otherwise the body itself.
+            var root = document.RootElement;
+            var payload = root.ValueKind == JsonValueKind.Object
+                && root.TryGetProperty("resource", out var wrapped)
+                && (wrapped.ValueKind == JsonValueKind.Object || wrapped.ValueKind == JsonValueKind.Array)
+                    ? wrapped
+                    : root;
+            if (payload.ValueKind != JsonValueKind.Object)
+            {
+                return ValidationFailedResult("project-source", "Body must be a source resource object.");
+            }
+
+            if (!ManagementSourceUpgrade.TryUpgrade(payload, out var body))
+            {
+                return NetworkStorageResult.Error(400, "SOURCE_UPGRADE_FAILED", body, authDecision: authDecision);
+            }
+
+            return NetworkStorageResult.Ok(body, authDecision: authDecision);
+        }
+    }
+
+    // Reference: routeManageSuggestTests. Reads endpoints, collections and game values; writes nothing.
+    private async Task<NetworkStorageResult> SuggestTestsAsync(
+        NetworkStorageRequest request, string projectId, string authDecision)
+    {
+        if (!TryParseBody(request.Body, out var document, out _))
+        {
+            return InvalidJsonResult(authDecision);
+        }
+
+        using (document)
+        {
+            var root = document.RootElement;
+            var slugValue = root.ValueKind == JsonValueKind.Object && root.TryGetProperty("slug", out var found)
+                ? found
+                : default;
+            if (IsFalsy(slugValue))
+            {
+                return NetworkStorageResult.Error(400, "MISSING_SLUG",
+                    new { ok = false, error = "MISSING_SLUG", message = "Provide 'slug'." },
+                    authDecision: authDecision);
+            }
+
+            // Reference: endpoints.find(e => e.slug === slug). A non-string slug can never match.
+            var slug = slugValue.ValueKind == JsonValueKind.String ? slugValue.GetString() : null;
+            var endpoints = await _store.ListEndpointsAsync(projectId, request.CancellationToken);
+            var endpoint = slug is null
+                ? default
+                : endpoints.FirstOrDefault(row => row.ValueKind == JsonValueKind.Object
+                    && row.TryGetProperty("slug", out var rowSlug)
+                    && rowSlug.ValueKind == JsonValueKind.String
+                    && rowSlug.GetString() == slug);
+            if (endpoint.ValueKind != JsonValueKind.Object)
+            {
+                var label = slug ?? slugValue.GetRawText();
+                return NetworkStorageResult.Error(400, "ENDPOINT_NOT_FOUND",
+                    new { ok = false, error = "ENDPOINT_NOT_FOUND", message = $"Endpoint \"{label}\" not found." },
+                    authDecision: authDecision);
+            }
+
+            var collectionDefinitions = new List<JsonElement>();
+            foreach (var row in await _store.ListCollectionsAsync(projectId, request.CancellationToken))
+            {
+                if (GameValueCollectionDefinition.TryRead(row, out var definition, out _)) collectionDefinitions.Add(definition);
+            }
+            // Reference passes the endpoint definition object (it carries slug), not the store row.
+            var endpointDefinition = ManagementEndpointTestRunner.Definition(endpoint) ?? endpoint;
+            var gameValues = await _store.ReadGameValuesAsync(projectId, request.CancellationToken);
+            var suggestions = ManagementSuggestTests.Suggest(
+                endpointDefinition, JsonSerializer.SerializeToElement(collectionDefinitions), gameValues);
+
+            return NetworkStorageResult.Ok(
+                new JsonObject { ["ok"] = true, ["endpoint"] = slug, ["suggestions"] = suggestions },
+                authDecision: authDecision);
+        }
+    }
+
+    private static NetworkStorageResult InvalidJsonResult(string authDecision) =>
+        NetworkStorageResult.Error(400, "INVALID_JSON",
+            new { ok = false, error = new { code = "INVALID_JSON", message = "Body must be valid JSON." } },
+            authDecision: authDecision);
+
+    // Mirrors JS falsiness for the reference `if (!slug)` check.
+    private static bool IsFalsy(JsonElement value) => value.ValueKind switch
+    {
+        JsonValueKind.Undefined or JsonValueKind.Null or JsonValueKind.False => true,
+        JsonValueKind.String => value.GetString()!.Length == 0,
+        JsonValueKind.Number => value.TryGetDouble(out var number) && number == 0,
+        _ => false,
+    };
+
     // ── Production write helpers ──
 
     private static readonly string[] AllManagementScopes =
@@ -298,7 +382,12 @@ public sealed partial class ManagementMutationHandler : INetworkStorageHandler
     private static NetworkStorageResult? AuthorizeMutation(
         NetworkStorageRequest request, string resourcePath, StorageApiKeyAuthResult auth)
     {
-        var level = resourcePath is "auto-test" or "run-tests" or "test-endpoint" ? "x" : "rw";
+        var level = resourcePath switch
+        {
+            "auto-test" or "run-tests" or "test-endpoint" => "x",
+            "suggest-tests" => "r",
+            _ => "rw",
+        };
         IEnumerable<string> scopes = MutationScopes(resourcePath);
         if (resourcePath is "sync" or "sync/preflight")
         {
@@ -342,7 +431,9 @@ public sealed partial class ManagementMutationHandler : INetworkStorageHandler
         "rate-limit-rules" or "rateLimitRules" or "rate_limits" => ["rate_limits"],
         "settings" or "config" or "keys" => ["settings"],
         "auto-test" or "run-tests" or "test-endpoint" => ["endpoints", "queries", "collections"],
-        "tests" or "suggest-tests" or "game-package" or "gamePackage" or "package-sync" or "source-upgrade" => AllManagementScopes,
+        "suggest-tests" => ["endpoints"],
+        "source-upgrade" => [],
+        "tests" or "game-package" or "gamePackage" or "package-sync" => AllManagementScopes,
         _ => [],
     };
 
@@ -416,6 +507,57 @@ public sealed partial class ManagementMutationHandler : INetworkStorageHandler
         return ProductionOkResult(new { ok = true, source = "candidate", resourceKind = "rate-limit-rules", action = "upsert" });
     }
 
+    // ── Settings: PUT /settings. Port of routeManagePutSettings (manage-api-controller.js L2152-2204). ──
+    private async Task<NetworkStorageResult> PutSettingsAsync(
+        NetworkStorageRequest request, string projectId, long ownerUserId,
+        IReadOnlyList<WorkspaceProject> projects, WorkspaceProject project)
+    {
+        if (!TryParseBody(request.Body, out var doc, out var error))
+        {
+            return ValidationFailedResult("project-settings", error);
+        }
+
+        using (doc)
+        {
+            var body = doc.RootElement;
+            if (body.ValueKind != JsonValueKind.Object)
+            {
+                return ValidationFailedResult("project-settings", "Body must be a project settings object.");
+            }
+            if (ManagementSettings.FirstUnstoredKey(body) is { } unstored)
+            {
+                return new NetworkStorageResult(
+                    400, "SETTING_NOT_STORED",
+                    new { ok = false, error = "SETTING_NOT_STORED", message = $"'{unstored}' is not a setting this server stores." },
+                    Array.Empty<string>(), Array.Empty<string>(), "allowed");
+            }
+            if (body.TryGetProperty("encryptedRequestMode", out var mode)
+                && (mode.ValueKind != JsonValueKind.String || !EncryptedRequestModes.IsValid(mode.GetString())))
+                return ManagementRouteFailure(400, "VALIDATION_FAILED", "encryptedRequestMode must be off, v1, v2-preferred, or v2-required.");
+
+            var updated = ManagementSettings.Apply(project, body);
+            var list = projects.ToList();
+            var index = list.FindIndex(p => string.Equals(p.Id, projectId, StringComparison.Ordinal));
+            if (index < 0)
+            {
+                return ManagementAuthError();
+            }
+            list[index] = updated;
+            await _workspaceClient.SaveUserProjectsAsync(ownerUserId, list, request.CancellationToken);
+
+            var settings = ManagementSettings.View(updated);
+            return ProductionOkResult(new
+            {
+                ok = true,
+                projectId,
+                settings,
+                config = settings,
+                enableAuthSessions = settings["enableAuthSessions"],
+                enableEncryptedRequests = settings["enableEncryptedRequests"],
+            });
+        }
+    }
+
     private async Task<NetworkStorageResult> PutCollectionsAsync(NetworkStorageRequest request, string projectId, long ownerUserId)
     {
         var (items, validationError) = ParseResourceArray(request.Body, "collection", requiredField: "name");
@@ -457,6 +599,21 @@ public sealed partial class ManagementMutationHandler : INetworkStorageHandler
             return refused;
         }
 
+        // Reference PUT endpoints?async=true: accept the payload now, write it in the background, poll sync-jobs.
+        if (request.Query.GetValueOrDefault("async") == "true")
+        {
+            return StartEndpointSyncJob(request, projectId, ownerUserId);
+        }
+
+        return await UpsertEndpointsAsync(request, projectId, ownerUserId, items);
+    }
+
+    private async Task<NetworkStorageResult> UpsertEndpointsAsync(
+        NetworkStorageRequest request,
+        string projectId,
+        long ownerUserId,
+        IReadOnlyList<JsonElement> items)
+    {
         var publish = await ResolvePublishAsync(request, ownerUserId, projectId);
         var staged = new StagedRevisionWrites();
         var replaceAll = publish != PublishDecision.Staged && request.Query.GetValueOrDefault("replaceAll") == "true";
@@ -505,6 +662,134 @@ public sealed partial class ManagementMutationHandler : INetworkStorageHandler
         }
         return ReportPublishTarget(result, publish);
     }
+
+    /// <summary>
+    /// Reference <c>PUT endpoints?async=true</c>: the payload is accepted now and written in the background.
+    /// The caller polls <c>GET sync-jobs/:jobId</c>.
+    /// </summary>
+    private NetworkStorageResult StartEndpointSyncJob(NetworkStorageRequest request, string projectId, long ownerUserId)
+    {
+        var jobId = _syncJobs.Create(ownerUserId, projectId, "endpoints");
+        _syncJobs.Stage(jobId, "validating", "complete", "Payload validated, starting background processing");
+
+        // The job outlives this request, so the background copy must not inherit the caller's cancellation.
+        var detached = request with { CancellationToken = CancellationToken.None };
+        _ = Task.Run(() => RunEndpointSyncJobAsync(jobId, detached, projectId, ownerUserId));
+
+        return NetworkStorageResult.Accepted(new
+        {
+            ok = true,
+            jobId,
+            status = "accepted",
+            message = "Sync job accepted. Poll GET /manage/:projectId/sync-jobs/:jobId for status.",
+        });
+    }
+
+    private async Task RunEndpointSyncJobAsync(string jobId, NetworkStorageRequest request, string projectId, long ownerUserId)
+    {
+        var stage = "compiling";
+        try
+        {
+            _syncJobs.Stage(jobId, "compiling", "processing", "Compiling and validating endpoints...");
+            var (items, validationError) = ParseResourceArray(request.Body, "endpoint", requiredField: "slug");
+            if (validationError is not null)
+            {
+                FailSyncJob(jobId, ManagementMutationConstants.ValidationFailedCode, "Body must be an array of endpoints.", stage);
+                return;
+            }
+
+            // Reject the whole batch before any write when an identifier is unusable, so an async
+            // request never half-applies. Matches UpsertResourceArrayAsync's identifier rule.
+            var identifiers = new List<string>(items.Count);
+            var invalid = new JsonArray();
+            foreach (var item in items)
+            {
+                var id = EndpointSyncIdentifier(item);
+                identifiers.Add(id ?? string.Empty);
+                if (string.IsNullOrWhiteSpace(id) || id.StartsWith("endpoint-", StringComparison.Ordinal))
+                {
+                    invalid.Add(new JsonObject
+                    {
+                        ["ok"] = false,
+                        ["resourceKind"] = "endpoint",
+                        ["resourceId"] = id ?? string.Empty,
+                        ["error"] = ManagementMutationConstants.ValidationFailedCode,
+                        ["message"] = "endpoint is missing a required identifier field.",
+                    });
+                }
+            }
+
+            if (invalid.Count > 0)
+            {
+                FailSyncJob(jobId, ManagementMutationConstants.ValidationFailedCode,
+                    "One or more endpoints failed validation.", stage, invalid);
+                return;
+            }
+
+            var existingIds = (await _store.ListEndpointsAsync(projectId, request.CancellationToken))
+                .Select(row => GetOptionalString(row, "endpoint_id"))
+                .OfType<string>()
+                .ToHashSet(StringComparer.Ordinal);
+
+            stage = "saving";
+            _syncJobs.Stage(jobId, "compiling", "complete", "All endpoints validated");
+            _syncJobs.Stage(jobId, "saving", "processing", "Saving endpoints to storage...");
+            var response = await UpsertEndpointsAsync(request, projectId, ownerUserId, items);
+            var results = (JsonSerializer.SerializeToNode(response.Body) as JsonObject)?["results"]?.DeepClone() as JsonArray
+                ?? new JsonArray();
+            if (response.StatusCode != 200)
+            {
+                FailSyncJob(jobId, "SYNC_FAILED", "Endpoint save failed.", stage, results);
+                return;
+            }
+            if (results.Any(row => row?["ok"]?.GetValue<bool>() != true))
+            {
+                FailSyncJob(jobId, "SYNC_FAILED", "One or more endpoints failed to save.", stage, results);
+                return;
+            }
+
+            // One result per item, in input order. Counts come from the pre-save listing.
+            var created = 0;
+            var updated = 0;
+            for (var i = 0; i < results.Count; i++)
+            {
+                if (results[i]?["action"]?.GetValue<string>() != "upsert")
+                {
+                    continue;
+                }
+                if (existingIds.Contains(identifiers[i])) updated++;
+                else created++;
+            }
+
+            _syncJobs.Stage(jobId, "saving", "complete", "Endpoints saved");
+            _syncJobs.Complete(jobId, new JsonObject
+            {
+                ["ok"] = true,
+                ["updatedCount"] = updated,
+                ["createdCount"] = created,
+                ["results"] = results,
+            });
+        }
+        catch (Exception ex)
+        {
+            FailSyncJob(jobId, "SYNC_FAILED", ex.Message, stage);
+        }
+    }
+
+    private void FailSyncJob(string jobId, string code, string message, string stage, JsonNode? results = null)
+    {
+        _syncJobs.Stage(jobId, stage, "failed", message);
+        var error = new JsonObject { ["code"] = code, ["message"] = message, ["stage"] = stage };
+        if (results is not null)
+        {
+            error["results"] = results;
+        }
+        _syncJobs.Fail(jobId, error);
+    }
+
+    private static string? EndpointSyncIdentifier(JsonElement item) =>
+        GetOptionalString(item, "id") ?? GetOptionalString(item, "slug") ?? GetOptionalString(item, "name");
+
 
     private async Task<NetworkStorageResult> PutWorkflowsAsync(NetworkStorageRequest request, string projectId, long ownerUserId)
     {
@@ -1406,66 +1691,6 @@ public sealed partial class ManagementMutationHandler : INetworkStorageHandler
             },
             authDecision: "allowed");
 
-    // ── Dry-run helpers ──
-
-    /// <summary>
-    /// Builds a successful dry-run result for a known mutation route.
-    /// </summary>
-    private static NetworkStorageResult DryRunResult(
-        long userId, string projectId, string authDecision,
-        string intendedWritePath,
-        string action, string route, string resourceKind)
-    {
-        return DryRunResult(userId, projectId, authDecision,
-            new[] { intendedWritePath }, action, route, resourceKind);
-    }
-
-    private static NetworkStorageResult DryRunResult(
-        long userId, string projectId, string authDecision,
-        string intendedWritePath1, string intendedWritePath2,
-        string action, string route, string resourceKind)
-    {
-        return DryRunResult(userId, projectId, authDecision,
-            new[] { intendedWritePath1, intendedWritePath2 },
-            action, route, resourceKind);
-    }
-
-    private static NetworkStorageResult DryRunResult(
-        long userId, string projectId, string authDecision,
-        string intendedWritePath1, string intendedWritePath2, string intendedWritePath3,
-        string action, string route, string resourceKind)
-    {
-        return DryRunResult(userId, projectId, authDecision,
-            new[] { intendedWritePath1, intendedWritePath2, intendedWritePath3 },
-            action, route, resourceKind);
-    }
-
-    private static NetworkStorageResult DryRunResult(
-        long userId, string projectId, string authDecision,
-        string[] intendedWritePaths,
-        string action, string route, string resourceKind)
-    {
-        var body = new Dictionary<string, object?>
-        {
-            ["ok"] = true,
-            ["source"] = "candidate",
-            ["reason"] = ManagementMutationConstants.WriteSuppressedReason,
-            ["route"] = route,
-            ["action"] = action,
-            ["resourceKind"] = resourceKind,
-            ["projectId"] = projectId,
-            ["IntendedWritePaths"] = intendedWritePaths,
-        };
-
-        return new NetworkStorageResult(
-            200,
-            null,
-            body,
-            StoragePathsRead: Array.Empty<string>(),
-            IntendedWritePaths: intendedWritePaths,
-            AuthDecision: authDecision);
-    }
-
     /// <summary>Extracts the resource name segment(s) from a management route template.</summary>
     private static string? ExtractResourcePath(NetworkStorageRouteClassification route)
     {
@@ -1504,52 +1729,6 @@ public sealed partial class ManagementMutationHandler : INetworkStorageHandler
         }
 
         return resource;
-    }
-
-    /// <summary>
-    /// Extracts the public key value from the request body or credentials for the DELETE keys route.
-    /// Falls back to a placeholder if not available.
-    /// </summary>
-    private static string ExtractPublicKeyFromRequest(NetworkStorageRequest request)
-    {
-        if (!string.IsNullOrEmpty(request.Body))
-        {
-            try
-            {
-                using var doc = JsonDocument.Parse(request.Body);
-                if (doc.RootElement.TryGetProperty("publicKey", out var pkEl))
-                {
-                    var pk = pkEl.GetString();
-                    if (!string.IsNullOrEmpty(pk))
-                        return SanitizeKeyName(pk);
-                }
-            }
-            catch
-            {
-                // Fall through
-            }
-        }
-
-        if (request.Query.TryGetValue("publicKey", out var queryPk) && !string.IsNullOrEmpty(queryPk))
-        {
-            return SanitizeKeyName(queryPk);
-        }
-
-        return "(public-key-placeholder)";
-    }
-
-    private static string SanitizeKeyName(string key)
-    {
-        var safe = new System.Text.StringBuilder(key.Length);
-        foreach (var c in key)
-        {
-            if (char.IsLetterOrDigit(c) || c == '_' || c == '-')
-                safe.Append(c);
-            else
-                safe.Append('_');
-        }
-
-        return safe.ToString();
     }
 
     private static bool IsMutationMethod(string method) =>
