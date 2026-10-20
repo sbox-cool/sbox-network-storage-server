@@ -6,6 +6,7 @@
 using System.Diagnostics;
 using System.Net;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -612,6 +613,71 @@ static class E2E
 				ev.Check($"{target}.encryption-on-again", "C", Ok(third),
 					$"encryption back on: POST echo succeeds after the library's encrypted retry (got '{(Ok(third) ? "ok" : Code(third))}')", required: libraryMain);
 			}
+            var v2Library = File.Exists(Path.Combine(fixture, "Libraries", "sboxcool.network-storage", "Code", "Endpoints", "NetworkStorageEncryptionV2.cs"));
+            if (v2Library && await owner.SupportsV2Async())
+            {
+                var status = await owner.SetEncryptedModeAsync("v2-required");
+                ev.Check($"{target}.v2-required-saved", "C", status == 302, $"owner selects v2-required (HTTP {status})", required: true);
+                if (status != 302) throw new InvalidOperationException("Could not enable v2-required for the real-library probe.");
+                using var configRequest = new HttpRequestMessage(HttpMethod.Get, server.Url + "/v3/security-config/" + Uri.EscapeDataString(server.ProjectId));
+                configRequest.Headers.Add("x-api-key", server.PublicKey);
+                using var configResponse = await Http.Client.SendAsync(configRequest);
+                configResponse.EnsureSuccessStatusCode();
+                var configBody = JsonNode.Parse(await configResponse.Content.ReadAsStringAsync())!;
+                var config = configBody["config"] ?? configBody;
+                ev.Check($"{target}.v2-required-config", "C", J.Bool(config["encryption"], "required"),
+                    "signed security config requires v2, so a successful endpoint call cannot use plain or v1", required: true);
+                using var signingKey = RSA.Create();
+                signingKey.ImportFromPem(J.Str(config["signing"], "publicKeyPem") ?? throw new InvalidOperationException("No signing public key in security config."));
+                var pin = Convert.ToHexString(SHA256.HashData(signingKey.ExportSubjectPublicKeyInfo())).ToLowerInvariant();
+                async Task ConfigurePin(string fingerprint)
+                {
+                    var configured = await cli.CallAsync("run_csharp", new JsonObject
+                    {
+                        ["code"] = Scripts.ConfigurePinned(server, apiRoot, fingerprint),
+                    }, connect: pid);
+                    ev.Step($"{target}.v2-configure-pin", configured);
+                    if (!configured.Ok) throw new InvalidOperationException("Pinned Configure did not run in the real library.");
+                }
+                await ConfigurePin(pin);
+                var sealedEcho = await Call("echo", new JsonObject { ["hello"] = "v2-sealed-round-trip" });
+                ev.Check($"{target}.v2-response", "C", Ok(sealedEcho) && J.Str(Evidence.TryParse(Body(sealedEcho)), "probe") == "v2-sealed-round-trip",
+                    "v2-required echo returns the authenticated, decrypted response through the real library", required: true);
+                var noInput = await Call("ping");
+                ev.Check($"{target}.v2-no-input", "C", Ok(noInput) && Body(noInput).Contains("pong"),
+                    "no-input CallEndpoint succeeds on a v2-required project", required: true);
+                await ConfigurePin(new string('0', 64));
+                var wrongPin = await Call("echo", new JsonObject { ["hello"] = "must-not-run" });
+                ev.Check($"{target}.v2-pin-mismatch", "C", !Ok(wrongPin) && Code(wrongPin) == "ENCRYPTION_KEY_PIN_MISMATCH",
+                    $"a changed signing-key pin refuses a previously successful caller (got '{Code(wrongPin)}')", required: true);
+                await ConfigurePin(pin);
+                var recovered = await Call("ping");
+                ev.Check($"{target}.v2-pin-recovery", "C", Ok(recovered) && Body(recovered).Contains("pong"),
+                    "restoring the correct signing-key pin recovers encrypted calls", required: true);
+                var oldKeyId = J.Str(config["encryption"], "keyId");
+                var rotated = await server.Cli!.RunAsync(["security", "rotate-key", "--grace-seconds", "0"]);
+                ev.Check($"{target}.v2-key-rotated", "C", rotated.Code == 0, "rotate the request key with zero grace", required: true);
+                var afterRotation = await Call("echo", new JsonObject { ["hello"] = "after-key-rotation" });
+                ev.Check($"{target}.v2-rotation", "C", Ok(afterRotation) && J.Str(Evidence.TryParse(Body(afterRotation)), "probe") == "after-key-rotation",
+                    "a cached expired request key triggers signed-config refresh and a successful v2 retry", required: true);
+                ev.Observe($"{target}.v2-previous-key-id", oldKeyId ?? "missing");
+                var v1Status = await owner.SetEncryptedModeAsync("v1");
+                ev.Check($"{target}.v2-to-v1-saved", "C", v1Status == 302, $"owner switches the cached v2 caller to v1 (HTTP {v1Status})", required: true);
+                if (v1Status != 302) throw new InvalidOperationException("Could not switch v2-required to v1.");
+                var v1Retry = await Call("echo", new JsonObject { ["hello"] = "v2-to-v1" });
+                ev.Check($"{target}.v2-to-v1", "C", Ok(v1Retry) && J.Str(Evidence.TryParse(Body(v1Retry)), "probe") == "v2-to-v1",
+                    "without Configure, the cached v2 caller adapts to SECURITY_* and retries with v1", required: true);
+                var v2Status = await owner.SetEncryptedModeAsync("v2-required");
+                ev.Check($"{target}.v1-to-v2-saved", "C", v2Status == 302, $"owner switches the cached v1 caller to v2-required (HTTP {v2Status})", required: true);
+                if (v2Status != 302) throw new InvalidOperationException("Could not switch v1 back to v2-required.");
+                var v2Retry = await Call("echo", new JsonObject { ["hello"] = "v1-to-v2" });
+                ev.Check($"{target}.v1-to-v2", "C", Ok(v2Retry) && J.Str(Evidence.TryParse(Body(v2Retry)), "probe") == "v1-to-v2",
+                    "without Configure, the cached v1 caller adapts to SECURITY_* and retries with v2", required: true);
+            }
+            else
+                ev.Observe($"{target}.v2", v2Library ? "not exercised: reference server does not offer v2" : "not exercised: library predates v2");
+            // The limiter probe that follows must not inherit an encryption requirement or a mismatched pin.
+            await Save(false);
 			var refused = await server.Cli!.RunAsync(["dev", "logs_requests"], stdin: new JsonObject { ["projectId"] = server.ProjectId, ["limit"] = 200 }.ToJsonString());
 			ev.Observe($"{target}.encryption-409-rows", Regex.Matches(refused.Stdout, "\"status\":\\s*409").Count.ToString());
 		}
@@ -827,6 +893,11 @@ static class Scripts
 		return new { allowed = Http.IsAllowed( new Uri( {{Lit(s.Url + "/v3/server-info")}} ) ) };
 		""";
 
+    public static string ConfigurePinned(Server s, string? apiRoot, string pin) => $$"""
+        NetworkStorage.Configure( {{Lit(s.ProjectId)}}, {{Lit(s.PublicKey)}}, {{Lit(s.Url)}}, {{(apiRoot is null ? "null" : Lit(apiRoot))}}, null, null, {{Lit(pin)}} );
+        return new { configured = true };
+        """;
+
 	public static string CallEndpoint(string slug, JsonObject? input) => $$"""
 		object input = {{(input is null ? "null" : $"System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>( {Lit(input.ToJsonString())} )")}};
 		var res = await NetworkStorage.CallEndpoint( {{Lit(slug)}}, input );
@@ -937,10 +1008,15 @@ sealed class OwnerConsole
 		return new OwnerConsole(http, server.ProjectId);
 	}
 
-	/// <summary>Saves the security tab with encrypted requests on or off; the other security settings keep their current values.</summary>
-	public async Task<int> SetEncryptedRequestsAsync(bool enable)
-	{
-		var html = await (await http.GetAsync(projectPath)).Content.ReadAsStringAsync();
+    public Task<int> SetEncryptedRequestsAsync(bool enable) => SetEncryptedModeAsync(enable ? "v1" : "off");
+
+    public async Task<bool> SupportsV2Async() =>
+        (await http.GetStringAsync(projectPath)).Contains("value=\"v2-required\"", StringComparison.Ordinal);
+
+    /// <summary>Saves the security mode, preserving the other settings and the old checkbox form on older servers.</summary>
+    public async Task<int> SetEncryptedModeAsync(string mode)
+    {
+        var html = await (await http.GetAsync(projectPath)).Content.ReadAsStringAsync();
 		var form = new Dictionary<string, string>
 		{
 			["tab"] = "security",
@@ -950,7 +1026,12 @@ sealed class OwnerConsole
 		};
 		foreach (var name in new[] { "requireSboxAuth", "enableAuthSessions", "requireAuthSessions" })
 			if (Checked(html, name)) form[name] = "on";
-		form["encryptedRequestMode"] = enable ? "v1" : "off";
+        if (html.Contains("name=\"encryptedRequestMode\"", StringComparison.Ordinal))
+            form["encryptedRequestMode"] = mode;
+        else if (mode == "v1")
+            form["enableEncryptedRequests"] = "on";
+        else if (mode != "off")
+            throw new InvalidOperationException("This server's owner form does not support v2 encryption.");
 		var saved = await http.PostAsync(projectPath + "/settings", new FormUrlEncodedContent(form));
 		return (int)saved.StatusCode;
 	}
