@@ -175,7 +175,8 @@
     }
     buttons.forEach(function (button) { button.addEventListener("click", function () { activate(button); }); });
     keyboardTabs(buttons, activate);
-    if (buttons.length) activate(buttons[0]);
+    var firstButton = buttons.find(function (button) { return button.dataset.editorMode === "raw"; }) || buttons[0];
+    if (firstButton) { firstButton.textContent = "Code editor"; activate(firstButton); }
     function changed() {
       syncPrompts();
       if (status) status.textContent = textarea.value === initial ? "No unsaved changes" : "Unsaved changes";
@@ -184,8 +185,6 @@
       if (position && !monacoOwnsPosition) { var before = textarea.value.slice(0, textarea.selectionStart).split("\n"); position.textContent = "Line " + before.length + ", col " + (before[before.length - 1].length + 1); }
     }
     textarea.addEventListener("input", function () {
-      var check = document.getElementById("check-results");
-      if (check && check.dataset.checked === "true") { check.textContent = "Source changed since the last check. Check again before saving."; check.dataset.checked = "false"; }
       changed();
     });
     textarea.addEventListener("click", changed); textarea.addEventListener("keyup", changed);

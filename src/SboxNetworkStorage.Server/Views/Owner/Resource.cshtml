@@ -92,9 +92,9 @@ else if (isEdit)
     <section class="card definition-panel">
     <div class="section-heading definition-heading">
         <h2>@(Model.IsDraft ? "Create definition" : "Edit definition")</h2>
-        <div class="actions definition-actions"><span id="editor-state" class="muted" role="status">No unsaved changes</span><button type="button" class="secondary" id="builder-check">Check definition</button><button type="submit" form="resource-definition-form">Save live definition</button></div>
+        <div class="actions definition-actions"><span id="editor-state" class="muted" role="status">No unsaved changes</span><button type="button" class="secondary" id="builder-check" hidden>Retry check</button><button type="submit" form="resource-definition-form">Save live definition</button></div>
     </div>
-    <p class="muted" id="definition-help">Build with editable blocks. Open a block to change its options; drag the handle or use the move buttons to reorder. Raw source is always available. Changes stay local until you save.</p>
+    <p class="muted" id="definition-help">Edit the code or YAML below. Source and type checks run automatically as you type. Changes stay local until you save.</p>
     <div id="check-results" aria-live="polite"></div>
     <div class="workbench-tabs" role="tablist" aria-label="Definition editor">
         <button type="button" role="tab" id="edit-tab" aria-controls="definition-guided" aria-selected="true" data-editor-mode="edit">Guided editor</button>
@@ -114,20 +114,24 @@ else if (isEdit)
     <div class="source-heading"><label for="definition">Definition source</label><span class="muted" id="source-position">YAML</span></div>
     <p id="monaco-status" class="notice" role="status" hidden></p>
     <div id="definition-monaco" class="monaco-host" hidden data-typings-url="@(url + "/resources/endpoint-typings")">
-      <div id="definition-yaml" class="monaco-surface monaco-surface-yaml"></div>
       <section id="script-pane" class="script-pane" aria-labelledby="script-pane-title" hidden>
         <div class="script-pane-heading"><h3 id="script-pane-title">Script</h3><span id="script-pane-language"></span></div>
         <p id="script-pane-notice" class="notice script-pane-notice" hidden></p>
         <div id="script-editor" class="monaco-surface monaco-surface-script"></div>
-        <details id="script-docs" class="script-docs">
-          <summary>Script API</summary>
-          <label for="script-docs-filter">Filter the Script API</label>
+        <details id="script-docs" class="script-docs" open>
+          <summary>Request data &amp; API</summary>
+          <p class="muted">Examples go inside <code>handle(req, ns)</code>. <a href="https://github.com/sbox-cool/sbox-network-storage-server/blob/main/docs/endpoints-javascript.md">Full script API guide</a></p>
+          <label for="script-docs-section">Show<select id="script-docs-section"><option value="Request">Request data</option><option value="Script API">Methods &amp; APIs</option><option value="Global endpoints">Shared globals</option><option value="Workflows">YAML workflows</option><option value="">All available</option></select></label>
+          <label for="script-docs-filter">Find a variable or method</label>
           <input type="search" id="script-docs-filter" class="script-docs-filter" autocomplete="off" />
           <p id="script-docs-status" class="muted script-docs-status" role="status" hidden></p>
           <ul id="script-docs-list" class="script-docs-list"></ul>
           <div id="script-docs-detail" class="script-docs-detail" hidden>
             <code id="script-docs-signature"></code>
             <p id="script-docs-text"></p>
+            <p id="script-docs-errors"></p>
+            <p id="script-docs-limits"></p>
+            <div><h4>Example</h4><pre id="script-docs-example"></pre><button type="button" class="secondary" data-copy-previous>Copy example</button></div>
             <button type="button" class="secondary script-docs-insert" id="script-docs-insert" disabled>Insert at cursor</button>
           </div>
           <section class="script-globals" aria-labelledby="script-globals-heading">
@@ -138,6 +142,10 @@ else if (isEdit)
           </section>
         </details>
       </section>
+      <details id="definition-envelope" open>
+        <summary>YAML envelope and full source</summary>
+        <div id="definition-yaml" class="monaco-surface monaco-surface-yaml"></div>
+      </details>
     </div>
     <textarea class="code-editor" id="definition" name="definition" rows="24" required spellcheck="false" autocomplete="off" autocapitalize="off" wrap="off" data-language="yaml" aria-describedby="definition-help definition-sync">@Model.Definition</textarea>
     <p class="muted definition-sync" id="definition-sync">Editor pushes can overwrite dashboard edits. Coordinate changes with your checked-in source.</p>
@@ -148,9 +156,9 @@ else if (isEdit)
     </div></section>
     @if (Model.Kind == "endpoint" && !Model.IsDraft && Model.Id is not null)
     {
-    <section class="card try-it" id="try-it" aria-labelledby="try-it-title" data-try-url="@(url + "/tests/try")" data-endpoint="@Model.Id">
+    <section class="card try-it" id="try-it" aria-labelledby="try-it-title" data-try-url="@(url + "/tests/try")" data-settings-url="@(url + "/settings")" data-endpoint="@Model.Id">
       <div class="section-heading"><h2 id="try-it-title">Try it</h2></div>
-      <p class="muted" id="try-it-help">Runs the saved definition as a dry run. Nothing is written and no webhooks are sent. Press Ctrl or Cmd with Enter in the input to run.</p>
+      <p class="muted" id="try-it-help">Runs the saved definition. Record writes are previewed and webhooks are skipped; ns.fetch calls are real. Press Ctrl or Cmd with Enter in the input to run.</p>
       <div class="try-it-fields">
         <label>Input (JSON object)<textarea id="try-it-input" rows="6" spellcheck="false" aria-describedby="try-it-help">{}</textarea></label>
         <label>Player Steam ID<input id="try-it-steam" inputmode="numeric" autocomplete="off" placeholder="Default test player" /></label>
@@ -219,6 +227,7 @@ else if (isCode)
 <script src="/owner-assets/builder-catalog.js" defer></script>
 <script src="/owner-assets/script-block.js" defer></script>
 <script src="/owner-assets/script-docs.js" defer></script>
+<script src="/owner-assets/script-language.js" defer></script>
 <script src="/owner-assets/script-editor.js" defer></script>
 <script src="/owner-assets/endpoint-try.js" defer></script>
 }

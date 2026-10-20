@@ -10,6 +10,7 @@
   var result = document.getElementById("try-it-result");
   var url = root.getAttribute("data-try-url");
   var endpoint = root.getAttribute("data-endpoint");
+  var settingsUrl = root.getAttribute("data-settings-url");
 
   function token() {
     var field = document.querySelector("input[name=__RequestVerificationToken]");
@@ -36,9 +37,40 @@
     return JSON.stringify(value === undefined ? null : value, null, 2);
   }
 
+  function blockedCall(step) {
+    var call = step.result;
+    if (step.type !== "fetch" || !call || call.error !== "FETCH_BLOCKED") return;
+    var notice = element("div", null, "notice");
+    notice.appendChild(element("p", "Endpoint " + endpoint + " blocked " + call.host + " (" + call.reason + ")."));
+    if (call.reason === "host_not_allowed" && settingsUrl && /^[a-z0-9.-]+$/i.test(call.host)) {
+      var form = element("form");
+      form.method = "post";
+      form.action = settingsUrl;
+      [
+        ["__RequestVerificationToken", token()],
+        ["tab", "fetch-allow-host"],
+        ["host", call.host]
+      ].forEach(function (field) {
+        var input = element("input");
+        input.type = "hidden";
+        input.name = field[0];
+        input.value = field[1];
+        form.appendChild(input);
+      });
+      var allow = element("button", "Allow this host");
+      allow.type = "submit";
+      form.appendChild(allow);
+      notice.appendChild(form);
+      notice.appendChild(element("p", "Adds this exact host to the project's allow-list. Operator-level address restrictions still apply.", "muted"));
+    } else {
+      notice.appendChild(element("p", "This refusal cannot be overridden by the project's host allow-list.", "muted"));
+    }
+    result.appendChild(notice);
+  }
+
   function render(body) {
     clear();
-    var verdict = body.passed ? "Passed" : "Failed";
+    var verdict = body.result && body.result.ok ? "Succeeded" : "Failed";
     var status = body.result && body.result.status !== undefined ? body.result.status : "unknown";
     var total = body.timing && body.timing.total !== undefined ? body.timing.total : "?";
     result.appendChild(element("p", verdict + ". HTTP status " + status + ", " + total + " ms.", "try-it-verdict"));
@@ -47,6 +79,7 @@
     if (failure) result.appendChild(element("p", "Error " + failure.code + ": " + failure.message, "notice"));
 
     var steps = Array.isArray(body.steps) ? body.steps : [];
+    steps.forEach(blockedCall);
     if (steps.length) {
       result.appendChild(element("h3", "Steps"));
       var list = element("ol", null, "try-it-steps");
@@ -85,6 +118,7 @@
   }
 
   function submit() {
+    if (run.disabled) return;
     var parsed;
     try {
       parsed = JSON.parse(input.value.trim() || "{}");

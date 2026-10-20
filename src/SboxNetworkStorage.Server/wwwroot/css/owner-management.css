@@ -346,10 +346,10 @@ dialog.owner-dialog::backdrop { background: var(--scrim); }
 .owner-dialog-actions { display: flex; justify-content: flex-end; gap: .5rem; flex-wrap: wrap; margin-top: 1.25rem; }
 /* Toast notifications (rendered by _Layout from TempData flashes, dismissed by owner-toast.js). */
 .toasts { position: fixed; right: 1rem; bottom: 1rem; z-index: 60; display: flex; flex-direction: column; gap: .5rem; width: min(420px, calc(100vw - 2rem)); }
-.toast { display: flex; align-items: flex-start; gap: .75rem; padding: .75rem 1rem; border: 0; border-radius: var(--radius); background: var(--bg-raised); box-shadow: var(--shadow); }
-.toast[data-kind="success"] { box-shadow: var(--shadow), inset 2px 0 0 var(--success); }
-.toast[data-kind="info"] { box-shadow: var(--shadow), inset 2px 0 0 var(--info); }
-.toast[data-kind="danger"] { box-shadow: var(--shadow), inset 2px 0 0 var(--danger); }
+.toast { display: flex; align-items: flex-start; gap: .75rem; padding: .75rem 1rem; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg-raised); box-shadow: var(--shadow); }
+.toast[data-kind="success"] { border-color: var(--success); }
+.toast[data-kind="info"] { border-color: var(--info); }
+.toast[data-kind="danger"] { border-color: var(--danger); }
 .toast > output { flex: 1 1 auto; }
 .toast > button { flex: none; font-size: .8rem; }
 /* Project hub: each card is a single link. */

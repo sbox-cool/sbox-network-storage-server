@@ -161,7 +161,8 @@ public sealed partial class EndpointExecutor
 
         // The allow-list is read once per request, after admission. Every pass of this request shares one fetch
         // session, so a call that an earlier pass sent is answered from its stored result, never sent again.
-        var fetch = new ScriptFetchSession(await _dataSource.GetEndpointFetchPolicyAsync(inv.ProjectId, ct), _fetchTransport);
+        var fetch = new ScriptFetchSession(await _dataSource.GetEndpointFetchPolicyAsync(inv.ProjectId, ct), _fetchTransport,
+            captureTrace: inv.Trace is not null);
 
         // The first pass runs without record locks. A preview, a failed run, or a run that writes nothing answers from
         // it; only a live run that stages writes goes on to commit under the locks.

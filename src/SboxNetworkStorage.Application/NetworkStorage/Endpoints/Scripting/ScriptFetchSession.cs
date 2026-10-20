@@ -22,7 +22,7 @@ public sealed record ScriptFetchTraceEntry(int Ordinal, string Host, string Meth
 /// call is identified by its ordinal within the run plus its request, so a re-run gets the same result without
 /// a second request.
 /// </summary>
-public sealed class ScriptFetchSession(EndpointFetchPolicy policy, IScriptFetchTransport transport)
+public sealed class ScriptFetchSession(EndpointFetchPolicy policy, IScriptFetchTransport transport, bool captureTrace = false)
 {
     /// <summary>Outbound requests one execution may make. Refused and cached calls do not count.</summary>
     public const int MaxRequestsPerExecution = 5;
@@ -54,7 +54,7 @@ public sealed class ScriptFetchSession(EndpointFetchPolicy policy, IScriptFetchT
 
     private readonly Dictionary<string, ScriptFetchResult> _completed = new(StringComparer.Ordinal);
     private readonly List<PendingCall> _pending = [];
-    private readonly SortedDictionary<int, ScriptFetchTraceEntry> _trace = new();
+    private readonly SortedDictionary<int, ScriptFetchTraceEntry>? _trace = captureTrace ? new() : null;
     private readonly List<EndpointFetchBlockedCall> _blocked = [];
     private int _ordinal;
 
@@ -67,15 +67,20 @@ public sealed class ScriptFetchSession(EndpointFetchPolicy policy, IScriptFetchT
     public IReadOnlyList<EndpointFetchBlockedCall> Blocked => _blocked;
 
     /// <summary>Fetch calls in ordinal order, for the endpoint trace. The first 64 calls are kept.</summary>
-    public IReadOnlyList<ScriptFetchTraceEntry> Trace => _trace.Values.ToList();
+    public IReadOnlyList<ScriptFetchTraceEntry> Trace => _trace?.Values.ToList() ?? [];
 
-    /// <summary>Starts a new run. Ordinals restart so a re-run lines up with the calls it made before.</summary>
-    public void BeginRound() => _ordinal = 0;
+    /// <summary>Starts a new run. Only this round's resolved calls belong in its diagnostics.</summary>
+    public void BeginRound()
+    {
+        _ordinal = 0;
+        _trace?.Clear();
+        _blocked.Clear();
+    }
 
     /// <summary>Discards calls built before the current round's state was resolved; they must never be sent.</summary>
     public void DiscardPending()
     {
-        foreach (var call in _pending) _trace.Remove(call.Ordinal);
+        _trace?.Clear();
         _pending.Clear();
         _blocked.Clear();
     }
@@ -91,12 +96,15 @@ public sealed class ScriptFetchSession(EndpointFetchPolicy policy, IScriptFetchT
         }
         catch (ScriptFetchException error)
         {
-            SetTrace(new ScriptFetchTraceEntry(ordinal, string.Empty, string.Empty, null, error.Code, null));
+            SetTrace(ordinal, string.Empty, string.Empty, null, error.Code, null);
             throw;
         }
 
         if (_completed.TryGetValue(call.Key, out var done))
+        {
+            SetCompletedTrace(call, done);
             return Deliver(done);
+        }
 
         if (FetchHostRules.TryGetIpLiteral(call.Host, out var literal)
             && FetchAddressRules.BlockedReason(literal, transport.AllowPrivateNetworks) is { } addressReason)
@@ -107,12 +115,12 @@ public sealed class ScriptFetchSession(EndpointFetchPolicy policy, IScriptFetchT
 
         if (_completed.Count + _pending.Count >= MaxRequestsPerExecution)
         {
-            SetTrace(new ScriptFetchTraceEntry(ordinal, call.Host, call.Request.Method, null, "FETCH_LIMIT_EXCEEDED", null));
+            SetTrace(ordinal, call.Host, call.Request.Method, null, "FETCH_LIMIT_EXCEEDED", null);
             throw new ScriptFetchException("FETCH_LIMIT_EXCEEDED", LimitMessage);
         }
 
         _pending.Add(call);
-        SetTrace(new ScriptFetchTraceEntry(ordinal, call.Host, call.Request.Method, null, null, null));
+        SetTrace(ordinal, call.Host, call.Request.Method, null, null, null);
         return null;
     }
 
@@ -131,16 +139,7 @@ public sealed class ScriptFetchSession(EndpointFetchPolicy policy, IScriptFetchT
             var call = calls[i];
             var result = results[i];
             _completed[call.Key] = result;
-            if (result.Failure is { } failure)
-            {
-                if (failure.Code == "FETCH_BLOCKED")
-                    RecordBlocked(failure.Host, failure.Reason);
-                SetTrace(new ScriptFetchTraceEntry(call.Ordinal, call.Host, call.Request.Method, null, failure.Code, failure.Reason));
-            }
-            else
-            {
-                SetTrace(new ScriptFetchTraceEntry(call.Ordinal, call.Host, call.Request.Method, result.Response!.Status, null, null));
-            }
+            SetCompletedTrace(call, result);
         }
     }
 
@@ -156,7 +155,7 @@ public sealed class ScriptFetchSession(EndpointFetchPolicy policy, IScriptFetchT
     private ScriptFetchException Refuse(PendingCall call, string reason)
     {
         RecordBlocked(call.Host, reason);
-        SetTrace(new ScriptFetchTraceEntry(call.Ordinal, call.Host, call.Request.Method, null, "FETCH_BLOCKED", reason));
+        SetTrace(call.Ordinal, call.Host, call.Request.Method, null, "FETCH_BLOCKED", reason);
         return new ScriptFetchException("FETCH_BLOCKED", BlockedMessage(call.Host, reason));
     }
 
@@ -166,10 +165,24 @@ public sealed class ScriptFetchSession(EndpointFetchPolicy policy, IScriptFetchT
             _blocked.Add(new EndpointFetchBlockedCall(host, reason));
     }
 
-    private void SetTrace(ScriptFetchTraceEntry entry)
+    private void SetCompletedTrace(PendingCall call, ScriptFetchResult result)
     {
-        if (_trace.ContainsKey(entry.Ordinal) || _trace.Count < MaxTraceEntries)
-            _trace[entry.Ordinal] = entry;
+        if (result.Failure is { } failure)
+        {
+            if (failure.Code == "FETCH_BLOCKED")
+                RecordBlocked(failure.Host, failure.Reason);
+            SetTrace(call.Ordinal, failure.Host, call.Request.Method, null, failure.Code, failure.Reason);
+        }
+        else
+        {
+            SetTrace(call.Ordinal, call.Host, call.Request.Method, result.Response!.Status, null, null);
+        }
+    }
+
+    private void SetTrace(int ordinal, string host, string method, int? status, string? error, string? reason)
+    {
+        if (_trace is not null && (_trace.ContainsKey(ordinal) || _trace.Count < MaxTraceEntries))
+            _trace[ordinal] = new ScriptFetchTraceEntry(ordinal, host, method, status, error, reason);
     }
 
     private static PendingCall Parse(int ordinal, string url, JsonElement options)

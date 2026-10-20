@@ -81,6 +81,50 @@ public sealed class NsFetchScriptedTests
         Assert.Equal("host_not_allowed", blocked.Reason);
     }
 
+    [Fact]
+    public async Task Fetch_ProvisionalBlockedBranches_DoNotAppearInTheFinalTrace()
+    {
+        var transport = new FakeFetchTransport();
+        var executor = Executor("""
+            export default function handle(req, ns) {
+              const player = ns.records.get("players", req.player.steamId);
+              if (!player) {
+                try { ns.fetch("https://discarded.example.net/first"); } catch {}
+                try { ns.fetch("https://discarded.example.net/second"); } catch {}
+              }
+              return { coins: player ? player.coins : 0 };
+            }
+            """, transport, Hosts("api.example.com"), records: PlayerRecord(250d));
+        var trace = new EndpointDryRunTrace();
+
+        var result = await Run(executor, trace: trace);
+
+        Assert.True(result.Ok, result.OwnerDetail);
+        Assert.Equal(250, JsonSerializer.SerializeToElement(result.Body).GetProperty("coins").GetInt32());
+        Assert.Empty(trace.Steps.Where(step => step.Type == "fetch"));
+        Assert.Empty(result.FetchBlocked!);
+        Assert.Empty(transport.Requests);
+    }
+
+    [Fact]
+    public async Task Fetch_RedirectRefusal_TraceNamesTheBlockedHop()
+    {
+        var transport = new FakeFetchTransport(_ => ScriptFetchResult.Fail(
+            new ScriptFetchFailure("FETCH_BLOCKED", "host_not_allowed", "redirect.example.net")));
+        var executor = Executor(CatchCode("ns.fetch('https://api.example.com/start')"), transport, Hosts("api.example.com"));
+        var trace = new EndpointDryRunTrace();
+
+        var result = await Run(executor, trace: trace);
+
+        Assert.True(result.Ok, result.OwnerDetail);
+        var step = Assert.Single(trace.Steps, step => step.Type == "fetch");
+        Assert.False(step.Passed);
+        var details = JsonSerializer.SerializeToElement(step.Result);
+        Assert.Equal("redirect.example.net", details.GetProperty("host").GetString());
+        Assert.Equal("FETCH_BLOCKED", details.GetProperty("error").GetString());
+        Assert.Equal("host_not_allowed", details.GetProperty("reason").GetString());
+    }
+
     [Theory]
     [InlineData("http://10.0.0.1/admin", "10.0.0.1", "private_address")]
     [InlineData("http://169.254.169.254/latest/meta-data", "169.254.169.254", "metadata_address")]

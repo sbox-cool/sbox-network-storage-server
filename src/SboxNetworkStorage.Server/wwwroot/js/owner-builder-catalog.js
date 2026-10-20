@@ -146,10 +146,21 @@
     if (!button || !results) return;
     results.setAttribute("role", "status");
     results.setAttribute("aria-live", "polite");
-    button.addEventListener("click", function () {
-      if (window.OwnerBlockEditor && !document.getElementById("definition-guided").hidden && !window.OwnerBlockEditor.validate()) return;
+    var timer;
+    var active;
+    var generation = 0;
+
+    function check() {
+      clearTimeout(timer);
+      if (active) active.abort();
+      var request = ++generation;
+      active = new AbortController();
       button.disabled = true;
-      results.textContent = "Checking...";
+      button.hidden = true;
+      results.dataset.checked = "false";
+      results.setAttribute("aria-busy", "true");
+      textarea.removeAttribute("aria-invalid");
+      results.textContent = "Checking definition...";
       var checkedDefinition = textarea.value;
       var form = new FormData();
       form.append("definition", checkedDefinition);
@@ -158,33 +169,53 @@
       fetch(projectRoot + "/" + kind + "/check", {
         method: "POST",
         headers: { RequestVerificationToken: token() },
-        body: new URLSearchParams(form)
+        body: new URLSearchParams(form),
+        signal: active.signal
       }).then(readResponse).then(function (result) {
-        button.disabled = false;
+        if (request !== generation || textarea.value !== checkedDefinition) return;
         if (typeof result.ok !== "boolean" || !Array.isArray(result.diagnostics))
           throw new Error("Invalid check response");
         results.textContent = "";
         results.dataset.checked = "true";
-        if (textarea.value !== checkedDefinition) {
-          results.textContent = "The definition changed during the check. Check again to validate the current text.";
-          return;
-        }
-        var diagnostics = result.diagnostics;
-        results.appendChild(el("p", result.ok ? "notice success" : "notice",
+        if (!result.ok) textarea.setAttribute("aria-invalid", "true");
+        results.appendChild(el("p", result.ok ? "muted" : "notice",
           result.ok
-            ? "Validation passed for this text. Nothing was saved or executed. Runtime behavior has not been tested."
-            : "Validation failed. Fix the errors and check again. Nothing was saved or executed."));
-        if (diagnostics.length === 0) return;
-        var list = el("ul", null);
-        diagnostics.forEach(function (item) {
-          list.appendChild(el("li", null, (item.isError ? "Error " : "Warning ") + item.code + " at " + item.path + ": " + item.message));
-        });
-        results.appendChild(list);
-      }).catch(function () {
-        button.disabled = false;
-        results.textContent = "Could not check the definition. Try Check definition again. Nothing was saved or executed.";
+            ? "Source checked automatically. See the editor for live type diagnostics. Nothing was saved or executed."
+            : "Definition errors found. Fix the messages below. Nothing was saved or executed."));
+        if (result.diagnostics.length) {
+          var list = el("ul", null);
+          result.diagnostics.forEach(function (item) {
+            list.appendChild(el("li", null, (item.isError ? "Error " : "Warning ") + item.code + " at " + item.path + ": " + item.message));
+          });
+          results.appendChild(list);
+        }
+      }).catch(function (error) {
+        if (request !== generation || error.name === "AbortError") return;
+        results.textContent = "Automatic source checking is unavailable. Retry the check; saving still runs server validation.";
+        button.hidden = false;
+      }).finally(function () {
+        if (request === generation) {
+          active = null;
+          button.disabled = false;
+          results.setAttribute("aria-busy", "false");
+        }
       });
+    }
+
+    button.addEventListener("click", check);
+    textarea.addEventListener("input", function () {
+      clearTimeout(timer);
+      ++generation;
+      if (active) { active.abort(); active = null; }
+      button.disabled = false;
+      button.hidden = true;
+      results.dataset.checked = "false";
+      results.setAttribute("aria-busy", "true");
+      results.textContent = "Source changed. Checking automatically...";
+      textarea.removeAttribute("aria-invalid");
+      timer = setTimeout(check, 450);
     });
+    check();
   }
 
   var gallery = document.getElementById("example-gallery");

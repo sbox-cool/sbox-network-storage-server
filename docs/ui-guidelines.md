@@ -96,6 +96,13 @@ better. The full table is in `docs/proposals/ui-redesign/DESIGN.md`.
 panels and tiles, 12px menus, 14px dialogs, 18px top corners of mobile bottom
 sheets, pill for status tags, avatar, switches and toasts.
 
+A rounded element is outlined on all four sides or on none. No left rail, no
+inset side shadow and no single underline on a box with rounded corners: that
+is the generic callout look. State goes in the border color of a full outline
+plus a word. One-edge treatments belong only to flat elements (tabs, table
+rows, section dividers) with `border-radius: 0`. `OwnerCssShapeGuardTests`
+scans `wwwroot/css` and fails the build on a violation.
+
 ## Type
 
 System UI stack; `ui-monospace` for IDs, keys, commands, code and JSON. Sizes:
@@ -172,7 +179,8 @@ JS in `wwwroot/js`. No CDN dependencies: the console works offline on a LAN.
 
 1. `rg -n '—|–' src/SboxNetworkStorage.Server/Views src/SboxNetworkStorage.Server/Owner/*.cs`
    is empty. Controller messages are visible text too.
-2. No `text-transform: uppercase`, one-side accent rails, `linear-gradient`
+2. No `text-transform: uppercase`, one-side accent rails or single-edge shadows
+   on rounded elements, `linear-gradient`
    (outside the brand artwork itself), `box-shadow` beyond overlay depth, raw
    hex outside theme token blocks, or `--accent-2`/purple references in
    `wwwroot/css`. Links, current nav icons and code strings use

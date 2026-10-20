@@ -183,16 +183,8 @@
     var raw = document.getElementById("definition-raw");
     var textarea = document.getElementById("definition");
     if (!raw || !textarea || !textarea.form) return;
-    if (!("IntersectionObserver" in window)) {
-      start();
-      return;
-    }
-    var observer = new IntersectionObserver(function (entries) {
-      if (!entries.some(function (entry) { return entry.isIntersecting; })) return;
-      observer.disconnect();
-      start();
-    });
-    observer.observe(raw);
+    // The code editor is the default view, so it loads at once instead of waiting for the panel to scroll into view.
+    start();
   }
 
   function mount(monaco, typings, host) {
@@ -202,6 +194,7 @@
     var textarea = document.getElementById("definition");
     var raw = document.getElementById("definition-raw");
     var yamlHost = document.getElementById("definition-yaml");
+    var envelope = document.getElementById("definition-envelope");
     var pane = document.getElementById("script-pane");
     var scriptHost = document.getElementById("script-editor");
     var notice = document.getElementById("script-pane-notice");
@@ -209,11 +202,15 @@
     var position = document.getElementById("source-position");
     var checks = document.getElementById("check-results");
     var docsFilter = document.getElementById("script-docs-filter");
+    var docsSection = document.getElementById("script-docs-section");
     var docsStatus = document.getElementById("script-docs-status");
     var docsList = document.getElementById("script-docs-list");
     var docsDetail = document.getElementById("script-docs-detail");
     var docsSignature = document.getElementById("script-docs-signature");
     var docsText = document.getElementById("script-docs-text");
+    var docsErrors = document.getElementById("script-docs-errors");
+    var docsLimits = document.getElementById("script-docs-limits");
+    var docsExample = document.getElementById("script-docs-example");
     var insertButton = document.getElementById("script-docs-insert");
     var globalsStatus = document.getElementById("script-globals-status");
     var globalsList = document.getElementById("script-globals-list");
@@ -226,6 +223,8 @@
     var scriptHasBlock = false;
     var selectedDoc = null;
     var docEntries = typings === null ? null : OwnerScriptDocs.entries(OwnerScriptDocs.parse(typings));
+    var inputDocEntries = [];
+    var inputFieldKey = null;
 
     // Unhidden before creation so Monaco measures fonts in a laid-out container.
     host.hidden = false;
@@ -265,6 +264,7 @@
           run: function (ed) { ed.trigger("keyboard", "editor.action.toggleTabFocusMode", null); }
         });
       });
+      OwnerScriptLanguage.install(monaco, scriptEditor);
       setupDocs();
 
       function withApplying(change) {
@@ -392,6 +392,11 @@
       // Shows or hides the script pane from the YAML and copies the script block into the script model.
       function syncScript(text) {
         var runtime = OwnerScriptBlock.runtimeOf(text);
+        var wasScript = host.classList.contains("has-script");
+        if (envelope) {
+          envelope.querySelector("summary").hidden = !runtime;
+          if (!runtime || !wasScript) envelope.open = !runtime;
+        }
         host.classList.toggle("has-script", !!runtime);
         pane.hidden = !runtime;
         if (!runtime) return;
@@ -510,11 +515,16 @@
         checkJs: true,
         noEmit: true,
         target: languages.ScriptTarget.ES2020,
+        noImplicitReturns: true,
+        allowUnreachableCode: false,
         module: languages.ModuleKind.ESNext
       };
       [languages.javascriptDefaults, languages.typescriptDefaults].forEach(function (defaults) {
         defaults.setCompilerOptions(options);
-        defaults.setDiagnosticsOptions({ noSemanticValidation: false, noSyntaxValidation: false });
+        defaults.setDiagnosticsOptions({ noSemanticValidation: true, noSyntaxValidation: true, noSuggestionDiagnostics: true });
+        defaults.setModeConfiguration(Object.assign({}, defaults.modeConfiguration, {
+          completionItems: false, hovers: false, signatureHelp: false
+        }));
         defaults.addExtraLib(text, "file:///owner/endpoint-api.d.ts");
         defaults.addExtraLib(AMBIENT_MODULES, "file:///owner/globals.d.ts");
       });
@@ -527,7 +537,25 @@
         docsStatus.hidden = false;
         return;
       }
-      docsFilter.addEventListener("input", renderDocs);
+      docsFilter.addEventListener("input", function () {
+        if (docsFilter.value.trim() && docsSection) docsSection.value = "";
+        selectedDoc = null;
+        docsDetail.hidden = true;
+        renderDocs();
+      });
+      if (docsSection) docsSection.addEventListener("change", function () {
+        selectedDoc = null;
+        docsDetail.hidden = true;
+        renderDocs();
+      });
+      var inputTimer;
+      function scheduleInputs() {
+        clearTimeout(inputTimer);
+        inputTimer = setTimeout(refreshInputFields, 200);
+      }
+      textarea.addEventListener("input", scheduleInputs);
+      var sample = document.getElementById("try-it-input");
+      if (sample) sample.addEventListener("input", scheduleInputs);
       insertButton.addEventListener("click", function () {
         if (!selectedDoc || !scriptHasBlock) return;
         var editor = scriptEditor;
@@ -538,7 +566,7 @@
         }]);
         editor.focus();
       });
-      renderDocs();
+      refreshInputFields();
       setupGlobals();
     }
 
@@ -671,8 +699,49 @@
       });
     }
 
+    function refreshInputFields() {
+      var names = new Set();
+      try {
+        var definition = OwnerDefinitionModel.parse(textarea.value);
+        ["input", "params"].forEach(function (key) {
+          var path = definition.has([key, "properties"]) ? [key, "properties"] : [key];
+          try { definition.entries(path).forEach(function (field) { names.add(String(field.key)); }); } catch (_) {}
+        });
+      } catch (_) { /* Incomplete YAML is reported by the automatic source check. */ }
+      var sample = document.getElementById("try-it-input");
+      if (sample) {
+        try {
+          var input = JSON.parse(sample.value);
+          if (input && typeof input === "object" && !Array.isArray(input))
+            Object.keys(input).forEach(function (name) { names.add(name); });
+        } catch (_) { /* Try it reports invalid sample JSON; keep the declared input fields. */ }
+      }
+      var fields = Array.from(names).slice(0, 64);
+      var key = JSON.stringify(fields);
+      if (key === inputFieldKey) return;
+      inputFieldKey = key;
+      inputDocEntries = fields.map(function (name) {
+        var path = "req.input" + (/^[A-Za-z_$][\w$]*$/.test(name) ? "." + name : "[" + JSON.stringify(name) + "]");
+        return {
+          path: path, name: name, kind: "property", group: "Request", isInput: true,
+          signature: path + ": unknown", insert: path,
+          doc: "User-supplied input from the definition or Try it sample. Validate it before use; it is not a verified identity.",
+          example: "const value = " + path + ";", errors: "", limits: ""
+        };
+      });
+      if (selectedDoc && selectedDoc.isInput) {
+        selectedDoc = inputDocEntries.find(function (entry) { return entry.path === selectedDoc.path; }) || null;
+        if (!selectedDoc) docsDetail.hidden = true;
+      }
+      renderDocs();
+    }
+
     function renderDocs() {
-      var items = OwnerScriptDocs.filter(docEntries, docsFilter.value);
+      var section = docsSection ? docsSection.value : "";
+      var items = OwnerScriptDocs.filter(docEntries.concat(inputDocEntries), docsFilter.value).filter(function (entry) {
+        return !section || entry.group === section;
+      });
+      if (globalsList) globalsList.parentElement.hidden = section !== "" && section !== "Global endpoints";
       docsList.replaceChildren();
       items.forEach(function (entry) {
         var item = document.createElement("li");
@@ -693,6 +762,9 @@
       selectedDoc = entry;
       docsSignature.textContent = entry.signature;
       docsText.textContent = entry.doc || "No description.";
+      docsErrors.textContent = "Errors: " + (entry.errors || "No API-specific errors; runtime failures still apply.");
+      docsLimits.textContent = "Limits: " + (entry.limits || "The endpoint's execution and data budgets apply.");
+      docsExample.textContent = entry.example || entry.insert;
       docsDetail.hidden = false;
       insertButton.disabled = !scriptHasBlock;
       renderDocs();

@@ -5,16 +5,30 @@
 
 /** The request object: the first argument of `export default function handle(req, ns)`. */
 interface EndpointRequest {
-  /** Endpoint input: the query string for GET, the JSON body for POST. */
+  /**
+   * Endpoint input: the query string for GET, the JSON body for POST.
+   * @example const userKey = req.input.userKey; // User-supplied: validate before use.
+   */
   input: Record<string, unknown>;
-  /** The server-verified player, or null when anonymous or called with a secret key. */
-  player: { steamId: string } | null;
+  /**
+   * The server-verified player, or null when anonymous or called with a secret key.
+   * @example if (!req.player) ns.fail("PLAYER_REQUIRED", "Sign in first.", 401);
+   */
+  player: EndpointPlayer | null;
   /** HTTP method. */
   method: "GET" | "POST";
   /** Endpoint slug. */
   endpoint: string;
   /** The game client's revision id, or null when the client sent none. */
   revision: string | null;
+}
+
+interface EndpointPlayer {
+  /**
+   * The authenticated player's Steam ID. Never take this identity from untrusted input.
+   * @example const steamId = req.player?.steamId; // Server-verified, or undefined when no player.
+   */
+  steamId: string;
 }
 
 /** A stored record: a JSON object. */
@@ -36,23 +50,53 @@ interface WorkflowAliases {}
 interface GlobalModules {}
 
 interface NsRecords {
-  /** Reads a record. Returns null when it does not exist. */
+  /**
+   * Reads a record. Returns null when it does not exist.
+   * @example if (!req.player) ns.fail("PLAYER_REQUIRED", "Sign in first.", 401);
+   * const player = ns.records.get("players", req.player.steamId);
+   * @limits Counts toward the request's data-read budget.
+   */
   get(collection: CollectionId, key: string): RecordData | null;
-  /** Writes a record. */
+  /**
+   * Stages a record write. Writes commit only when the endpoint succeeds.
+   * @example if (!req.player) ns.fail("PLAYER_REQUIRED", "Sign in first.", 401);
+   * ns.records.put("players", req.player.steamId, { coins: 10 });
+   * @throws Schema, access or version checks can refuse the write.
+   * @limits Staged writes and their serialized size share the request's write budgets.
+   */
   put(collection: CollectionId, key: string, data: RecordData): void;
-  /** Deletes a record. */
+  /**
+   * Stages a record deletion. Nothing is deleted if the endpoint fails.
+   * @example if (!req.player) ns.fail("PLAYER_REQUIRED", "Sign in first.", 401);
+   * ns.records.delete("players", req.player.steamId);
+   * @throws Collection access rules can refuse the deletion.
+   * @limits Shares the request's staged-write budget.
+   */
   delete(collection: CollectionId, key: string): void;
-  /** Lists the records of a collection. */
+  /**
+   * Lists the records of a collection.
+   * @example const players = ns.records.list("players");
+   * @throws SCAN_TOO_LARGE when the collection exceeds the server's scan cap.
+   * @limits The server refuses an over-cap scan rather than returning a partial collection.
+   */
   list(collection: CollectionId): RecordData[];
 }
 
 interface NsValues {
-  /** Reads a game value by dotted path: "group" or "group.key". Returns null when absent. */
+  /**
+   * Reads a game value by dotted path: "group" or "group.key". Returns null when absent.
+   * @example const startingCoins = ns.values.get("rules.starting_coins");
+   */
   get(path: GameValuePath): unknown;
 }
 
 interface NsWorkflows {
-  /** Runs a workflow of this project and returns its result. Its writes apply only if it succeeds. */
+  /**
+   * Runs a workflow of this project and returns its result. Its writes apply only if it succeeds.
+   * @example const reward = ns.workflows.run("daily-reward", { amount: 10 });
+   * @throws Workflow errors end this call; missing workflows are not silently created.
+   * @limits Shares the calling endpoint's execution, workflow and storage budgets.
+   */
   run(workflowId: string, input: Record<string, unknown>): unknown;
 }
 
@@ -61,6 +105,9 @@ interface NsSecrets {
   /**
    * The value of a project secret, or null when no secret has that name. Names are case-sensitive. A secret that
    * exists but cannot be decrypted fails the run with SECRET_UNAVAILABLE instead of returning null.
+   * @example const token = ns.secrets.get("SERVICE_TOKEN");
+   * @throws SECRET_UNAVAILABLE if a stored value cannot be decrypted.
+   * @limits Names are case-sensitive, at most 64 characters. Never return or persist transformed credentials.
    */
   get(name: string): string | null;
 }
@@ -100,15 +147,31 @@ interface Ns {
   values: NsValues;
   workflows: NsWorkflows;
   secrets: NsSecrets;
-  /** Server time in milliseconds since the Unix epoch. */
+  /**
+   * Server time in milliseconds since the Unix epoch.
+   * @example const now = ns.now();
+   */
   now(): number;
-  /** Writes a value to the server log. */
+  /**
+   * Keeps a structured log value for this invocation. Try it shows the logs; failed live calls include them in owner diagnostics.
+   * @example ns.log({ endpoint: req.endpoint, item: req.input.item });
+   * @limits Logs are bounded by the server's script log-byte limit. Loaded secrets are redacted.
+   */
   log(value: unknown): void;
-  /** Ends the request with an error. The script cannot catch it. */
+  /**
+   * Ends the request with an error. The script cannot catch it.
+   * @example ns.fail("INVALID_AMOUNT", "Amount must be positive.", 400);
+   * @limits Status must be 400-499; the default is 400. Staged writes do not commit.
+   */
   fail(code: string, message: string, status?: number): never;
   /**
    * Outbound HTTP to a host on the project's allow-list. The first run of the handler gets null while the result
    * loads, and the handler re-runs with the response. A refused or failed call throws a FetchError.
+   * @example const response = ns.fetch("https://api.example.com/items", { timeoutMs: 5000 });
+   * if (!response) return null;
+   * return response.json;
+   * @throws FETCH_BLOCKED, FETCH_INVALID_REQUEST, FETCH_LIMIT_EXCEEDED, FETCH_TIMEOUT, FETCH_RESPONSE_TOO_LARGE or FETCH_FAILED.
+   * @limits At most 5 requests per execution; 64 KiB request bodies and 256 KiB responses. Timeout is clamped to 100-10000 ms.
    */
   fetch(url: string, options?: FetchOptions): FetchResponse | null;
 }

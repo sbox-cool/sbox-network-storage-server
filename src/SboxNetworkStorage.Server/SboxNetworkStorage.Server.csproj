@@ -48,6 +48,7 @@
     <EmbeddedResource Include="wwwroot/css/owner-endpoint-page.css" LogicalName="SboxNetworkStorage.Server.Owner.endpoint-page.css" />
     <EmbeddedResource Include="wwwroot/js/owner-script-block.js" LogicalName="SboxNetworkStorage.Server.Owner.script-block.js" />
     <EmbeddedResource Include="wwwroot/js/owner-script-docs.js" LogicalName="SboxNetworkStorage.Server.Owner.script-docs.js" />
+    <EmbeddedResource Include="wwwroot/js/owner-script-language.js" LogicalName="SboxNetworkStorage.Server.Owner.script-language.js" />
     <EmbeddedResource Include="wwwroot/js/owner-endpoint-try.js" LogicalName="SboxNetworkStorage.Server.Owner.endpoint-try.js" />
     <EmbeddedResource Include="wwwroot/js/owner-script-editor.js" LogicalName="SboxNetworkStorage.Server.Owner.script-editor.js" />
     <EmbeddedResource Include="wwwroot/css/owner-script-editor.css" LogicalName="SboxNetworkStorage.Server.Owner.script-editor.css" />

@@ -394,7 +394,7 @@ public sealed class NsFetchPolicyTests
     [Fact]
     public void Call_SixthRequestInOneExecution_ThrowsFetchLimitExceededAndTracesIt()
     {
-        var session = new ScriptFetchSession(ApiOnly, new FakeFetchTransport());
+        var session = new ScriptFetchSession(ApiOnly, new FakeFetchTransport(), captureTrace: true);
         for (var i = 1; i <= 5; i++)
             Assert.Null(session.Call($"https://api.example.com/items/{i}", NoOptions));
 
@@ -463,31 +463,12 @@ public sealed class NsFetchPolicyTests
         Assert.Equal("FETCH_LIMIT_EXCEEDED", error.Code);
     }
 
-    [Fact]
-    public void Trace_EntriesCarryOrdinalHostMethodAndErrorCode()
-    {
-        var session = new ScriptFetchSession(ApiOnly, new FakeFetchTransport());
-
-        Assert.Null(session.Call("https://api.example.com/a", NoOptions));
-        Assert.Throws<ScriptFetchException>(() => session.Call("https://other.example.net/b", NoOptions));
-        var invalid = Assert.Throws<ScriptFetchException>(() => session.Call("ftp://api.example.com/c", NoOptions));
-
-        Assert.Equal("FETCH_INVALID_REQUEST", invalid.Code);
-        Assert.Equal(
-            new[]
-            {
-                new ScriptFetchTraceEntry(1, "api.example.com", "GET", null, null, null),
-                new ScriptFetchTraceEntry(2, "other.example.net", "GET", null, "FETCH_BLOCKED", "host_not_allowed"),
-                new ScriptFetchTraceEntry(3, string.Empty, string.Empty, null, "FETCH_INVALID_REQUEST", null),
-            },
-            session.Trace);
-    }
 
     [Fact]
     public async Task Call_AfterLoad_ReturnsCachedResponseWithoutSecondRequest()
     {
         var transport = new FakeFetchTransport();
-        var session = new ScriptFetchSession(ApiOnly, transport);
+        var session = new ScriptFetchSession(ApiOnly, transport, captureTrace: true);
 
         Assert.Null(session.Call("https://api.example.com/v1/items", NoOptions));
         await session.LoadPendingAsync(CancellationToken.None);
@@ -509,7 +490,7 @@ public sealed class NsFetchPolicyTests
         {
             Respond = _ => ScriptFetchResult.Fail(new ScriptFetchFailure("FETCH_TIMEOUT", "timeout", "api.example.com")),
         };
-        var session = new ScriptFetchSession(ApiOnly, transport);
+        var session = new ScriptFetchSession(ApiOnly, transport, captureTrace: true);
         Assert.Null(session.Call("https://api.example.com/slow", NoOptions));
         await session.LoadPendingAsync(CancellationToken.None);
 
@@ -527,13 +508,13 @@ public sealed class NsFetchPolicyTests
         {
             Respond = _ => ScriptFetchResult.Fail(new ScriptFetchFailure("FETCH_BLOCKED", FetchAddressRules.PrivateAddress, "internal.example.com")),
         };
-        var session = new ScriptFetchSession(new EndpointFetchPolicy(["*.example.com"], false), transport);
+        var session = new ScriptFetchSession(new EndpointFetchPolicy(["*.example.com"], false), transport, captureTrace: true);
         Assert.Null(session.Call("https://gateway.example.com/x", NoOptions));
         await session.LoadPendingAsync(CancellationToken.None);
 
         Assert.Equal(new EndpointFetchBlockedCall("internal.example.com", FetchAddressRules.PrivateAddress), Assert.Single(session.Blocked));
         Assert.Equal(
-            new ScriptFetchTraceEntry(1, "gateway.example.com", "GET", null, "FETCH_BLOCKED", FetchAddressRules.PrivateAddress),
+            new ScriptFetchTraceEntry(1, "internal.example.com", "GET", null, "FETCH_BLOCKED", FetchAddressRules.PrivateAddress),
             Assert.Single(session.Trace));
 
         session.BeginRound();

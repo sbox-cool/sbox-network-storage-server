@@ -16,6 +16,9 @@
 .monaco-surface { overflow: hidden; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--code-bg); }
 .monaco-surface-yaml { height: 60vh; min-height: 320px; }
 .monaco-surface-script { height: 280px; min-height: 220px; }
+.has-script .monaco-surface-script { height: 55vh; min-height: 320px; }
+#definition-envelope > summary { cursor: pointer; padding: .5rem 0; font-weight: 600; }
+#definition-envelope > summary[hidden] { display: none; }
 
 .script-pane { display: grid; gap: .6rem; }
 .script-pane-heading { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: .25rem 1rem; }
@@ -45,6 +48,16 @@
 
 /* Token colour for ns, req, globals and workflows, applied by owner-script-editor.js. Beats Monaco's own token classes. */
 .monaco-editor .view-line .owner-api-token { color: var(--syn-api); }
+.script-pane { grid-template-columns: minmax(0, 1fr) minmax(250px, 320px); align-items: start; }
+.script-pane-heading, .script-pane-notice { grid-column: 1 / -1; }
+.script-docs { min-width: 0; max-height: 65vh; overflow: auto; }
+.script-docs pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.script-globals[hidden], .definition-actions button[hidden] { display: none; }
+
+@media (max-width: 1100px) {
+  .script-pane { grid-template-columns: minmax(0, 1fr); }
+  .script-docs { max-height: none; }
+}
 
 @media (max-width: 760px) {
   .monaco-surface-yaml { height: 50vh; min-height: 260px; }

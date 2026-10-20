@@ -41,6 +41,7 @@ class Node {
   appendChild(node) { this.children.push(node); return node; }
   append(...nodes) { nodes.forEach(node => this.appendChild(node)); }
   setAttribute(name, value) { this.attributes[name] = value; }
+  removeAttribute(name) { delete this.attributes[name]; }
   addEventListener(name, callback) { (this.listeners[name] ||= []).push(callback); }
   dispatchEvent(event) { (this.listeners[event.type] || []).forEach(callback => callback(event)); }
   click() { if (!this.disabled) this.dispatchEvent({ type: "click" }); }
@@ -56,12 +57,14 @@ const catalogResponse = { examples: [example], stepDefaults: { read: { id: "read
 const response = (body, ok = true) => ({ ok, json: async () => body });
 const settle = () => new Promise(resolve => setImmediate(resolve));
 
-function browser(responses, definition = "") {
+function browser(responses, definition = "", checks = []) {
   const nodes = Object.fromEntries(["definition", "example-gallery", "edit-tab",
     "definition-guided", "builder-check", "check-results"].map(id => [id, new Node(id)]));
   nodes.definition.value = definition;
   const requests = [];
   const confirmations = [];
+  const timers = new Map();
+  let nextTimer = 0;
   const context = {
     document: { getElementById: id => nodes[id] || null, createElement: tag => new Node(tag), querySelector: () => null, addEventListener() {}, dispatchEvent() {} },
     window: { location: { pathname: "/dashboard/projects/proj_1/resources/endpoint" },
@@ -69,10 +72,14 @@ function browser(responses, definition = "") {
     confirmReplacement: false,
     Event: class { constructor(type) { this.type = type; } },
     CustomEvent: class { constructor(type, options) { this.type = type; this.detail = options?.detail; } },
-    FormData, URLSearchParams,
+    FormData, URLSearchParams, AbortController,
+    setTimeout: callback => { const id = ++nextTimer; timers.set(id, callback); return id; },
+    clearTimeout: id => timers.delete(id),
     fetch: (url, options) => {
       requests.push({ url, options });
-      const next = responses.shift();
+      const next = url.endsWith("/check")
+        ? (checks.length ? checks.shift() : response({ ok: true, diagnostics: [] }))
+        : responses.shift();
       if (next instanceof Error) return Promise.reject(next);
       return Promise.resolve(next);
     }
@@ -86,6 +93,7 @@ function browser(responses, definition = "") {
     }
   }
   return { nodes, requests, confirmations, context,
+    flushChecks: () => { const pending = [...timers.values()]; timers.clear(); pending.forEach(callback => callback()); },
     button: label => find(nodes["example-gallery"], node => node.tagName === "button" && node.textContent === label),
     feedback: () => find(nodes["example-gallery"], node => node.attributes.role === "status") };
 }
@@ -157,36 +165,40 @@ describe("definition check browser behavior", () => {
   it("never reports non-OK or malformed JSON responses as valid", async () => {
     for (const failure of [response({ ok: true, diagnostics: [] }, false), response({}),
       new Error("offline"), { ok: true, json: async () => { throw new Error("not JSON"); } }]) {
-      const ui = browser([response(catalogResponse), failure]);
+      const ui = browser([response(catalogResponse)], "", [failure]);
       await settle();
-      ui.nodes["builder-check"].click();
-      await settle();
-      assert.match(ui.nodes["check-results"].textContent, /Could not check/);
+      assert.equal(ui.nodes["check-results"].dataset.checked, "false");
+      assert.equal(ui.nodes["builder-check"].hidden, false);
       assert.equal(ui.nodes["builder-check"].disabled, false);
     }
   });
 
 
-  it("honors ok false and renders server diagnostics", async () => {
-    const ui = browser([response(catalogResponse), response({ ok: false,
+  it("marks a server-refused definition invalid for assistive technology", async () => {
+    const ui = browser([response(catalogResponse)], "", [response({ ok: false,
       diagnostics: [{ isError: true, code: "INVALID_DEFINITION", path: "/", message: "Missing method" }] })]);
     await settle();
-    ui.nodes["builder-check"].click();
-    await settle();
-    assert.match(ui.nodes["check-results"].textContent, /Validation failed/);
-    assert.match(ui.nodes["check-results"].textContent, /Missing method/);
+    assert.equal(ui.nodes.definition.attributes["aria-invalid"], "true");
+    assert.equal(ui.nodes["check-results"].attributes["aria-busy"], "false");
   });
 
   it("does not report an earlier text snapshot as current validation", async () => {
     let finish;
     const pending = new Promise(resolve => { finish = resolve; });
-    const ui = browser([response(catalogResponse), pending], "method: GET");
+    const ui = browser([response(catalogResponse)], "method: GET", [pending, response({ ok: false, diagnostics: [] })]);
     await settle();
-    ui.nodes["builder-check"].click();
     ui.nodes.definition.value = "method: POST";
+    ui.nodes.definition.dispatchEvent({ type: "input" });
+    ui.nodes.definition.value = "method: invalid";
+    ui.nodes.definition.dispatchEvent({ type: "input" });
+    assert.equal(ui.requests.find(request => request.url.endsWith("/check")).options.signal.aborted, true);
     finish(response({ ok: true, diagnostics: [] }));
     await settle();
-    assert.match(ui.nodes["check-results"].textContent, /changed during the check/);
-    assert.equal(ui.nodes["builder-check"].disabled, false);
+    assert.equal(ui.nodes["check-results"].dataset.checked, "false");
+    assert.equal(ui.nodes["check-results"].attributes["aria-busy"], "true");
+    ui.flushChecks();
+    await settle();
+    assert.equal(ui.requests.filter(request => request.url.endsWith("/check")).length, 2);
+    assert.equal(ui.nodes.definition.attributes["aria-invalid"], "true");
   });
 });

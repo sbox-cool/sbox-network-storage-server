@@ -41,8 +41,8 @@
 .block-add { margin-top: .6rem; }
 .block-empty { padding: .75rem 0; margin: 0; font-size: .82rem; }
 .block-empty h3 { margin: .3rem 0; }
-.block-drop-before { box-shadow: inset 0 2px var(--accent); }
-.block-drop-after { box-shadow: inset 0 -2px var(--accent); }
+.block-drop-before { border-radius: 0; box-shadow: inset 0 2px var(--accent); }
+.block-drop-after { border-radius: 0; box-shadow: inset 0 -2px var(--accent); }
 .block-dragging { opacity: .55; }
 .block-dialog { width: min(640px, calc(100vw - 2rem)); max-height: calc(100dvh - 2rem); overflow: auto; }
 .block-dialog h2 { margin: 0 0 .7rem; font-size: 1.1rem; }

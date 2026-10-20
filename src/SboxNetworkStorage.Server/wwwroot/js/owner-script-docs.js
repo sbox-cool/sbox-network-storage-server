@@ -6,7 +6,28 @@
   var MAX_DEPTH = 4;
 
   function commentLine(raw) {
-    return raw.replace(/^\/\*\*?/, "").replace(/\*\/\s*$/, "").replace(/^\*+\s?/, "").trim();
+    return raw.replace(/^\/\*\*?\s?/, "").replace(/\s*\*\/\s*$/, "").replace(/^\*+\s?/, "").trimEnd();
+  }
+
+  function documentation(lines) {
+    var sections = { doc: [], example: [], errors: [], limits: [] };
+    var current = "doc";
+    lines.forEach(function (line) {
+      var tag = /^@(example|throws|limits)(?:\s+(.*))?$/.exec(line);
+      if (tag) {
+        current = tag[1] === "throws" ? "errors" : tag[1];
+        if (sections[current].length) sections[current].push("");
+        if (tag[2]) sections[current].push(tag[2]);
+      } else {
+        sections[current].push(line);
+      }
+    });
+    return {
+      doc: sections.doc.filter(Boolean).join(" ").trim(),
+      example: sections.example.join("\n").trimEnd(),
+      errors: sections.errors.filter(Boolean).join(" ").trim(),
+      limits: sections.limits.filter(Boolean).join(" ").trim()
+    };
   }
 
   function parse(text) {
@@ -21,12 +42,12 @@
       if (inDoc) {
         if (trimmed.indexOf("*/") >= 0) inDoc = false;
         var inner = commentLine(trimmed);
-        if (inner) docBuffer.push(inner);
+        docBuffer.push(inner);
         continue;
       }
       if (trimmed.indexOf("/**") === 0) {
         var inner2 = commentLine(trimmed);
-        if (inner2) docBuffer.push(inner2);
+        docBuffer.push(inner2);
         inDoc = trimmed.indexOf("*/") < 0;
         continue;
       }
@@ -34,18 +55,20 @@
         if (trimmed.charAt(0) === "}") { current = null; docBuffer = []; continue; }
         var member = /^(['"]?)([A-Za-z_$][\w$-]*)\1(\??)\s*(\(|:)/.exec(trimmed);
         if (member) {
-          var doc = docBuffer.join(" ");
+          var details = documentation(docBuffer);
           docBuffer = [];
           var body = trimmed.replace(/;\s*$/, "");
           if (member[4] === "(") {
             var returns = /\)\s*:\s*(.+)$/.exec(body);
             interfaces[current].push({
-              name: member[2], kind: "method", optional: member[3] === "?", doc: doc,
+              name: member[2], kind: "method", optional: member[3] === "?", doc: details.doc,
+              example: details.example, errors: details.errors, limits: details.limits,
               signature: body, type: returns ? returns[1].trim() : "void",
             });
           } else {
             interfaces[current].push({
-              name: member[2], kind: "property", optional: member[3] === "?", doc: doc,
+              name: member[2], kind: "property", optional: member[3] === "?", doc: details.doc,
+              example: details.example, errors: details.errors, limits: details.limits,
               signature: body, type: body.slice(body.indexOf(":") + 1).trim(),
             });
           }
@@ -63,7 +86,7 @@
       }
       var constant = /^declare\s+const\s+([A-Za-z_$][\w$]*)\s*:\s*([^;]+);?/.exec(trimmed);
       if (constant) {
-        consts.push({ name: constant[1], type: constant[2].trim(), doc: docBuffer.join(" ") });
+        consts.push(Object.assign({ name: constant[1], type: constant[2].trim() }, documentation(docBuffer)));
       }
       docBuffer = [];
     }
@@ -93,6 +116,7 @@
         out.push({
           path: path, name: member.name, kind: member.kind, group: group,
           signature: member.signature, doc: member.doc, optional: member.optional,
+          example: member.example, errors: member.errors, limits: member.limits,
           insert: member.kind === "method" ? path + "(" : path,
         });
         var target = member.kind === "property" ? referencedInterface(parsed, member.type) : null;
@@ -108,6 +132,7 @@
       out.push({
         path: constant.name, name: constant.name, kind: "value", group: group,
         signature: constant.name + ": " + constant.type, doc: constant.doc, optional: false,
+        example: constant.example, errors: constant.errors, limits: constant.limits,
         insert: constant.name,
       });
       var target = referencedInterface(parsed, constant.type);
@@ -122,6 +147,7 @@
         out.push({
           path: member.name, name: member.name, kind: "name", group: source.group,
           signature: source.iface + "." + member.name, doc: member.doc, optional: false,
+          example: member.example, errors: member.errors, limits: member.limits,
           insert: JSON.stringify(member.name),
         });
       });
@@ -151,7 +177,7 @@
     var needle = String(query || "").trim().toLowerCase();
     if (!needle) return items.slice();
     return items.filter(function (item) {
-      return (item.path + " " + item.signature + " " + item.doc).toLowerCase().indexOf(needle) >= 0;
+      return (item.path + " " + item.signature + " " + item.doc + " " + (item.example || "") + " " + (item.errors || "") + " " + (item.limits || "")).toLowerCase().indexOf(needle) >= 0;
     });
   }
 
