@@ -325,20 +325,27 @@ static class E2E
 		if (o.Library == "package")
 		{
 			// install_package is an asset installer, not Library Manager's whole-folder library installation.
+			var legacy = await cli.CallAsync("run_csharp", new JsonObject { ["code"] = """
+				await Editor.LibrarySystem.Install("sboxcool.network-storage", 165702);
+				return new { installed = true };
+				""" }, timeout: 600);
+			ev.Step("editor.library-manager-legacy-fixture", legacy);
+			// The legacy dock constructor can throw after its files are installed (#4). Preserve that error,
+			// verify the actual revision on disk, then attempt the update in a separate SDK-only invocation.
+			var marker = Path.Combine(fixture, "Libraries", PackageIdent, ".version");
+			var legacyInstalled = File.Exists(marker) && File.ReadAllText(marker).Trim() == "1.0.165702";
 			var install = await cli.CallAsync("run_csharp", new JsonObject { ["code"] = """
 				var versions = await Package.FetchVersions("sboxcool.network-storage");
 				var latest = versions?.FirstOrDefault() ?? throw new Exception("No Network Storage library revisions are available.");
-				var old = versions.FirstOrDefault(v => v.VersionId == 165702);
-				if (old is not null)
-					await Editor.LibrarySystem.Install("sboxcool.network-storage", old.VersionId);
 				await Editor.LibrarySystem.Install("sboxcool.network-storage", latest.VersionId);
-				return new { ok = true, revision = latest.VersionId, updatedFrom = old?.VersionId };
+				return new { ok = true, revision = latest.VersionId };
 				""" }, timeout: 600);
 			ev.Step("editor.library-manager-install", install);
 			ev.Check("editor.library-manager-install", "A", install.Ok && J.Bool(install.Json, "ok"),
 				"Library Manager's library installer downloads the latest whole-folder package", required: true);
-			ev.Check("editor.library-manager-update", "A", install.Json?["updatedFrom"]?.GetValue<long>() == 165702,
+			ev.Check("editor.library-manager-update", "A", legacyInstalled && install.Ok && J.Bool(install.Json, "ok"),
 				"Library Manager's installer replaces legacy revision 165702 with the current revision", required: true);
+			if (!install.Ok) throw new InvalidOperationException($"Library Manager update failed: {install.Text}");
 			status = await WaitForIdleAsync(cli, null, editor: true, o.StartupTimeout);
 		}
 
@@ -427,13 +434,23 @@ static class E2E
 	/// <summary>
 	/// Game-route rate limit (sbox-cool/sbox-network-storage#47). Restarts this run's server with a one-request bucket that
 	/// refills once a second, then drives the library's own GETs and one POST through it. Only this step runs under the low
-	/// limit. Required for library main (the retry lives there); published revisions get the result as information.
+	/// limit. Required for libraries with bounded retries when the backend exposes configurable game-route buckets.
 	/// </summary>
 	static async Task RateLimitProbeAsync(Options o, Evidence ev, SboxCli cli, string pid, Server server, List<Process> started)
 	{
 		if (server.Cli is null || server.ServerProcess is null)
 		{
 			ev.Observe("dedicated.rate-limit", "not checked: --server-url servers cannot be restarted with a low limit");
+			return;
+		}
+		// Old supported binaries expose rate limits, but not necessarily the newer operator-side test knobs.
+		// Discover the actual CLI registry before changing anything; all ordinary runtime checks remain required.
+		var settings = await server.Cli.RunAsync(["config", "show"]);
+		if (settings.Code != 0) throw new InvalidOperationException($"reading the backend setting registry failed: {settings.Stderr}");
+		var keys = settings.Stdout.Split('\n').Select(line => line.Split('=', 2)[0].Trim()).ToHashSet(StringComparer.Ordinal);
+		if (!keys.Contains("server.limits.game_burst") || !keys.Contains("server.limits.game_per_second"))
+		{
+			ev.Observe("dedicated.rate-limit", "not checked: this backend's CLI has no configurable game-route bucket; low-limit retry checks run on latest/main backends that expose it");
 			return;
 		}
 		foreach (var (key, value) in new[] { ("server.limits.game_burst", "1"), ("server.limits.game_per_second", "1") })

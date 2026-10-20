@@ -74,6 +74,9 @@ writes are `ci-only`.
    two game-values GETs, five concurrent GETs and one POST `ping` from the game. The second GET must
    succeed after its 429 retry, the burst must mix successes with `RATE_LIMITED`, and the POST must
    come back `RATE_LIMITED` unretried. Required for every library source containing the bounded retry implementation, including local PR candidates; older refs report it.
+   The runner discovers these knobs through `config show`. Supported older binaries without them
+   keep all ordinary runtime/encryption checks, but record the low-limit probe as not exercised;
+   latest/main must still pass the bounded-retry checks when they expose the knobs.
 5. Reads what the server recorded (`sbox-ns project clients`, `dev logs_requests`) and checks the
    library version header arrived.
 
