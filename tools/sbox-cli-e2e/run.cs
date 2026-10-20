@@ -315,8 +315,21 @@ static class E2E
 
 		if (o.Library == "package")
 		{
-			var install = await cli.CallAsync("install_package", new JsonObject { ["ident"] = PackageIdent }, timeout: 600);
-			ev.Step("editor.install_package", install);
+			// install_package is an asset installer, not Library Manager's whole-folder library installation.
+			var install = await cli.CallAsync("run_csharp", new JsonObject { ["code"] = """
+				var versions = await Package.FetchVersions("sboxcool.network-storage");
+				var latest = versions?.FirstOrDefault() ?? throw new Exception("No Network Storage library revisions are available.");
+				var old = versions.FirstOrDefault(v => v.VersionId == 165702);
+				if (old is not null)
+					await Editor.LibrarySystem.Install("sboxcool.network-storage", old.VersionId);
+				await Editor.LibrarySystem.Install("sboxcool.network-storage", latest.VersionId);
+				return new { ok = true, revision = latest.VersionId, updatedFrom = old?.VersionId };
+				""" }, timeout: 600);
+			ev.Step("editor.library-manager-install", install);
+			ev.Check("editor.library-manager-install", "A", install.Ok && J.Bool(install.Json, "ok"),
+				"Library Manager's library installer downloads the latest whole-folder package", required: true);
+			ev.Check("editor.library-manager-update", "A", install.Json?["updatedFrom"]?.GetValue<long>() == 165702,
+				"Library Manager's installer replaces legacy revision 165702 with the current revision", required: true);
 			status = await WaitForIdleAsync(cli, null, editor: true, o.StartupTimeout);
 		}
 
@@ -374,6 +387,21 @@ static class E2E
 			throw new InvalidOperationException($"sbox-server never loaded the fixture project; see {Path.Combine(o.Out, "engine-logs")}");
 		ev.Identity["engine"] ??= new JsonObject { ["version"] = J.Str(status.Instance, "version"), ["commit"] = await EngineCommitAsync(o.Engine), ["target"] = "dedicated" };
 		ev.Identity["os"] ??= RuntimeInformation.OSDescription;
+		var compilation = await cli.CallAsync("run_csharp", new JsonObject
+		{
+			["code"] = "return new { loaded = true, assembly = typeof(NetworkStorage).Assembly.GetName().Name };"
+		}, connect: pid);
+		ev.Step("dedicated.sandbox-library-load", compilation);
+		var libraryLoaded = compilation.Ok && J.Bool(compilation.Json, "loaded");
+		ev.Check("dedicated.sandbox-library-load", "A", libraryLoaded,
+			"NetworkStorage is available after the engine's sandbox compilation and whitelist validation", required: true);
+		if (!libraryLoaded)
+		{
+			var diagnostics = await cli.CallAsync("read_console", new JsonObject { ["minimumLevel"] = "Error", ["limit"] = 200 }, connect: pid);
+			ev.Step("dedicated.sandbox-compiler-errors", diagnostics);
+			File.WriteAllText(Path.Combine(ev.Dir, "dedicated-console.txt"), diagnostics.Text);
+			throw new InvalidOperationException("NetworkStorage did not load after sandbox compilation. See dedicated.sandbox-library-load and dedicated-console.txt.");
+		}
 		var toolset = HasTool(await cli.CallAsync("search_tools", new JsonObject { ["query"] = "ns_call_endpoint" }, connect: pid), "ns_call_endpoint");
 		ev.Identity["dedicatedDriver"] = toolset ? "network_storage toolset" : "run_csharp";
 		await RuntimeProbeAsync(ev, cli, pid, server, fixture, "dedicated", toolset, o.Library == "main");
@@ -688,6 +716,11 @@ static class Fixture
 
 	public static void WriteConfig(string fixture, Server server)
 	{
+		// A fresh server uses fresh signing keys; isolate TOFU data instead of reusing another run's trust anchor.
+		var projectPath = Path.Combine(fixture, "compat_probe.sbproj");
+		var project = JsonNode.Parse(File.ReadAllText(projectPath))!.AsObject();
+		project["Ident"] = "compat_probe_" + Guid.NewGuid().ToString("N")[..8];
+		File.WriteAllText(projectPath, project.ToJsonString(Evidence.Indented));
 		var root = Path.Combine(fixture, "Editor", "Network Storage", "config");
 		Directory.CreateDirectory(Path.Combine(root, "public"));
 		Directory.CreateDirectory(Path.Combine(root, "secret"));
@@ -821,7 +854,8 @@ sealed class SboxCli(string exe, string dll, string cwd, string log)
 		if (arguments is not null) args = [.. args, arguments.ToJsonString()];
 		args = [.. args, "--request-timeout", timeout.ToString()];
 		var r = await RunAsync(args, timeout);
-		return new CallResult(r.Code == 0, r.Stdout.Trim(), Evidence.TryParse(r.Stdout));
+		var text = r.Code == 0 || !string.IsNullOrWhiteSpace(r.Stdout) ? r.Stdout.Trim() : r.Stderr.Trim();
+		return new CallResult(r.Code == 0, text, Evidence.TryParse(r.Stdout));
 	}
 
 	static string Trim(string s) => s.Length > 4000 ? s[..4000] + "…" : s.Trim();
@@ -958,9 +992,18 @@ static class Proc
 		var info = new ProcessStartInfo(file) { WorkingDirectory = cwd, RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
 		foreach (var a in args) info.ArgumentList.Add(a);
 		var p = Process.Start(info)!;
-		var writer = new StreamWriter(log, append: true) { AutoFlush = true };
-		p.OutputDataReceived += (_, e) => { if (e.Data is not null) lock (writer) writer.WriteLine(e.Data); };
-		p.ErrorDataReceived += (_, e) => { if (e.Data is not null) lock (writer) writer.WriteLine(e.Data); };
+		var writer = new StreamWriter(new FileStream(log, FileMode.Append, FileAccess.Write, FileShare.ReadWrite)) { AutoFlush = true };
+		var openStreams = 2;
+		DataReceivedEventHandler forward = (_, e) =>
+		{
+			lock (writer)
+			{
+				if (e.Data is not null) writer.WriteLine(e.Data);
+				else if (--openStreams == 0) writer.Dispose();
+			}
+		};
+		p.OutputDataReceived += forward;
+		p.ErrorDataReceived += forward;
 		p.BeginOutputReadLine();
 		p.BeginErrorReadLine();
 		return p;

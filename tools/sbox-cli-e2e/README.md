@@ -50,8 +50,10 @@ writes are `ci-only`.
 2. Copies [`fixture/`](fixture) (game project `compat_probe` with endpoints, collections and game
    values as Sync Tool sources) and installs the library into `Libraries/sboxcool.network-storage`
    from `main`, `git:<ref>`, `r<revision>`, a local checkout (tracked files only, like a clean
-   `git clone`) or, with `--library package`, the published package through the editor's
-   `install_package` tool.
+   `git clone`) or, with `--library package`, the published package through
+   `Editor.LibrarySystem.Install`, the same whole-folder installer the Library Manager button uses.
+   The package leg first installs revision 165702 when available, then updates it to the latest
+   revision and checks compilation; it does not use the unrelated asset-only `install_package` tool.
 3. **Editor** (Windows launches `sbox-dev -project`; on other systems open the fixture yourself and
    pass `--attach`): waits for the compile, then with the library's `network_storage` toolset
    (`ns_editor_status`, `ns_sync_push` with post-push verification, `ns_auto_test`) or, for older
