@@ -115,6 +115,8 @@ operating system and database combination you ran, in the PR or release issue th
 - [ ] Push All: preflight 200, `PUT .../sync` 200, dashboard shows the counts.
 - [ ] Preflight on a hand-written condition with no `check` shows a `MISSING_CHECK`
       warning (server PR #49) and the push still succeeds.
+- [ ] Push All with a script syntax error: preflight 400, the window names the endpoint, file, line and column,
+      and nothing is written.
 - [ ] Sync window lists both `*.json` and `*.yml` resources.
 - [ ] Push Staged (`x-ns-publish-target: next`) lands in the staged revision and
       Promote makes it live.

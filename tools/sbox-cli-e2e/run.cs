@@ -4,6 +4,7 @@
 // sbox-ns. Writes evidence.json, summary.md and a draft compat/library-matrix.json `tested` row.
 // Usage: dotnet run tools/sbox-cli-e2e/run.cs -- --help
 using System.Diagnostics;
+using System.Net;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
@@ -156,6 +157,9 @@ static class E2E
 		Files.CopyDirectory(Path.Combine(o.Root, "tools", "sbox-cli-e2e", "fixture"), fixture);
 		Fixture.WriteConfig(fixture, server);
 		var lib = o.Library == "package" ? null : await InstallLibraryAsync(o, work, fixture, ev);
+		if (info?["capabilities"] is JsonArray capabilities && capabilities.Any(c => c?.GetValue<string>() == "endpoint-js")
+			&& File.Exists(Path.Combine(fixture, "Libraries", PackageIdent, "Editor", "SyncToolScriptFiles.cs")))
+			Fixture.WriteScriptEndpoints(fixture);
 		var cli = new SboxCli(cliPath, cliDll, fixture, Path.Combine(o.Out, "sbox-cli.log"));
 		Console.WriteLine($"fixture: {Path.Combine(fixture, "compat_probe.sbproj")}");
 
@@ -212,6 +216,13 @@ static class E2E
 
 	static async Task<Server> StartServerAsync(Options o, string work, Evidence ev, List<Process> started)
 	{
+		var listenerProbe = new System.Net.Sockets.TcpListener(IPAddress.Loopback, o.Port);
+		try { listenerProbe.Start(); }
+		catch (System.Net.Sockets.SocketException ex)
+		{
+			throw new InvalidOperationException($"Managed test port {o.Port} is unavailable. Stop only your own test server, choose --port, or use --server-url for an existing backend.", ex);
+		}
+		finally { listenerProbe.Stop(); }
 		var serverProject = Path.Combine(o.Root, "src", "SboxNetworkStorage.Server");
 		string[] command;
 		if (o.ServerBinary is not null)
@@ -233,15 +244,17 @@ static class E2E
 		var quick = await ns.RunAsync(["quickstart", "sbox-cli e2e", "--require-sbox-auth", o.RequireSboxAuth ? "true" : "false", "--json"]);
 		var q = JsonNode.Parse(quick.Stdout) ?? throw new InvalidOperationException("quickstart returned no JSON: " + quick.Stderr);
 		var log = Path.Combine(o.Out, "sbox-ns.log");
-		started.Add(Proc.Start(command[0], [.. command[1..], "start", .. ns.DirArgs], o.Root, log));
+		var serverProcess = Proc.Start(command[0], [.. command[1..], "start", .. ns.DirArgs], o.Root, log);
+		started.Add(serverProcess);
 		var url = $"http://127.0.0.1:{o.Port}";
-		for (var i = 0; i < 120 && !await Http.OkAsync($"{url}/health"); i++) await Task.Delay(500);
-		if (!await Http.OkAsync($"{url}/health")) throw new InvalidOperationException($"sbox-ns did not answer /health; see {log}");
+		await WaitForHealthAsync(url, log);
+		if (serverProcess.HasExited)
+			throw new InvalidOperationException($"Managed test backend exited with {serverProcess.ExitCode}; see {log}. A different listener is not this run's backend.");
 		// A prebuilt binary's source commit is not this checkout's; /v3/server-info still reports its version.
 		var commit = o.ServerBinary is null
 			? (await Proc.RunAsync("git", ["rev-parse", "HEAD"], o.Root, TimeSpan.FromSeconds(10))).Stdout.Trim()
 			: null;
-		return new Server(url, q["projectId"]!.GetValue<string>(), q["publicKey"]!.GetValue<string>(), q["secretKey"]!.GetValue<string>(), ns, commit);
+		return new Server(url, q["projectId"]!.GetValue<string>(), q["publicKey"]!.GetValue<string>(), q["secretKey"]!.GetValue<string>(), ns, commit, serverProcess);
 	}
 
 	static async Task<Library> InstallLibraryAsync(Options o, string work, string fixture, Evidence ev)
@@ -311,8 +324,28 @@ static class E2E
 
 		if (o.Library == "package")
 		{
-			var install = await cli.CallAsync("install_package", new JsonObject { ["ident"] = PackageIdent }, timeout: 600);
-			ev.Step("editor.install_package", install);
+			// install_package is an asset installer, not Library Manager's whole-folder library installation.
+			var legacy = await cli.CallAsync("run_csharp", new JsonObject { ["code"] = """
+				await Editor.LibrarySystem.Install("sboxcool.network-storage", 165702);
+				return new { installed = true };
+				""" }, timeout: 600);
+			ev.Step("editor.library-manager-legacy-fixture", legacy);
+			// The legacy dock constructor can throw after its files are installed (#4). Preserve that error,
+			// verify the actual revision on disk, then attempt the update in a separate SDK-only invocation.
+			var marker = Path.Combine(fixture, "Libraries", PackageIdent, ".version");
+			var legacyInstalled = File.Exists(marker) && File.ReadAllText(marker).Trim() == "1.0.165702";
+			var install = await cli.CallAsync("run_csharp", new JsonObject { ["code"] = """
+				var versions = await Package.FetchVersions("sboxcool.network-storage");
+				var latest = versions?.FirstOrDefault() ?? throw new Exception("No Network Storage library revisions are available.");
+				await Editor.LibrarySystem.Install("sboxcool.network-storage", latest.VersionId);
+				return new { ok = true, revision = latest.VersionId };
+				""" }, timeout: 600);
+			ev.Step("editor.library-manager-install", install);
+			ev.Check("editor.library-manager-install", "A", install.Ok && J.Bool(install.Json, "ok"),
+				"Library Manager's library installer downloads the latest whole-folder package", required: true);
+			ev.Check("editor.library-manager-update", "A", legacyInstalled && install.Ok && J.Bool(install.Json, "ok"),
+				"Library Manager's installer replaces legacy revision 165702 with the current revision", required: true);
+			if (!install.Ok) throw new InvalidOperationException($"Library Manager update failed: {install.Text}");
 			status = await WaitForIdleAsync(cli, null, editor: true, o.StartupTimeout);
 		}
 
@@ -349,7 +382,7 @@ static class E2E
 		ev.Step("editor.play_start", play);
 		await WaitAsync(120, async () => J.Bool((await cli.CallAsync("instance_status")).Json, "isPlaying"));
 		await Task.Delay(3000);
-		await RuntimeProbeAsync(ev, cli, null, server, fixture, "editor", toolset);
+		await RuntimeProbeAsync(ev, cli, null, server, fixture, "editor", toolset, o.Library == "main");
 		File.WriteAllText(Path.Combine(ev.Dir, "editor-console.txt"), (await cli.CallAsync("read_console", new JsonObject { ["filter"] = "NetworkStorage", ["limit"] = 200 })).Text);
 		ev.Step("editor.play_stop", await cli.CallAsync("play_stop"));
 		if (!o.Attach) await cli.CallAsync("instance_console_command", new JsonObject { ["command"] = "quit" });
@@ -370,10 +403,88 @@ static class E2E
 			throw new InvalidOperationException($"sbox-server never loaded the fixture project; see {Path.Combine(o.Out, "engine-logs")}");
 		ev.Identity["engine"] ??= new JsonObject { ["version"] = J.Str(status.Instance, "version"), ["commit"] = await EngineCommitAsync(o.Engine), ["target"] = "dedicated" };
 		ev.Identity["os"] ??= RuntimeInformation.OSDescription;
+		var compilation = await cli.CallAsync("run_csharp", new JsonObject
+		{
+			["code"] = "return new { loaded = true, assembly = typeof(NetworkStorage).Assembly.GetName().Name };"
+		}, connect: pid);
+		ev.Step("dedicated.sandbox-library-load", compilation);
+		var libraryLoaded = compilation.Ok && J.Bool(compilation.Json, "loaded");
+		ev.Check("dedicated.sandbox-library-load", "A", libraryLoaded,
+			"NetworkStorage is available after the engine's sandbox compilation and whitelist validation", required: true);
+		if (!libraryLoaded)
+		{
+			var diagnostics = await cli.CallAsync("read_console", new JsonObject { ["minimumLevel"] = "Error", ["limit"] = 200 }, connect: pid);
+			ev.Step("dedicated.sandbox-compiler-errors", diagnostics);
+			File.WriteAllText(Path.Combine(ev.Dir, "dedicated-console.txt"), diagnostics.Text);
+			throw new InvalidOperationException("NetworkStorage did not load after sandbox compilation. See dedicated.sandbox-library-load and dedicated-console.txt.");
+		}
 		var toolset = HasTool(await cli.CallAsync("search_tools", new JsonObject { ["query"] = "ns_call_endpoint" }, connect: pid), "ns_call_endpoint");
 		ev.Identity["dedicatedDriver"] = toolset ? "network_storage toolset" : "run_csharp";
-		await RuntimeProbeAsync(ev, cli, pid, server, fixture, "dedicated", toolset);
+		await RuntimeProbeAsync(ev, cli, pid, server, fixture, "dedicated", toolset, o.Library == "main");
+		await RateLimitProbeAsync(o, ev, cli, pid, server, started);
 		File.WriteAllText(Path.Combine(ev.Dir, "dedicated-console.txt"), (await cli.CallAsync("read_console", new JsonObject { ["filter"] = "NetworkStorage", ["limit"] = 200 }, connect: pid)).Text);
+	}
+
+	static async Task WaitForHealthAsync(string url, string log)
+	{
+		for (var i = 0; i < 120 && !await Http.OkAsync($"{url}/health"); i++) await Task.Delay(500);
+		if (!await Http.OkAsync($"{url}/health")) throw new InvalidOperationException($"sbox-ns did not answer /health; see {log}");
+	}
+
+	/// <summary>
+	/// Game-route rate limit (sbox-cool/sbox-network-storage#47). Restarts this run's server with a one-request bucket that
+	/// refills once a second, then drives the library's own GETs and one POST through it. Only this step runs under the low
+	/// limit. Required for libraries with bounded retries when the backend exposes configurable game-route buckets.
+	/// </summary>
+	static async Task RateLimitProbeAsync(Options o, Evidence ev, SboxCli cli, string pid, Server server, List<Process> started)
+	{
+		if (server.Cli is null || server.ServerProcess is null)
+		{
+			ev.Observe("dedicated.rate-limit", "not checked: --server-url servers cannot be restarted with a low limit");
+			return;
+		}
+		// Old supported binaries expose rate limits, but not necessarily the newer operator-side test knobs.
+		// Discover the actual CLI registry before changing anything; all ordinary runtime checks remain required.
+		var settings = await server.Cli.RunAsync(["config", "show"]);
+		if (settings.Code != 0) throw new InvalidOperationException($"reading the backend setting registry failed: {settings.Stderr}");
+		var keys = settings.Stdout.Split('\n').Select(line => line.Split('=', 2)[0].Trim()).ToHashSet(StringComparer.Ordinal);
+		if (!keys.Contains("server.limits.game_burst") || !keys.Contains("server.limits.game_per_second"))
+		{
+			ev.Observe("dedicated.rate-limit", "not checked: this backend's CLI has no configurable game-route bucket; low-limit retry checks run on latest/main backends that expose it");
+			return;
+		}
+		foreach (var (key, value) in new[] { ("server.limits.game_burst", "1"), ("server.limits.game_per_second", "1") })
+		{
+			var set = await server.Cli.RunAsync(["config", "set", key, value]);
+			if (set.Code != 0) throw new InvalidOperationException($"sbox-ns config set {key} failed: {set.Stderr}");
+		}
+		Proc.Kill(server.ServerProcess);
+		var log = Path.Combine(o.Out, "sbox-ns.log");
+		var command = server.Cli.Command;
+		started.Add(Proc.Start(command[0], [.. command[1..], "start", .. server.Cli.DirArgs], o.Root, log));
+		await WaitForHealthAsync(server.Url, log);
+
+		var burst = await cli.CallAsync("run_csharp", new JsonObject { ["code"] = Scripts.RateLimitBurst }, connect: pid, timeout: 120);
+		ev.Step("dedicated.rate-limit", burst);
+		var required = File.Exists(Path.Combine(o.Out, "work", "compat_probe", "Libraries", PackageIdent, "Code", "Core", "NetworkStorageRateLimit.cs"));
+		var first = burst.Json?["first"];
+		var second = burst.Json?["second"];
+		var write = burst.Json?["write"];
+		var attempts = burst.Json?["burst"]?.AsArray() ?? new JsonArray();
+		var succeeded = 0;
+		var limited = 0;
+		foreach (var attempt in attempts)
+		{
+			if (J.Bool(attempt, "ok")) succeeded++;
+			else if (J.Str(attempt, "code") == "RATE_LIMITED") limited++;
+		}
+		var writeCode = J.Str(write, "code") ?? "ok";
+		ev.Check("dedicated.rate-limit.retry", "C", J.Bool(first, "ok") && J.Bool(second, "ok"),
+			"a GET answered 429 is retried after Retry-After and succeeds (second game-values call)", required: required);
+		ev.Check("dedicated.rate-limit.exhausted", "C", succeeded > 0 && limited > 0,
+			$"5 concurrent GETs on an empty bucket: {succeeded} succeeded after retry, {limited} returned RATE_LIMITED once retries ran out", required: required);
+		ev.Check("dedicated.rate-limit.write", "C", !J.Bool(write, "ok") && writeCode == "RATE_LIMITED",
+			$"a POST without retrySafe is not retried and returns RATE_LIMITED (got '{writeCode}')", required: required);
 	}
 
 	/// <summary>
@@ -394,7 +505,7 @@ static class E2E
 	}
 
 	/// <summary>Real library calls in play mode (editor) or on the dedicated server, checked against the fixture definitions.</summary>
-	static async Task RuntimeProbeAsync(Evidence ev, SboxCli cli, string? pid, Server server, string fixture, string target, bool toolset)
+	static async Task RuntimeProbeAsync(Evidence ev, SboxCli cli, string? pid, Server server, string fixture, string target, bool toolset, bool libraryMain)
 	{
 		var dedicated = target == "dedicated";
 		var apiRoot = await ConfigureApiRootAsync(ev, server, fixture, target);
@@ -421,6 +532,18 @@ static class E2E
 		ev.Check($"{target}.endpoint", "C", Ok(ping) && Body(ping).Contains("pong"), "CallEndpoint success (ping)", required: true);
 		var echo = await Call("echo", new JsonObject { ["hello"] = "world" });
 		ev.Check($"{target}.endpoint-input", "C", Ok(echo), "CallEndpoint with an input body (echo)", required: true);
+		var scriptsFolder = Path.Combine(fixture, "Editor", "Network Storage", "endpoints");
+		foreach (var (slug, extension, runtime) in Fixture.ScriptEndpoints)
+		{
+			var scriptFile = Path.Combine(scriptsFolder, $"{slug}.endpoint.{extension}");
+			if (!File.Exists(scriptFile)) continue;
+			var result = await Call(slug, new JsonObject { ["name"] = "engine" });
+			var body = Evidence.TryParse(Body(result));
+			ev.Check($"{target}.script.{extension}", "C", Ok(result) && J.Str(body, "runtime") == runtime
+				&& J.Str(body, "greeting") == "hello engine", $"pushed {runtime} source executes through the real library", required: true);
+		}
+		if (File.Exists(Path.Combine(scriptsFolder, "script-js.endpoint.js")))
+			await Fixture.VerifyScriptPullAsync(fixture, server, ev);
 
 		var values = toolset
 			? (await cli.CallAsync("ns_game_values", connect: pid)).Json
@@ -448,6 +571,50 @@ static class E2E
 		// Observations only (known findings, sbox-cool/sbox-network-storage#23): old-shape conditions and endpoint-only reads.
 		var legacy = await Call("legacy-cond");
 		ev.Observe($"{target}.legacy-cond", Ok(legacy) ? "ok" : Code(legacy));
+		// #151: the owner switches encrypted requests on and off while the game runs, and the library follows each switch.
+		// On: a plain call is refused with SECURITY_ENCRYPTION_REQUIRED and the library retries encrypted.
+		// Off: an encrypted call is refused with SECURITY_ENCRYPTION_DISABLED and the library retries plain.
+		// Every phase must still end in a 200 (required for the main library). Attached servers are only observed.
+		if (dedicated && server.Cli is null)
+			ev.Observe($"{target}.encryption-switch", "skipped: sbox-ns was not started by this run");
+		else if (dedicated)
+		{
+			OwnerConsole owner;
+			try { owner = await OwnerConsole.SignInAsync(server); }
+			catch (Exception ex) when (ex is InvalidOperationException or HttpRequestException)
+			{
+				ev.Check($"{target}.encryption-switch", "C", false, $"owner sign-in through admin login-link failed: {ex.Message}", required: libraryMain);
+				return;
+			}
+			async Task<bool> Save(bool enable)
+			{
+				var status = await owner.SetEncryptedRequestsAsync(enable);
+				ev.Check($"{target}.encryption-{(enable ? "on" : "off")}-saved", "C", status == 302,
+					$"owner saves the security tab with encrypted requests {(enable ? "on" : "off")} (HTTP {status})", required: libraryMain);
+				return status == 302;
+			}
+			if (await Save(true))
+			{
+				// The library cannot encrypt a GET (a null input sends a plain GET), so the encrypted retry is exercised on a POST.
+				var first = await Call("echo", new JsonObject { ["hello"] = "world" });
+				ev.Check($"{target}.encryption-on", "C", Ok(first),
+					$"encryption on: POST echo succeeds after the library's encrypted retry (got '{(Ok(first) ? "ok" : Code(first))}')", required: libraryMain);
+			}
+			if (await Save(false))
+			{
+				var second = await Call("ping");
+				ev.Check($"{target}.encryption-off", "C", Ok(second) && Body(second).Contains("pong"),
+					$"encryption off: ping succeeds after the library's plain retry (got '{(Ok(second) ? "ok" : Code(second))}')", required: libraryMain);
+			}
+			if (await Save(true))
+			{
+				var third = await Call("echo", new JsonObject { ["hello"] = "world" });
+				ev.Check($"{target}.encryption-on-again", "C", Ok(third),
+					$"encryption back on: POST echo succeeds after the library's encrypted retry (got '{(Ok(third) ? "ok" : Code(third))}')", required: libraryMain);
+			}
+			var refused = await server.Cli!.RunAsync(["dev", "logs_requests"], stdin: new JsonObject { ["projectId"] = server.ProjectId, ["limit"] = 200 }.ToJsonString());
+			ev.Observe($"{target}.encryption-409-rows", Regex.Matches(refused.Stdout, "\"status\":\\s*409").Count.ToString());
+		}
 	}
 
 	record IdleStatus(JsonNode? Instance, JsonNode? Editor);
@@ -506,7 +673,7 @@ static class E2E
 	}
 }
 
-record Server(string Url, string ProjectId, string PublicKey, string SecretKey, NsCli? Cli, string? Commit);
+record Server(string Url, string ProjectId, string PublicKey, string SecretKey, NsCli? Cli, string? Commit, Process? ServerProcess = null);
 
 sealed class Library
 {
@@ -537,9 +704,49 @@ sealed class Library
 static class Fixture
 {
 	static readonly string[] Kinds = ["endpoint", "collection", "workflow"];
+	public static readonly (string Slug, string Extension, string Runtime)[] ScriptEndpoints =
+		[("script-js", "js", "javascript"), ("script-ts", "ts", "typescript")];
+
+	public static void WriteScriptEndpoints(string fixture)
+	{
+		var folder = Path.Combine(fixture, "Editor", "Network Storage", "endpoints");
+		foreach (var (slug, extension, runtime) in ScriptEndpoints)
+		{
+			var script = extension == "ts"
+				? "export default function handle(req: { input: { name: string } }, ns: any) { const name: string = req.input.name; return { ok: true, runtime: \"typescript\", greeting: `hello ${name}` }; }\n"
+				: "export default function handle(req, ns) { return { ok: true, runtime: \"javascript\", greeting: `hello ${req.input.name}` }; }\n";
+			File.WriteAllText(Path.Combine(folder, $"{slug}.endpoint.{extension}"), script);
+			File.WriteAllText(Path.Combine(folder, $"{slug}.endpoint.yml"),
+				$"sourceVersion: 1\nkind: endpoint\nid: {slug}\nmethod: POST\nscope: public\nruntime: {runtime}\nscriptFile: {slug}.endpoint.{extension}\n");
+		}
+	}
+
+	public static async Task VerifyScriptPullAsync(string fixture, Server server, Evidence ev)
+	{
+		using var request = new HttpRequestMessage(HttpMethod.Get, $"{server.Url}/v3/manage/{server.ProjectId}/endpoints?revisionTarget=live");
+		request.Headers.Add("x-api-key", server.SecretKey);
+		request.Headers.Add("x-public-key", server.PublicKey);
+		using var response = await Http.Client.SendAsync(request);
+		var raw = await response.Content.ReadAsStringAsync();
+		var result = Evidence.TryParse(raw);
+		var definitions = result?["data"] as JsonArray;
+		foreach (var (slug, extension, runtime) in ScriptEndpoints)
+		{
+			var endpoint = definitions?.FirstOrDefault(e => J.Str(e, "slug") == slug || J.Str(e, "id") == slug);
+			var expected = File.ReadAllText(Path.Combine(fixture, "Editor", "Network Storage", "endpoints", $"{slug}.endpoint.{extension}"));
+			ev.Check($"sync.script-pull.{extension}", "B", response.IsSuccessStatusCode
+				&& J.Str(endpoint, "runtime") == runtime && J.Str(endpoint, "script")?.Trim() == expected.Trim(),
+				$"management pull preserves {runtime} script source after push", required: true);
+		}
+	}
 
 	public static void WriteConfig(string fixture, Server server)
 	{
+		// A fresh server uses fresh signing keys; isolate TOFU data instead of reusing another run's trust anchor.
+		var projectPath = Path.Combine(fixture, "compat_probe.sbproj");
+		var project = JsonNode.Parse(File.ReadAllText(projectPath))!.AsObject();
+		project["Ident"] = "compat_probe_" + Guid.NewGuid().ToString("N")[..8];
+		File.WriteAllText(projectPath, project.ToJsonString(Evidence.Indented));
 		var root = Path.Combine(fixture, "Editor", "Network Storage", "config");
 		Directory.CreateDirectory(Path.Combine(root, "public"));
 		Directory.CreateDirectory(Path.Combine(root, "secret"));
@@ -568,10 +775,14 @@ static class Fixture
 				{
 					var name = Path.GetFileName(file);
 					var id = Regex.Replace(name, $@"(\.{kind})?\.(ya?ml|json)$", "");
+					var source = File.ReadAllText(file);
+					foreach (var (scriptSlug, extension, _) in ScriptEndpoints)
+						if (kind == "endpoint" && id == scriptSlug)
+							source += "script: |\n" + string.Join("\n", File.ReadAllLines(Path.Combine(folder, $"{id}.endpoint.{extension}")).Select(line => "  " + line)) + "\n";
 					resources.Add(new JsonObject
 					{
 						["kind"] = kind, ["id"] = id, ["authoringMode"] = "source", ["sourceFormat"] = name.EndsWith(".json") ? "json" : "yaml",
-						["sourcePath"] = name, ["sourceText"] = File.ReadAllText(file),
+						["sourcePath"] = name, ["sourceText"] = source,
 					});
 				}
 			batch[kind + "s"] = resources;
@@ -628,6 +839,25 @@ static class Scripts
 		return new { ok = res.HasValue, body = res?.GetRawText() };
 		""";
 
+	// Burst of GETs under a one-request bucket (library retry, sbox-cool/sbox-network-storage#47). Writes are not retried.
+	public const string RateLimitBurst = """
+		async Task<object> Attempt()
+		{
+			var res = await NetworkStorage.GetGameValues();
+			string code = null;
+			if ( !res.HasValue ) NetworkStorage.TryGetLastEndpointError( "game-values", out code, out _ );
+			return new { ok = res.HasValue, code };
+		}
+		var first = await Attempt();
+		var second = await Attempt();
+		var burst = await Task.WhenAll( Attempt(), Attempt(), Attempt(), Attempt(), Attempt() );
+		object input = new { probe = "unsafe-write" };
+		var write = await NetworkStorage.CallEndpoint( "ping", input );
+		string writeCode = null;
+		if ( !write.HasValue ) NetworkStorage.TryGetLastEndpointError( "ping", out writeCode, out _ );
+		return new { first, second, burst, write = new { ok = write.HasValue, code = writeCode } };
+		""";
+
 	static string Lit(string value) => JsonSerializer.Serialize(value);
 }
 
@@ -650,7 +880,8 @@ sealed class SboxCli(string exe, string dll, string cwd, string log)
 		if (arguments is not null) args = [.. args, arguments.ToJsonString()];
 		args = [.. args, "--request-timeout", timeout.ToString()];
 		var r = await RunAsync(args, timeout);
-		return new CallResult(r.Code == 0, r.Stdout.Trim(), Evidence.TryParse(r.Stdout));
+		var text = r.Code == 0 || !string.IsNullOrWhiteSpace(r.Stdout) ? r.Stdout.Trim() : r.Stderr.Trim();
+		return new CallResult(r.Code == 0, text, Evidence.TryParse(r.Stdout));
 	}
 
 	static string Trim(string s) => s.Length > 4000 ? s[..4000] + "…" : s.Trim();
@@ -659,8 +890,75 @@ sealed class SboxCli(string exe, string dll, string cwd, string log)
 sealed class NsCli(string[] command, string config, string data)
 {
 	public string[] DirArgs => ["--config-dir", config, "--data-dir", data];
+	public string[] Command => command;
 	public Task<Proc.Result> RunAsync(string[] args, string? stdin = null) =>
 		Proc.RunAsync(command[0], [.. command[1..], .. args, .. DirArgs], Environment.CurrentDirectory, TimeSpan.FromMinutes(2), stdin);
+}
+
+/// <summary>Signs in as the server's owner with `sbox-ns admin login-link` and saves the dashboard's security tab, as a browser would.</summary>
+sealed class OwnerConsole
+{
+	readonly HttpClient http;
+	readonly string projectPath;
+
+	OwnerConsole(HttpClient http, string projectId)
+	{
+		this.http = http;
+		projectPath = "/dashboard/projects/" + Uri.EscapeDataString(projectId);
+	}
+
+	public static async Task<OwnerConsole> SignInAsync(Server server)
+	{
+		var link = await server.Cli!.RunAsync(["admin", "login-link", "--minutes", "5"]);
+		var url = link.Stdout.Split('\n').Select(l => l.Trim()).FirstOrDefault(l => l.Contains("/login/link?token="))
+			?? throw new InvalidOperationException("sbox-ns admin login-link printed no link: " + link.Stderr);
+		var token = Uri.UnescapeDataString(url[(url.IndexOf("token=", StringComparison.Ordinal) + "token=".Length)..]);
+		var http = new HttpClient(new HttpClientHandler { CookieContainer = new CookieContainer(), AllowAutoRedirect = false })
+		{
+			BaseAddress = new Uri(server.Url),
+			Timeout = TimeSpan.FromSeconds(30),
+		};
+		var page = await http.GetAsync("/login/link?token=" + Uri.EscapeDataString(token));
+		var csrf = Antiforgery(await page.Content.ReadAsStringAsync())
+			?? throw new InvalidOperationException($"login link page has no antiforgery token (HTTP {(int)page.StatusCode})");
+		// Confirming consumes the single-use link. An existing owner signs in; with none, the same form creates one.
+		var password = $"e2e-{Guid.NewGuid():N}-Aa1!";
+		var confirm = await http.PostAsync("/login/link", new FormUrlEncodedContent(new Dictionary<string, string>
+		{
+			["token"] = token,
+			["__RequestVerificationToken"] = csrf,
+			["username"] = "e2e-owner",
+			["password"] = password,
+			["confirmPassword"] = password,
+			["cf-turnstile-response"] = "",
+		}));
+		if (confirm.StatusCode != HttpStatusCode.Redirect)
+			throw new InvalidOperationException($"login link confirmation returned HTTP {(int)confirm.StatusCode}");
+		return new OwnerConsole(http, server.ProjectId);
+	}
+
+	/// <summary>Saves the security tab with encrypted requests on or off; the other security settings keep their current values.</summary>
+	public async Task<int> SetEncryptedRequestsAsync(bool enable)
+	{
+		var html = await (await http.GetAsync(projectPath)).Content.ReadAsStringAsync();
+		var form = new Dictionary<string, string>
+		{
+			["tab"] = "security",
+			["__RequestVerificationToken"] = Antiforgery(html) ?? throw new InvalidOperationException("owner project page has no antiforgery token"),
+			["authSessionTtlSeconds"] = Input(html, "authSessionTtlSeconds") ?? "3600",
+			["encryptedRequestWindowSeconds"] = Input(html, "encryptedRequestWindowSeconds") ?? "120",
+		};
+		foreach (var name in new[] { "requireSboxAuth", "enableAuthSessions", "requireAuthSessions" })
+			if (Checked(html, name)) form[name] = "on";
+		if (enable) form["enableEncryptedRequests"] = "on";
+		var saved = await http.PostAsync(projectPath + "/settings", new FormUrlEncodedContent(form));
+		return (int)saved.StatusCode;
+	}
+
+	static string? Antiforgery(string html) => Input(html, "__RequestVerificationToken");
+	static bool Checked(string html, string name) => Tag(html, name) is { } tag && Regex.IsMatch(tag, @"\schecked\b") && !tag.Contains("checked=\"False\"");
+	static string? Input(string html, string name) => Tag(html, name) is { } tag && Regex.Match(tag, "\\svalue=\"([^\"]*)\"") is { Success: true } v ? v.Groups[1].Value : null;
+	static string? Tag(string html, string name) => Regex.Match(html, $"<input\\b[^>]*\\sname=\"{Regex.Escape(name)}\"[^>]*>") is { Success: true } m ? m.Value : null;
 }
 
 static class Http
@@ -719,10 +1017,22 @@ static class Proc
 	{
 		var info = new ProcessStartInfo(file) { WorkingDirectory = cwd, RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
 		foreach (var a in args) info.ArgumentList.Add(a);
-		var p = Process.Start(info)!;
-		var writer = new StreamWriter(log, append: true) { AutoFlush = true };
-		p.OutputDataReceived += (_, e) => { if (e.Data is not null) lock (writer) writer.WriteLine(e.Data); };
-		p.ErrorDataReceived += (_, e) => { if (e.Data is not null) lock (writer) writer.WriteLine(e.Data); };
+		// Open the log before launching: a log error must not leave an untracked listening child.
+		var writer = new StreamWriter(new FileStream(log, FileMode.Append, FileAccess.Write, FileShare.ReadWrite)) { AutoFlush = true };
+		Process p;
+		try { p = Process.Start(info)!; }
+		catch { writer.Dispose(); throw; }
+		var openStreams = 2;
+		DataReceivedEventHandler forward = (_, e) =>
+		{
+			lock (writer)
+			{
+				if (e.Data is not null) writer.WriteLine(e.Data);
+				else if (--openStreams == 0) writer.Dispose();
+			}
+		};
+		p.OutputDataReceived += forward;
+		p.ErrorDataReceived += forward;
 		p.BeginOutputReadLine();
 		p.BeginErrorReadLine();
 		return p;

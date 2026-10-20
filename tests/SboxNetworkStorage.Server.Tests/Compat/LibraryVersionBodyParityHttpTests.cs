@@ -82,12 +82,13 @@ public abstract class LibraryVersionBodyParityHttpTests<TFactory> : IClassFixtur
             {
                 Content = JsonContent.Create(new
                 {
-                    security = new { configVersion = "", clientMode = "editor", authSessions = false, encryptedRequests = false },
+                    security = new { configVersion = "", clientMode = "legacy", authSessions = "disabled", encryptedRequests = "disabled" },
                     _endpointSlug = "ping",
                 }),
             })
             {
-                // The proven library call shape; only the library version varies between callers.
+                // The proven library call shape (Code/Endpoints/NetworkStorageEndpointSecurity.cs: clientMode is one of
+                // legacy | session | encrypted | session+encrypted); only the library version varies between callers.
                 request.Headers.Add("x-public-key", project.PublicKey);
                 request.Headers.Add("x-ns-client-type", "editor");
                 if (caller is not null) request.Headers.TryAddWithoutValidation(ClientHeaders.LibraryVersion, caller);

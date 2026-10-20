@@ -62,7 +62,7 @@ public sealed class NetworkStorageUsageMiddleware(
             context.Response.Body = originalResponseBody;
             var bytesIn = Math.Max(context.Request.ContentLength ?? 0, requestCounting.BytesRead);
             // An escaping exception becomes a 500 in ExceptionHandlingMiddleware after this point.
-            var status = faulted ? StatusCodes.Status500InternalServerError : context.Response.StatusCode;
+            var status = faulted ? StatusCodes.Status500InternalServerError : LibraryErrorEnvelope.ReportedStatus(context);
             Record(context, status, bytesIn, responseCounting.BytesWritten, Stopwatch.GetElapsedTime(start).TotalMilliseconds);
         }
     }

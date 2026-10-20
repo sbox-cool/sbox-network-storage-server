@@ -49,14 +49,7 @@ internal static class PlayerIdentity
         long ownerUserId, bool required, bool sessionsEnabled, string claimedSteamId)
     {
         var request = context.Request;
-        var authorization = request.Headers.Authorization.FirstOrDefault() ?? "";
-        var sessionToken = FirstNonEmpty(
-            request.Headers["x-auth-session"].FirstOrDefault(),
-            request.Headers["x-auth-session-token"].FirstOrDefault(),
-            authorization.StartsWith("bearer ", StringComparison.OrdinalIgnoreCase) ? authorization[7..].Trim() : null,
-            request.Query["authSessionToken"].FirstOrDefault(),
-            request.Query["sessionToken"].FirstOrDefault(),
-            ReadBodyString(body, "authSessionToken"), ReadBodyString(body, "sessionToken"));
+        var sessionToken = ReadSessionToken(request, body);
         var token = FirstNonEmpty(
             request.Headers["x-sbox-token"].FirstOrDefault(),
             request.Headers["x-sbox-auth-token"].FirstOrDefault(),
@@ -110,7 +103,7 @@ internal static class PlayerIdentity
             }
 
             if (verifiedSteamId is not null && !string.Equals(verifiedSteamId, result.SteamId, StringComparison.Ordinal))
-                return PlayerIdentityResult.Reject("AUTH_SESSION_STEAMID_MISMATCH", "Auth session and s&box token identify different players.");
+                return PlayerIdentityResult.Reject("AUTH_SESSION_STEAMID_MISMATCH", "Auth session and s&box token identify different players.", StatusCodes.Status403Forbidden);
             verifiedSteamId = result.SteamId;
         }
 
@@ -122,12 +115,25 @@ internal static class PlayerIdentity
             || !MatchesClaim(request.Query["steamId"].FirstOrDefault())
             || !MatchesClaim(request.Query["steamid"].FirstOrDefault())
             || !MatchesClaim(ReadBodyString(body, "steamId")))
-            return PlayerIdentityResult.Reject("AUTH_SESSION_STEAMID_MISMATCH", "Supplied Steam ID does not match the verified identity.");
+            return PlayerIdentityResult.Reject("AUTH_SESSION_STEAMID_MISMATCH", "Supplied Steam ID does not match the verified identity.", StatusCodes.Status403Forbidden);
 
         return PlayerIdentityResult.Verified(verifiedSteamId!);
 
         bool MatchesClaim(string? claim) => string.IsNullOrEmpty(claim)
             || string.Equals(claim, expectedClaim, StringComparison.Ordinal);
+    }
+
+    /// <summary>The auth-session token presented with the request (header, bearer, query, or body), or null.</summary>
+    internal static string? ReadSessionToken(HttpRequest request, JsonElement body)
+    {
+        var authorization = request.Headers.Authorization.FirstOrDefault() ?? "";
+        return FirstNonEmpty(
+            request.Headers["x-auth-session"].FirstOrDefault(),
+            request.Headers["x-auth-session-token"].FirstOrDefault(),
+            authorization.StartsWith("bearer ", StringComparison.OrdinalIgnoreCase) ? authorization[7..].Trim() : null,
+            request.Query["authSessionToken"].FirstOrDefault(),
+            request.Query["sessionToken"].FirstOrDefault(),
+            ReadBodyString(body, "authSessionToken"), ReadBodyString(body, "sessionToken"));
     }
 
     internal static string? ReadBodyString(JsonElement body, string name)

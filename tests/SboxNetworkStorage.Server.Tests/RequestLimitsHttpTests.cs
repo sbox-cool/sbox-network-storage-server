@@ -97,6 +97,42 @@ public abstract class RequestLimitsHttpTests<TFactory> : IClassFixture<TFactory>
     }
 
     [SkippableFact]
+    public async Task OversizedEndpointBody_ForLibraryCaller_GetsEnvelope413()
+    {
+        var project = await factory.CreateProjectAsync();
+        using var host = Limited(_ => { });
+        using var client = host.CreateClient();
+        using var request = new HttpRequestMessage(HttpMethod.Post, $"/v3/endpoints/{project.ProjectId}/ping?apiKey={project.PublicKey}")
+        {
+            Content = Json(2_200_000),
+        };
+        request.Headers.Add("x-ns-client-type", "game");
+        using var response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.False(body.RootElement.GetProperty("ok").GetBoolean());
+        Assert.Equal(413, body.RootElement.GetProperty("status").GetInt32());
+        Assert.Equal("PAYLOAD_TOO_LARGE", body.RootElement.GetProperty("error").GetProperty("code").GetString());
+    }
+
+    [SkippableFact]
+    public async Task OversizedEndpointBody_ForPlainCaller_KeepsRealStatus()
+    {
+        var project = await factory.CreateProjectAsync();
+        using var client = factory.CreateClient();
+        using var payload = Json(2_200_000);
+        using var response = await client.PostAsync(
+            $"/v3/endpoints/{project.ProjectId}/ping?apiKey={project.PublicKey}",
+            payload);
+
+        Assert.Equal(HttpStatusCode.RequestEntityTooLarge, response.StatusCode);
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.Equal("PAYLOAD_TOO_LARGE", body.RootElement.GetProperty("error").GetString());
+        Assert.False(body.RootElement.TryGetProperty("status", out _));
+    }
+
+    [SkippableFact]
     public async Task DeclaredGigabyteBodyToAMappedDataPlaneRoute_IsRejectedWithoutReading()
     {
         var project = await factory.CreateProjectAsync();
@@ -251,6 +287,30 @@ public abstract class RequestLimitsHttpTests<TFactory> : IClassFixture<TFactory>
 
         using var other = await client.SendAsync(Get("/v3/storage", peer: "203.0.113.6"));
         Assert.Equal(HttpStatusCode.NotFound, other.StatusCode);
+    }
+
+    [SkippableFact]
+    public async Task ExhaustedBucket_OnAnEndpointRoute_GetsEnvelopeWithRetryAfterSeconds()
+    {
+        var project = await factory.CreateProjectAsync();
+        using var limited = Limited(o => o.Game = Bucket(burst: 2));
+        using var client = limited.CreateClient();
+        var path = $"/v3/endpoints/{project.ProjectId}/missing?apiKey={project.PublicKey}";
+
+        for (var i = 0; i < 2; i++)
+        {
+            using var ok = await client.SendAsync(LibraryGet(path, peer: "203.0.113.8"));
+            Assert.Equal(HttpStatusCode.OK, ok.StatusCode);
+        }
+
+        using var limitedResponse = await client.SendAsync(LibraryGet(path, peer: "203.0.113.8"));
+        Assert.Equal(HttpStatusCode.OK, limitedResponse.StatusCode);
+        Assert.True(limitedResponse.Headers.RetryAfter?.Delta?.TotalSeconds > 0);
+        using var body = JsonDocument.Parse(await limitedResponse.Content.ReadAsStringAsync());
+        Assert.False(body.RootElement.GetProperty("ok").GetBoolean());
+        Assert.Equal(429, body.RootElement.GetProperty("status").GetInt32());
+        Assert.Equal("RATE_LIMITED", body.RootElement.GetProperty("error").GetProperty("code").GetString());
+        Assert.True(body.RootElement.GetProperty("retryAfterSeconds").GetInt32() > 0);
     }
 
     [SkippableFact]
@@ -506,6 +566,13 @@ public abstract class RequestLimitsHttpTests<TFactory> : IClassFixture<TFactory>
         var request = new HttpRequestMessage(HttpMethod.Get, path);
         if (peer is not null) request.Headers.Add(PeerHeader, peer);
         if (key is not null) request.Headers.Add("x-api-key", key);
+        return request;
+    }
+
+    private static HttpRequestMessage LibraryGet(string path, string peer)
+    {
+        var request = Get(path, peer: peer);
+        request.Headers.Add("x-ns-client-type", "game");
         return request;
     }
 

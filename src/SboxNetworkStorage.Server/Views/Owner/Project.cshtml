@@ -182,8 +182,9 @@
                 <label class="check"><input type="checkbox" name="enableAuthSessions" value="true" checked="@(project.EnableAuthSessions ?? false)" /> Enable auth sessions</label>
                 <p class="muted">Lets the game trade its s&amp;box token for a session token, so later calls skip the s&amp;box check until the session ends. <a href="@OwnerDocs.Url("admin-panel.md#auth-sessions")" rel="noreferrer">Auth sessions</a></p>
                 <label>Session TTL (seconds) <input type="number" name="authSessionTtlSeconds" value="@(project.AuthSessionTtlSeconds ?? 3600)" min="60" max="86400" /></label>
+                <label class="check"><input type="checkbox" name="requireAuthSessions" value="true" checked="@(project.RequireAuthSessions ?? false)" /> Require an auth session for every endpoint call</label>
                 <label class="check"><input type="checkbox" name="enableEncryptedRequests" value="true" checked="@(project.EnableEncryptedRequests ?? false)" /> Enable encrypted requests</label>
-                <p class="muted">Tells the client library to encrypt endpoint calls; this server decrypts them and still accepts plain calls. <a href="@OwnerDocs.Url("admin-panel.md#encrypted-requests")" rel="noreferrer">Encrypted requests</a></p>
+                <p class="muted">Clients encrypt endpoint calls while this is on. Plain calls are refused with SECURITY_ENCRYPTION_REQUIRED and the client retries encrypted; encrypted calls are refused with SECURITY_ENCRYPTION_DISABLED while it is off. <a href="@OwnerDocs.Url("admin-panel.md#encrypted-requests")" rel="noreferrer">Encrypted requests</a></p>
                 <label>Encrypted request window (seconds) <input type="number" name="encryptedRequestWindowSeconds" value="@(project.EncryptedRequestWindowSeconds ?? 120)" min="30" max="600" /></label>
             </details>
             <button type="submit">Save security settings</button>

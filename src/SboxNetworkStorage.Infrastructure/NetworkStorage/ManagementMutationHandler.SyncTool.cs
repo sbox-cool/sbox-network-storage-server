@@ -142,6 +142,11 @@ public sealed partial class ManagementMutationHandler
             var merged = MergeDefinition(existing?.Definition, compiled, id);
             var name = kind == "endpoint" ? GetOptionalString(merged, "slug") ?? id : GetOptionalString(merged, "name") ?? id;
             var resourceId = kind == "workflow" ? id : name;
+            if (kind == "endpoint"
+                && await RefuseScriptErrorsAsync(projectId, [new BatchEndpoint(id, merged, GetOptionalString(incoming, "sourcePath"))], 1, request.CancellationToken) is { } refused)
+            {
+                return refused;
+            }
             if (existing is { } current && current.Definition.GetRawText() == merged.GetRawText())
                 return ReportPublishTarget(
                     ProductionOkResult(new { ok = true, source = "candidate", resourceKind = kind, resourceId, id, action = "unchanged", skipped = true }),

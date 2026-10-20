@@ -1,11 +1,14 @@
 using SboxNetworkStorage.Application.NetworkStorage.Endpoints.Scripting;
 using System.Text.Json;
 using System.Diagnostics.CodeAnalysis;
+using System.Text.Json.Serialization;
 
 namespace SboxNetworkStorage.Infrastructure.NetworkStorage;
 
 /// <summary>One save-time finding. Errors block saving; warnings are advisory.</summary>
-public sealed record DefinitionDiagnostic(string Severity, string Code, string Message, string Path)
+public sealed record DefinitionDiagnostic(string Severity, string Code, string Message, string Path,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? Line = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? Column = null)
 {
     public bool IsError => Severity == "error";
 }
@@ -35,6 +38,7 @@ internal sealed class DiagnosticBag
 {
     public List<DefinitionDiagnostic> Items { get; } = [];
     public void Error(string code, string message, string path) => Items.Add(new("error", code, message, path));
+    public void ErrorAt(string code, string message, string path, int line, int column) => Items.Add(new("error", code, message, path, line, column));
     public void Warning(string code, string message, string path) => Items.Add(new("warning", code, message, path));
 }
 
@@ -62,6 +66,15 @@ public static class NetworkStorageDefinitionValidator
     };
 
     public static readonly string[] QueryTypes = ["leaderboard", "count", "sum", "average", "min", "max"];
+
+    /// <summary>
+    /// Codes that refuse a scripted endpoint's save: the source does not parse or is too large, uses a module form the
+    /// server cannot run, or imports a global that is missing, does not export the name, or imports back into a cycle.
+    /// </summary>
+    private static readonly HashSet<string> ScriptSaveRefusalCodes = new(StringComparer.Ordinal)
+    {
+        "SCRIPT_SYNTAX", "SCRIPT_TOO_LARGE", "SCRIPT_MODULE_UNSUPPORTED", "GLOBAL_CYCLE", "GLOBAL_NOT_FOUND", "GLOBAL_EXPORT_NOT_FOUND",
+    };
 
     /// <summary>Compiles a stored resource wrapper (source-backed or plain) and validates the result.</summary>
     public static IReadOnlyList<DefinitionDiagnostic> ValidateResource(
@@ -98,6 +111,44 @@ public static class NetworkStorageDefinitionValidator
         }
         return bag.Items;
     }
+
+    /// <summary>
+    /// True when a finding refuses the save of a scripted endpoint rather than advising. The Sync Tool refuses a batch on
+    /// these; its other findings are warnings that the push stores as given.
+    /// </summary>
+    public static bool RefusesScriptSave(DefinitionDiagnostic finding) =>
+        finding.IsError && ScriptSaveRefusalCodes.Contains(finding.Code);
+
+    /// <summary>
+    /// Analysed imports and exports of the enabled global endpoints among <paramref name="endpoints"/>. A global whose
+    /// source does not analyse is left out: its own save rejected it, so importers see it as missing.
+    /// </summary>
+    public static Dictionary<string, ScriptModuleInfo> ProjectGlobalModules(
+        IEnumerable<(string Id, JsonElement Definition)> endpoints, IReadOnlyList<IEndpointScriptRuntime> scriptRuntimes)
+    {
+        var modules = new Dictionary<string, ScriptModuleInfo>(StringComparer.Ordinal);
+        foreach (var (id, definition) in endpoints)
+        {
+            if (definition.ValueKind != JsonValueKind.Object) continue;
+            if (StringProperty(definition, "scope") != "global" || StringProperty(definition, "runtime") is not { } language) continue;
+            if (definition.TryGetProperty("enabled", out var enabled) && enabled.ValueKind == JsonValueKind.False) continue;
+            if (StringProperty(definition, "script") is not { } source) continue;
+            var engine = scriptRuntimes.FirstOrDefault(candidate => candidate.Language == language);
+            if (engine is null) continue;
+            try
+            {
+                modules[id] = ScriptModuleAnalysis.Analyze(engine.ToJavaScript(source));
+            }
+            catch (Exception ex) when (ex is ScriptModuleException or InvalidOperationException or Acornima.ParseErrorException)
+            {
+                // A global that does not analyse was rejected at its own save; importers see it as missing.
+            }
+        }
+        return modules;
+    }
+
+    private static string? StringProperty(JsonElement element, string name) =>
+        element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
 
     private static void ValidateEndpoint(JsonElement definition, DiagnosticBag bag, DefinitionValidationContext context)
     {
@@ -187,7 +238,7 @@ public static class NetworkStorageDefinitionValidator
         if (problems.Count > 0)
         {
             foreach (var problem in problems)
-                bag.Error("SCRIPT_SYNTAX", $"Line {problem.Line}, column {problem.Column}: {problem.Message}", "/script");
+                bag.ErrorAt("SCRIPT_SYNTAX", $"Line {problem.Line}, column {problem.Column}: {problem.Message}", "/script", problem.Line, problem.Column);
             return;
         }
         ValidateScriptImports(source, engine, IsGlobalScope(definition), bag, context);
@@ -211,7 +262,7 @@ public static class NetworkStorageDefinitionValidator
         }
         catch (ScriptModuleException ex)
         {
-            bag.Error("SCRIPT_MODULE_UNSUPPORTED", $"Line {ex.Line}, column {ex.Column}: {ex.Message}", "/script");
+            bag.ErrorAt("SCRIPT_MODULE_UNSUPPORTED", $"Line {ex.Line}, column {ex.Column}: {ex.Message}", "/script", ex.Line, ex.Column);
             return;
         }
         var self = context.ResourceId ?? "this endpoint";

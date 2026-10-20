@@ -153,7 +153,7 @@ endpoints. Nested workflow calls stop at the workflow depth limit (see [Limits](
 An endpoint has either `script` or `steps`, never both. Setting both answers
 `SCRIPT_AND_STEPS` at save time.
 
-Save-time checks (script syntax, source size and runtime) run when the owner dashboard saves an endpoint. The Sync Tool, the package sync and the management push and patch paths store the definition as received and do not run them. A script with a syntax error that arrives through those paths is stored, and its first call fails with `SCRIPT_ERROR`.
+Save-time checks run when the owner dashboard saves an endpoint, and on the Sync Tool and endpoint writes: `PUT .../sync`, `PUT` and `POST .../endpoints`, and the single-resource `PATCH .../endpoints`. A write that carries a script the checks refuse is refused as a whole and stores nothing (see [Sync refusals](#sync-refusals)). A script that passes is stored as received. The package sync (`POST .../package-sync`) does not run these checks.
 
 ## TypeScript
 
@@ -189,8 +189,8 @@ Promises are bounded by the same time limit: a promise that does not settle befo
 | Record reads per request (record gets and lists, workflow definitions, global modules) | 64, across all rounds | `SCRIPT_LIMIT_EXCEEDED` |
 | Rows per collection scan | 1,000 | `SCAN_TOO_LARGE` (400), checked before any row is read |
 | Record writes and staged data per run | 1,000 writes and 1 MiB of record data | `SCRIPT_LIMIT_EXCEEDED`; the run's writes do not apply |
-| Concurrent scripted requests | one per processor on the server; two per project | `SCRIPT_BUSY` (503), at once, without queuing |
-| Script source | 64 KiB | Rejected when the owner dashboard saves it |
+| Concurrent scripted requests | one per processor on the server; two per project | A request waits up to `endpoints.script_gate.wait_ms` (default 2 s) for a free slot. Past that it is refused with `SCRIPT_BUSY` (429), `Retry-After`, and `retrySafe: true`, and it never runs. |
+| Script source | 64 KiB | Rejected when the owner dashboard saves it, and refused by a Sync Tool or endpoint push |
 | Response body | 256 KiB | `SCRIPT_LIMIT_EXCEEDED` |
 | Log output per run | 8 KiB | Lines past the cap are dropped and a `[log truncated]` line is kept. |
 
@@ -208,21 +208,37 @@ changing it.
 | `SCRIPT_ERROR` | Run, 500 | The script threw an error that it did not handle. |
 | `SCRIPT_LIMIT_EXCEEDED` | Run, 500 | A run limit was hit. See [Limits](#limits). |
 | `SCRIPTS_DISABLED` | Run, 503 | `endpoints.scripts` is off. |
-| `SCRIPT_BUSY` | Run, 503 | The server or the project is already running its maximum number of scripted requests. Retry shortly. |
+| `SCRIPT_BUSY` | Run, 429 | The server or the project stayed at its maximum number of scripted requests past the wait. Nothing ran, so resend the same request after `Retry-After` (`retrySafe: true`). |
 | `ENDPOINT_NOT_FOUND` | Run, 404 | Unknown slug, or a `scope: global` endpoint called publicly. |
-| `SCRIPT_SYNTAX` | Save | The source cannot be parsed. Reports the line and column. |
+| `SCRIPT_SYNTAX` | Save, sync | The source cannot be parsed. Reports the line and column. |
 | `SCRIPT_AND_STEPS` | Save | An endpoint has both `script` and `steps`. |
 | `MISSING_SCRIPT` | Save | A scripted endpoint has no `script`. |
 | `SCRIPT_FILE_WITHOUT_SCRIPT` | Save | `scriptFile` is set but `script` is not. |
-| `SCRIPT_MODULE_UNSUPPORTED` | Save | Module syntax outside the supported forms. |
-| `GLOBAL_NOT_FOUND` | Save | An import names no enabled global endpoint. On a global save, also a scripted endpoint that imports a global the save disables or makes `scope: public`. |
-| `GLOBAL_EXPORT_NOT_FOUND` | Save | A global endpoint does not export the imported name. On a global save, also a scripted endpoint that imports a name the save removes. |
-| `GLOBAL_CYCLE` | Save | Global imports form a cycle. |
+| `SCRIPT_TOO_LARGE` | Save, sync | The source is larger than the 64 KiB limit. Reported at `/script`. |
+| `SCRIPT_MODULE_UNSUPPORTED` | Save, sync | Module syntax outside the supported forms. |
+| `GLOBAL_NOT_FOUND` | Save, sync | An import names no enabled global endpoint. On a global save, also a scripted endpoint that imports a global the save disables or makes `scope: public`. |
+| `GLOBAL_EXPORT_NOT_FOUND` | Save, sync | A global endpoint does not export the imported name. On a global save, also a scripted endpoint that imports a name the save removes. |
+| `GLOBAL_CYCLE` | Save, sync | Global imports form a cycle. |
 | `SOURCE_COMPILE_FAILED` | Save | The endpoint source did not compile. |
+
+Sync preflight runs the same script checks as the sync write, with the batch's own globals included. Each code marked "Save, sync" above is an error in preflight, and any of them fails it with `PREFLIGHT_VALIDATION_FAILED` (400). Each finding carries `file`, and `line` and `column` where the parser reports them. Other findings stay warnings.
 
 `ns.fail` takes any code and a status from 400 to 499. The codes above are
 the server's own. Template codes, such as `AUTH_REQUIRED` or
 `INSUFFICIENT_COINS`, belong to the template and are listed with it.
+
+## Sync refusals
+
+A write that carries a scripted endpoint the checks refuse is refused as a whole. The checks are the ones marked "Save, sync" in [Typed error codes](#typed-error-codes). They run on `PUT .../sync`, `PUT` and `POST .../endpoints`, and `PATCH .../endpoints`. Nothing is written, not even the other items of the batch. An import of a global pushed in the same batch resolves, and an import of a stored global resolves against its stored definition.
+
+A refused write returns 400 `VALIDATION_FAILED`:
+
+- `ok` is `false`, and `source` is `"candidate"`.
+- `error` is `VALIDATION_FAILED`, and `message` says that nothing was written.
+- `diagnostics` lists every refused finding, with `code`, `severity` (`error`), `message`, `resourceKind`, `resourceId`, `sourcePath` (the JSON pointer, `/script`), `file`, and `line` and `column` where the parser reports them. `file` is the item's `sourcePath` from the push, when it has one.
+- `endpoints` is `{ ok, total, failed, results }`. Each failed endpoint in `results` has its `resourceId`, its own `error` and `message`, and its `diagnostics`.
+
+A sync preflight with the same finding returns 400 `PREFLIGHT_VALIDATION_FAILED`. Each finding is in the `diagnostics` of its item under `endpoints`, with the same fields. Preflight writes nothing.
 
 ## Templates
 
