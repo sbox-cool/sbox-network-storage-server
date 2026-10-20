@@ -6,6 +6,7 @@ using SboxNetworkStorage.Application.Common;
 using SboxNetworkStorage.Application.Errors;
 using SboxNetworkStorage.Contracts.Errors;
 using SboxNetworkStorage.Infrastructure.Observability;
+using SboxNetworkStorage.Server.Compat;
 
 namespace SboxNetworkStorage.Server.Middleware;
 
@@ -119,12 +120,33 @@ public sealed class ExceptionHandlingMiddleware(
             context.Response.Headers["Retry-After"] = "30";
         }
 
+        var title = isOutage ? "Database unavailable" : "Internal server error";
+        var detail = isOutage
+            ? "The storage database is temporarily unreachable. Please retry shortly."
+            : "An unexpected error occurred. Reference the correlation ID when reporting the problem.";
+
+        // Library callers on endpoint routes get the envelope at HTTP 200 with the real status in the body
+        // (docs/compatibility.md). The correlation id stays on the header and in the body.
+        if (LibraryErrorEnvelope.UsesEnvelope(context))
+        {
+            var envelope = LibraryErrorEnvelope.Build(context, statusCode,
+                isOutage ? "DATABASE_UNAVAILABLE" : "INTERNAL_ERROR", detail);
+            envelope["correlationId"] = correlationId;
+            try
+            {
+                await LibraryErrorEnvelope.WriteBodyAsync(context, statusCode, envelope);
+            }
+            catch (Exception writeException) when (writeException is OperationCanceledException or IOException)
+            {
+                logger.LogDebug(writeException, "Failed to write error response correlationId={CorrelationId}", correlationId);
+            }
+            return;
+        }
+
         var problem = new ProblemDetails
         {
-            Title = isOutage ? "Database unavailable" : "Internal server error",
-            Detail = isOutage
-                ? "The storage database is temporarily unreachable. Please retry shortly."
-                : "An unexpected error occurred. Reference the correlation ID when reporting the problem.",
+            Title = title,
+            Detail = detail,
             Status = statusCode,
             Instance = context.Request.Path
         };

@@ -33,7 +33,7 @@ natively without a database write:
   "apiVersions": ["v3"],
   "api": { "root": "/api", "aliases": ["/v3"], "since": "0.5.5" },
   "database": "sqlite",
-  "capabilities": ["records", "global-records", "endpoints", "workflows", "queries", "game-values", "rate-limits", "auth-sessions", "analytics", "package-sync", "https-tunnel", "api-root"],
+  "capabilities": ["records", "global-records", "endpoints", "workflows", "queries", "game-values", "rate-limits", "auth-sessions", "analytics", "analytics-batch", "package-sync", "https-tunnel", "api-root"],
   "tunnel": { "enabled": false, "name": "", "hostname": "", "registry": "", "connectorState": "disabled", "connectorVersion": "", "processId": null, "updatedAt": "2026-10-10T00:00:00+00:00" },
   "compat": { "library": { "minimum": "1.1.0", "recommended": "1.1.0", "latest": "1.1.0", "legacy": "supported", "deprecated": [], "blocked": [], "knownBroken": [{ "version": "1.0.165702", "revision": 165702, "engine": ">=26.10", "reason": "Stale library breaks editor startup on s&box engine 26.10 or later.", "issue": "sbox-cool/sbox-network-storage#4" }], "tested": [] }, "matrixUrl": "https://github.com/sbox-cool/sbox-network-storage-server/blob/main/compat/library-matrix.json" },
   "update": null
@@ -45,6 +45,11 @@ natively without a database write:
 an update check has run, else null. `compat` is described under
 [Library compatibility](#library-compatibility). `sbox-ns doctor` also polls
 this route to check the listener.
+
+`analytics-batch` in `capabilities` means the analytics events route also accepts
+a batch body `{"events":[ ... ]}`; see
+[configuration.md](configuration.md#analytics-retention-and-buffering). A library
+batches only when this is advertised and otherwise sends one event per request.
 
 The additive `compat` advertisement and optional `x-ns-library-*` identity/status
 headers are the whole version contract. Unidentified older libraries remain
@@ -243,18 +248,18 @@ and `disabled` otherwise. For the `v2-preferred` and `v2-required` modes, an
 `fingerprint`) and a `required` flag. The modes and their refusals are in
 [admin-panel.md](admin-panel.md#encrypted-requests).
 
-The released library sends the v1 envelope only: AES-256-GCM with a key derived from
-the public API key, signed with HMAC-SHA256. The v2 envelope (a per-request AES-256 key
+The v1 envelope (AES-256-GCM with a key derived from the public API key, signed with
+HMAC-SHA256) is what released libraries send. The v2 envelope (a per-request AES-256 key
 wrapped with RSA-OAEP-SHA256, AES-256-GCM payloads, and encrypted responses) needs a
-library release that implements it. That release is not part of the server change.
-Wire format: [encrypted-requests-v2.md](encrypted-requests-v2.md).
+library that implements it. Wire format: [encrypted-requests-v2.md](encrypted-requests-v2.md).
 
-The server refuses a call made in the wrong mode with a security code. Those codes
-(`SECURITY_*`, `AUTH_SESSION_*`, `ENCRYPTED_REQUEST_*`, `REQUEST_SIGNATURE_*`)
-arrive on endpoint routes as HTTP 200. The code is in `error.code`, and the status
-the server intended is the number in the body `status`. Other endpoint errors keep
-their HTTP status. The library refreshes its security config and retries once on a
-`SECURITY_*` code. After a key rotation, `SECURITY_CONFIG_STALE` means the cached
+The server refuses a call made in the wrong mode with a security code. For a library
+caller, those codes (`SECURITY_*`, `AUTH_SESSION_*`, `ENCRYPTED_REQUEST_*`,
+`REQUEST_SIGNATURE_*`) arrive on endpoint routes as HTTP 200. The code is in `error.code`,
+and the status the server intended is the number in the body `status` (see
+[compatibility.md](compatibility.md#endpoint-errors-for-library-callers)). Other endpoint
+errors keep their HTTP status. The library refreshes its security config and retries once
+on a `SECURITY_*` code. After a key rotation, `SECURITY_CONFIG_STALE` means the cached
 config names a key that has expired; the refresh picks up the current key.
 
 A v2 response body has `encrypted: true` and `v: 2`. Any other body is plain JSON.
@@ -263,8 +268,7 @@ Error bodies can be either, because refusals before decryption are plain.
 Encrypted requests (v2) protect payload content from anyone without the server's
 private key. They do not hide the bearer or auth tokens the client sends in plain
 headers or in the outer `security` block. An active man in the middle who sees such
-a token can still act with it, so the server must be reached over HTTPS. Fingerprint
-pinning is planned for a later library release and is not available yet.
+a token can still act with it, so the server must be reached over HTTPS.
 
 ## Query results
 

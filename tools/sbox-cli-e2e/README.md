@@ -50,8 +50,10 @@ writes are `ci-only`.
 2. Copies [`fixture/`](fixture) (game project `compat_probe` with endpoints, collections and game
    values as Sync Tool sources) and installs the library into `Libraries/sboxcool.network-storage`
    from `main`, `git:<ref>`, `r<revision>`, a local checkout (tracked files only, like a clean
-   `git clone`) or, with `--library package`, the published package through the editor's
-   `install_package` tool.
+   `git clone`) or, with `--library package`, the published package through
+   `Editor.LibrarySystem.Install`, the same whole-folder installer the Library Manager button uses.
+   The package leg first installs revision 165702 when available, then updates it to the latest
+   revision and checks compilation; it does not use the unrelated asset-only `install_package` tool.
 3. **Editor** (Windows launches `sbox-dev -project`; on other systems open the fixture yourself and
    pass `--attach`): waits for the compile, then with the library's `network_storage` toolset
    (`ns_editor_status`, `ns_sync_push` with post-push verification, `ns_auto_test`) or, for older
@@ -62,6 +64,19 @@ writes are `ci-only`.
    key, attached with `sbox-cli --connect <pid>`: endpoint calls, game values and a
    `requiresSecretKey` endpoint passing with the secret key. Without the editor target the runner
    pushes the fixture sources itself, as the Sync Tool would.
+   With `endpoint-js` and a library supporting separate script files, the fixture adds JS and TS
+   envelopes plus sibling scripts. Editor runs use the library's source loader; dedicated-only runs
+   inline these controlled fixture files before HTTP push. Both execute the pushed scripts through
+   the real library and verify that the management pull preserves each runtime and script body.
+   This headless contract check complements, rather than replaces, the native Sync Tool pull/conflict UI check.
+   Then the **rate-limit probe**: the runner sets `server.limits.game_burst` and
+   `server.limits.game_per_second` to 1 with `sbox-ns config set`, restarts this server, and makes
+   two game-values GETs, five concurrent GETs and one POST `ping` from the game. The second GET must
+   succeed after its 429 retry, the burst must mix successes with `RATE_LIMITED`, and the POST must
+   come back `RATE_LIMITED` unretried. Required for every library source containing the bounded retry implementation, including local PR candidates; older refs report it.
+   The runner discovers these knobs through `config show`. Supported older binaries without them
+   keep all ordinary runtime/encryption checks, but record the low-limit probe as not exercised;
+   latest/main must still pass the bounded-retry checks when they expose the knobs.
 5. Reads what the server recorded (`sbox-ns project clients`, `dev logs_requests`) and checks the
    library version header arrived.
 

@@ -128,7 +128,9 @@ public abstract class EncryptedEndpointV2Tests<TFactory> : IDisposable where TFa
         var project = await ProjectAsync(EncryptedRequestModes.V2Required);
         using var client = Client(factory);
 
-        using var response = await client.SendAsync(Call(project, new { coins = 5 }));
+        using var request = Call(project, new { coins = 5 });
+        request.Headers.Add("x-ns-library-version", "1.2.0");
+        using var response = await client.SendAsync(request);
 
         var root = await ReadSecurityErrorAsync(response, 409, "SECURITY_ENCRYPTION_REQUIRED");
         var expected = root.GetProperty("security").GetProperty("expected");

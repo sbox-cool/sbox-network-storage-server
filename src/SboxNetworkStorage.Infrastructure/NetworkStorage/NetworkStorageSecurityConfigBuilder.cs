@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using SboxNetworkStorage.Domain.Workspace;
+using SboxNetworkStorage.Application.NetworkStorage;
 
 namespace SboxNetworkStorage.Infrastructure.NetworkStorage;
 
@@ -203,7 +204,7 @@ internal static class NetworkStorageSecurityConfigBuilder
             ["authSessionTtlSeconds"] = ReadClampedInteger(project, "authSessionTtlSeconds", DefaultAuthSessionTtlSeconds, 60, 86_400),
             ["enableEncryptedRequests"] = EncryptedRequestModes.RequiresEncryption(mode),
             ["encryptedRequestWindowSeconds"] = ReadClampedInteger(project, "encryptedRequestWindowSeconds", DefaultEncryptedRequestWindowSeconds, 30, 600),
-            ["analytics"] = ReadObject(project, "analytics") ?? new JsonObject(),
+            ["analytics"] = ReadAnalyticsSettings(project),
         };
         if (EncryptedRequestModes.OffersV2(mode)) settings["encryptedRequestMode"] = mode;
         return settings;
@@ -247,6 +248,20 @@ internal static class NetworkStorageSecurityConfigBuilder
         && value.ValueKind == JsonValueKind.Object
             ? JsonNode.Parse(value.GetRawText()) as JsonObject
             : null;
+
+    /// <summary>
+    /// The analytics object the library receives. The custom-event allowlist is always written
+    /// (reference defaults when the owner has not set one), so the library never runs with a list
+    /// the owner cannot see.
+    /// </summary>
+    private static JsonObject ReadAnalyticsSettings(JsonElement project)
+    {
+        var analytics = ReadObject(project, "analytics") ?? new JsonObject();
+        var allowed = new JsonArray();
+        foreach (var name in PlayerAnalyticsAllowedEvents.ReadStored(analytics)) allowed.Add(JsonValue.Create(name));
+        analytics["allowedEventTypes"] = allowed;
+        return analytics;
+    }
 
     private static bool ReadAnalyticsEnabled(JsonObject settings) =>
         settings["analytics"] is not JsonObject analytics

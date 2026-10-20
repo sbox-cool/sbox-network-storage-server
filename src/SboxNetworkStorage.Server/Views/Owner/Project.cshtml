@@ -255,6 +255,7 @@
         var mediaOn = mediaRoot.ValueKind == System.Text.Json.JsonValueKind.Object
             && mediaRoot.TryGetProperty("enabled", out var mediaEnabledValue)
             && mediaEnabledValue.ValueKind == System.Text.Json.JsonValueKind.True;
+        var analyticsSettings = SboxNetworkStorage.Application.NetworkStorage.PlayerAnalyticsOwnerSettings.From(System.Text.Json.JsonSerializer.SerializeToNode(project.Analytics));
     }
     <details class="card settings-advanced">
         <summary>Game logs</summary>
@@ -281,6 +282,19 @@
                 <textarea name="gameLogsAllowedEvents" rows="3">@string.Join("\n", gameLogPolicy.AllowedEvents)</textarea></label>
             <label>Rate limit per minute for the project <input type="number" name="gameLogsRateLimitPerMinute" value="@gameLogPolicy.RateLimitPerMinute" min="1" /></label>
             <button type="submit">Save game-log settings</button>
+        </form>
+    </details>
+    <details class="card settings-advanced">
+        <summary>Player analytics settings</summary>
+        <p class="muted">Analytics recorded from this project's players and games. A custom event sent with <code>NetworkStorage.TrackAnalyticsEvent</code> (or <code>NetworkStorageAnalytics.TrackEvent</code>) is stored only when its name is in the list below. The game library drops other names and counts them in its <code>Dropped</code> warning.</p>
+        <form method="post" action="@url/settings">
+            @Html.AntiForgeryToken()<input type="hidden" name="tab" value="analytics" />
+            <label class="check"><input type="checkbox" name="analyticsEnabled" value="true" checked="@(analyticsSettings.Enabled)" /> Record player analytics for this project</label>
+            <label class="check"><input type="checkbox" name="captureSessions" value="true" checked="@(analyticsSettings.CaptureSessions)" /> Record player sessions</label>
+            <label class="check"><input type="checkbox" name="managedLibraryEvents" value="true" checked="@(analyticsSettings.ManagedLibraryEvents)" /> Accept events from the game library, including custom events</label>
+            <label>Custom event names the game may send (one per line or comma-separated; lowercase letters, digits, <code>_ . : -</code>; up to 48 characters each; write spaces as <code>_</code>).
+                <textarea name="analyticsAllowedEventTypes" rows="4">@string.Join("\n", analyticsSettings.AllowedEventTypes)</textarea></label>
+            <button type="submit">Save analytics settings</button>
         </form>
     </details>
     <details class="card settings-advanced">

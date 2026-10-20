@@ -159,60 +159,148 @@ public sealed class ScriptedEndpointExecutorTests
     }
 
     [Fact]
-    public void Gate_PerProjectLimit_RefusesExtraSlotForSameProjectOnly()
+    public async Task Gate_PerProjectLimit_RefusesExtraSlotForSameProjectOnly()
     {
-        var gate = new ScriptConcurrencyGate(globalLimit: 8, perProjectLimit: 2);
-        using var first = gate.TryEnter("proj");
-        using var second = gate.TryEnter("proj");
+        var gate = new ScriptConcurrencyGate(globalLimit: 8, perProjectLimit: 2, waitTime: TimeSpan.Zero);
+        using var first = await gate.EnterAsync("proj");
+        using var second = await gate.EnterAsync("proj");
         Assert.NotNull(first);
         Assert.NotNull(second);
 
-        using var third = gate.TryEnter("proj");
+        using var third = await gate.EnterAsync("proj");
         Assert.Null(third);
-        using var otherProject = gate.TryEnter("other");
+        using var otherProject = await gate.EnterAsync("other");
         Assert.NotNull(otherProject);
     }
 
     [Fact]
-    public void Gate_GlobalLimit_RefusesWhenTheServerIsFull()
+    public async Task Gate_GlobalLimit_RefusesWhenTheServerIsFull()
     {
-        var gate = new ScriptConcurrencyGate(globalLimit: 2, perProjectLimit: 2);
-        using var a = gate.TryEnter("a");
-        using var b = gate.TryEnter("b");
+        var gate = new ScriptConcurrencyGate(globalLimit: 2, perProjectLimit: 2, waitTime: TimeSpan.Zero);
+        using var a = await gate.EnterAsync("a");
+        using var b = await gate.EnterAsync("b");
         Assert.NotNull(a);
         Assert.NotNull(b);
 
-        using var c = gate.TryEnter("c");
+        using var c = await gate.EnterAsync("c");
         Assert.Null(c);
     }
 
     [Fact]
-    public void Gate_DisposedSlot_FreesCapacityAndDoubleDisposeReleasesOnce()
+    public async Task Gate_DisposedSlot_FreesCapacityAndDoubleDisposeReleasesOnce()
     {
-        var gate = new ScriptConcurrencyGate(globalLimit: 1, perProjectLimit: 1);
-        var slot = gate.TryEnter("proj");
+        var gate = new ScriptConcurrencyGate(globalLimit: 1, perProjectLimit: 1, waitTime: TimeSpan.Zero);
+        var slot = await gate.EnterAsync("proj");
         Assert.NotNull(slot);
-        Assert.Null(gate.TryEnter("proj"));
+        Assert.Null(await gate.EnterAsync("proj"));
 
         slot.Dispose();
         slot.Dispose(); // a second release would overflow the one-permit semaphore and throw
 
-        using var again = gate.TryEnter("proj");
+        using var again = await gate.EnterAsync("proj");
         Assert.NotNull(again);
     }
 
     [Fact]
-    public async Task Script_GateFull_ReturnsScriptBusy503_AndRecoversWhenASlotFrees()
+    public async Task Gate_BusyProject_WaitsAndEntersWhenASlotFreesInTime()
     {
-        var gate = new ScriptConcurrencyGate(globalLimit: 4, perProjectLimit: 1);
+        var gate = new ScriptConcurrencyGate(globalLimit: 4, perProjectLimit: 1, waitTime: TimeSpan.FromSeconds(30));
+        var held = await gate.EnterAsync("proj");
+        Assert.NotNull(held);
+
+        var waiting = gate.EnterAsync("proj");
+        Assert.False(waiting.IsCompleted);
+        Assert.Equal(1, gate.GetStats().QueuedRequests);
+
+        held.Dispose();
+        using var admitted = await waiting;
+        Assert.NotNull(admitted);
+
+        var stats = gate.GetStats();
+        Assert.Equal(0, stats.QueuedRequests);
+        Assert.Equal(2L, stats.Counters.Entered);
+        Assert.Equal(1L, stats.Counters.Waited);
+        Assert.Equal(0L, stats.Counters.TimedOut);
+        Assert.Equal(1, stats.Counters.MaxObservedQueueDepth);
+    }
+
+    [Fact]
+    public async Task Gate_WaitingCallHoldsNoServerSlot_OtherProjectsStillEnter()
+    {
+        var gate = new ScriptConcurrencyGate(globalLimit: 2, perProjectLimit: 1, waitTime: TimeSpan.FromSeconds(30));
+        var heldA = await gate.EnterAsync("a");
+        var queuedA = gate.EnterAsync("a");
+        Assert.False(queuedA.IsCompleted);
+
+        // The second server slot is still free: the call queued behind project a took none.
+        using var b = await gate.EnterAsync("b");
+        Assert.NotNull(b);
+
+        heldA!.Dispose();
+        using var admittedA = await queuedA;
+        Assert.NotNull(admittedA);
+    }
+
+    [Fact]
+    public async Task Gate_WaitPastItsLimit_ReturnsNullAndCountsTimeout()
+    {
+        var gate = new ScriptConcurrencyGate(globalLimit: 4, perProjectLimit: 1, waitTime: TimeSpan.FromMilliseconds(50));
+        using var held = await gate.EnterAsync("proj");
+        Assert.NotNull(held);
+
+        Assert.Null(await gate.EnterAsync("proj"));
+
+        var stats = gate.GetStats();
+        Assert.Equal(0, stats.QueuedRequests);
+        Assert.Equal(1, stats.ActiveSlots);
+        Assert.Equal(1L, stats.Counters.TimedOut);
+        Assert.Equal(0L, stats.Counters.Waited);
+    }
+
+    [Fact]
+    public async Task Gate_CancelledWait_GivesBackItsPlace()
+    {
+        var gate = new ScriptConcurrencyGate(globalLimit: 1, perProjectLimit: 1, waitTime: TimeSpan.FromSeconds(30));
+        var held = await gate.EnterAsync("proj");
+        Assert.NotNull(held);
+        using var cts = new CancellationTokenSource();
+        var queued = gate.EnterAsync("proj", cts.Token);
+
+        cts.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await queued);
+        Assert.Equal(0, gate.GetStats().QueuedRequests);
+
+        held.Dispose();
+        using var again = await gate.EnterAsync("proj");
+        Assert.NotNull(again);
+        Assert.Equal(0L, gate.GetStats().Counters.TimedOut);
+    }
+
+    [Fact]
+    public void Gate_RetryAfter_IsWaitRoundedUpAndAtLeastOneSecond()
+    {
+        Assert.Equal(2000, new ScriptConcurrencyGate(4, 1).GetStats().WaitMs);
+        Assert.Equal(2, new ScriptConcurrencyGate(4, 1).RetryAfterSeconds);
+        Assert.Equal(1, new ScriptConcurrencyGate(4, 1, TimeSpan.Zero).RetryAfterSeconds);
+        Assert.Equal(2, new ScriptConcurrencyGate(4, 1, TimeSpan.FromMilliseconds(1500)).RetryAfterSeconds);
+    }
+
+    [Fact]
+    public async Task Script_GateFull_ReturnsScriptBusy429_AndRecoversWhenASlotFrees()
+    {
+        var gate = new ScriptConcurrencyGate(globalLimit: 4, perProjectLimit: 1, waitTime: TimeSpan.Zero);
         var executor = ExecutorWithGate("export default function handle() { return { ok: true }; }", gate);
 
-        using var held = gate.TryEnter("proj");
+        using var held = await gate.EnterAsync("proj");
         Assert.NotNull(held);
         var busy = await Run(executor);
         Assert.False(busy.Ok);
-        Assert.Equal(503, busy.Status);
-        Assert.Contains("SCRIPT_BUSY", JsonSerializer.Serialize(busy.Body));
+        Assert.Equal(429, busy.Status);
+        Assert.Equal(1, busy.RetryAfterSeconds);
+        var body = JsonSerializer.Serialize(busy.Body);
+        Assert.Contains("SCRIPT_BUSY", body);
+        Assert.Contains("\"retrySafe\":true", body);
+        Assert.Contains("\"retryAfterSeconds\":1", body);
 
         held.Dispose();
         var ok = await Run(executor);

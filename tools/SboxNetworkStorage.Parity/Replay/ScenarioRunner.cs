@@ -16,10 +16,11 @@ public sealed class ScenarioRunner(HttpClient http, Uri target, TemplateContext 
 
     public async Task<RunResults> RunAsync(IReadOnlyList<CorpusFile> corpus, CancellationToken ct)
     {
+        var (version, capabilities) = await ReadServerInfoAsync(ct);
         var results = new RunResults
         {
             Target = target.ToString(),
-            ServerVersion = await TryReadServerVersionAsync(ct),
+            ServerVersion = version,
         };
 
         foreach (var file in corpus)
@@ -30,7 +31,7 @@ public sealed class ScenarioRunner(HttpClient http, Uri target, TemplateContext 
                 var scenarioResult = new ScenarioResult { Name = scenario.Name, File = file.FileName };
                 foreach (var step in scenario.Steps)
                 {
-                    var stepResult = await RunStepAsync(step, ct);
+                    var stepResult = await RunStepAsync(step, capabilities, ct);
                     scenarioResult.Steps.Add(stepResult);
                     var status = stepResult.Response?.Status.ToString() ?? "ERR";
                     log.WriteLine($"  [{status}] {step.Id}  {step.Method} {step.Path}");
@@ -52,7 +53,7 @@ public sealed class ScenarioRunner(HttpClient http, Uri target, TemplateContext 
         return results;
     }
 
-    private async Task<StepResult> RunStepAsync(Step step, CancellationToken ct)
+    private async Task<StepResult> RunStepAsync(Step step, IReadOnlySet<string> capabilities, CancellationToken ct)
     {
         var result = new StepResult
         {
@@ -86,7 +87,7 @@ public sealed class ScenarioRunner(HttpClient http, Uri target, TemplateContext 
         {
             JsonElement? parsed = TryParse(body);
             Capture(step, parsed);
-            var failures = Expectations.Evaluate(step.Expect, (int)response.StatusCode, parsed, context);
+            var failures = Expectations.Evaluate(Expectations.ForCapabilities(step.Expect, capabilities), (int)response.StatusCode, parsed, context);
             result.ExpectationFailures = failures.Count == 0 ? null : failures;
 
             var headers = response.Headers.Concat(response.Content.Headers)
@@ -210,15 +211,32 @@ public sealed class ScenarioRunner(HttpClient http, Uri target, TemplateContext 
         return replacements;
     }
 
-    private async Task<string?> TryReadServerVersionAsync(CancellationToken ct)
+    /// <summary>Reads the target's version and advertised capabilities from <c>/v3/server-info</c>; both are empty when the body is not a JSON object.</summary>
+    private async Task<(string? Version, HashSet<string> Capabilities)> ReadServerInfoAsync(CancellationToken ct)
     {
         try
         {
             using var response = await http.GetAsync(new Uri(target, "/v3/server-info"), ct);
             var info = TryParse(await response.Content.ReadAsStringAsync(ct));
-            return info is { ValueKind: JsonValueKind.Object } root && root.TryGetProperty("version", out var version)
-                ? version.ToString()
-                : null;
+            if (info is not { ValueKind: JsonValueKind.Object } root)
+            {
+                return (null, new HashSet<string>(StringComparer.Ordinal));
+            }
+
+            var version = root.TryGetProperty("version", out var versionValue) ? versionValue.ToString() : null;
+            var capabilities = new HashSet<string>(StringComparer.Ordinal);
+            if (root.TryGetProperty("capabilities", out var capabilityValues) && capabilityValues.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var capability in capabilityValues.EnumerateArray())
+                {
+                    if (capability.ValueKind == JsonValueKind.String)
+                    {
+                        capabilities.Add(capability.GetString()!);
+                    }
+                }
+            }
+
+            return (version, capabilities);
         }
         catch (HttpRequestException ex)
         {
