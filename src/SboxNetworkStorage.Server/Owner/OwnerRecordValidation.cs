@@ -22,6 +22,13 @@ internal static class OwnerRecordValidation
             using var document = JsonDocument.Parse(schema.GetString() ?? "{}");
             schema = document.RootElement.Clone();
         }
+        return ValidateAgainstSchema(schema, payload);
+    }
+
+    /// <summary>Validates a record payload against a collection JSON-schema. The global append path reuses this.</summary>
+    public static string? ValidateAgainstSchema(JsonElement schema, JsonElement payload)
+    {
+        if (payload.ValueKind != JsonValueKind.Object) return "Record payload must be a JSON object.";
         return Node(schema, payload, "$", 0);
     }
 

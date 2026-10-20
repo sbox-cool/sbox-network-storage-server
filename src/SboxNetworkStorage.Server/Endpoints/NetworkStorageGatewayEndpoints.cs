@@ -118,9 +118,9 @@ public static class NetworkStorageGatewayEndpoints
         MapManagementMutation(endpoints, [HttpMethods.Post], "/v3/manage/{projectId}/queries");
         MapManagementMutation(endpoints, [HttpMethods.Delete], "/v3/manage/{projectId}/queries/{queryId}");
         // Ported management mutations. The handlers mirror the retired legacy server
-        // manage-api surfaces (settings, saved tests, key destruction, source
-        // upgrade, test runners); logic not yet ported answers as a described
-        // dry-run via ManagementMutationHandler.
+        // manage-api surfaces (settings, saved tests, key destruction, source upgrade,
+        // test runners, suggest-tests). A mutation whose logic is not ported yet
+        // answers as a described dry-run via ManagementMutationHandler.
         MapManagementMutation(endpoints, [HttpMethods.Put], "/v3/manage/{projectId}/settings");
         MapManagementMutation(endpoints, [HttpMethods.Put], "/v3/manage/{projectId}/tests");
         MapManagementMutation(endpoints, [HttpMethods.Delete], "/v3/manage/{projectId}/keys");
@@ -738,9 +738,8 @@ public static class NetworkStorageGatewayEndpoints
             context.RequestAborted)
         {
             TargetsNext = TargetsNext(context, query),
-            PublicKey = context.Request.Headers.TryGetValue("x-public-key", out var publicKeyHeader) && !string.IsNullOrWhiteSpace(publicKeyHeader)
-                ? publicKeyHeader.ToString().Trim()
-                : null,
+            PublicKey = PublicKeyHeader(context),
+            ApiBaseUrl = RequestBaseUrl(context),
         };
 
         var result = await handler.ExecuteAsync(request);
@@ -750,6 +749,14 @@ public static class NetworkStorageGatewayEndpoints
         context.Response.ContentType = "application/json; charset=utf-8";
         await context.Response.WriteAsJsonAsync(result.Body, context.RequestAborted);
     }
+
+    private static string? PublicKeyHeader(HttpContext context) =>
+        context.Request.Headers.TryGetValue("x-public-key", out var publicKeyHeader) && !string.IsNullOrWhiteSpace(publicKeyHeader)
+            ? publicKeyHeader.ToString().Trim()
+            : null;
+
+    private static string RequestBaseUrl(HttpContext context) =>
+        ServerBaseUrl.ForRequest(context.RequestServices.GetRequiredService<EffectiveConfig>(), context.Request);
 
     private static bool TargetsNext(HttpContext context, IReadOnlyDictionary<string, string> query)
         => NetworkStoragePublishTarget.IsNext(
@@ -794,6 +801,8 @@ public static class NetworkStorageGatewayEndpoints
         context.RequestAborted)
         {
             TargetsNext = TargetsNext(context, query),
+            PublicKey = PublicKeyHeader(context),
+            ApiBaseUrl = RequestBaseUrl(context),
         };
 
         // Authenticate from headers before reading any request body.

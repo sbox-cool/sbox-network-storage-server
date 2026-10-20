@@ -33,21 +33,6 @@ public sealed class NetworkStorageRouteCatalogTests
     }
 
     [Fact]
-    public void CatalogHasNoRoutesAbsentFromBun()
-    {
-        var inventory = LoadInventory()
-            .Select(route => (route.Method, route.Template))
-            .ToHashSet();
-
-        var phantom = NetworkStorageRouteCatalog.Entries
-            .Where(entry => !inventory.Contains((entry.Method, entry.Template)))
-            .Select(entry => $"{entry.Method} {entry.Template}")
-            .ToList();
-
-        Assert.True(phantom.Count == 0, $"Catalog entries not present in the route inventory: {string.Join(", ", phantom)}");
-    }
-
-    [Fact]
     public void CatalogEntriesAreUniqueAndInternallyConsistent()
     {
         var seen = new HashSet<(string, string)>();

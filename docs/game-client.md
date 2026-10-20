@@ -170,6 +170,31 @@ it immediately. `/api/server-info` reports whether one is in effect in the `comp
 (`"overlay": {"applied": true}`). Nothing needs network access:
 without the feed, the embedded matrix applies.
 
+## Sync Tool management operations
+
+Management requests use the project's secret key in `x-api-key` and, where the
+operation needs the public/secret pair, its public key in `x-public-key`. Never
+put the secret key in game code.
+
+- `DELETE /v3/manage/{projectId}/keys` revokes both supplied keys and reports
+  success only after neither resolves. A rejected request leaves the pair intact.
+- `PUT .../settings` persists supported fields and returns the same settings
+  projection as `GET .../settings`. An unrelated update preserves the current
+  encryption mode. Explicit `encryptedRequestMode` takes precedence over the
+  legacy `enableEncryptedRequests` flag; unknown modes return HTTP 400 without
+  changing settings. Unsupported backend-mode fields return `SETTING_NOT_STORED`.
+- `POST .../source-upgrade` converts supplied source without writing it.
+  `POST .../suggest-tests` generates cases from the stored endpoint.
+- `GET .../agent-manifest` requires endpoint-read scope. Collection and workflow
+  summaries are included only when requested.
+- `PUT .../endpoints?async=true` returns HTTP 202 with a `jobId`. Poll
+  `GET .../sync-jobs/{jobId}` for `complete` or `failed`. Jobs belong to their
+  owner/project and live in this process, not across a restart. Completed jobs
+  expire five minutes after creation; missing jobs return HTTP 404
+  `JOB_NOT_FOUND`. The `management-sync-jobs` capability advertises this behavior.
+
+The `/api/manage/...` and `/api/v3/manage/...` aliases remain available.
+
 ## Revision init handshake
 
 At game startup the client sends a one-time handshake with its running

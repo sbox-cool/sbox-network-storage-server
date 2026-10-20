@@ -215,7 +215,7 @@ public sealed class ManagementEndpointTestRunner(
         return warnings;
     }
 
-    private static JsonElement? Definition(JsonElement row)
+    internal static JsonElement? Definition(JsonElement row)
     {
         if (!row.TryGetProperty("definition_json", out var definition)) return null;
         if (definition.ValueKind == JsonValueKind.Object) return definition;
