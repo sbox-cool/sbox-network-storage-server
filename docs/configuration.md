@@ -389,6 +389,10 @@ is enforced by the game library before it sends.
 
 `endpoints.fetch_private_networks` in `server.toml` (default `false`) lets `ns.fetch` reach private, loopback and link-local addresses: `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `100.64.0.0/10`, `127.0.0.0/8`, `169.254.0.0/16`, and the IPv6 loopback, unique-local, link-local and site-local ranges. Metadata and reserved addresses stay blocked either way. Restart the server after changing it. Allow-lists are set per project; see [endpoints-javascript.md](endpoints-javascript.md#outbound-http-nsfetch).
 
+### Project secrets
+
+Project secrets (`ns.secrets.get`, see [endpoints-javascript.md](endpoints-javascript.md#project-secrets-nssecretsget)) are sealed with the storage encryption key: the file `auth.storage_encryption_key_file` (default `secrets/storage_encryption_key`, generated on first start). No `server.toml` key is added. Back the key up with the server's `secrets/` folder. Losing it makes stored project secrets unreadable. Without the key, the owner panel refuses to save a secret, and a script that reads a stored secret fails with `SECRET_UNAVAILABLE`.
+
 ### Record write queue
 
 Concurrent writes to one record (record API, YAML endpoints and script endpoints) are serialized per project, collection and key inside this server process, as the reference's keyed write queue does. Each write waits for the writes ahead of it, so no update is lost to a race. A write that cannot get a turn answers `429` with `Retry-After`. Live counters (active keys, queued writes, totals) appear as `writeQueue` in the owner Server page's stats feed (`/dashboard/server/stats`). The queue lives in memory; [database.md](database.md#multiple-server-instances) explains what it does not cover.

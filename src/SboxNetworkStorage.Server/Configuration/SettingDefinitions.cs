@@ -114,7 +114,7 @@ public static class SettingDefinitions
         new(ServerFile, "auth.session_secret_file", SettingType.String, "secrets/auth_session_secret",
             "File holding the secret that signs player auth sessions (relative to the state folder, <data dir>/state). Generated on first start."),
         new(ServerFile, "auth.storage_encryption_key_file", SettingType.String, "secrets/storage_encryption_key",
-            "File holding the 64-hex-character key that derives secret API key identifiers. Generated on first start. Losing it invalidates existing secret keys."),
+            "File holding the 64-hex-character key that derives secret API key identifiers and encrypts project secrets (ns.secrets.get). Generated on first start. Losing it invalidates existing secret keys and makes stored project secrets unreadable."),
         new(ServerFile, "auth.security_signing_key_file", SettingType.String, "secrets/security_signing_key.pem",
             "RSA private key (PEM) that signs the published security config read by game clients. Generated on first start."),
         new(ServerFile, "auth.security_signing_key_id", SettingType.String, "",

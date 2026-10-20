@@ -8,12 +8,14 @@ using SboxNetworkStorage.Application.NetworkStorage.AuthSessions;
 using SboxNetworkStorage.Application.NetworkStorage.Endpoints;
 using SboxNetworkStorage.Application.NetworkStorage.Endpoints.Scripting;
 using SboxNetworkStorage.Application.NetworkStorage.Media;
+using SboxNetworkStorage.Application.NetworkStorage.Secrets;
 using SboxNetworkStorage.Application.Workspace;
 
 using SboxNetworkStorage.Infrastructure.NetworkStorage;
 using SboxNetworkStorage.Infrastructure.NetworkStorage.Analytics;
 using SboxNetworkStorage.Infrastructure.NetworkStorage.GameLogs;
 using SboxNetworkStorage.Infrastructure.NetworkStorage.Media;
+using SboxNetworkStorage.Infrastructure.NetworkStorage.Secrets;
 using SboxNetworkStorage.Infrastructure.NetworkStorage.Metadata;
 using SboxNetworkStorage.Infrastructure.NetworkStorage.Modules;
 using SboxNetworkStorage.Infrastructure.NetworkStorage.Storage;
@@ -87,6 +89,14 @@ public static class NetworkStorageServices
             return admin is IMediaStore media ? media
                 : throw new InvalidOperationException($"The configured {nameof(INetworkStorageStoreAdmin)} ({admin.GetType().FullName}) does not implement {nameof(IMediaStore)}: media needs a relational store.");
         });
+        services.AddSingleton<IProjectSecretStore>(sp =>
+        {
+            var admin = sp.GetRequiredService<INetworkStorageStoreAdmin>();
+            return admin is IProjectSecretStore secrets ? secrets
+                : throw new InvalidOperationException($"The configured {nameof(INetworkStorageStoreAdmin)} ({admin.GetType().FullName}) does not implement {nameof(IProjectSecretStore)}: project secrets need a relational store.");
+        });
+        services.AddSingleton<IProjectSecretCipher, ProjectSecretCipher>();
+        services.AddSingleton<ProjectSecretsService>();
         services.AddSingleton<IMediaBlobStore>(_ => config.GetString("media.backend") == "s3"
             ? S3MediaBlobStore.Create(config.GetString("media.s3.endpoint"), config.GetString("media.s3.region"),
                 config.GetString("media.s3.bucket"), config.GetBoolean("media.s3.force_path_style"),

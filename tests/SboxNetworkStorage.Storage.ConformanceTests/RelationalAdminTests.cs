@@ -288,6 +288,7 @@ public sealed class SqliteAdminTests : RelationalAdminTests
             CREATE TABLE storage_request_log (project_id TEXT NOT NULL, created_at_unix_ms INTEGER NOT NULL, method TEXT, path TEXT, status_code INTEGER, duration_ms INTEGER, api_key_identifier TEXT, PRIMARY KEY (project_id, created_at_unix_ms DESC)) STRICT, WITHOUT ROWID;
             DROP TABLE media_grants;
             DROP TABLE media_objects;
+            DROP TABLE project_secrets;
             DROP TRIGGER game_log_entries_fts_ai;
             DROP TRIGGER game_log_entries_fts_ad;
             DROP TABLE game_log_fts;

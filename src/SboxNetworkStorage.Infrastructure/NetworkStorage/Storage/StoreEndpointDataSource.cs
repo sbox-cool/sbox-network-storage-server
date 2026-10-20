@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using SboxNetworkStorage.Application.NetworkStorage.Endpoints;
 using SboxNetworkStorage.Application.NetworkStorage.Endpoints.Scripting;
+using SboxNetworkStorage.Application.NetworkStorage.Secrets;
 using SboxNetworkStorage.Storage;
 using SboxNetworkStorage.Infrastructure.NetworkStorage.Metadata;
 
@@ -25,7 +26,7 @@ namespace SboxNetworkStorage.Infrastructure.NetworkStorage.Storage;
 /// workspace record while the dashboard shows the current store record is
 /// impossible.
 /// </summary>
-public sealed partial class StoreEndpointDataSource : IEndpointDataSource, IEndpointRecordSizeLimit, IEndpointSnapshotDataSource, IEndpointScanCounter
+public sealed partial class StoreEndpointDataSource : IEndpointDataSource, IEndpointRecordSizeLimit, IEndpointSnapshotDataSource, IEndpointScanCounter, IEndpointSecretSource
 {
     private readonly INetworkStorageStore _store;
     private readonly ILogger<StoreEndpointDataSource> _logger;
@@ -34,27 +35,30 @@ public sealed partial class StoreEndpointDataSource : IEndpointDataSource, IEndp
     // definitions (endpoints, workflows, collections) come from the immutable
     // snapshot; player records always stay live (shared across revisions).
     private readonly RevisionSnapshots.SnapshotDocument? _snapshot;
+    private readonly ProjectSecretsService? _secrets;
 
     public StoreEndpointDataSource(
         INetworkStorageStore store,
-        ILogger<StoreEndpointDataSource> logger)
-        : this(store, logger, overlay: null, snapshot: null)
+        ILogger<StoreEndpointDataSource> logger,
+        ProjectSecretsService? secrets = null)
+        : this(store, logger, overlay: null, snapshot: null, secrets)
     {
     }
 
-    private StoreEndpointDataSource(INetworkStorageStore store, ILogger<StoreEndpointDataSource> logger, RevisionOverlay? overlay, RevisionSnapshots.SnapshotDocument? snapshot)
+    private StoreEndpointDataSource(INetworkStorageStore store, ILogger<StoreEndpointDataSource> logger, RevisionOverlay? overlay, RevisionSnapshots.SnapshotDocument? snapshot, ProjectSecretsService? secrets)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _overlay = overlay;
         _snapshot = snapshot;
+        _secrets = secrets;
     }
 
     /// <summary>
     /// A data source for a request targeting the staged revision: endpoint definitions and collection
     /// definitions (name→id resolution and global/per-player routing) come from the overlay first.
     /// </summary>
-    public StoreEndpointDataSource WithRevisionOverlay(RevisionOverlay overlay) => new(_store, _logger, overlay, _snapshot);
+    public StoreEndpointDataSource WithRevisionOverlay(RevisionOverlay overlay) => new(_store, _logger, overlay, _snapshot, _secrets);
 
     /// <summary>
     /// A data source pinned to a retained revision: endpoint, workflow and
@@ -62,10 +66,15 @@ public sealed partial class StoreEndpointDataSource : IEndpointDataSource, IEndp
     /// back to live only for definitions the snapshot does not contain.
     /// Records (player data) are never pinned.
     /// </summary>
-    public StoreEndpointDataSource WithRevisionSnapshot(RevisionSnapshots.SnapshotDocument snapshot) => new(_store, _logger, _overlay, snapshot);
+    public StoreEndpointDataSource WithRevisionSnapshot(RevisionSnapshots.SnapshotDocument snapshot) => new(_store, _logger, _overlay, snapshot, _secrets);
 
     /// <inheritdoc />
     public int MaxPayloadBytes => _store.MaxPayloadBytes;
+
+    /// <inheritdoc />
+    public Task<string?> ReadProjectSecretAsync(string projectId, string name, CancellationToken ct) =>
+        (_secrets ?? throw new ProjectSecretUnavailableException("Project secrets are not configured on this server."))
+            .ReadAsync(projectId, name, ct);
 
     public async Task<Dictionary<string, object?>?> ReadEndpointDefinitionAsync(
         string projectId, string endpointSlug, CancellationToken ct)

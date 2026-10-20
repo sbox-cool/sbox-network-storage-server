@@ -2,6 +2,7 @@ using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging;
+using SboxNetworkStorage.Application.NetworkStorage.Secrets;
 
 namespace SboxNetworkStorage.Application.NetworkStorage.Endpoints.Scripting;
 
@@ -249,6 +250,21 @@ public sealed class EndpointScriptHost
     /// <param name="options">Optional <c>{method, headers, body, timeoutMs}</c>.</param>
     [ScriptApi("fetch")]
     public object? Fetch(string url, JsonElement options = default) => _bindings.Fetch.Call(url, options);
+
+    // ── Project secrets ──────────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// A project secret the owner set, or null when the name is not set. Read-only, per execution. The value is never
+    /// returned to game clients, logs, traces or errors: each place it would appear shows <c>[secret:NAME]</c> instead.
+    /// </summary>
+    /// <param name="name">Secret name: 1 to 64 letters, digits, '_', '.' or '-', starting with a letter or digit. Case-sensitive.</param>
+    [ScriptApi("secrets.get")]
+    public string? SecretsGet(string name)
+    {
+        if (!ProjectSecretsService.IsValidName(name))
+            throw new ArgumentException("secrets.get needs a secret name: 1 to 64 letters, digits, '_', '.' or '-', starting with a letter or digit.");
+        return _bindings.Secret(name);
+    }
 
     // ── Context and diagnostics ──────────────────────────────────────────────────────────────
 

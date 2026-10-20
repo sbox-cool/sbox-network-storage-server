@@ -35,6 +35,9 @@ public abstract partial class RelationalNetworkStorageStore
         await using var lease = await LeaseAsync(ct);
         var connection = lease.Connection;
         var id = Text("project_id", projectId);
+        // Sealed secrets go with the project and strictly before its row: a failure here must fail the delete.
+        await ExecuteAsync(connection, $"DELETE FROM {TablePrefix}project_secrets WHERE project_id = @project_id", ct, id);
+
         await ExecuteAsync(connection, _sql.DeleteProject, ct, id);
 
         // Best-effort cleanup of usage counters and query run telemetry, as in

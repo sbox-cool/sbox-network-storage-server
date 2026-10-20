@@ -201,6 +201,10 @@ What is not protected across processes:
 
 Until the record API accepts an expected version, run one server process per database schema when clients write the same records concurrently, or write those records through a `requireSaveVersion` YAML endpoint.
 
+## Project secrets table
+
+Schema version 11 adds `{prefix}project_secrets` (`project_id`, `secret_name`, `value_enc`, `updated_at_unix_ms`; primary key `(project_id, secret_name)`). The migration is tagged additive (see [Rollback-safe migrations](#rollback-safe-migrations)). `value_enc` holds a version-prefixed, base64 AES-GCM ciphertext under the storage encryption key; the table never holds plaintext. Deleting a project deletes its rows first. On PostgreSQL, each write to a project's secrets takes a transaction advisory lock, so the 64-secret cap holds across server instances.
+
 ## Backups and restores
 
 ```sh
