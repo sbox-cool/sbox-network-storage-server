@@ -417,7 +417,7 @@ public sealed class NsFetchTypingsTests
     public void SecretsApiIsReadOnlyGet()
     {
         var declarations = EndpointTypings.StaticDeclarations();
-        Assert.Matches(@"(?m)^  secrets: NsSecrets;$", BlockBody(declarations, "Ns"));
+        Assert.Matches(@"(?m)^  secrets: NsSecrets;\r?$", BlockBody(declarations, "Ns"));
         var methods = Regex.Matches(BlockBody(declarations, "NsSecrets"), @"^  (\w+)\(", RegexOptions.Multiline).Select(m => m.Groups[1].Value).ToArray();
         Assert.Equal(new[] { "get" }, methods);
     }
