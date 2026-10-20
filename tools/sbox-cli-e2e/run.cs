@@ -157,6 +157,9 @@ static class E2E
 		Files.CopyDirectory(Path.Combine(o.Root, "tools", "sbox-cli-e2e", "fixture"), fixture);
 		Fixture.WriteConfig(fixture, server);
 		var lib = o.Library == "package" ? null : await InstallLibraryAsync(o, work, fixture, ev);
+		if (info?["capabilities"] is JsonArray capabilities && capabilities.Any(c => c?.GetValue<string>() == "endpoint-js")
+			&& File.Exists(Path.Combine(fixture, "Libraries", PackageIdent, "Editor", "SyncToolScriptFiles.cs")))
+			Fixture.WriteScriptEndpoints(fixture);
 		var cli = new SboxCli(cliPath, cliDll, fixture, Path.Combine(o.Out, "sbox-cli.log"));
 		Console.WriteLine($"fixture: {Path.Combine(fixture, "compat_probe.sbproj")}");
 
@@ -234,15 +237,15 @@ static class E2E
 		var quick = await ns.RunAsync(["quickstart", "sbox-cli e2e", "--require-sbox-auth", o.RequireSboxAuth ? "true" : "false", "--json"]);
 		var q = JsonNode.Parse(quick.Stdout) ?? throw new InvalidOperationException("quickstart returned no JSON: " + quick.Stderr);
 		var log = Path.Combine(o.Out, "sbox-ns.log");
-		started.Add(Proc.Start(command[0], [.. command[1..], "start", .. ns.DirArgs], o.Root, log));
+		var serverProcess = Proc.Start(command[0], [.. command[1..], "start", .. ns.DirArgs], o.Root, log);
+		started.Add(serverProcess);
 		var url = $"http://127.0.0.1:{o.Port}";
-		for (var i = 0; i < 120 && !await Http.OkAsync($"{url}/health"); i++) await Task.Delay(500);
-		if (!await Http.OkAsync($"{url}/health")) throw new InvalidOperationException($"sbox-ns did not answer /health; see {log}");
+		await WaitForHealthAsync(url, log);
 		// A prebuilt binary's source commit is not this checkout's; /v3/server-info still reports its version.
 		var commit = o.ServerBinary is null
 			? (await Proc.RunAsync("git", ["rev-parse", "HEAD"], o.Root, TimeSpan.FromSeconds(10))).Stdout.Trim()
 			: null;
-		return new Server(url, q["projectId"]!.GetValue<string>(), q["publicKey"]!.GetValue<string>(), q["secretKey"]!.GetValue<string>(), ns, commit);
+		return new Server(url, q["projectId"]!.GetValue<string>(), q["publicKey"]!.GetValue<string>(), q["secretKey"]!.GetValue<string>(), ns, commit, serverProcess);
 	}
 
 	static async Task<Library> InstallLibraryAsync(Options o, string work, string fixture, Evidence ev)
@@ -374,7 +377,60 @@ static class E2E
 		var toolset = HasTool(await cli.CallAsync("search_tools", new JsonObject { ["query"] = "ns_call_endpoint" }, connect: pid), "ns_call_endpoint");
 		ev.Identity["dedicatedDriver"] = toolset ? "network_storage toolset" : "run_csharp";
 		await RuntimeProbeAsync(ev, cli, pid, server, fixture, "dedicated", toolset, o.Library == "main");
+		await RateLimitProbeAsync(o, ev, cli, pid, server, started);
 		File.WriteAllText(Path.Combine(ev.Dir, "dedicated-console.txt"), (await cli.CallAsync("read_console", new JsonObject { ["filter"] = "NetworkStorage", ["limit"] = 200 }, connect: pid)).Text);
+	}
+
+	static async Task WaitForHealthAsync(string url, string log)
+	{
+		for (var i = 0; i < 120 && !await Http.OkAsync($"{url}/health"); i++) await Task.Delay(500);
+		if (!await Http.OkAsync($"{url}/health")) throw new InvalidOperationException($"sbox-ns did not answer /health; see {log}");
+	}
+
+	/// <summary>
+	/// Game-route rate limit (sbox-cool/sbox-network-storage#47). Restarts this run's server with a one-request bucket that
+	/// refills once a second, then drives the library's own GETs and one POST through it. Only this step runs under the low
+	/// limit. Required for library main (the retry lives there); published revisions get the result as information.
+	/// </summary>
+	static async Task RateLimitProbeAsync(Options o, Evidence ev, SboxCli cli, string pid, Server server, List<Process> started)
+	{
+		if (server.Cli is null || server.ServerProcess is null)
+		{
+			ev.Observe("dedicated.rate-limit", "not checked: --server-url servers cannot be restarted with a low limit");
+			return;
+		}
+		foreach (var (key, value) in new[] { ("server.limits.game_burst", "1"), ("server.limits.game_per_second", "1") })
+		{
+			var set = await server.Cli.RunAsync(["config", "set", key, value]);
+			if (set.Code != 0) throw new InvalidOperationException($"sbox-ns config set {key} failed: {set.Stderr}");
+		}
+		Proc.Kill(server.ServerProcess);
+		var log = Path.Combine(o.Out, "sbox-ns.log");
+		var command = server.Cli.Command;
+		started.Add(Proc.Start(command[0], [.. command[1..], "start", .. server.Cli.DirArgs], o.Root, log));
+		await WaitForHealthAsync(server.Url, log);
+
+		var burst = await cli.CallAsync("run_csharp", new JsonObject { ["code"] = Scripts.RateLimitBurst }, connect: pid, timeout: 120);
+		ev.Step("dedicated.rate-limit", burst);
+		var required = File.Exists(Path.Combine(o.Out, "work", "compat_probe", "Libraries", PackageIdent, "Code", "Core", "NetworkStorageRateLimit.cs"));
+		var first = burst.Json?["first"];
+		var second = burst.Json?["second"];
+		var write = burst.Json?["write"];
+		var attempts = burst.Json?["burst"]?.AsArray() ?? new JsonArray();
+		var succeeded = 0;
+		var limited = 0;
+		foreach (var attempt in attempts)
+		{
+			if (J.Bool(attempt, "ok")) succeeded++;
+			else if (J.Str(attempt, "code") == "RATE_LIMITED") limited++;
+		}
+		var writeCode = J.Str(write, "code") ?? "ok";
+		ev.Check("dedicated.rate-limit.retry", "C", J.Bool(first, "ok") && J.Bool(second, "ok"),
+			"a GET answered 429 is retried after Retry-After and succeeds (second game-values call)", required: required);
+		ev.Check("dedicated.rate-limit.exhausted", "C", succeeded > 0 && limited > 0,
+			$"5 concurrent GETs on an empty bucket: {succeeded} succeeded after retry, {limited} returned RATE_LIMITED once retries ran out", required: required);
+		ev.Check("dedicated.rate-limit.write", "C", !J.Bool(write, "ok") && writeCode == "RATE_LIMITED",
+			$"a POST without retrySafe is not retried and returns RATE_LIMITED (got '{writeCode}')", required: required);
 	}
 
 	/// <summary>
@@ -422,6 +478,18 @@ static class E2E
 		ev.Check($"{target}.endpoint", "C", Ok(ping) && Body(ping).Contains("pong"), "CallEndpoint success (ping)", required: true);
 		var echo = await Call("echo", new JsonObject { ["hello"] = "world" });
 		ev.Check($"{target}.endpoint-input", "C", Ok(echo), "CallEndpoint with an input body (echo)", required: true);
+		var scriptsFolder = Path.Combine(fixture, "Editor", "Network Storage", "endpoints");
+		foreach (var (slug, extension, runtime) in Fixture.ScriptEndpoints)
+		{
+			var scriptFile = Path.Combine(scriptsFolder, $"{slug}.endpoint.{extension}");
+			if (!File.Exists(scriptFile)) continue;
+			var result = await Call(slug, new JsonObject { ["name"] = "engine" });
+			var body = Evidence.TryParse(Body(result));
+			ev.Check($"{target}.script.{extension}", "C", Ok(result) && J.Str(body, "runtime") == runtime
+				&& J.Str(body, "greeting") == "hello engine", $"pushed {runtime} source executes through the real library", required: true);
+		}
+		if (File.Exists(Path.Combine(scriptsFolder, "script-js.endpoint.js")))
+			await Fixture.VerifyScriptPullAsync(fixture, server, ev);
 
 		var values = toolset
 			? (await cli.CallAsync("ns_game_values", connect: pid)).Json
@@ -551,7 +619,7 @@ static class E2E
 	}
 }
 
-record Server(string Url, string ProjectId, string PublicKey, string SecretKey, NsCli? Cli, string? Commit);
+record Server(string Url, string ProjectId, string PublicKey, string SecretKey, NsCli? Cli, string? Commit, Process? ServerProcess = null);
 
 sealed class Library
 {
@@ -582,6 +650,41 @@ sealed class Library
 static class Fixture
 {
 	static readonly string[] Kinds = ["endpoint", "collection", "workflow"];
+	public static readonly (string Slug, string Extension, string Runtime)[] ScriptEndpoints =
+		[("script-js", "js", "javascript"), ("script-ts", "ts", "typescript")];
+
+	public static void WriteScriptEndpoints(string fixture)
+	{
+		var folder = Path.Combine(fixture, "Editor", "Network Storage", "endpoints");
+		foreach (var (slug, extension, runtime) in ScriptEndpoints)
+		{
+			var script = extension == "ts"
+				? "export default function handle(req: { input: { name: string } }, ns: any) { const name: string = req.input.name; return { ok: true, runtime: \"typescript\", greeting: `hello ${name}` }; }\n"
+				: "export default function handle(req, ns) { return { ok: true, runtime: \"javascript\", greeting: `hello ${req.input.name}` }; }\n";
+			File.WriteAllText(Path.Combine(folder, $"{slug}.endpoint.{extension}"), script);
+			File.WriteAllText(Path.Combine(folder, $"{slug}.endpoint.yml"),
+				$"sourceVersion: 1\nkind: endpoint\nid: {slug}\nmethod: POST\nscope: public\nruntime: {runtime}\nscriptFile: {slug}.endpoint.{extension}\n");
+		}
+	}
+
+	public static async Task VerifyScriptPullAsync(string fixture, Server server, Evidence ev)
+	{
+		using var request = new HttpRequestMessage(HttpMethod.Get, $"{server.Url}/v3/manage/{server.ProjectId}/endpoints?revisionTarget=live");
+		request.Headers.Add("x-api-key", server.SecretKey);
+		request.Headers.Add("x-public-key", server.PublicKey);
+		using var response = await Http.Client.SendAsync(request);
+		var raw = await response.Content.ReadAsStringAsync();
+		var result = Evidence.TryParse(raw);
+		var definitions = result?["data"] as JsonArray;
+		foreach (var (slug, extension, runtime) in ScriptEndpoints)
+		{
+			var endpoint = definitions?.FirstOrDefault(e => J.Str(e, "slug") == slug || J.Str(e, "id") == slug);
+			var expected = File.ReadAllText(Path.Combine(fixture, "Editor", "Network Storage", "endpoints", $"{slug}.endpoint.{extension}"));
+			ev.Check($"sync.script-pull.{extension}", "B", response.IsSuccessStatusCode
+				&& J.Str(endpoint, "runtime") == runtime && J.Str(endpoint, "script")?.Trim() == expected.Trim(),
+				$"management pull preserves {runtime} script source after push", required: true);
+		}
+	}
 
 	public static void WriteConfig(string fixture, Server server)
 	{
@@ -613,10 +716,14 @@ static class Fixture
 				{
 					var name = Path.GetFileName(file);
 					var id = Regex.Replace(name, $@"(\.{kind})?\.(ya?ml|json)$", "");
+					var source = File.ReadAllText(file);
+					foreach (var (scriptSlug, extension, _) in ScriptEndpoints)
+						if (kind == "endpoint" && id == scriptSlug)
+							source += "script: |\n" + string.Join("\n", File.ReadAllLines(Path.Combine(folder, $"{id}.endpoint.{extension}")).Select(line => "  " + line)) + "\n";
 					resources.Add(new JsonObject
 					{
 						["kind"] = kind, ["id"] = id, ["authoringMode"] = "source", ["sourceFormat"] = name.EndsWith(".json") ? "json" : "yaml",
-						["sourcePath"] = name, ["sourceText"] = File.ReadAllText(file),
+						["sourcePath"] = name, ["sourceText"] = source,
 					});
 				}
 			batch[kind + "s"] = resources;
@@ -673,6 +780,25 @@ static class Scripts
 		return new { ok = res.HasValue, body = res?.GetRawText() };
 		""";
 
+	// Burst of GETs under a one-request bucket (library retry, sbox-cool/sbox-network-storage#47). Writes are not retried.
+	public const string RateLimitBurst = """
+		async Task<object> Attempt()
+		{
+			var res = await NetworkStorage.GetGameValues();
+			string code = null;
+			if ( !res.HasValue ) NetworkStorage.TryGetLastEndpointError( "game-values", out code, out _ );
+			return new { ok = res.HasValue, code };
+		}
+		var first = await Attempt();
+		var second = await Attempt();
+		var burst = await Task.WhenAll( Attempt(), Attempt(), Attempt(), Attempt(), Attempt() );
+		object input = new { probe = "unsafe-write" };
+		var write = await NetworkStorage.CallEndpoint( "ping", input );
+		string writeCode = null;
+		if ( !write.HasValue ) NetworkStorage.TryGetLastEndpointError( "ping", out writeCode, out _ );
+		return new { first, second, burst, write = new { ok = write.HasValue, code = writeCode } };
+		""";
+
 	static string Lit(string value) => JsonSerializer.Serialize(value);
 }
 
@@ -704,6 +830,7 @@ sealed class SboxCli(string exe, string dll, string cwd, string log)
 sealed class NsCli(string[] command, string config, string data)
 {
 	public string[] DirArgs => ["--config-dir", config, "--data-dir", data];
+	public string[] Command => command;
 	public Task<Proc.Result> RunAsync(string[] args, string? stdin = null) =>
 		Proc.RunAsync(command[0], [.. command[1..], .. args, .. DirArgs], Environment.CurrentDirectory, TimeSpan.FromMinutes(2), stdin);
 }
