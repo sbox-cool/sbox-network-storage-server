@@ -24,7 +24,8 @@ public sealed class ManagementEndpointTestRunner(
     public sealed record TestSpec(string? Id, string? Name, string Slug, JsonElement Input, string SteamId, bool AsServer,
         string ExpectOutcome, int? ExpectStatus);
 
-    public sealed record TestOutcome(bool Found, bool Passed, Dictionary<string, object?> Body);
+    /// <summary>Logs are the script's console output for this run; only the owner Try it response returns them.</summary>
+    public sealed record TestOutcome(bool Found, bool Passed, Dictionary<string, object?> Body, IReadOnlyList<string>? Logs = null);
 
     public static TestSpec? ReadSpec(JsonElement test)
     {
@@ -114,7 +115,7 @@ public sealed class ManagementEndpointTestRunner(
             ["warnings"] = warnings,
             ["expectation"] = new Dictionary<string, object?> { ["outcome"] = spec.ExpectOutcome, ["status"] = spec.ExpectStatus, ["passed"] = passed, ["reason"] = passed ? "" : reason },
         };
-        return new TestOutcome(true, passed, response);
+        return new TestOutcome(true, passed, response, trace.ScriptLogs);
     }
 
     /// <summary>Runs every saved test in order. Missing endpoints count as failures.</summary>

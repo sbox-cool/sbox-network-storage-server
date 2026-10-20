@@ -218,6 +218,7 @@
     var globalsStatus = document.getElementById("script-globals-status");
     var globalsList = document.getElementById("script-globals-list");
     var globalImportButtons = [];
+    var globalSources = [];
 
     var applying = false;
     var active = null;
@@ -254,6 +255,16 @@
         ariaLabel: "Endpoint script",
         readOnly: true
       }, common));
+      // Monaco's built-in tab-focus toggle is Cmd+M on macOS, which the OS reserves, so the Ctrl+M shown in
+      // the shortcut text is bound here on every platform.
+      [yamlEditor, scriptEditor].forEach(function (editor) {
+        editor.addAction({
+          id: "owner.toggleTabFocus",
+          label: "Toggle tab key moves focus",
+          keybindings: [monaco.KeyMod.WinCtrl | monaco.KeyCode.KeyM],
+          run: function (ed) { ed.trigger("keyboard", "editor.action.toggleTabFocusMode", null); }
+        });
+      });
       setupDocs();
 
       function withApplying(change) {
@@ -292,8 +303,27 @@
         showPosition(active);
       }
 
+      // Server check markers, kept so they can be re-filtered when Monaco's own diagnostics change.
+      var serverMarkers = [];
+      var appliedMarkerKey = null;
+
+      // A line with a TypeScript diagnostic keeps that marker; the server check result for the same line
+      // stays in the results list but is not drawn twice.
+      function syncServerMarkers() {
+        var owned = {};
+        monaco.editor.getModelMarkers({ resource: scriptModel.uri }).forEach(function (marker) {
+          if (marker.owner !== MARKER_OWNER) owned[marker.startLineNumber] = true;
+        });
+        var visible = serverMarkers.filter(function (marker) { return !owned[marker.startLineNumber]; });
+        var key = JSON.stringify(visible);
+        if (key === appliedMarkerKey) return;
+        appliedMarkerKey = key;
+        monaco.editor.setModelMarkers(scriptModel, MARKER_OWNER, visible);
+      }
+
       function clearMarkers() {
-        monaco.editor.setModelMarkers(scriptModel, MARKER_OWNER, []);
+        serverMarkers = [];
+        syncServerMarkers();
       }
 
       function markerFor(item) {
@@ -319,9 +349,11 @@
         var items = checks
           ? Array.prototype.map.call(checks.querySelectorAll("li"), function (li) { return parseCheckResult(li.textContent); })
           : [];
-        var markers = items.filter(Boolean).map(markerFor).filter(Boolean);
-        monaco.editor.setModelMarkers(scriptModel, MARKER_OWNER, markers);
+        serverMarkers = items.filter(Boolean).map(markerFor).filter(Boolean);
+        syncServerMarkers();
       }
+
+      monaco.editor.onDidChangeMarkers(function () { syncServerMarkers(); });
 
       function apiTokenRanges(model) {
         var ranges = [];
@@ -393,6 +425,7 @@
         clearMarkers();
         if (applying) return;
         refreshApiTokens();
+        syncGlobalImports();
         if (!scriptHasBlock) return;
         var current = yamlModel.getValue();
         var next = OwnerScriptBlock.replace(current, scriptModel.getValue());
@@ -513,6 +546,7 @@
     function setupGlobals() {
       if (!globalsList) return;
       var sources = OwnerScriptDocs.globalModules(typings);
+      globalSources = sources;
       globalImportButtons = [];
       globalsList.replaceChildren();
       globalsStatus.textContent = sources.length ? "" : "No global endpoints are available to import.";
@@ -535,6 +569,7 @@
         globalsList.appendChild(item);
       });
       syncGlobalImports();
+      registerGlobalProviders();
     }
 
     function syncGlobalImports() {
@@ -552,24 +587,88 @@
       return text.indexOf("\"globals/" + id + "\"") !== -1 || text.indexOf("'globals/" + id + "'") !== -1;
     }
 
-    // Adds `import { … } from "globals/<id>";` after the last import line, or at the top when there is none.
+    // Import statement for a global module's names. An existing import of the module gets the names merged into it.
+    function importEdit(id, names) {
+      var pattern = new RegExp("import\\s*\\{([^}]*)\\}\\s*from\\s*([\"'])globals\\/" + id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\2;?");
+      var match = pattern.exec(scriptModel.getValue());
+      if (match) {
+        var merged = match[1].split(",").map(function (part) { return part.trim(); }).filter(Boolean);
+        names.forEach(function (name) { if (merged.indexOf(name) === -1) merged.push(name); });
+        var start = scriptModel.getPositionAt(match.index);
+        var end = scriptModel.getPositionAt(match.index + match[0].length);
+        var quote = match[2];
+        return {
+          range: new monaco.Range(start.lineNumber, start.column, end.lineNumber, end.column),
+          text: "import { " + merged.join(", ") + " } from " + quote + "globals/" + id + quote + (match[0].slice(-1) === ";" ? ";" : "")
+        };
+      }
+      var lastImport = 0;
+      for (var line = 1; line <= scriptModel.getLineCount(); line++) {
+        if (/^\s*import\s/.test(scriptModel.getLineContent(line))) lastImport = line;
+      }
+      var statement = "import { " + names.join(", ") + " } from \"globals/" + id + "\";";
+      if (!lastImport) return { range: new monaco.Range(1, 1, 1, 1), text: statement + "\n" };
+      var at = scriptModel.getLineMaxColumn(lastImport);
+      return { range: new monaco.Range(lastImport, at, lastImport, at), text: "\n" + statement };
+    }
+
+    // Adds `import { … } from "globals/<id>";` when the script does not already import that module.
     function insertImport(source) {
       if (!scriptHasBlock || !source.exports.length || !scriptEditor || importsGlobal(source.id)) return;
-      var model = scriptEditor.getModel();
-      var lastImport = 0;
-      for (var line = 1; line <= model.getLineCount(); line++) {
-        if (/^\s*import\s/.test(model.getLineContent(line))) lastImport = line;
-      }
-      var statement = "import { " + source.exports.join(", ") + " } from \"globals/" + source.id + "\";";
-      var range = lastImport
-        ? new monaco.Range(lastImport, model.getLineMaxColumn(lastImport), lastImport, model.getLineMaxColumn(lastImport))
-        : new monaco.Range(1, 1, 1, 1);
-      scriptEditor.executeEdits("owner-globals", [{
-        range: range,
-        text: lastImport ? "\n" + statement : statement + "\n",
-        forceMoveMarkers: true
-      }]);
+      var edit = importEdit(source.id, source.exports);
+      scriptEditor.executeEdits("owner-globals", [{ range: edit.range, text: edit.text, forceMoveMarkers: true }]);
       scriptEditor.focus();
+    }
+
+    // Import-path completion inside globals/ strings, and an add-import quick fix for names a global module exports.
+    function registerGlobalProviders() {
+      if (!monaco.languages || !globalSources.length) return;
+      ["javascript", "typescript"].forEach(function (language) {
+        monaco.languages.registerCompletionItemProvider(language, {
+          triggerCharacters: ["/", "\"", "'"],
+          provideCompletionItems: function (model, position) {
+            if (model !== scriptModel) return { suggestions: [] };
+            var before = model.getLineContent(position.lineNumber).slice(0, position.column - 1);
+            var match = /\b(?:from|import)\s*(["'])globals\/([^"']*)$/.exec(before);
+            if (!match) return { suggestions: [] };
+            var range = new monaco.Range(position.lineNumber, position.column - match[2].length - "globals/".length, position.lineNumber, position.column);
+            return {
+              suggestions: globalSources.map(function (source) {
+                return {
+                  label: "globals/" + source.id,
+                  kind: monaco.languages.CompletionItemKind.Module,
+                  detail: source.exports.join(", ") || "No exports",
+                  insertText: "globals/" + source.id,
+                  range: range
+                };
+              })
+            };
+          }
+        });
+        monaco.languages.registerCodeActionProvider(language, {
+          provideCodeActions: function (model, range, context) {
+            var actions = [];
+            if (model === scriptModel) {
+              context.markers.forEach(function (marker) {
+                var code = marker.code && typeof marker.code === "object" ? marker.code.value : marker.code;
+                var missing = /^Cannot find name '([^']+)'\.$/.exec(marker.message);
+                if (String(code) !== "2304" || !missing) return;
+                globalSources.forEach(function (source) {
+                  if (source.exports.indexOf(missing[1]) === -1) return;
+                  actions.push({
+                    title: "Add import from globals/" + source.id,
+                    kind: "quickfix",
+                    diagnostics: [marker],
+                    isPreferred: true,
+                    edit: { edits: [{ resource: model.uri, versionId: model.getVersionId(), textEdit: importEdit(source.id, [missing[1]]) }] }
+                  });
+                });
+              });
+            }
+            return { actions: actions, dispose: function () {} };
+          }
+        });
+      });
     }
 
     function renderDocs() {

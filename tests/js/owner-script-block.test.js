@@ -102,3 +102,18 @@ describe("replace", () => {
     assert.equal(block.replace("id: x\n", "const a = 1;"), "id: x\n");
   });
 });
+
+describe("trailing spaces", () => {
+  it("keeps spaces at the end of script lines and of the last line through read and write", () => {
+    const script = "const a = 1;   \nconst b = 2;\t\nreturn a;  ";
+    const text = block.replace("script: |-\n  old();\nnext: 1\n", script);
+    assert.equal(block.scriptOf(text), script);
+    assert.equal(block.replace(text, script), text);
+  });
+
+  it("keeps whitespace-only lines inside the body", () => {
+    const script = "a();\n   \nb();";
+    const text = block.replace("script: |\nnext: 1\n", script);
+    assert.equal(block.scriptOf(text), script);
+  });
+});

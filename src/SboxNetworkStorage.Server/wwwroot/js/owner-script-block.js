@@ -14,6 +14,11 @@
     return /^[ \t]*/.exec(line)[0].length;
   }
 
+  // Drops trailing blank lines only; spaces at the end of the last script line are part of the script.
+  function trimBlankLines(text) {
+    return text.replace(/(\r?\n[ \t]*)+$/, "").replace(/^[ \t]*$/, "");
+  }
+
   // Returns the block or null: { header, indicator, first, last, indent, body }.
   // `first`/`last` are the first and last non-blank body line indexes (`last` is header when empty).
   function find(text) {
@@ -43,11 +48,11 @@
     var body = [];
     for (var k = header + 1; k <= last; k++) {
       var text2 = lines[k];
-      body.push(text2.trim() === "" ? "" : text2.slice(prefix.length));
+      body.push(text2.length <= prefix.length ? "" : text2.slice(prefix.length));
     }
     return {
       header: header, indicator: indicator, first: header + 1, last: last,
-      indent: indent < 0 ? 0 : indent, body: body.join("\n").replace(/\s+$/, ""),
+      indent: indent < 0 ? 0 : indent, body: trimBlankLines(body.join("\n")),
     };
   }
 
@@ -77,11 +82,11 @@
     var lines = source.split(/\r?\n/);
     var indent = block.indent || (options && options.indent) || 2;
     var prefix = " ".repeat(indent);
-    var scriptLines = String(script).replace(/\s+$/, "").split(/\r?\n/);
+    var scriptLines = trimBlankLines(String(script)).split(/\r?\n/);
     var next = scriptLines.map(function (line) {
-      return line.trim() === "" ? "" : prefix + line;
+      return line === "" ? "" : prefix + line;
     });
-    if (block.body === String(script).replace(/\s+$/, "")) return source;
+    if (block.body === trimBlankLines(String(script))) return source;
     // Without an indentation indicator, YAML reads the first content line's leading spaces as part of the
     // indent, so a script whose first line starts with a space needs `|<indent>` to keep that space.
     var first = scriptLines.find(function (line) { return line.trim() !== ""; });

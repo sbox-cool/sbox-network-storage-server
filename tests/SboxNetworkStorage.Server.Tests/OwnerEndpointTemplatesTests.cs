@@ -178,4 +178,14 @@ public sealed class OwnerEndpointTemplatesTests : IDisposable
         Assert.Contains("script: |", yaml);
         Assert.Equal(script, OwnerYamlDefinitions.ParseDefinition(yaml, out _).GetProperty("script").GetString());
     }
+
+    [Fact]
+    public void WhitespaceOnlyLinesAndUnterminatedScriptsRoundTripExactly()
+    {
+        const string script = "a();   \n   \nb();  ";
+        using var document = JsonDocument.Parse("""{"id":"x","script":"a();   \n   \nb();  "}""");
+        var yaml = OwnerYamlDefinitions.ToYaml(document.RootElement);
+        Assert.Contains("script: |-", yaml);
+        Assert.Equal(script, OwnerYamlDefinitions.ParseDefinition(yaml, out _).GetProperty("script").GetString());
+    }
 }

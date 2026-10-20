@@ -136,7 +136,9 @@ public sealed class OwnerTestsController(INetworkStorageProjectService projects,
         var spec = ManagementEndpointTestRunner.ReadSpec(JsonSerializer.SerializeToElement(
             TestObject(null, "Try it", endpoint, input, steamId, asServer, "any", null)))!;
         var outcome = await Runner().RunAsync(projectId, OwnerProjectScope.Owner, await PlayerKeyModeAsync(projectId, ct), spec, ct);
-        return outcome.Found ? Json(outcome.Body) : NotFound(new { error = "The endpoint does not exist." });
+        if (!outcome.Found) return NotFound(new { error = "The endpoint does not exist." });
+        var response = new Dictionary<string, object?>(outcome.Body) { ["logs"] = outcome.Logs ?? [] };
+        return Json(response);
     }
 
     [HttpPost(Route + "/run-all")]

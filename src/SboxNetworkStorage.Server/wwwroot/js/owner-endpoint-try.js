@@ -43,6 +43,8 @@
     var total = body.timing && body.timing.total !== undefined ? body.timing.total : "?";
     result.appendChild(element("p", verdict + ". HTTP status " + status + ", " + total + " ms.", "try-it-verdict"));
     if (body.reason) result.appendChild(element("p", body.reason, "notice"));
+    var failure = body.result && body.result.body && body.result.body.error;
+    if (failure) result.appendChild(element("p", "Error " + failure.code + ": " + failure.message, "notice"));
 
     var steps = Array.isArray(body.steps) ? body.steps : [];
     if (steps.length) {
@@ -55,6 +57,11 @@
       });
       result.appendChild(list);
     }
+
+    result.appendChild(element("h3", "Logs"));
+    var logs = Array.isArray(body.logs) ? body.logs : [];
+    if (!logs.length) result.appendChild(element("p", "No console output.", "muted"));
+    else result.appendChild(element("pre", logs.join("\n"), "try-it-json"));
 
     var writes = Array.isArray(body.pendingWrites) ? body.pendingWrites : [];
     result.appendChild(element("h3", "Pending writes"));
