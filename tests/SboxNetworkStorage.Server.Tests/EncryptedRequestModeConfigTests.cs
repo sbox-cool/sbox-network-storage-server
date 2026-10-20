@@ -46,12 +46,29 @@ public sealed class EncryptedRequestModeConfigTests : IDisposable
 
     [Theory]
     [InlineData("v2-required", false, "v2-required")]
-    [InlineData("bogus", true, "v1")]
+    [InlineData("v2-required", true, "v2-required")]
+    [InlineData("bogus", true, "v2-required")]
+    [InlineData("bogus", false, "v2-required")]
+    [InlineData("bogus", null, "v2-required")]
     [InlineData(null, true, "v1")]
+    [InlineData("", true, "v1")]
     [InlineData(null, false, "off")]
     [InlineData(null, null, "off")]
-    public void Resolve_prefers_a_valid_stored_mode_and_maps_legacy_true_to_v1(string? stored, bool? legacy, string expected)
+    public void Resolve_prefers_a_valid_stored_mode_fails_closed_on_an_invalid_one_and_maps_legacy_true_to_v1(
+        string? stored, bool? legacy, string expected)
         => Assert.Equal(expected, EncryptedRequestModes.Resolve(stored, legacy));
+
+    [Theory]
+    [InlineData(null, false)]
+    [InlineData("", false)]
+    [InlineData("   ", false)]
+    [InlineData("off", false)]
+    [InlineData("v1", false)]
+    [InlineData("v2-required", false)]
+    [InlineData("bogus", true)]
+    [InlineData("V1", true)]
+    public void IsStoredInvalid_flags_only_a_present_unknown_value(string? stored, bool invalid)
+        => Assert.Equal(invalid, EncryptedRequestModes.IsStoredInvalid(stored));
 
     [Theory]
     [InlineData("off", "disabled", false)]

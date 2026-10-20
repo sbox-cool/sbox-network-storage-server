@@ -51,7 +51,7 @@ public sealed class EncryptedRequestV2VectorTests
         using var privateKey = ImportPrivateKey(KeyFor(vector));
 
         var result = EncryptedRequestV2.Decrypt(envelope, privateKey, Text(envelope, "projectId"), Text(envelope, "endpointSlug"),
-            steamId: null, sessionId: null, out var responseKey);
+            steamId: null, sessionId: null, logger: null, out var responseKey);
 
         Assert.True(result.Ok, result.Message);
         Assert.NotNull(responseKey);
@@ -73,7 +73,7 @@ public sealed class EncryptedRequestV2VectorTests
         using var privateKey = ImportPrivateKey(KeyFor(vector));
 
         var result = EncryptedRequestV2.Decrypt(envelope, privateKey, Text(envelope, "projectId"), Text(envelope, "endpointSlug"),
-            steamId: null, sessionId: null, out var responseKey);
+            steamId: null, sessionId: null, logger: null, out var responseKey);
 
         Assert.False(result.Ok);
         Assert.Equal(expect.GetProperty("status").GetInt32(), result.Status);

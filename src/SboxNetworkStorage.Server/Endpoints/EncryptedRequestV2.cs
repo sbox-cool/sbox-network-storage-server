@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
 using static SboxNetworkStorage.Server.Endpoints.EncryptedEndpointEnvelope;
 
 namespace SboxNetworkStorage.Server.Endpoints;
@@ -30,7 +31,7 @@ internal static class EncryptedRequestV2
     /// the caller consumes replay and sets the body as for v1. <paramref name="responseKey"/> is set only on success.
     /// </summary>
     public static Result Decrypt(JsonElement envelope, RSA privateKey, string projectId, string endpointSlug,
-        string? steamId, string? sessionId, out ResponseKey? responseKey)
+        string? steamId, string? sessionId, ILogger? logger, out ResponseKey? responseKey)
     {
         responseKey = null;
         var shape = ValidateShape(envelope, projectId, endpointSlug, steamId, sessionId);
@@ -38,13 +39,16 @@ internal static class EncryptedRequestV2
         try
         {
             var iv = DecodeBase64Url(Str(envelope, "iv"));
-            if (iv.Length != 12) return Invalid("Encrypted request iv must be 12 bytes.");
+            if (iv.Length != 12) return Undecryptable(logger, projectId, "iv-length");
             var tag = DecodeBase64Url(Str(envelope, "tag"));
-            if (tag.Length != 16) return Invalid("Encrypted request tag must be 16 bytes.");
+            if (tag.Length != 16) return Undecryptable(logger, projectId, "tag-length");
             var ciphertext = DecodeBase64Url(Str(envelope, "encryptedPayload"));
-            if (ciphertext.Length == 0) return Invalid("Encrypted request payload is empty.");
-            var aesKey = privateKey.Decrypt(DecodeBase64Url(Str(envelope, "wrappedKey")), RSAEncryptionPadding.OaepSHA256);
-            if (aesKey.Length != 32) return Invalid("Encrypted request wrapped key must be 32 bytes.");
+            if (ciphertext.Length == 0) return Undecryptable(logger, projectId, "payload-empty");
+            // An RSA-OAEP block is exactly the key size. Reject any other length before the private-key operation.
+            var wrappedKey = DecodeBase64Url(Str(envelope, "wrappedKey"));
+            if (wrappedKey.Length != privateKey.KeySize / 8) return Undecryptable(logger, projectId, "wrapped-key-length");
+            var aesKey = privateKey.Decrypt(wrappedKey, RSAEncryptionPadding.OaepSHA256);
+            if (aesKey.Length != 32) return Undecryptable(logger, projectId, "aes-key-length");
 
             var plaintext = new byte[ciphertext.Length];
             using (var aes = new AesGcm(aesKey, 16))
@@ -55,7 +59,7 @@ internal static class EncryptedRequestV2
             if (payload.ValueKind != JsonValueKind.Object)
                 return new Result(false, 400, "INVALID_BODY", "Decrypted request payload must be a JSON object.", default);
             var payloadSlug = Str(payload, "_endpointSlug").Trim();
-            if (payloadSlug.Length > 0 && endpointSlug.Length > 0 && !string.Equals(payloadSlug, endpointSlug, StringComparison.Ordinal))
+            if (payloadSlug.Length > 0 && !string.Equals(payloadSlug, endpointSlug, StringComparison.Ordinal))
                 return Invalid("Encrypted request _endpointSlug does not match the URL.");
 
             // Replay is consumed by ConsumeReplay once the endpoint is known to exist (reference order).
@@ -66,8 +70,18 @@ internal static class EncryptedRequestV2
         }
         catch (Exception ex) when (ex is CryptographicException or FormatException or JsonException or ArgumentException)
         {
-            return Invalid($"Encrypted request payload could not be decrypted: {ex.Message}");
+            // Every unwrap, GCM, and parse failure gets the same message. Only the exception type is logged.
+            return Undecryptable(logger, projectId, ex.GetType().Name);
         }
+    }
+
+    /// <summary>The one client-facing message for a v2 envelope that does not decrypt. The stage is logged, never returned.</summary>
+    private const string UndecryptableMessage = "Encrypted request payload could not be decrypted.";
+
+    private static Result Undecryptable(ILogger? logger, string projectId, string stage)
+    {
+        logger?.LogInformation("Encrypted request for project {ProjectId} did not decrypt at stage {Stage}.", projectId, stage);
+        return Invalid(UndecryptableMessage);
     }
 
     /// <summary>
@@ -90,9 +104,10 @@ internal static class EncryptedRequestV2
     {
         if (!string.Equals(Str(envelope, "projectId"), projectId, StringComparison.Ordinal))
             return Invalid("Encrypted request projectId does not match the URL.");
+        // v2 always binds the slug. The library sends the slug it routes to, so a missing slug cannot reach a v2 endpoint.
         var envelopeSlug = Str(envelope, "endpointSlug");
-        if (envelopeSlug.Length > 0 && endpointSlug.Length > 0 && envelopeSlug != endpointSlug)
-            return Invalid("Encrypted request endpointSlug does not match the URL.");
+        if (envelopeSlug.Length == 0 || endpointSlug.Length == 0 || envelopeSlug != endpointSlug)
+            return Invalid("Encrypted request endpointSlug is missing or does not match the URL.");
         if (Str(envelope, "version") != Version)
             return Invalid("Unsupported encrypted request envelope version.");
         if (Str(envelope, "algorithm") != Algorithm)
@@ -119,8 +134,8 @@ internal static class EncryptedRequestV2
             ["nonce"] = Str(envelope, "nonce"),
             ["keyId"] = Str(envelope, "keyId"),
         };
-        var slug = Str(envelope, "endpointSlug");
-        if (slug.Length > 0) binding["endpointSlug"] = slug;
+        // Always bound: ValidateShape refuses a v2 envelope without a non-empty endpointSlug that matches the route.
+        binding["endpointSlug"] = Str(envelope, "endpointSlug");
         return binding;
     }
 

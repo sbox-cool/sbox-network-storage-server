@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using SboxNetworkStorage.Server.Infrastructure.NetworkStorage;
+using SboxNetworkStorage.Server.Endpoints;
 
 namespace SboxNetworkStorage.Server.Compat;
 
@@ -134,7 +135,10 @@ public static class LibraryErrorEnvelope
         context.Response.StatusCode = StatusCodes.Status200OK;
         context.Response.Headers["X-Request-Id"] = context.TraceIdentifier;
         object payload = body;
-        if (context.Items["RevisionStatus"] is Dictionary<string, object?> revisionStatus)
+        // A v2 body is already sealed, and ResponseBodyFor put _revisionStatus inside it. Adding a field here would
+        // change the sealed outer body, so inject only for unsealed bodies.
+        if (context.Items[EncryptedRequestV2.ItemKey] is not EncryptedRequestV2.ResponseKey
+            && context.Items["RevisionStatus"] is Dictionary<string, object?> revisionStatus)
             payload = RevisionStatusInjector.WithStatus(payload, revisionStatus);
         return context.Response.WriteAsJsonAsync(payload, context.RequestAborted);
     }

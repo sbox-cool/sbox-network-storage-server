@@ -113,8 +113,9 @@ public sealed record WorkspaceProject(
     private bool? _legacyEnableEncryptedRequests;
 
     /// <summary>
-    /// Effective mode: the stored mode when valid, else legacy true maps to v1 and anything else to off.
-    /// Always serialized, so saving a legacy project migrates it to the stored mode.
+    /// Effective mode: the stored mode when valid; an absent stored mode maps legacy true to v1 and otherwise to off; a
+    /// present but invalid stored mode fails closed to v2-required. Always serialized, so saving a legacy project
+    /// migrates it to the stored mode.
     /// </summary>
     [JsonPropertyName("encryptedRequestMode")]
     public string EncryptedRequestMode
@@ -122,6 +123,9 @@ public sealed record WorkspaceProject(
         get => EncryptedRequestModes.Resolve(_encryptedRequestMode, _legacyEnableEncryptedRequests);
         init => _encryptedRequestMode = value;
     }
+
+    /// <summary>True when the stored mode is present but not a known mode. Not a property, so it is never serialized.</summary>
+    public bool HasInvalidStoredEncryptedRequestMode() => EncryptedRequestModes.IsStoredInvalid(_encryptedRequestMode);
 
     /// <summary>Read-only migration input from the pre-v2 flag. Always null on write, so it is never serialized.</summary>
     [JsonPropertyName("enableEncryptedRequests")]

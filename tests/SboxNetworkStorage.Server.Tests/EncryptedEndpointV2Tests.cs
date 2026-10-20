@@ -5,6 +5,7 @@ using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
+using SboxNetworkStorage.Application.NetworkStorage;
 using SboxNetworkStorage.Domain.Workspace;
 using SboxNetworkStorage.Infrastructure.NetworkStorage;
 using SboxNetworkStorage.Server.Tests.Hosting;
@@ -23,6 +24,7 @@ public abstract class EncryptedEndpointV2Tests<TFactory> : IDisposable where TFa
 {
     private const string SteamId = "76561198000000002";
     private const string ResponseAadPrefix = "sboxcool.network-storage.encrypted-response.v2";
+    private const string UndecryptableMessage = "Encrypted request payload could not be decrypted.";
     private static readonly JsonSerializerOptions StableOptions = new() { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
     private readonly TFactory factory = new();
     protected EncryptedEndpointV2Tests() => Skip.IfNot(factory.IsAvailable, factory.SkipReason);
@@ -82,6 +84,116 @@ public abstract class EncryptedEndpointV2Tests<TFactory> : IDisposable where TFa
             using var response = await client.SendAsync(EncryptedCall(project, envelope));
             await ReadSecurityErrorAsync(response, 401, "REQUEST_SIGNATURE_INVALID");
         }
+        Assert.Null(await StoredCoinsAsync(project));
+    }
+
+    [SkippableFact]
+    public async Task V2Envelope_WithoutAMatchingEndpointSlug_IsRefusedAsSignatureInvalid()
+    {
+        var project = await ProjectAsync(EncryptedRequestModes.V2Required);
+        var info = CurrentKeyInfo();
+        using var serverKey = PublicKeyOf(info);
+        var request = CreateV2(serverKey, info.KeyId, project.ProjectId, SteamId, coins: 6);
+        var missing = new Dictionary<string, object>(request.Envelope);
+        missing.Remove("endpointSlug");
+        var empty = new Dictionary<string, object>(request.Envelope) { ["endpointSlug"] = "" };
+        var other = new Dictionary<string, object>(request.Envelope) { ["endpointSlug"] = "other-endpoint" };
+        using var client = Client(factory);
+
+        foreach (var envelope in new[] { missing, empty, other })
+        {
+            using var response = await client.SendAsync(EncryptedCall(project, envelope));
+            await ReadSecurityErrorAsync(response, 401, "REQUEST_SIGNATURE_INVALID");
+        }
+        Assert.Null(await StoredCoinsAsync(project));
+    }
+
+    [SkippableFact]
+    public async Task V2Envelope_WithMalformedFieldLengths_IsRefusedWithTheUndecryptableMessage()
+    {
+        var project = await ProjectAsync(EncryptedRequestModes.V2Required);
+        var info = CurrentKeyInfo();
+        using var serverKey = PublicKeyOf(info);
+        var request = CreateV2(serverKey, info.KeyId, project.ProjectId, SteamId, coins: 7);
+        var keyBytes = serverKey.KeySize / 8;
+        var malformed = new[]
+        {
+            new Dictionary<string, object>(request.Envelope) { ["iv"] = Base64Url(RandomNumberGenerator.GetBytes(11)) },
+            new Dictionary<string, object>(request.Envelope) { ["iv"] = Base64Url(RandomNumberGenerator.GetBytes(13)) },
+            new Dictionary<string, object>(request.Envelope) { ["tag"] = Base64Url(new byte[15]) },
+            new Dictionary<string, object>(request.Envelope) { ["tag"] = Base64Url(new byte[17]) },
+            new Dictionary<string, object>(request.Envelope) { ["wrappedKey"] = Base64Url(RandomNumberGenerator.GetBytes(keyBytes - 1)) },
+            new Dictionary<string, object>(request.Envelope) { ["wrappedKey"] = Base64Url(RandomNumberGenerator.GetBytes(keyBytes + 1)) },
+        };
+        using var client = Client(factory);
+
+        foreach (var envelope in malformed)
+        {
+            using var response = await client.SendAsync(EncryptedCall(project, envelope));
+            var root = await ReadSecurityErrorAsync(response, 401, "REQUEST_SIGNATURE_INVALID");
+            Assert.Equal(UndecryptableMessage, root.GetProperty("error").GetProperty("message").GetString());
+        }
+        Assert.Null(await StoredCoinsAsync(project));
+    }
+
+    [SkippableFact]
+    public async Task V2Response_CarriesRevisionStatusInsideTheSealedBody()
+    {
+        var project = await ProjectAsync(EncryptedRequestModes.V2Required);
+        await UseRevisionPolicyAsync(project);
+        var info = CurrentKeyInfo();
+        using var serverKey = PublicKeyOf(info);
+        var request = CreateV2(serverKey, info.KeyId, project.ProjectId, SteamId, coins: 8);
+        using var client = Client(factory);
+        using var call = EncryptedCall(project, request.Envelope);
+        call.Headers.Add("x-ns-revision-id", "41");
+
+        using var response = await client.SendAsync(call);
+
+        // The outer body is the sealed envelope only: nothing is added beside it, _revisionStatus included.
+        using var outer = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var outerNames = new List<string>();
+        foreach (var property in outer.RootElement.EnumerateObject()) outerNames.Add(property.Name);
+        outerNames.Sort(StringComparer.Ordinal);
+        Assert.Equal(new[] { "encrypted", "iv", "payload", "tag", "v" }, outerNames);
+        var plain = await OpenSealedAsync(response, request);
+        Assert.True(plain.GetProperty("_revisionStatus").GetProperty("isOutdatedRevision").GetBoolean());
+        Assert.Equal(8, await StoredCoinsAsync(project));
+    }
+
+    [SkippableFact]
+    public async Task V2Envelope_UnderARetiredKeyIsAcceptedWithinItsGrace()
+    {
+        var project = await ProjectAsync(EncryptedRequestModes.V2Required);
+        var store = factory.Services.GetRequiredService<RequestEncryptionKeyStore>();
+        var retired = CurrentKeyInfo();
+        using var retiredKey = PublicKeyOf(retired);
+        var request = CreateV2(retiredKey, retired.KeyId, project.ProjectId, SteamId, coins: 11);
+        RequestEncryptionKeyring.Rotate(store.Path, DateTimeOffset.UtcNow, graceSeconds: 3600);
+        store.Reload();
+        using var client = Client(factory);
+
+        using var response = await client.SendAsync(EncryptedCall(project, request.Envelope));
+
+        await OpenSealedAsync(response, request);
+        Assert.Equal(11, await StoredCoinsAsync(project));
+    }
+
+    [SkippableFact]
+    public async Task V2Envelope_UnderARetiredKeyPastItsGraceIsRefusedAsConfigStale()
+    {
+        var project = await ProjectAsync(EncryptedRequestModes.V2Required);
+        var store = factory.Services.GetRequiredService<RequestEncryptionKeyStore>();
+        var retired = CurrentKeyInfo();
+        using var retiredKey = PublicKeyOf(retired);
+        var request = CreateV2(retiredKey, retired.KeyId, project.ProjectId, SteamId, coins: 12);
+        RequestEncryptionKeyring.Rotate(store.Path, DateTimeOffset.UtcNow.AddDays(-1), graceSeconds: 60);
+        store.Reload();
+        using var client = Client(factory);
+
+        using var response = await client.SendAsync(EncryptedCall(project, request.Envelope));
+
+        await ReadSecurityErrorAsync(response, 409, "SECURITY_CONFIG_STALE");
         Assert.Null(await StoredCoinsAsync(project));
     }
 
@@ -164,6 +276,31 @@ public abstract class EncryptedEndpointV2Tests<TFactory> : IDisposable where TFa
 
         await ReadSecurityErrorAsync(response, 400, "SECURITY_MODE_UNSUPPORTED");
         Assert.Null(await StoredCoinsAsync(project));
+    }
+
+    /// <summary>A 60-minute grace keeps an outdated client informed rather than blocked, with the write still running.</summary>
+    private async Task UseRevisionPolicyAsync(SelfHostProject project)
+    {
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            await scope.ServiceProvider.GetRequiredService<INetworkStorageProjectService>().UpdateProjectSettingsAsync(
+                1, project.ProjectId, "revisions", new Dictionary<string, string>
+                {
+                    ["revisionEnforcementMode"] = "force_upgrade",
+                    ["revisionGracePeriodMinutes"] = "60",
+                    ["revisionPostGraceAction"] = "block_writes",
+                    ["revisionServerEnforcementEnabled"] = "false",
+                }, CancellationToken.None);
+        }
+        using var client = Client(factory);
+        foreach (var revision in new[] { 41L, 42L })
+        {
+            using var sync = new HttpRequestMessage(HttpMethod.Post, $"/v3/manage/{project.ProjectId}/package-sync");
+            sync.Headers.Add("x-api-key", project.SecretKey);
+            sync.Content = JsonContent.Create(new { packageIdent = "test.game", currentRevisionId = revision });
+            using var response = await client.SendAsync(sync);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        }
     }
 
     private async Task<SelfHostProject> ProjectAsync(string mode)
@@ -288,6 +425,7 @@ public abstract class EncryptedEndpointV2Tests<TFactory> : IDisposable where TFa
             ["projectId"] = projectId,
             ["keyId"] = keyId,
             ["nonce"] = nonce,
+            ["endpointSlug"] = "set-coins",
             ["steamId"] = steamId,
             ["wrappedKey"] = Base64Url(serverKey.Encrypt(aesKey, RSAEncryptionPadding.OaepSHA256)),
             ["iv"] = Base64Url(iv),
@@ -305,6 +443,7 @@ public abstract class EncryptedEndpointV2Tests<TFactory> : IDisposable where TFa
             ["version"] = "2",
             ["algorithm"] = "rsa-oaep-256+aes-256-gcm",
             ["projectId"] = projectId,
+            ["endpointSlug"] = "set-coins",
             ["identityType"] = "steam",
             ["identity"] = steamId,
             ["nonce"] = nonce,
