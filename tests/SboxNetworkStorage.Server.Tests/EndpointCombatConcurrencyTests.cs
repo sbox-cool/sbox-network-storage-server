@@ -36,8 +36,10 @@ public abstract class EndpointCombatConcurrencyTests<TFactory>(TFactory factory)
         await store.UpsertRecordAsync("combat", "players", "76561198000000001", player.RootElement, false, 1, default);
 
         var inner = new StoreEndpointDataSource(store, NullLogger<StoreEndpointDataSource>.Instance);
-        var source = new TwoReaderBarrierSource(inner);
-        var executor = new EndpointExecutor(source);
+        // Queue off: this test characterizes the CAS conflict the barrier forces. With the queue on, the first caller
+        // would hold the record while it waits at the barrier for a second reader that never arrives.
+        var source = new ReadBarrierDataSource(inner, participants: 2);
+        var executor = new EndpointExecutor(source, writeQueue: new EndpointWriteQueue(enabled: false));
         var calls = Enumerable.Range(0, 2).Select(_ => executor.TryExecuteAsync(
             "combat", "finish-combat", new Dictionary<string, object?>(), "76561198000000001", "owner",
             new Dictionary<string, object?>(), hasSecretKey: true, isDedicatedServer: false, ct: default, liveServe: true)).ToArray();
@@ -80,50 +82,6 @@ public abstract class EndpointCombatConcurrencyTests<TFactory>(TFactory factory)
         Assert.Equal(404, result!.Status);
     }
 
-    private sealed class TwoReaderBarrierSource(StoreEndpointDataSource inner) : IEndpointDataSource, IEndpointSnapshotDataSource
-    {
-        private readonly TaskCompletionSource _bothRead = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        private int _readers;
-
-        public async Task<EndpointRecordSnapshot> ReadRecordSnapshotAsync(string projectId, string collectionId, string key, CancellationToken ct)
-        {
-            var snapshot = await inner.ReadRecordSnapshotAsync(projectId, collectionId, key, ct);
-            if (Interlocked.Increment(ref _readers) == 2) _bothRead.TrySetResult();
-            await _bothRead.Task.WaitAsync(ct);
-            return snapshot;
-        }
-
-        public Task<IReadOnlyList<EndpointRecordRead>> ScanCollectionSnapshotsAsync(string projectId, string collectionId, CancellationToken ct)
-            => inner.ScanCollectionSnapshotsAsync(projectId, collectionId, ct);
-        public Task<IEndpointWriteTransaction> BeginCheckedWriteTransactionAsync(string projectId, EndpointReadSet readSet, CancellationToken ct)
-            => inner.BeginCheckedWriteTransactionAsync(projectId, readSet, ct);
-        public Task<Dictionary<string, object?>?> ReadEndpointDefinitionAsync(string projectId, string endpointSlug, CancellationToken ct)
-            => inner.ReadEndpointDefinitionAsync(projectId, endpointSlug, ct);
-        public Task<IReadOnlyList<Dictionary<string, object?>>> ListCollectionsAsync(string projectId, CancellationToken ct)
-            => inner.ListCollectionsAsync(projectId, ct);
-        public Task<object?> ReadRecordAsync(string projectId, string collectionId, string key, CancellationToken ct)
-            => inner.ReadRecordAsync(projectId, collectionId, key, ct);
-        public Task<IReadOnlyList<object?>> ScanCollectionAsync(string projectId, string collectionId, CancellationToken ct)
-            => inner.ScanCollectionAsync(projectId, collectionId, ct);
-        public Task<Dictionary<string, object?>?> ReadWorkflowDefinitionAsync(string projectId, string workflowId, CancellationToken ct)
-            => inner.ReadWorkflowDefinitionAsync(projectId, workflowId, ct);
-        public Task<IReadOnlyList<string>> ListWorkflowIdsAsync(string projectId, CancellationToken ct)
-            => inner.ListWorkflowIdsAsync(projectId, ct);
-        public Task<IReadOnlyList<string>> ListEndpointIdsAsync(string projectId, CancellationToken ct)
-            => inner.ListEndpointIdsAsync(projectId, ct);
-        public Task<IEndpointWriteTransaction> BeginWriteTransactionAsync(CancellationToken ct) => inner.BeginWriteTransactionAsync(ct);
-        public Task<object?> ReadGlobalRecordAsync(string projectId, string collectionId, string recordId, CancellationToken ct)
-            => inner.ReadGlobalRecordAsync(projectId, collectionId, recordId, ct);
-        public Task WriteGlobalRecordAsync(string projectId, string collectionId, string recordId, IReadOnlyDictionary<string, object?> payload, CancellationToken ct)
-            => inner.WriteGlobalRecordAsync(projectId, collectionId, recordId, payload, ct);
-        public Task<bool> IsLegacyPlayerProjectionsEnabledAsync(string projectId, CancellationToken ct)
-            => inner.IsLegacyPlayerProjectionsEnabledAsync(projectId, ct);
-        public Task<bool> IsWebhookOutboxEnabledAsync(string projectId, CancellationToken ct)
-            => inner.IsWebhookOutboxEnabledAsync(projectId, ct);
-
-        public Task<EndpointFetchPolicy> GetEndpointFetchPolicyAsync(string projectId, CancellationToken ct)
-            => inner.GetEndpointFetchPolicyAsync(projectId, ct);
-    }
 }
 
 public sealed class SqliteEndpointCombatConcurrencyTests(SqliteHostFactory factory) : EndpointCombatConcurrencyTests<SqliteHostFactory>(factory);

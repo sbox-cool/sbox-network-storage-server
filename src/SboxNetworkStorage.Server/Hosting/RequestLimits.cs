@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Http.Metadata;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Options;
+using SboxNetworkStorage.Server.Compat;
 using SboxNetworkStorage.Server.Configuration;
 using SboxNetworkStorage.Server.Middleware;
 
@@ -241,9 +242,11 @@ public sealed class RequestBodyLimitMiddleware(RequestDelegate next, IOptions<Re
     private static Task RejectAsync(HttpContext context, long max)
     {
         context.Response.Clear();
-        context.Response.StatusCode = StatusCodes.Status413PayloadTooLarge;
         // `message` repeats `detail`: the editor sync tool shows `message`, not `detail`.
         var text = $"Request body exceeds the {max}-byte limit for this route.";
+        if (LibraryErrorEnvelope.UsesEnvelope(context))
+            return LibraryErrorEnvelope.WriteAsync(context, StatusCodes.Status413PayloadTooLarge, "PAYLOAD_TOO_LARGE", text);
+        context.Response.StatusCode = StatusCodes.Status413PayloadTooLarge;
         return context.Response.WriteAsJsonAsync(new { error = "PAYLOAD_TOO_LARGE", detail = text, message = text }, context.RequestAborted);
     }
 
@@ -330,10 +333,18 @@ public static class RequestLimitServices
                 var seconds = rejected.Lease.TryGetMetadata(MetadataName.RetryAfter, out var retryAfter)
                     ? Math.Max(1, (int)Math.Ceiling(retryAfter.TotalSeconds))
                     : 60;
-                response.StatusCode = StatusCodes.Status429TooManyRequests;
                 response.Headers.RetryAfter = seconds.ToString(System.Globalization.CultureInfo.InvariantCulture);
                 // `message` repeats `detail`: the editor sync tool shows `message`, not `detail`.
                 var text = $"Too many requests. Retry after {seconds} seconds.";
+                if (LibraryErrorEnvelope.UsesEnvelope(rejected.HttpContext))
+                {
+                    // The library reads only the body of a 2xx, so retryAfterSeconds rides in the envelope too.
+                    var envelope = LibraryErrorEnvelope.Build(rejected.HttpContext, StatusCodes.Status429TooManyRequests, "RATE_LIMITED", text);
+                    envelope["retryAfterSeconds"] = seconds;
+                    await LibraryErrorEnvelope.WriteBodyAsync(rejected.HttpContext, StatusCodes.Status429TooManyRequests, envelope);
+                    return;
+                }
+                response.StatusCode = StatusCodes.Status429TooManyRequests;
                 await response.WriteAsJsonAsync(new { error = "RATE_LIMITED", detail = text, message = text }, cancellationToken);
             };
         });

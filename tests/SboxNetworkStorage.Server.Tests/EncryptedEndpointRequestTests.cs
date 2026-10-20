@@ -61,6 +61,10 @@ public abstract class EncryptedEndpointRequestTests<TFactory> : IDisposable wher
 
     private static HttpRequestMessage PlainCall(SelfHostProject project, object body) => Call(project, body);
 
+    /// <summary>
+    /// A library call: <c>x-ns-client-type</c> identifies the library, so endpoint errors use the envelope (HTTP 200,
+    /// real status in the body).
+    /// </summary>
     private static HttpRequestMessage Call(SelfHostProject project, object body)
     {
         var request = new HttpRequestMessage(HttpMethod.Post, $"/v3/endpoints/{project.ProjectId}/set-coins?apiKey={project.PublicKey}")
@@ -69,6 +73,7 @@ public abstract class EncryptedEndpointRequestTests<TFactory> : IDisposable wher
         };
         request.Headers.Add("x-public-key", project.PublicKey);
         request.Headers.Add("x-steam-id", SteamId);
+        request.Headers.Add("x-ns-client-type", "game");
         return request;
     }
 

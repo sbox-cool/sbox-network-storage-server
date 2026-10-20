@@ -191,7 +191,7 @@ public sealed class OwnerDashboardController(INetworkStorageProjectService proje
     public async Task<IActionResult> Settings(string projectId, [FromForm] string? tab, CancellationToken ct)
     {
         if (await LoadProjectAsync(projectId, ct) is null) return NotFound();
-        if (tab is not ("project" or "security" or "player-keys" or "legacy-projections" or "revisions" or "game-logs" or "media" or "fetch" or "fetch-allow-host")) return BadRequest("Unknown settings tab.");
+        if (tab is not ("project" or "security" or "player-keys" or "legacy-projections" or "revisions" or "game-logs" or "analytics" or "media" or "fetch" or "fetch-allow-host")) return BadRequest("Unknown settings tab.");
         var form = await Request.ReadFormAsync(ct);
         var values = form.ToDictionary(pair => pair.Key, pair => pair.Value.ToString(), StringComparer.Ordinal);
         if (tab == "project" && (values.GetValueOrDefault("name")?.Trim().Length is not (>= 1 and <= 64)
@@ -209,6 +209,8 @@ public sealed class OwnerDashboardController(INetworkStorageProjectService proje
             return await ProjectErrorAsync(projectId, "Choose an enforcement mode, in-grace and post-grace action, a minimum revision, a grace period of 0-10080 minutes and retention of 0-20; the notice may contain at most 500 characters.", ct);
         if (tab == "game-logs" && !GameLogFormValid(values))
             return await ProjectErrorAsync(projectId, "Game-log retention must be 1-3650 days, sampling in (0, 1], and the rate limit at least 1 entry per minute.", ct);
+        if (tab == "analytics" && PlayerAnalyticsAllowedEvents.ParseForm(values.GetValueOrDefault("analyticsAllowedEventTypes")) is null)
+            return await ProjectErrorAsync(projectId, $"Custom event names may contain only lowercase letters, digits, '_', '.', ':' and '-', up to {PlayerAnalyticsAllowedEvents.MaxNameLength} characters each, at most {PlayerAnalyticsAllowedEvents.MaxNames} names. Write spaces as '_'.", ct);
         try
         {
             await projects.UpdateProjectSettingsAsync(Owner, projectId, tab, values, ct);
