@@ -90,7 +90,7 @@ that ends with `ns.fail` does not keep its writes.
 `scope` says who can reach the script:
 
 - `scope: public` (the default). The endpoint is a public HTTP route like any
-  other endpoint. It can also be imported by other scripts.
+  other endpoint. Other scripts cannot import it.
 - `scope: global`. The endpoint is never a public route. A public call
   answers `404 ENDPOINT_NOT_FOUND`, the same as an unknown slug. Its exports
   are shared with other scripts.
@@ -124,6 +124,20 @@ endpoint's slug. The server checks imports when the endpoint is saved: an
 import cycle reports `GLOBAL_CYCLE`, a missing global `GLOBAL_NOT_FOUND`, a
 missing export `GLOBAL_EXPORT_NOT_FOUND`, and module syntax outside the forms
 above `SCRIPT_MODULE_UNSUPPORTED`.
+
+Saving a global endpoint also checks the scripted endpoints that import it,
+and refuses the save if it would break one of them:
+
+- it disables the global (`enabled: false`): `GLOBAL_NOT_FOUND` on `enabled`;
+- it changes the global to `scope: public`: `GLOBAL_NOT_FOUND` on `scope`;
+- it removes an export that an importer names: `GLOBAL_EXPORT_NOT_FOUND` on `script`.
+
+The error names the importer. Fix the importer, or keep the export, then save
+the global again. A global whose own script does not check fails its own save,
+so nothing is compared with its importers. Namespace imports
+(`import * as bank from "globals/bank"`) are checked for a disabled or
+re-scoped global, but not for removed exports. Reads through `globals.<id>`
+are not checked at save time.
 
 ## Legacy workflows
 
@@ -202,8 +216,8 @@ changing it.
 | `SCRIPT_FILE_WITHOUT_SCRIPT` | Save | `scriptFile` is set but `script` is not. |
 | `SCRIPT_TOO_LARGE` | Save, sync | The source is larger than the 64 KiB limit. Reported at `/script`. |
 | `SCRIPT_MODULE_UNSUPPORTED` | Save, sync | Module syntax outside the supported forms. |
-| `GLOBAL_NOT_FOUND` | Save, sync | An import names no enabled global endpoint. |
-| `GLOBAL_EXPORT_NOT_FOUND` | Save, sync | A global endpoint does not export the imported name. |
+| `GLOBAL_NOT_FOUND` | Save, sync | An import names no enabled global endpoint. On a global save, also a scripted endpoint that imports a global the save disables or makes `scope: public`. |
+| `GLOBAL_EXPORT_NOT_FOUND` | Save, sync | A global endpoint does not export the imported name. On a global save, also a scripted endpoint that imports a name the save removes. |
 | `GLOBAL_CYCLE` | Save, sync | Global imports form a cycle. |
 | `SOURCE_COMPILE_FAILED` | Save | The endpoint source did not compile. |
 
@@ -256,6 +270,9 @@ Editor/Network Storage/
   endpoints/daily-reward.endpoint.yml
   endpoints/daily-reward.endpoint.js
 ```
+
+`scope` travels in the definition too. A file with `scope: global` saves a
+global endpoint, and a file without `scope` saves a public one.
 
 `scriptFile` names the script file from the definition:
 

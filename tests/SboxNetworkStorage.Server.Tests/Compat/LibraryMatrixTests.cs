@@ -446,7 +446,7 @@ public sealed class EmbeddedLibraryMatrixTests
         Assert.Equal("1.1.0", matrix.Minimum);
         Assert.Equal(LibraryMatrix.SupportedSchemaVersion, matrix.SchemaVersion);
         Assert.Equal("1.1.0", matrix.Recommended);
-        Assert.Equal("1.1.0", matrix.Latest);
+        Assert.Equal("1.2.0", matrix.Latest);
         Assert.Equal(LibraryStatus.Supported, matrix.LegacyStatus);
         Assert.Equal("known-broken", Assert.Single(matrix.Libraries, l => l.Version == "1.0.165702").Status);
         Assert.Equal("0.5.0", Assert.Single(matrix.Libraries, l => l.Version == "1.1.0").MinServer);

@@ -84,6 +84,27 @@ internal sealed class OwnerProjectResources
     }
 
     /// <summary>
+    /// The save-time check of a global endpoint's proposed definition against the stored scripted endpoints that import
+    /// it: see <see cref="NetworkStorageDefinitionValidator.ValidateGlobalImporters"/>.
+    /// </summary>
+    public IReadOnlyList<DefinitionDiagnostic> GlobalImporterDiagnostics(string globalId, JsonElement proposed, IReadOnlyList<IEndpointScriptRuntime> scriptRuntimes)
+    {
+        var endpoints = new List<(string Id, JsonElement Definition)>();
+        foreach (var row in Endpoints)
+        {
+            if (Text(row, "endpoint_id") is { } id && Column(row, "definition_json") is { ValueKind: JsonValueKind.Object } definition)
+                endpoints.Add((id, definition));
+        }
+        var context = new DefinitionValidationContext
+        {
+            HasProjectResources = true,
+            ScriptRuntimes = scriptRuntimes,
+            GlobalModules = ProjectGlobalModules(globalId, scriptRuntimes),
+        };
+        return NetworkStorageDefinitionValidator.ValidateGlobalImporters(globalId, proposed, endpoints, context);
+    }
+
+    /// <summary>
     /// Analysed imports and exports of the project's enabled global endpoints, excluding <paramref name="resourceId"/>.
     /// </summary>
     private Dictionary<string, ScriptModuleInfo> ProjectGlobalModules(string? resourceId, IReadOnlyList<IEndpointScriptRuntime> scriptRuntimes)
