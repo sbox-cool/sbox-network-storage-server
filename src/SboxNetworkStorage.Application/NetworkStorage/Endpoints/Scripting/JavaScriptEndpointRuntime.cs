@@ -220,7 +220,7 @@ public sealed class JavaScriptEndpointRuntime : IEndpointScriptRuntime
             return new EndpointScriptOutcome(EndpointScriptOutcomeKind.ScriptError, null,
                 $"line {syntax.Line}, column {syntax.Column}: {syntax.Message}");
         if (error is JavaScriptException script)
-            return new EndpointScriptOutcome(EndpointScriptOutcomeKind.ScriptError, null, LocationPrefix(error) + script.Message);
+            return new EndpointScriptOutcome(EndpointScriptOutcomeKind.ScriptError, null, LocationPrefix(error) + script.Message, FetchErrorCode(script));
         if (error is TimeoutException || IsCancellation(error))
             return new EndpointScriptOutcome(EndpointScriptOutcomeKind.LimitExceeded, null, "Time limit exceeded.");
         if (error is ScriptLimitExceededException limit)
@@ -241,6 +241,22 @@ public sealed class JavaScriptEndpointRuntime : IEndpointScriptRuntime
         // An unclassified fault: the owner gets the type and message; the full trace goes to the server log.
         _logger?.LogError(error, "Endpoint script failed with an unclassified error");
         return new EndpointScriptOutcome(EndpointScriptOutcomeKind.ScriptError, null, EndpointScriptHost.DescribeForOwner(error));
+    }
+
+    /// <summary>
+    /// The <c>FETCH_*</c> code of an uncaught <c>ns.fetch</c> error, or null. Only errors the prelude built for a failed
+    /// <c>ns.fetch</c> call carry the marker; a script's own error with a <c>FETCH_</c> code is not one of them.
+    /// </summary>
+    private static string? FetchErrorCode(JavaScriptException script)
+    {
+        if (!script.Error.IsObject())
+            return null;
+        var error = script.Error.AsObject();
+        var marked = error.Get("nsFetchFailure");
+        if (!marked.IsBoolean() || !marked.AsBoolean())
+            return null;
+        var code = error.Get("code");
+        return code.IsString() && code.AsString().StartsWith("FETCH_", StringComparison.Ordinal) ? code.AsString() : null;
     }
 
     private static bool RegexTimeout(Exception error)
@@ -275,7 +291,7 @@ public sealed class JavaScriptEndpointRuntime : IEndpointScriptRuntime
         builder.Append("  var freeze = Object.freeze;\n");
         builder.Append("  function call(name, args) {\n");
         builder.Append("    var reply = parse(hostCall(name, stringify(args)));\n");
-        builder.Append("    if (!reply.ok) throw new Error(reply.error);\n");
+        builder.Append("    if (!reply.ok) { var failure = new Error(reply.error); if (reply.code) { failure.code = reply.code; Object.defineProperty(failure, 'nsFetchFailure', { value: true }); } throw failure; }\n");
         builder.Append("    return reply.value;\n");
         builder.Append("  }\n");
         builder.Append("  function api(name) {\n");

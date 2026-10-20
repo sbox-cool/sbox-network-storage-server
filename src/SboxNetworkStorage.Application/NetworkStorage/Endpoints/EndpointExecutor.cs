@@ -28,6 +28,8 @@ public sealed partial class EndpointExecutor
     private readonly IReadOnlyList<IEndpointScriptRuntime> _scriptRuntimes;
     private readonly ScriptConcurrencyGate _scriptGate;
     private readonly ILogger<EndpointExecutor>? _logger;
+    private readonly IScriptFetchTransport _fetchTransport;
+    private readonly EndpointWriteQueue _writeQueue;
     /// <summary>
     /// Maximum rows scanned per collection per endpoint request. Scans feed
     /// lookup/filter/lookup_many/random_select steps; exceeding the cap fails
@@ -42,7 +44,9 @@ public sealed partial class EndpointExecutor
         IEndpointWebhookOutbox? webhookOutbox = null,
         IReadOnlyList<IEndpointScriptRuntime>? scriptRuntimes = null,
         ScriptConcurrencyGate? scriptGate = null,
-        ILogger<EndpointExecutor>? logger = null)
+        ILogger<EndpointExecutor>? logger = null,
+        IScriptFetchTransport? fetchTransport = null,
+        EndpointWriteQueue? writeQueue = null)
     {
         _dataSource = dataSource ?? throw new ArgumentNullException(nameof(dataSource));
         _webhookSender = webhookSender;
@@ -50,14 +54,18 @@ public sealed partial class EndpointExecutor
         _webhookOutbox = webhookOutbox;
         _scriptRuntimes = scriptRuntimes ?? CreateScriptRuntimes(scriptsEnabled: true);
         _logger = logger;
+        // Register one queue as a singleton in production, for the same reason as the gate below.
+        _writeQueue = writeQueue ?? new EndpointWriteQueue();
         // Register one gate as a singleton in production. The executor is scoped, so a gate it created itself would
         // be per request and bound nothing.
         _scriptGate = scriptGate ?? new ScriptConcurrencyGate();
+        // Without a transport, ns.fetch fails every call with FETCH_FAILED. Production registers the HTTP transport.
+        _fetchTransport = fetchTransport ?? new UnavailableScriptFetchTransport();
     }
 
     /// <summary>The same executor reading definitions and records through <paramref name="dataSource"/>.</summary>
     public EndpointExecutor WithDataSource(IEndpointDataSource dataSource)
-        => new(dataSource, _webhookSender, _analyticsService, _webhookOutbox, _scriptRuntimes, _scriptGate, _logger);
+        => new(dataSource, _webhookSender, _analyticsService, _webhookOutbox, _scriptRuntimes, _scriptGate, _logger, _fetchTransport, _writeQueue);
 
     /// <summary>
     /// Execute an endpoint natively using the deterministic executor.
@@ -247,13 +255,16 @@ public sealed partial class EndpointExecutor
         // "{steamId}_default". This matches how the .NET record-CRUD data plane
         // and the store records table work.
         IReadOnlyList<(string CollectionId, string Key)> readTargets;
+        IReadOnlyList<(string CollectionId, string Key)> writeTargets;
         try
         {
             readTargets = EndpointStepExecutor.DiscoverReadTargets(endpointDef, discoveryContext);
+            writeTargets = EndpointStepExecutor.DiscoverWriteTargets(endpointDef, discoveryContext);
         }
         catch
         {
             readTargets = Array.Empty<(string, string)>();
+            writeTargets = Array.Empty<(string, string)>();
         }
         var scanCollections = EndpointStepExecutor.DiscoverScanCollections(endpointDef);
         var checkVersions = liveServe && versionCheckedCollections is not null
@@ -262,6 +273,37 @@ public sealed partial class EndpointExecutor
         var checkedSource = _dataSource as IEndpointSnapshotDataSource;
         if (checkVersions && checkedSource is null)
             return Denied(500, "STORAGE_WRITE_FAILED", "This provider cannot protect endpoint record versions.");
+
+        // Live writes to one record run one at a time, like the reference's keyed write queue. The lock is taken before
+        // any read, so the reads, the handler and the version-checked flush all see one settled record. A call that
+        // writes nothing takes no lock, and neither does a preview.
+        var lockRecords = new HashSet<(string Collection, string Key)>();
+        if (liveServe && writeTargets.Count > 0)
+        {
+            foreach (var (collection, key) in writeTargets)
+                lockRecords.Add((ResolveCollection(collection), ResolveRecordKey(key)));
+            // Versioned records this call reads stay put until it commits, so another call's write cannot fail their
+            // version check when the queue could have ordered it.
+            if (versionCheckedCollections is not null)
+            {
+                foreach (var (collection, key) in readTargets)
+                {
+                    var collectionId = ResolveCollection(collection);
+                    if (versionCheckedCollections.Contains(collectionId))
+                        lockRecords.Add((collectionId, ResolveRecordKey(key)));
+                }
+            }
+        }
+        EndpointWriteQueue.RecordLease? recordLease;
+        try
+        {
+            recordLease = await _writeQueue.AcquireAsync(projectId, lockRecords, ct);
+        }
+        catch (EndpointWriteQueueException ex)
+        {
+            return WriteQueueDenied(ex);
+        }
+        using var heldRecords = recordLease;
         var readSet = checkVersions ? new EndpointReadSet(versionCheckedCollections!) : null;
         var prefetched = new Dictionary<string, object?>();
         foreach (var (collection, key) in readTargets)
@@ -715,6 +757,9 @@ public sealed partial class EndpointExecutor
                 && element.GetString() is { Length: > 0 } text => text,
             _ => null,
         };
+
+    private static EndpointExecutionResult WriteQueueDenied(EndpointWriteQueueException ex) =>
+        Denied(429, ex.Code, ex.Message) with { RetryAfterSeconds = ex.RetryAfterSeconds };
 
     private static EndpointExecutionResult Denied(int status, string code, string message, bool globalScope = false) =>
         new(false, status, new Dictionary<string, object?>

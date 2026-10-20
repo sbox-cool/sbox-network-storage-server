@@ -1450,12 +1450,27 @@ public sealed partial class EndpointStepExecutor
     {
         var targets = new List<(string, string)>();
         var steps = AsList(endpointDef.GetValueOrDefault("steps")) ?? new List<object?>();
-        DiscoverReadTargetsWalk(steps, context, targets);
+        DiscoverReadTargetsWalk(steps, context, targets, writesOnly: false);
+        return targets;
+    }
+
+    /// <summary>
+    /// Extracts the <c>(collectionId, key)</c> pairs of <c>write</c> and <c>delete</c> steps whose key resolves from the
+    /// initial context. The live path locks these records for the call (see <see cref="EndpointWriteQueue"/>). A write
+    /// whose key only resolves from an earlier read is not listed, so the version check stays its guard.
+    /// </summary>
+    public static IReadOnlyList<(string CollectionId, string Key)> DiscoverWriteTargets(
+        Dictionary<string, object?> endpointDef,
+        IDictionary<string, object?> context)
+    {
+        var targets = new List<(string, string)>();
+        var steps = AsList(endpointDef.GetValueOrDefault("steps")) ?? new List<object?>();
+        DiscoverReadTargetsWalk(steps, context, targets, writesOnly: true);
         return targets;
     }
 
     private static void DiscoverReadTargetsWalk(
-        List<object?> steps, IDictionary<string, object?> context, List<(string, string)> targets)
+        List<object?> steps, IDictionary<string, object?> context, List<(string, string)> targets, bool writesOnly)
     {
         foreach (var raw in steps)
         {
@@ -1463,10 +1478,12 @@ public sealed partial class EndpointStepExecutor
             if (step.GetValueOrDefault("type") as string == "block")
             {
                 var children = AsList(step.GetValueOrDefault("steps")) ?? new List<object?>();
-                DiscoverReadTargetsWalk(children, context, targets);
+                DiscoverReadTargetsWalk(children, context, targets, writesOnly);
                 continue;
             }
-            if (step.GetValueOrDefault("type") as string is not ("read" or "write" or "delete")) continue;
+            var type = step.GetValueOrDefault("type") as string;
+            if (type is not ("read" or "write" or "delete")) continue;
+            if (writesOnly && type == "read") continue;
             var collection = step.GetValueOrDefault("collection") as string;
             if (string.IsNullOrEmpty(collection)) continue;
             try
@@ -1546,10 +1563,19 @@ public sealed partial class EndpointStepExecutor
 }
 
 /// <summary>
-/// Endpoint execution result: HTTP status + JS-value-model body. <c>GlobalScope</c> marks the denial of a
-/// <c>scope: global</c> definition; public callers record nothing for it.
+/// Endpoint execution result: HTTP status + JS-value-model body. <see cref="RetryAfterSeconds"/> is set on
+/// queue denials (429) and becomes the Retry-After response header. <see cref="FetchBlocked"/> lists the outbound
+/// calls a script made that the allow-list or address rules refused, for the owner's diagnostics.
+/// <c>GlobalScope</c> marks the denial of a <c>scope: global</c> definition; public callers record nothing for it.
 /// </summary>
-public sealed record EndpointExecutionResult(bool Ok, int Status, object? Body, string? OwnerDetail = null, bool GlobalScope = false);
+public sealed record EndpointExecutionResult(
+    bool Ok,
+    int Status,
+    object? Body,
+    string? OwnerDetail = null,
+    int? RetryAfterSeconds = null,
+    IReadOnlyList<EndpointFetchBlockedCall>? FetchBlocked = null,
+    bool GlobalScope = false);
 
 /// <summary>Inputs for a single endpoint execution.</summary>
 public sealed record EndpointExecutionRequest(

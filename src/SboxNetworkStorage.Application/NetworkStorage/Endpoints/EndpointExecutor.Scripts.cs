@@ -21,6 +21,12 @@ public sealed partial class EndpointExecutor
     /// <summary>Store records, scans, workflow definitions and global modules one request may load across all rounds.</summary>
     public const int MaxScriptStateLoads = 64;
 
+    /// <summary>
+    /// Locked passes one committing request may take. A pass that reaches a record outside the locked set widens the
+    /// set and runs again. Past this many, the call answers 409 <c>CONFLICT</c> rather than hold locks longer.
+    /// </summary>
+    private const int MaxScriptLockAttempts = 3;
+
     /// <summary>Record writes one handler run may stage. Only the run that completes without misses commits.</summary>
     public const int MaxStagedWrites = 1000;
 
@@ -61,10 +67,13 @@ public sealed partial class EndpointExecutor
         string? Revision);
 
     /// <summary>Store state loaded so far, shared by every round of one request.</summary>
-    private sealed class ScriptState(EndpointReadSet? readSet)
+    private sealed class ScriptState(EndpointReadSet? readSet, ScriptFetchSession fetch)
     {
         /// <summary>Protected-collection snapshots. Null when no read needs a version check.</summary>
         public EndpointReadSet? ReadSet { get; } = readSet;
+
+        /// <summary>The outbound HTTP calls this request has made or queued. Shared by every round.</summary>
+        public ScriptFetchSession Fetch { get; } = fetch;
 
         /// <summary>Loaded records keyed <c>collectionId:key</c>. A missing record is stored as null.</summary>
         public Dictionary<string, object?> Records { get; } = new(StringComparer.Ordinal);
@@ -108,10 +117,16 @@ public sealed partial class EndpointExecutor
 
         public HashSet<string> MissedGlobals { get; } = new(StringComparer.Ordinal);
 
-        public int Misses => MissedRecords.Count + MissedScans.Count + MissedWorkflows.Count + MissedGlobals.Count;
+        /// <summary>Fetch calls this round queued that still need a network result. They are loaded, then the round re-runs.</summary>
+        public int MissedFetches { get; set; }
+
+        public int Misses => MissedRecords.Count + MissedScans.Count + MissedWorkflows.Count + MissedGlobals.Count + MissedFetches;
     }
 
     private sealed record ScriptRun(EndpointScriptHost Host, EndpointScriptOutcome Outcome);
+
+    /// <summary>One pass over the handler: its last run and round, the state it read, and any denial that ended it early.</summary>
+    private sealed record ScriptAttempt(ScriptState State, ScriptRound Round, ScriptRun Run, EndpointExecutionResult? Denial);
 
     /// <summary>Runs a scripted endpoint. The caller has already applied the public gates and resolved collections.</summary>
     private async Task<EndpointExecutionResult> ExecuteScriptEndpointAsync(ScriptInvocation inv, CancellationToken ct)
@@ -128,20 +143,46 @@ public sealed partial class EndpointExecutor
         if (Encoding.UTF8.GetByteCount(source) > runtime.Limits.MaxSourceBytes)
             return ScriptFailure(500, "SCRIPT_LIMIT_EXCEEDED", "The endpoint script is larger than this server allows.", null);
 
-        var protectedCollections = inv.LiveServe ? inv.VersionCheckedCollections : null;
-        if (protectedCollections is not null && _dataSource is not IEndpointSnapshotDataSource)
+        if (inv.LiveServe && inv.VersionCheckedCollections is not null && _dataSource is not IEndpointSnapshotDataSource)
             return Denied(500, "STORAGE_WRITE_FAILED", "This provider cannot protect endpoint record versions.");
 
-        // Admission comes before any store read or script work. A full gate answers at once; it never queues.
-        using var slot = _scriptGate.TryEnter(inv.ProjectId);
+        // Admission comes before any store read or script work. A busy project or server gets a bounded wait; past it
+        // the request is refused, never run, and answered 429 with a Retry-After hint.
+        using var slot = await _scriptGate.EnterAsync(inv.ProjectId, ct);
         if (slot is null)
-            return ScriptFailure(503, "SCRIPT_BUSY", "Too many scripted requests are running on this server. Try again shortly.", null);
+            return ScriptBusy();
 
-        // One budget for the whole request: every round shares its time, statement and workflow limits.
+        // The allow-list is read once per request, after admission. Every pass of this request shares one fetch
+        // session, so a call that an earlier pass sent is answered from its stored result, never sent again.
+        var fetch = new ScriptFetchSession(await _dataSource.GetEndpointFetchPolicyAsync(inv.ProjectId, ct), _fetchTransport);
+
+        // The first pass runs without record locks. A preview, a failed run, or a run that writes nothing answers from
+        // it; only a live run that stages writes goes on to commit under the locks.
+        var first = await RunScriptRoundsAsync(runtime, source, inv, fetch, ct);
+        if (first.Denial is not null) return first.Denial;
+        if (!inv.LiveServe || !CommitsWrites(first))
+            return await FinishScriptRunAsync(inv, first.State, first.Round, first.Run, ct);
+        return await CommitScriptUnderLocksAsync(runtime, source, inv, first, fetch, ct);
+    }
+
+    /// <summary>
+    /// Runs the handler until a run finishes without misses, loading what each miss needed. Each pass gets its own
+    /// budget. Its clock starts when user code runs, so time spent waiting for a record lock is never charged to the
+    /// handler.
+    /// </summary>
+    private async Task<ScriptAttempt> RunScriptRoundsAsync(
+        IEndpointScriptRuntime runtime,
+        string source,
+        ScriptInvocation inv,
+        ScriptFetchSession fetch,
+        CancellationToken ct)
+    {
+        // One budget for the whole pass: every round shares its time, statement and workflow limits.
         using var budget = new ScriptRunBudget(runtime.Limits, ct);
 
-        var state = new ScriptState(protectedCollections is null ? null : new EndpointReadSet(protectedCollections));
-        // Catalogs are loaded whole, once per request. A failed load propagates: a script must not run against a
+        var protectedCollections = inv.LiveServe ? inv.VersionCheckedCollections : null;
+        var state = new ScriptState(protectedCollections is null ? null : new EndpointReadSet(protectedCollections), fetch);
+        // Catalogs are loaded whole, once per pass. A failed load propagates: a script must not run against a
         // silently shorter catalog.
         state.WorkflowIds = await _dataSource.ListWorkflowIdsAsync(inv.ProjectId, ct);
         state.GlobalIds = await _dataSource.ListEndpointIdsAsync(inv.ProjectId, ct);
@@ -151,12 +192,79 @@ public sealed partial class EndpointExecutor
             var attempt = new ScriptRound();
             var run = RunScriptRound(runtime, source, inv, state, attempt, budget, ct);
             if (attempt.Misses == 0)
-                return await FinishScriptRunAsync(inv, state, attempt, run, ct);
+                return new ScriptAttempt(state, attempt, run, null);
             if (round >= MaxScriptRounds)
-                return ScriptFailure(500, "SCRIPT_LIMIT_EXCEEDED", "The endpoint needs more reads than one request may make.", null);
+                return new ScriptAttempt(state, attempt, run,
+                    ScriptFailure(500, "SCRIPT_LIMIT_EXCEEDED", "The endpoint needs more reads than one request may make.", null));
 
-            var loadDenial = await LoadScriptMissesAsync(inv, state, attempt, ct);
-            if (loadDenial is not null) return loadDenial;
+            var loadDenial = await LoadScriptMissesAsync(inv, state, attempt, budget, ct);
+            if (loadDenial is not null) return new ScriptAttempt(state, attempt, run, loadDenial);
+        }
+    }
+
+    /// <summary>A committing run is one that reached no failure and staged record writes.</summary>
+    private static bool CommitsWrites(ScriptAttempt attempt) =>
+        attempt.Run.Host.Failure is null
+        && attempt.Run.Outcome.Kind is not (EndpointScriptOutcomeKind.LimitExceeded or EndpointScriptOutcomeKind.ScriptError)
+        && attempt.Round.DurableWrites.Count > 0;
+
+    /// <summary>
+    /// Runs a committing handler again while holding the write queue's locks on the records it writes and on the
+    /// versioned records it reads. The first pass only discovers those records: its snapshots can be stale once a lock
+    /// is held, so the committed result always comes from a pass made under the locks. A pass that reaches a record
+    /// outside the locked set widens the set and runs again. After <see cref="MaxScriptLockAttempts"/> passes the call
+    /// answers 409 <c>CONFLICT</c>.
+    /// </summary>
+    private async Task<EndpointExecutionResult> CommitScriptUnderLocksAsync(
+        IEndpointScriptRuntime runtime,
+        string source,
+        ScriptInvocation inv,
+        ScriptAttempt discovered,
+        ScriptFetchSession fetch,
+        CancellationToken ct)
+    {
+        var locked = new HashSet<(string Collection, string Key)>();
+        AddCommitRecords(locked, discovered, inv);
+        for (var pass = 1; ; pass++)
+        {
+            EndpointWriteQueue.RecordLease? lease;
+            try
+            {
+                lease = await _writeQueue.AcquireAsync(inv.ProjectId, locked, ct);
+            }
+            catch (EndpointWriteQueueException ex)
+            {
+                return WriteQueueDenied(ex);
+            }
+            // The locks cover this pass and the flush inside FinishScriptRunAsync, so the version check sees no interleaving.
+            using var held = lease;
+
+            var attempt = await RunScriptRoundsAsync(runtime, source, inv, fetch, ct);
+            if (attempt.Denial is not null) return attempt.Denial;
+            if (!CommitsWrites(attempt))
+                return await FinishScriptRunAsync(inv, attempt.State, attempt.Round, attempt.Run, ct);
+
+            var needed = new HashSet<(string Collection, string Key)>();
+            AddCommitRecords(needed, attempt, inv);
+            if (needed.IsSubsetOf(locked))
+                return await FinishScriptRunAsync(inv, attempt.State, attempt.Round, attempt.Run, ct);
+            if (pass >= MaxScriptLockAttempts)
+                return Denied(409, "CONFLICT", "Endpoint state changed during execution. Reload before retrying.");
+            locked.UnionWith(needed);
+        }
+    }
+
+    /// <summary>The records a committing pass locks: the records it writes and the versioned records it read.</summary>
+    private static void AddCommitRecords(
+        HashSet<(string Collection, string Key)> records, ScriptAttempt attempt, ScriptInvocation inv)
+    {
+        foreach (var write in attempt.Round.DurableWrites)
+            records.Add((write.Collection, write.Key));
+        if (attempt.State.ReadSet is null) return;
+        foreach (var (collection, key) in attempt.State.ReadSet.Records.Keys)
+        {
+            if (inv.VersionCheckedCollections?.Contains(collection) == true)
+                records.Add((collection, key));
         }
     }
 
@@ -170,6 +278,7 @@ public sealed partial class EndpointExecutor
         ScriptRunBudget budget,
         CancellationToken ct)
     {
+        state.Fetch.BeginRound();
         string Cid(string collection) => inv.ResolveCollection(collection);
 
         object? ReadRecord(string collection, string key)
@@ -266,7 +375,8 @@ public sealed partial class EndpointExecutor
             RunWorkflow: RunWorkflow,
             WorkflowIds: () => state.WorkflowIds,
             EndpointIds: () => state.GlobalIds,
-            GlobalSource: GlobalSource);
+            GlobalSource: GlobalSource,
+            Fetch: state.Fetch);
 
         var host = new EndpointScriptHost(bindings, runtime.Limits.MaxLogBytes, _logger);
         var scriptRequest = new EndpointScriptRequest(
@@ -275,7 +385,9 @@ public sealed partial class EndpointExecutor
             inv.Method,
             inv.EndpointSlug,
             inv.Revision);
-        return new ScriptRun(host, runtime.Execute(source, scriptRequest, host, budget));
+        var outcome = runtime.Execute(source, scriptRequest, host, budget);
+        round.MissedFetches = state.Fetch.PendingCount;
+        return new ScriptRun(host, outcome);
     }
 
     /// <summary>Loads the records, scans, workflows and globals one run missed. Returns a denial when a load fails closed.</summary>
@@ -283,6 +395,7 @@ public sealed partial class EndpointExecutor
         ScriptInvocation inv,
         ScriptState state,
         ScriptRound round,
+        ScriptRunBudget budget,
         CancellationToken ct)
     {
         var projectId = inv.ProjectId;
@@ -350,6 +463,19 @@ public sealed partial class EndpointExecutor
             state.Globals[id] = await ReadGlobalModuleSourceAsync(projectId, id, ct);
         }
 
+        if (state.Fetch.PendingCount > 0)
+        {
+            budget.Suspend();
+            try
+            {
+                await state.Fetch.LoadPendingAsync(ct);
+            }
+            finally
+            {
+                budget.Resume();
+            }
+        }
+
         return null;
     }
 
@@ -405,8 +531,25 @@ public sealed partial class EndpointExecutor
         return runtime.ToJavaScript(source);
     }
 
-    /// <summary>Maps a finished run to the response, committing its writes when it succeeded.</summary>
+    /// <summary>Maps a finished run to the response. Carries the refused fetch calls for the owner's diagnostics.</summary>
     private async Task<EndpointExecutionResult> FinishScriptRunAsync(
+        ScriptInvocation inv,
+        ScriptState state,
+        ScriptRound round,
+        ScriptRun run,
+        CancellationToken ct) =>
+        (await FinishScriptRunCoreAsync(inv, state, round, run, ct)) with { FetchBlocked = state.Fetch.Blocked };
+
+    /// <summary>One trace step per fetch call, for the try-it trace and the owner's per-call view.</summary>
+    private static IEnumerable<EndpointStepTrace> FetchTraceSteps(ScriptFetchSession fetch) =>
+        fetch.Trace.Select(entry => new EndpointStepTrace(
+            $"fetch#{entry.Ordinal}",
+            "fetch",
+            new { host = entry.Host, method = entry.Method, status = entry.Status, error = entry.ErrorCode, reason = entry.Reason },
+            Passed: entry.ErrorCode is null));
+
+    /// <summary>Maps a finished run to the response, committing its writes when it succeeded.</summary>
+    private async Task<EndpointExecutionResult> FinishScriptRunCoreAsync(
         ScriptInvocation inv,
         ScriptState state,
         ScriptRound round,
@@ -416,6 +559,7 @@ public sealed partial class EndpointExecutor
         if (inv.Trace is not null)
         {
             inv.Trace.Steps.AddRange(round.TraceSteps);
+            inv.Trace.Steps.AddRange(FetchTraceSteps(state.Fetch));
             inv.Trace.PendingWrites.AddRange(round.TraceWrites);
             inv.Trace.ScriptLogs.AddRange(run.Host.Logs);
         }
@@ -430,6 +574,8 @@ public sealed partial class EndpointExecutor
             case EndpointScriptOutcomeKind.LimitExceeded:
                 return ScriptFailure(500, "SCRIPT_LIMIT_EXCEEDED", "The endpoint exceeded a limit.", ScriptOwnerDetail(outcome.OwnerDetail, logs));
             case EndpointScriptOutcomeKind.ScriptError:
+                if (outcome.ErrorCode is { } fetchCode)
+                    return ScriptFailure(502, fetchCode, "An outbound request failed.", ScriptOwnerDetail(outcome.OwnerDetail, logs));
                 return ScriptFailure(500, "SCRIPT_ERROR", "The endpoint script failed.", ScriptOwnerDetail(outcome.OwnerDetail, logs));
         }
 
@@ -450,6 +596,20 @@ public sealed partial class EndpointExecutor
 
     private static EndpointExecutionResult ScriptFailure(int status, string code, string message, string? ownerDetail) =>
         new(false, status, Denied(status, code, message).Body, ownerDetail);
+
+    /// <summary>The gate stayed full past its wait. The request never ran, so the caller may resend it unchanged.</summary>
+    private EndpointExecutionResult ScriptBusy() =>
+        new(false, 429, new Dictionary<string, object?>
+        {
+            ["ok"] = false,
+            ["error"] = new Dictionary<string, object?>
+            {
+                ["code"] = "SCRIPT_BUSY",
+                ["message"] = "Too many scripted requests are running on this server. Try again shortly.",
+            },
+            ["retryAfterSeconds"] = _scriptGate.RetryAfterSeconds,
+            ["retrySafe"] = true,
+        }, null, _scriptGate.RetryAfterSeconds);
 
     private static string? ScriptOwnerDetail(string? detail, IReadOnlyList<string> logs)
     {

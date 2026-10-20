@@ -58,6 +58,12 @@ public static class CliApp
           telemetry enable|disable      Opt in or out (restart the server afterward)
           telemetry preview             Print the exact JSON that would be sent, without sending it
 
+        Request encryption keys (docs/configuration.md)
+          security status               Show the server key id, fingerprint and retired keys still in grace
+          security rotate-key [--grace-seconds N]
+                                        Make a new key current; the previous key keeps working for N seconds
+                                        (default 86400, max 2592000; 0 removes it at once). No restart needed
+
         Configuration
           config path                   Print the config folder
           config show [--show-secrets]  Print every effective setting and where it came from
@@ -154,7 +160,7 @@ public static class CliApp
         var context = new CliContext(parsed);
         try
         {
-            if (command is "db" or "export" or "import" or "admin" or "project" or "key" or "dev")
+            if (command is "db" or "export" or "import" or "admin" or "project" or "key" or "dev" or "security")
             {
                 if (await RuntimeCommand.TryRunAsync(context.LoadValidConfig(), args) is { } runtimeExit)
                     return runtimeExit;
@@ -171,6 +177,7 @@ public static class CliApp
                 "dns" => await DnsCommands.RunAsync(context),
                 "register" => await NoticeCommands.RunAsync(context),
                 "telemetry" => await TelemetryCommands.RunAsync(context),
+                "security" => SecurityCommands.Run(context),
                 "config" => ConfigCommands.Run(context),
                 "db" => await DatabaseCommands.RunAsync(context),
                 "compatibility" => await DatabaseCommands.CheckCompatibilityAsync(context),

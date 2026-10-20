@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Logging;
 using SboxNetworkStorage.Application.Common;
 
 using SboxNetworkStorage.Application.Errors;
@@ -186,7 +187,17 @@ public static class NetworkStorageServices
         services.AddScoped<IEndpointDataSource>(sp => sp.GetRequiredService<StoreEndpointDataSource>());
         services.AddSingleton<IReadOnlyList<IEndpointScriptRuntime>>(sp => EndpointExecutor.CreateScriptRuntimes(config.GetBoolean("endpoints.scripts"), sp.GetRequiredService<ILogger<JavaScriptEndpointRuntime>>()));
         // One gate for the process: the executor is scoped, so a per-request gate would bound nothing.
-        services.AddSingleton<ScriptConcurrencyGate>();
+        services.AddSingleton<ScriptConcurrencyGate>(_ => new ScriptConcurrencyGate(
+            globalLimit: Environment.ProcessorCount,
+            perProjectLimit: ScriptConcurrencyGate.DefaultPerProjectLimit,
+            waitTime: TimeSpan.FromMilliseconds(Math.Clamp(config.GetInteger("endpoints.script_gate.wait_ms"), 0L, 60_000L))));
+        // One write queue for the process, for the same reason: the executor is scoped, so a per-request queue would serialize nothing.
+        services.AddSingleton<EndpointWriteQueue>(_ => new EndpointWriteQueue(
+            enabled: config.GetBoolean("endpoints.write_queue.enabled"),
+            maxQueued: (int)Math.Clamp(config.GetInteger("endpoints.write_queue.max_queued"), 0L, 1_000_000L),
+            timeout: TimeSpan.FromMilliseconds(Math.Clamp(config.GetInteger("endpoints.write_queue.timeout_ms"), 1L, 3_600_000L))));
+        // ns.fetch network transport. endpoints.fetch_private_networks is read once at startup (restart to change).
+        services.AddSingleton<IScriptFetchTransport>(_ => new HttpScriptFetchTransport(config.GetBoolean("endpoints.fetch_private_networks")));
         services.AddScoped<EndpointExecutor>();
         services.AddScoped<IEndpointWebhookSender, HttpEndpointWebhookSender>();
         // Webhook delivery outbox (docs/alerting.md, "Endpoint webhook outbox"). Only projects that set
@@ -224,6 +235,9 @@ public static class NetworkStorageServices
         services.AddScoped<RevisionInitHandler>();
         services.AddScoped<NativeStatsHeartbeatHandler>();
 
+        services.AddSingleton(sp => new RequestEncryptionKeyStore(
+            config.GetPath("auth.request_encryption_keys_file", config.RuntimeDirectory),
+            sp.GetRequiredService<ILogger<RequestEncryptionKeyStore>>()));
         services.AddSingleton<IAuthSessionSecretProvider, ConfigurationAuthSessionSecretProvider>();
         services.AddSingleton<INetworkStorageAuthSessionService, NetworkStorageAuthSessionService>();
         services.AddHostedService<AuthSessionSecretValidationHostedService>();

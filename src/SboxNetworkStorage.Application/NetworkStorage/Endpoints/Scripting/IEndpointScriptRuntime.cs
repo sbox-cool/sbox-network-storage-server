@@ -66,4 +66,5 @@ public enum EndpointScriptOutcomeKind
 
 /// <summary>What a script run produced. Host failures (<c>ns.fail</c>, storage errors) are read from the host, not here.</summary>
 /// <param name="OwnerDetail">Full diagnostic for the owner's Errors page. Never shown to game clients.</param>
-public sealed record EndpointScriptOutcome(EndpointScriptOutcomeKind Kind, JsonElement? Body, string? OwnerDetail = null);
+/// <param name="ErrorCode">The script-visible <c>FETCH_*</c> code when the uncaught error was an <c>ns.fetch</c> failure; null otherwise.</param>
+public sealed record EndpointScriptOutcome(EndpointScriptOutcomeKind Kind, JsonElement? Body, string? OwnerDetail = null, string? ErrorCode = null);

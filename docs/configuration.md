@@ -314,8 +314,12 @@ session_secret_file = "secrets/auth_session_secret"
 # 64 hex characters that derive secret API key identifiers. Losing it
 # invalidates every existing secret key (sbox_sk_...).
 storage_encryption_key_file = "secrets/storage_encryption_key"
-# RSA private key (PEM) that signs the security config game clients download.
+# RSA private key (PEM) that signs the security config game clients download. Games pin its
+# fingerprint; replacing the key breaks pinned games. See encrypted-requests-v2.md#key-pinning.
 security_signing_key_file = "secrets/security_signing_key.pem"
+# RSA private keys (JSON) that unwrap encrypted-request v2 payloads: the current key plus
+# retired keys still in their grace window. Rotate with `sbox-ns security rotate-key`.
+request_encryption_keys_file = "secrets/request_encryption_keys.json"
 # Key id published with the signed security config. Empty (default) derives it
 # from the public key. Set it to the previous server's key id when moving a
 # project here with its signing key, so game clients keep accepting the config.
@@ -370,9 +374,46 @@ of slowing requests down. Reading a record produces no analytics event.
 | --- | --- | --- |
 | `analytics.retention_days` | `90` | Timeline events and project issues older than this many days are deleted once a day. `0` keeps them forever. Player profiles and sessions are never purged. |
 
+### Custom analytics events
+
+Games send custom Player Analytics events with `NetworkStorage.TrackAnalyticsEvent`
+(or the `NetworkStorageAnalytics.TrackEvent` facade). The owner's **Player analytics
+settings** on the project's owner page lists the names the project accepts. Defaults:
+`death`, `respawn`, `cast_line`, `caught_fish`, `sold_fish`. The list is published in the
+signed security config as `analytics.allowedEventTypes`, and the game library sends a
+custom event only when its normalized name is on that list. Other names are dropped in
+the game and counted in the library's `Dropped N analytics event(s)` warning. Names are
+lowercase letters, digits, `_ . : -`, up to 48 characters, one per line or
+comma-separated, at most 100. The server stores the custom events it receives; the list
+is enforced by the game library before it sends.
+
 ### Scripted endpoints
 
 `endpoints.scripts` in `server.toml` (default `true`) runs JavaScript and TypeScript endpoints. Off makes every scripted endpoint answer `503 SCRIPTS_DISABLED`; YAML endpoints are unaffected. Restart the server after changing it. Limits and error codes are in [endpoints-javascript.md](endpoints-javascript.md).
+
+`endpoints.fetch_private_networks` in `server.toml` (default `false`) lets `ns.fetch` reach private, loopback and link-local addresses: `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `100.64.0.0/10`, `127.0.0.0/8`, `169.254.0.0/16`, and the IPv6 loopback, unique-local, link-local and site-local ranges. Metadata and reserved addresses stay blocked either way. Restart the server after changing it. Allow-lists are set per project; see [endpoints-javascript.md](endpoints-javascript.md#outbound-http-nsfetch).
+
+### Record write queue
+
+Concurrent writes to one record (record API, YAML endpoints and script endpoints) are serialized per project, collection and key inside this server process, as the reference's keyed write queue does. Each write waits for the writes ahead of it, so no update is lost to a race. A write that cannot get a turn answers `429` with `Retry-After`. Live counters (active keys, queued writes, totals) appear as `writeQueue` in the owner Server page's stats feed (`/dashboard/server/stats`). The queue lives in memory; [database.md](database.md#multiple-server-instances) explains what it does not cover.
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `endpoints.write_queue.enabled` | `true` | Serialize concurrent writes to one record. Off restores version-check-only behaviour: `requireSaveVersion` writers get `409 CONFLICT` when they lose, and unversioned writes can lose updates. |
+| `endpoints.write_queue.max_queued` | `64` | Writes that may wait behind one busy record. A write past this answers `429` with `NETWORK_STORAGE_WRITE_QUEUE_FULL`. Clamped to 0 to 1,000,000. |
+| `endpoints.write_queue.timeout_ms` | `10000` | How long one write waits for a busy record before `429` with `NETWORK_STORAGE_WRITE_QUEUE_TIMEOUT`. `Retry-After` is this value rounded up to whole seconds, at least 1. Clamped to 1 to 3,600,000. |
+
+Restart the server after changing these keys.
+
+### Script concurrency gate
+
+A scripted request needs a free slot for its project and a free server-wide slot before it runs. Each project may run 2 scripted requests at once, and the server runs one per processor. A request that finds a slot full waits up to `endpoints.script_gate.wait_ms`. If no slot frees in time, the request is refused without running: `429` with `SCRIPT_BUSY`, `Retry-After`, and `retrySafe: true`, so the caller can resend it unchanged. Live counters (active slots, waiting requests, totals) appear as `scriptGate` in `/dashboard/server/stats`. The gate lives in memory; [database.md](database.md#multiple-server-instances) explains what that means across several instances.
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `endpoints.script_gate.wait_ms` | `2000` | How long a scripted request waits for a free slot before it is refused. `0` refuses at once. `Retry-After` is this value rounded up to whole seconds, at least 1. Clamped to 0 to 60,000. |
+
+Restart the server after changing `endpoints.script_gate.wait_ms`.
 
 ### Game logs
 
@@ -552,6 +593,20 @@ the writer reports them in a warning. One background writer commits batches of
 up to 500 events, or the buffered partial batch every second, in one transaction.
 A failed batch rolls back and is reported; it does not fail the game request.
 Shutdown drains the remaining buffered events.
+
+Analytics HTTP batch: `POST /v3/storage/{projectId}/analytics/events` (also
+`/api/storage/...`) accepts either one event, unchanged, or an opt-in batch
+`{"events":[ <event>, ... ]}`. The batch form is used only when the server
+advertises the `analytics-batch` capability. A batch holds at most 50 events and
+256 KiB of JSON. Each item is validated like a single event, with the same codes
+and the same 32 KiB per-event limit. The envelope is checked before anything is
+stored: an empty `events` array is 400 `INVALID_JSON`; more than 50 events or
+more than 256 KiB is 413 `PAYLOAD_TOO_LARGE`. Auth, project and key checks run
+once per request. A valid envelope returns 200 with `accepted`, `rejected` and
+one `results` entry per item, in input order: `{"index":0,"ok":true}` or
+`{"index":1,"ok":false,"error":"<CODE>","message":"..."}`. Invalid items are
+rejected alone and valid items are still stored. A valid item whose storage fails
+is reported as `storage_unavailable`.
 
 Collection, endpoint and game-value metadata share a per-project memory-cache
 snapshot. Management writes, sync and imports invalidate its generation token

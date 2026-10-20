@@ -37,15 +37,19 @@ public static class EndpointExecutionEndpoints
     public static IEndpointRouteBuilder MapEndpointExecution(this IEndpointRouteBuilder endpoints)
     {
         endpoints.MapPost("/v3/endpoints/{projectId}/{endpointSlug}", ExecuteEndpointAsync)
-            .WithDisplayName("Network Storage endpoint execution (native)");
+            .WithDisplayName("Network Storage endpoint execution (native)")
+            .AsLibraryEnvelopeRoute();
         endpoints.MapPost("/v1/endpoints/{projectId}/{endpointSlug}", ExecuteEndpointAsync)
-            .WithDisplayName("Network Storage endpoint execution v1 alias (native)");
+            .WithDisplayName("Network Storage endpoint execution v1 alias (native)")
+            .AsLibraryEnvelopeRoute();
 
         // POST /v3/endpoints/:projectId with the slug inside the request body.
         endpoints.MapPost("/v3/endpoints/{projectId}", ExecuteEndpointAsync)
-            .WithDisplayName("Network Storage endpoint execution body slug (native)");
+            .WithDisplayName("Network Storage endpoint execution body slug (native)")
+            .AsLibraryEnvelopeRoute();
         endpoints.MapPost("/v1/endpoints/{projectId}", ExecuteEndpointAsync)
-            .WithDisplayName("Network Storage endpoint execution v1 body slug (native)");
+            .WithDisplayName("Network Storage endpoint execution v1 body slug (native)")
+            .AsLibraryEnvelopeRoute();
 
         return endpoints;
     }
@@ -86,56 +90,67 @@ public static class EndpointExecutionEndpoints
         var publicKey = context.Request.Headers["x-public-key"].FirstOrDefault();
         var credential = FirstNonEmpty(apiKeyHeader, secretKey, apiKeyQuery, publicKey);
 
+        // Read the body before any auth decision: an old library revision posts a `security` object here, which
+        // identifies it as a library caller for the error envelope (docs/compatibility.md). GET has no body.
+        JsonElement body;
+        try
+        {
+            body = await context.Request.ReadFromJsonAsync<JsonElement>(JsonOptions, context.RequestAborted);
+        }
+        catch
+        {
+            body = default;
+        }
+        if (body.ValueKind == JsonValueKind.Object && body.TryGetProperty("security", out var bodySecurity)
+            && bodySecurity.ValueKind == JsonValueKind.Object)
+        {
+            LibraryErrorEnvelope.MarkBodyCaller(context);
+        }
+
         if (string.IsNullOrEmpty(credential))
         {
-            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-            await context.Response.WriteAsJsonAsync(
-                new
-                {
-                    error = "UNAUTHORIZED",
-                    detail = "Missing API key. Send a public key in x-api-key or x-public-key, or a Network Storage secret key in x-secret-key.",
-                },
-                JsonOptions);
+            const string missingKey = "Missing API key. Send a public key in x-api-key or x-public-key, or a Network Storage secret key in x-secret-key.";
+            await WriteEarlyErrorAsync(context, StatusCodes.Status401Unauthorized, "UNAUTHORIZED", missingKey,
+                new { error = "UNAUTHORIZED", detail = missingKey });
             return;
         }
 
         var auth = await resolver.ResolveApiKeyAsync(credential, projectId, context.RequestAborted);
         if (auth is null)
         {
-            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-            await context.Response.WriteAsJsonAsync(new { error = "UNAUTHORIZED" }, JsonOptions);
+            await WriteEarlyErrorAsync(context, StatusCodes.Status401Unauthorized, "UNAUTHORIZED",
+                "The API key is not valid for this project.", new { error = "UNAUTHORIZED" });
             return;
         }
 
         if (!auth.Enabled)
         {
-            context.Response.StatusCode = StatusCodes.Status403Forbidden;
-            await context.Response.WriteAsJsonAsync(new { error = "KEY_DISABLED" }, JsonOptions);
+            await WriteEarlyErrorAsync(context, StatusCodes.Status403Forbidden, "KEY_DISABLED",
+                "This API key is disabled.", new { error = "KEY_DISABLED" });
             return;
         }
 
         // A secret key driving endpoint execution must hold `endpoints` execute.
         if (!ApiKeyPermissionPolicy.HasPermission(auth, "endpoints", "x"))
         {
-            context.Response.StatusCode = StatusCodes.Status403Forbidden;
-            await context.Response.WriteAsJsonAsync(
-                new { error = "FORBIDDEN", detail = "This secret key does not have execute access to endpoints." },
-                JsonOptions);
+            const string noEndpointAccess = "This secret key does not have execute access to endpoints.";
+            await WriteEarlyErrorAsync(context, StatusCodes.Status403Forbidden, "FORBIDDEN", noEndpointAccess,
+                new { error = "FORBIDDEN", detail = noEndpointAccess });
             return;
         }
 
         var access = await projectService.ResolveProjectAccessAsync(auth.UserId, projectId, context.RequestAborted);
         if (access is null)
         {
-            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-            await context.Response.WriteAsJsonAsync(new { error = "UNAUTHORIZED" }, JsonOptions);
+            await WriteEarlyErrorAsync(context, StatusCodes.Status401Unauthorized, "UNAUTHORIZED",
+                "The API key does not have access to this project.", new { error = "UNAUTHORIZED" });
             return;
         }
 
         if (!access.Project.Enabled)
         {
-            context.Response.StatusCode = StatusCodes.Status403Forbidden;
-            await context.Response.WriteAsJsonAsync(new { error = "PROJECT_DISABLED" }, JsonOptions);
+            await WriteEarlyErrorAsync(context, StatusCodes.Status403Forbidden, "PROJECT_DISABLED",
+                "This project is disabled.", new { error = "PROJECT_DISABLED" });
             return;
         }
 
@@ -163,16 +178,6 @@ public static class EndpointExecutionEndpoints
         catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested) { return; }
         catch { /* fail open: live behavior */ }
 
-        JsonElement body;
-        try
-        {
-            body = await context.Request.ReadFromJsonAsync<JsonElement>(JsonOptions, context.RequestAborted);
-        }
-        catch
-        {
-            body = default;
-        }
-
         // If the slug is not on the route, read it from the JSON body. Library builds published until
         // May 2026 (for example sbox.game r238672) POST /v3/endpoints/{projectId} with the slug only in
         // "_endpointSlug"; the newer library also sends it but puts the slug in the path too.
@@ -183,8 +188,8 @@ public static class EndpointExecutionEndpoints
 
         if (string.IsNullOrEmpty(endpointSlug))
         {
-            context.Response.StatusCode = StatusCodes.Status400BadRequest;
-            await context.Response.WriteAsJsonAsync(new { error = "INVALID_REQUEST", detail = "Missing endpoint slug." }, JsonOptions);
+            await WriteEarlyErrorAsync(context, StatusCodes.Status400BadRequest, "INVALID_REQUEST",
+                "Missing endpoint slug.", new { error = "INVALID_REQUEST", detail = "Missing endpoint slug." });
             return;
         }
 
@@ -219,6 +224,31 @@ public static class EndpointExecutionEndpoints
         var claimedSteamId = PlayerIdentity.ClaimedSteamId(context.Request, body);
         var hasSecretKey = string.Equals(auth.KeyType, "secret", StringComparison.OrdinalIgnoreCase);
 
+        // Security-mode gate (reference execution-routes.js order). It runs before identity, so a call that the
+        // project's security mode refuses costs no Steam or session lookup.
+        var hasEnvelope = EncryptedEndpointEnvelope.TryRead(body, out var gateEnvelope);
+        var envelopeKind = HttpMethods.IsPost(context.Request.Method) && hasEnvelope
+            ? EndpointSecurityGate.EnvelopeKindOf(gateEnvelope)
+            : EndpointSecurityGate.EnvelopeKind.None;
+        // v2 names its server key. Resolved once: the gate needs presence, decryption needs the key itself.
+        var envelopePrivateKey = envelopeKind == EndpointSecurityGate.EnvelopeKind.V2
+            ? context.RequestServices.GetRequiredService<RequestEncryptionKeyStore>().Current()
+                .FindPrivate(EncryptedEndpointEnvelope.Str(gateEnvelope, "keyId"), DateTimeOffset.UtcNow)
+            : null;
+        // An unknown stored mode fails closed to v2-required (EncryptedRequestModes.Resolve). Log it so the owner can fix it.
+        if (access.Project.HasInvalidStoredEncryptedRequestMode())
+            context.RequestServices.GetService<ILoggerFactory>()?.CreateLogger("EndpointSecurityGate")
+                .LogWarning("Project {ProjectId} has an invalid stored encrypted-request mode; enforcing v2-required.", projectId);
+        var securityDenial = EndpointSecurityGate.Check(access.Project, EndpointSecurityGate.ConfigVersionOf(access.Project),
+            body, hasSecretKey, PlayerIdentity.ReadSessionToken(context.Request, body) is not null, envelopeKind,
+            envelopePrivateKey is not null);
+        if (securityDenial is { } gateDenial)
+        {
+            await WriteEndpointErrorAsync(context, gateDenial.Status, gateDenial.Code, gateDenial.Message,
+                gateDenial.Security);
+            return;
+        }
+
         // Phase 4: opt-in server enforcement, after auth. Secret-key callers
         // (dedicated servers) are exempt; requests without a known revision
         // fall back to live. Fail-open: lookup failures allow the request.
@@ -236,6 +266,20 @@ public static class EndpointExecutionEndpoints
                     workspace, new RevisionSnapshotCache(memoryCache), DateTimeOffset.UtcNow, context.RequestAborted);
                 if (denial is not null)
                 {
+                    if (LibraryErrorEnvelope.UsesEnvelope(context))
+                    {
+                        var errorBody = LibraryErrorEnvelope.Build(context, StatusCodes.Status403Forbidden,
+                            "REVISION_BLOCKED", denial.Message,
+                            errorFields: new Dictionary<string, object?>(StringComparer.Ordinal)
+                            {
+                                ["action"] = denial.Action,
+                                ["latestRevisionId"] = denial.LatestRevisionId,
+                            });
+                        if (denial.RevisionStatus is not null)
+                            errorBody["_revisionStatus"] = denial.RevisionStatus;
+                        await LibraryErrorEnvelope.WriteBodyAsync(context, StatusCodes.Status403Forbidden, errorBody);
+                        return;
+                    }
                     context.Response.StatusCode = StatusCodes.Status403Forbidden;
                     await context.Response.WriteAsJsonAsync(VersionPolicyEnforcement.DenialBody(denial), JsonOptions);
                     return;
@@ -317,19 +361,37 @@ public static class EndpointExecutionEndpoints
                 return;
             }
         }
-        // Projects with enableEncryptedRequests advertise it in the signed security
-        // config; the library then sends only {security, encrypted, envelope}.
-        if (HttpMethods.IsPost(context.Request.Method) && EncryptedEndpointEnvelope.TryRead(body, out var envelope))
+        // Projects with encryption enabled advertise it in the signed security config; the library then sends only
+        // {security, encrypted, envelope}. v1 derives its key from the public ApiKey; v2 unwraps an AES key with the
+        // server's request-encryption key.
+        EncryptedEndpointEnvelope.Result? decryptedEnvelope = null;
+        if (envelopeKind is EndpointSecurityGate.EnvelopeKind.V1)
         {
             // The library derives the envelope key from its public ApiKey (x-public-key / ?apiKey).
-            var decrypted = EncryptedEndpointEnvelope.Decrypt(envelope, FirstNonEmpty(publicKey, apiKeyQuery) ?? "",
-                projectId, endpointSlug, hasSecretKey ? null : steamId, ResolveAuthSessionId(context, body, projectId),
-                DateTimeOffset.UtcNow);
+            var decrypted = EncryptedEndpointEnvelope.Decrypt(gateEnvelope, FirstNonEmpty(publicKey, apiKeyQuery) ?? "",
+                projectId, endpointSlug, hasSecretKey ? null : steamId, ResolveAuthSessionId(context, body, projectId));
             if (!decrypted.Ok)
             {
                 await WriteEndpointErrorAsync(context, decrypted.Status, decrypted.Code!, decrypted.Message!);
                 return;
             }
+            decryptedEnvelope = decrypted;
+            body = decrypted.Payload;
+        }
+        else if (envelopeKind is EndpointSecurityGate.EnvelopeKind.V2)
+        {
+            // The gate denied a v2 envelope without a key, so envelopePrivateKey is set here.
+            var decrypted = EncryptedRequestV2.Decrypt(gateEnvelope, envelopePrivateKey!, projectId, endpointSlug,
+                hasSecretKey ? null : steamId, ResolveAuthSessionId(context, body, projectId),
+                context.RequestServices.GetService<ILoggerFactory>()?.CreateLogger("EncryptedRequestV2"), out var responseKey);
+            if (!decrypted.Ok)
+            {
+                await WriteEndpointErrorAsync(context, decrypted.Status, decrypted.Code!, decrypted.Message!);
+                return;
+            }
+            // C5: from here on every response body, errors included, is sealed under this request's AES key.
+            context.Items[EncryptedRequestV2.ItemKey] = responseKey;
+            decryptedEnvelope = decrypted;
             body = decrypted.Payload;
         }
 
@@ -392,6 +454,21 @@ public static class EndpointExecutionEndpoints
             await WriteEndpointErrorAsync(context, StatusCodes.Status500InternalServerError,
                 "ENDPOINT_EXECUTION_FAILED", "The endpoint failed to execute.");
             return;
+        }
+
+        // Replay ids are consumed only once the endpoint is known to exist (reference order), so probes for
+        // unknown slugs do not burn them. The window is the project's own setting, clamped to 30-600 seconds.
+        if (decryptedEnvelope is { } accepted)
+        {
+            var endpointExists = liveEndpointDef is not null || (dataSource is not null
+                && await dataSource.ReadEndpointDefinitionAsync(projectId, endpointSlug, context.RequestAborted) is not null);
+            var replayWindow = Math.Clamp(access.Project.EncryptedRequestWindowSeconds ?? 120, 30, 600);
+            if (endpointExists && EncryptedEndpointEnvelope.ConsumeReplay(projectId, accepted, replayWindow,
+                    DateTimeOffset.UtcNow) is { } replay)
+            {
+                await WriteEndpointErrorAsync(context, replay.Status, replay.Code!, replay.Message!);
+                return;
+            }
         }
 
         var execStart = System.Diagnostics.Stopwatch.GetTimestamp();
@@ -518,6 +595,26 @@ public static class EndpointExecutionEndpoints
             }
         }
 
+        // ns.fetch calls the allow-list or address rules refused. Reported even when the script caught the error and
+        // the response is a success, so the owner sees the host and can allow it from the project page.
+        if (result.FetchBlocked is { Count: > 0 } blockedCalls)
+        {
+            var fetchReporter = context.RequestServices.GetService<SboxNetworkStorage.Server.Infrastructure.EndpointErrorReporter>();
+            if (fetchReporter is not null)
+            {
+                foreach (var blocked in blockedCalls)
+                {
+                    try
+                    {
+                        await fetchReporter.CaptureFetchBlockedAsync(
+                            projectId, endpointSlug, context.Request.Method, steamId,
+                            blocked.Host, blocked.Reason, CancellationToken.None);
+                    }
+                    catch { /* reporting is best-effort; never block the response */ }
+                }
+            }
+        }
+
         // Record an `endpoint.call` analytics event so the game-analytics dashboard
         // shows the player's real activity (save-all / load-player / etc.) on the
         // timeline. Previously this emitted `session.heartbeat`, which the dashboard
@@ -554,12 +651,18 @@ public static class EndpointExecutionEndpoints
         // _revisionStatus rides success and error bodies (the library reads it
         // on every endpoint response, including ok:false). Absent without an
         // explicit policy, so legacy bodies are unchanged.
-        var revisionStatus = context.Items["RevisionStatus"] as Dictionary<string, object?>;
+        // ResponseBodyFor adds _revisionStatus and seals the body for v2.
+        if (result.RetryAfterSeconds is { } retryAfter)
+            context.Response.Headers["Retry-After"] = retryAfter.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        if (result.Status >= StatusCodes.Status400BadRequest && LibraryErrorEnvelope.UsesEnvelope(context))
+        {
+            await LibraryErrorEnvelope.WriteBodyAsync(context, result.Status,
+                ResponseBodyFor(context, LibraryExecutorError(context, result)));
+            return;
+        }
         object responseBody = result.Body ?? new { ok = result.Ok };
-        if (revisionStatus is not null)
-            responseBody = RevisionStatusInjector.WithStatus(responseBody, revisionStatus);
         context.Response.StatusCode = result.Status > 0 ? result.Status : StatusCodes.Status200OK;
-        await context.Response.WriteAsJsonAsync(responseBody, JsonOptions);
+        await context.Response.WriteAsJsonAsync(ResponseBodyFor(context, responseBody), JsonOptions);
     }
 
     private static async Task ReportNativeEndpointFailureAsync(
@@ -585,13 +688,78 @@ public static class EndpointExecutionEndpoints
         catch { /* reporting is best-effort */ }
     }
 
-    private static Task WriteEndpointErrorAsync(HttpContext context, int status, string code, string message)
+    /// <summary>
+    /// Endpoint-route errors. A library caller gets the envelope (HTTP 200, real status in the body), carrying the
+    /// <c>security</c> context on a gate denial. Every other client gets <c>{ok:false,error:{code,message}}</c> at
+    /// the real status. Once a v2 request has decrypted, its envelope is sealed under that request's AES key (C5).
+    /// </summary>
+    private static Task WriteEndpointErrorAsync(HttpContext context, int status, string code, string message,
+        object? security = null)
     {
+        if (LibraryErrorEnvelope.UsesEnvelope(context))
+            return LibraryErrorEnvelope.WriteBodyAsync(context, status,
+                ResponseBodyFor(context, LibraryErrorEnvelope.Build(context, status, code, message, security: security)));
         context.Response.StatusCode = status;
         object body = new { ok = false, error = new { code, message } };
+        return context.Response.WriteAsJsonAsync(ResponseBodyFor(context, body), JsonOptions);
+    }
+
+    /// <summary>
+    /// The body to write. _revisionStatus is added here, before sealing, so for a v2 request it sits inside the encrypted
+    /// payload. Once a v2 request has decrypted, the final body is sealed under that request's AES key (C5). Before that,
+    /// and for v1, it is written as-is.
+    /// </summary>
+    private static object ResponseBodyFor(HttpContext context, object body)
+    {
         if (context.Items["RevisionStatus"] is Dictionary<string, object?> revisionStatus)
             body = RevisionStatusInjector.WithStatus(body, revisionStatus);
-        return context.Response.WriteAsJsonAsync(body, JsonOptions);
+        return context.Items[EncryptedRequestV2.ItemKey] is EncryptedRequestV2.ResponseKey responseKey
+            ? EncryptedRequestV2.SealResponse(responseKey, body, JsonOptions)
+            : body;
+    }
+
+    /// <summary>
+    /// Early key and auth errors. A library caller gets the envelope; every other client keeps the flat body it
+    /// has always received, at the same status.
+    /// </summary>
+    private static Task WriteEarlyErrorAsync(HttpContext context, int status, string code, string message,
+        object plainBody)
+    {
+        if (LibraryErrorEnvelope.UsesEnvelope(context))
+            return LibraryErrorEnvelope.WriteAsync(context, status, code, message);
+        context.Response.StatusCode = status;
+        return context.Response.WriteAsJsonAsync(plainBody, JsonOptions);
+    }
+
+    /// <summary>
+    /// The library envelope for an executor error, as the reference epError and executor path shape it: the
+    /// executor body with ok:false, the real status, error.requestId, a top-level message and _requestId. A 5xx
+    /// keeps only a generic message and drops the stored writes, so no storage internals reach the game.
+    /// </summary>
+    private static Dictionary<string, object?> LibraryExecutorError(HttpContext context, EndpointExecutionResult result)
+    {
+        var body = result.Body is Dictionary<string, object?> source
+            ? new Dictionary<string, object?>(source, StringComparer.Ordinal)
+            : new Dictionary<string, object?>(StringComparer.Ordinal);
+        var error = body.TryGetValue("error", out var raw) && raw is Dictionary<string, object?> existing
+            ? new Dictionary<string, object?>(existing, StringComparer.Ordinal)
+            : new Dictionary<string, object?>(StringComparer.Ordinal);
+        error.TryAdd("code", "ENDPOINT_ERROR");
+        error.TryAdd("message", "The endpoint returned an error.");
+        if (result.Status >= StatusCodes.Status500InternalServerError)
+        {
+            body.Remove("writes");
+            error["message"] = "An internal Network Storage error occurred while executing this endpoint.";
+        }
+        error["requestId"] = context.TraceIdentifier;
+        body["ok"] = false;
+        body["status"] = result.Status;
+        body["error"] = error;
+        body["message"] = error["message"];
+        body["_requestId"] = context.TraceIdentifier;
+        if (result.RetryAfterSeconds is { } retryAfter)
+            body["retryAfterSeconds"] = retryAfter;
+        return body;
     }
 
     /// <summary>
@@ -628,19 +796,10 @@ public static class EndpointExecutionEndpoints
         return null;
     }
 
-    private static string? ReadBodyString(JsonElement body, string name) => PlayerIdentity.ReadBodyString(body, name);
-
     /// <summary>Id of the valid auth session presented with this request (same sources as identity resolution).</summary>
     private static string? ResolveAuthSessionId(HttpContext context, JsonElement body, string projectId)
     {
-        var authorization = context.Request.Headers.Authorization.FirstOrDefault() ?? "";
-        var token = FirstNonEmpty(
-            context.Request.Headers["x-auth-session"].FirstOrDefault(),
-            context.Request.Headers["x-auth-session-token"].FirstOrDefault(),
-            authorization.StartsWith("bearer ", StringComparison.OrdinalIgnoreCase) ? authorization[7..].Trim() : null,
-            context.Request.Query["authSessionToken"].FirstOrDefault(),
-            context.Request.Query["sessionToken"].FirstOrDefault(),
-            ReadBodyString(body, "authSessionToken"), ReadBodyString(body, "sessionToken"));
+        var token = PlayerIdentity.ReadSessionToken(context.Request, body);
         if (token is null) return null;
         var valid = context.RequestServices.GetRequiredService<INetworkStorageAuthSessionService>().Validate(projectId, token);
         return valid.Ok ? valid.Session?.Id : null;

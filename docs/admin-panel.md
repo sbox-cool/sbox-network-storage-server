@@ -233,15 +233,61 @@ session token (`/api/auth-sessions/{projectId}/create`, also `/v3/...`). Later c
 session token and skip the s&box check until it expires after **Session TTL**
 seconds. Off by default.
 
+**Require an auth session for every endpoint call** refuses an endpoint call
+that has no valid session token with `SECURITY_SESSION_REQUIRED`. Calls that
+carry the project's secret key are exempt. Off by default.
+
 ### Encrypted requests
 
-**Enable encrypted requests** is reported to the client library in the signed
-security config, and the library then encrypts endpoint calls (AES-256-GCM
-with a key derived from the public key, signed with HMAC-SHA256). This server
-decrypts such calls and rejects replays, but still accepts plain calls, so it
-does not make encryption mandatory. It accepts request IDs up to 120 seconds
-old whatever the window setting says; the window value is passed to the client
-library.
+The **encrypted requests** setting is a select with four modes. The chosen mode is
+published in the signed security config, and the server enforces it on both plain
+and encrypted calls. Off by default.
+
+- `off`: plain calls only. Encrypted calls are refused with `SECURITY_ENCRYPTION_DISABLED`.
+- `v1`: v1 envelopes only, the format released libraries send. Its key is derived from
+  the public key, which every game build contains, so anyone who extracts it can read
+  and forge v1 requests. v1 responses are not encrypted. Plain calls are refused with
+  `SECURITY_ENCRYPTION_REQUIRED`. v2 envelopes are refused with `SECURITY_MODE_UNSUPPORTED`.
+- `v2-preferred`: v1 and v2 envelopes are accepted. Plain calls are refused with
+  `SECURITY_ENCRYPTION_REQUIRED`. Published games on v1 keep working.
+- `v2-required`: v2 envelopes only. Plain calls and v1 envelopes are refused with
+  `SECURITY_ENCRYPTION_REQUIRED`. A library without v2 support cannot call this project.
+
+The library refreshes its security config and retries once in the mode the server
+asks for, so a plain call made while encryption is required still succeeds when the
+library can send that envelope.
+
+v2 encrypts request and response payloads per call, with a key wrapped to the server's
+RSA key. It does not hide the bearer or auth tokens sent in plain headers or the outer
+`security` block, so HTTPS is still required. An active man in the middle who sees such
+a token can still act with it. The wire format is in
+[encrypted-requests-v2.md](encrypted-requests-v2.md).
+
+**Server key** shows the key ID, the fingerprint and the creation time of the server's
+RSA-2048 request encryption key. The fingerprint is grouped for reading and is the same
+value the signed config publishes. One key serves every project on the server, and
+only the v2 modes use it.
+
+**Signing key** shows the fingerprint of the key that signs the security config
+(`auth.security_signing_key_file`). Games pin this value to trust the server, and the same
+value is printed by `sbox-ns security status`. Rotating the request key does not change it.
+This key has no rotate command. Replacing it breaks every pinned game until its owner
+repins, so do that only after a compromise. The steps are in
+[encrypted-requests-v2.md](encrypted-requests-v2.md#key-pinning).
+
+**Rotate** creates a new key and makes it current. The previous key stays valid for the
+**grace** period, in seconds: default 86400 (one day), maximum 2592000 (30 days). Until
+it ends, v2 calls made with the old key still succeed. After it ends they are refused
+with `SECURITY_CONFIG_STALE`, and the library fetches the new key. Grace 0 ends the old
+key at once. Rotation does not affect v1 calls. Rotating needs the owner's current
+password, plus the authenticator or a recovery code when two-factor is enabled. On the server
+host, `sbox-ns security rotate-key [--grace-seconds N]` does the same, and
+`sbox-ns security status` lists the current and retired keys.
+
+Each encrypted call, v1 or v2, carries a request ID. The server refuses an ID outside the
+**Encrypted request window** with `ENCRYPTED_REQUEST_STALE`, and refuses an ID already
+accepted for the same identity with `ENCRYPTED_REQUEST_REPLAY_DETECTED`. The window is
+30 to 600 seconds, default 120. The window value is also passed to the client library.
 
 ### Player key mode
 
@@ -282,6 +328,17 @@ The optional affected-traffic alert threshold uses the existing Discord/SMTP
 channels. Reports are batched once per minute and player counts are approximate,
 not security attestation. See [compatibility.md](compatibility.md) for the
 limits, statuses, release evidence and deprecation guarantees.
+
+### Script fetch (ns.fetch)
+
+This folded card lets the project's script endpoints call outside hosts. What scripts can send is in [endpoints-javascript.md](endpoints-javascript.md#outbound-http-nsfetch). Nothing is allowed until a host is listed.
+
+- **Allowed hosts (one per line)** sets the list. Each line is an exact host (`api.example.com`) or a subdomain pattern (`*.example.com`, which does not match `example.com`). Save with **Save fetch settings**.
+- **Allow every public host** ignores the list. Private, loopback and link-local addresses stay blocked unless the operator enables `endpoints.fetch_private_networks` ([configuration.md](configuration.md#scripted-endpoints)). Metadata and reserved addresses are always blocked.
+- **Recently blocked calls** lists refused calls for this project, one row per host and reason, newest first. Columns: Host, Reason, Endpoint and Last seen (UTC). Reasons are `host_not_allowed`, `metadata_address`, `reserved_address` and `private_address`. A row drops out once the project allows that host. The history is kept in memory and is bounded, so old rows drop off first.
+- **Allow this host** appears only on `host_not_allowed` rows. It adds the host as an exact entry. Address-rule rows have no such button, because the list does not override the address rules.
+
+Refused live calls are also reported on the Errors page as `EndpointFetch.blocked`, throttled per project, endpoint, host and reason.
 
 ## Data browser
 

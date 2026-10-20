@@ -1,6 +1,7 @@
 @model SboxNetworkStorage.Server.Owner.OwnerProjectModel
 @using System.Globalization
 @using SboxNetworkStorage.Server.Owner
+@using SboxNetworkStorage.Infrastructure.NetworkStorage
 @{
     Layout = "~/Views/Owner/_Layout.cshtml";
     var project = Model.Project;
@@ -10,6 +11,10 @@
     var hasDefinitions = (Model.Resources?.Collections.Count ?? 0) + (Model.Resources?.Endpoints.Count ?? 0) > 0;
     string When(DateTimeOffset at) => at.ToString("yyyy-MM-dd HH:mm:ss 'UTC'", CultureInfo.InvariantCulture);
     var agentPrompt = $"My sbox-ns project ID is {project.Id}. Use the sbox-ns MCP tools to read its definitions, recent requests and errors before you change anything, and dry-run endpoints with endpoint_test before I play.";
+    var encryptionKey = Model.EncryptionKey;
+    string Grouped(string value) => string.Join(" ", Enumerable.Range(0, value.Length / 4).Select(index => value.Substring(index * 4, 4)));
+    var fingerprintGroups = encryptionKey is null ? "" : Grouped(encryptionKey.Fingerprint);
+    var signingGroups = Model.SigningKeyFingerprint is null ? "" : Grouped(Model.SigningKeyFingerprint);
 }
 <link rel="stylesheet" href="/owner-assets/m/manage.css" />
 <div class="page-heading"><div class="project-title">@OwnerProjectIcon.For(project, 56)<div><h1>@project.Name</h1>@if (!string.IsNullOrEmpty(project.Description)) { <p>@project.Description</p> }<code>@project.Id</code></div></div><a class="button" href="@url/data">Browse data</a></div>
@@ -182,12 +187,43 @@
                 <label class="check"><input type="checkbox" name="enableAuthSessions" value="true" checked="@(project.EnableAuthSessions ?? false)" /> Enable auth sessions</label>
                 <p class="muted">Lets the game trade its s&amp;box token for a session token, so later calls skip the s&amp;box check until the session ends. <a href="@OwnerDocs.Url("admin-panel.md#auth-sessions")" rel="noreferrer">Auth sessions</a></p>
                 <label>Session TTL (seconds) <input type="number" name="authSessionTtlSeconds" value="@(project.AuthSessionTtlSeconds ?? 3600)" min="60" max="86400" /></label>
-                <label class="check"><input type="checkbox" name="enableEncryptedRequests" value="true" checked="@(project.EnableEncryptedRequests ?? false)" /> Enable encrypted requests</label>
-                <p class="muted">Tells the client library to encrypt endpoint calls; this server decrypts them and still accepts plain calls. <a href="@OwnerDocs.Url("admin-panel.md#encrypted-requests")" rel="noreferrer">Encrypted requests</a></p>
+                <label class="check"><input type="checkbox" name="requireAuthSessions" value="true" checked="@(project.RequireAuthSessions ?? false)" /> Require an auth session for every endpoint call</label>
+                <label>Encrypted requests <select name="encryptedRequestMode">
+                    <option value="off" selected="@(project.EncryptedRequestMode == "off")">Off</option>
+                    <option value="v1" selected="@(project.EncryptedRequestMode == "v1")">v1</option>
+                    <option value="v2-preferred" selected="@(project.EncryptedRequestMode == "v2-preferred")">v2 preferred</option>
+                    <option value="v2-required" selected="@(project.EncryptedRequestMode == "v2-required")">v2 required</option>
+                </select></label>
+                <p class="muted">Off: plain calls only. v1: v1 encrypted calls only. v2 preferred: v1 and v2 encrypted calls, and the signed config offers v2. v2 required: v2 encrypted calls only. Refused calls return SECURITY_ENCRYPTION_REQUIRED, SECURITY_ENCRYPTION_DISABLED or SECURITY_MODE_UNSUPPORTED. Encryption covers request and response bodies only; bearer and auth tokens still travel in headers and the security block, so keep HTTPS on. <a href="@OwnerDocs.Url("admin-panel.md#encrypted-requests")" rel="noreferrer">Encrypted requests</a></p>
                 <label>Encrypted request window (seconds) <input type="number" name="encryptedRequestWindowSeconds" value="@(project.EncryptedRequestWindowSeconds ?? 120)" min="30" max="600" /></label>
             </details>
             <button type="submit">Save security settings</button>
         </form>
+        <details class="settings-advanced">
+            <summary>Signing key (pin in games)</summary>
+            @if (Model.SigningKeyFingerprint is not null)
+            {
+                <p class="muted">Games pin this fingerprint to trust the server's signed security config. Rotating the request encryption key below does not change it. Replacing this signing key breaks every pinned game until its owner repins, so only do that after a compromise. <a href="@OwnerDocs.Url("admin-panel.md#encrypted-requests")" rel="noreferrer">Encrypted requests</a></p>
+                <p>Fingerprint <code class="selectable">@signingGroups</code></p>
+            }
+        </details>
+        <details class="settings-advanced">
+            <summary>Request encryption key</summary>
+            @if (encryptionKey is not null)
+            {
+                <p class="muted">One server key wraps the per-request keys of every project on this server. Rotating keeps the previous key usable for the grace period, so clients that still hold it keep working until then.</p>
+                <p>Key ID <code>@encryptionKey.KeyId</code></p>
+                <p>Fingerprint <code class="selectable">@fingerprintGroups</code></p>
+                <p>Created @When(encryptionKey.CreatedAt)</p>
+            }
+            <form method="post" action="@url/encryption/rotate">
+                @Html.AntiForgeryToken()
+                <label>Grace period for the previous key (seconds) <input type="number" name="graceSeconds" value="@RequestEncryptionKeyring.DefaultGraceSeconds" min="0" max="@RequestEncryptionKeyring.MaxGraceSeconds" required /></label>
+                <label>Current password <input type="password" name="password" autocomplete="current-password" required maxlength="1024" /></label>
+                <label>Authenticator or recovery code (if enabled) <input name="secondFactor" maxlength="32" autocomplete="one-time-code" /></label>
+                <button type="submit" class="secondary">Rotate request encryption key</button>
+            </form>
+        </details>
     </article>
 </section>
 <section class="grid">
@@ -219,6 +255,7 @@
         var mediaOn = mediaRoot.ValueKind == System.Text.Json.JsonValueKind.Object
             && mediaRoot.TryGetProperty("enabled", out var mediaEnabledValue)
             && mediaEnabledValue.ValueKind == System.Text.Json.JsonValueKind.True;
+        var analyticsSettings = SboxNetworkStorage.Application.NetworkStorage.PlayerAnalyticsOwnerSettings.From(System.Text.Json.JsonSerializer.SerializeToNode(project.Analytics));
     }
     <details class="card settings-advanced">
         <summary>Game logs</summary>
@@ -248,6 +285,19 @@
         </form>
     </details>
     <details class="card settings-advanced">
+        <summary>Player analytics settings</summary>
+        <p class="muted">Analytics recorded from this project's players and games. A custom event sent with <code>NetworkStorage.TrackAnalyticsEvent</code> (or <code>NetworkStorageAnalytics.TrackEvent</code>) is stored only when its name is in the list below. The game library drops other names and counts them in its <code>Dropped</code> warning.</p>
+        <form method="post" action="@url/settings">
+            @Html.AntiForgeryToken()<input type="hidden" name="tab" value="analytics" />
+            <label class="check"><input type="checkbox" name="analyticsEnabled" value="true" checked="@(analyticsSettings.Enabled)" /> Record player analytics for this project</label>
+            <label class="check"><input type="checkbox" name="captureSessions" value="true" checked="@(analyticsSettings.CaptureSessions)" /> Record player sessions</label>
+            <label class="check"><input type="checkbox" name="managedLibraryEvents" value="true" checked="@(analyticsSettings.ManagedLibraryEvents)" /> Accept events from the game library, including custom events</label>
+            <label>Custom event names the game may send (one per line or comma-separated; lowercase letters, digits, <code>_ . : -</code>; up to 48 characters each; write spaces as <code>_</code>).
+                <textarea name="analyticsAllowedEventTypes" rows="4">@string.Join("\n", analyticsSettings.AllowedEventTypes)</textarea></label>
+            <button type="submit">Save analytics settings</button>
+        </form>
+    </details>
+    <details class="card settings-advanced">
         <summary>Media uploads</summary>
         <p class="muted">Lets games upload PNG, JPEG or WebP images through single-use upload grants. Off by default. Each purpose sets its own size, quota and retention. Saving this form rewrites only the purpose named below; other purposes are kept.</p>
         <form method="post" action="@url/settings">
@@ -263,6 +313,53 @@
             <label>Retention days <input type="number" name="mediaRetentionDays" min="1" max="3650" value="30" /></label>
             <button type="submit">Save media settings</button>
         </form>
+    </details>
+    @{
+        var fetchBlocked = (IReadOnlyList<OwnerFetchBlockedHost>?)ViewData["FetchBlocked"] ?? [];
+    }
+    <details class="card settings-advanced">
+        <summary>Script fetch (ns.fetch)</summary>
+        <p class="muted">Lets script endpoints call outside hosts with <code>ns.fetch</code>. Nothing is allowed until you list a host here. Enter exact hosts (<code>api.example.com</code>) or subdomain patterns (<code>*.example.com</code>, which does not match <code>example.com</code> itself), one per line. Metadata and reserved addresses always stay blocked. Private addresses stay blocked unless the operator enables <code>endpoints.fetch_private_networks</code>. <a href="@OwnerDocs.Url("endpoints-javascript.md")" rel="noreferrer">ns.fetch</a></p>
+        <form method="post" action="@url/settings">
+            @Html.AntiForgeryToken()<input type="hidden" name="tab" value="fetch" />
+            <label>Allowed hosts (one per line)
+                <textarea name="fetchAllowedHosts" rows="4">@string.Join("\n", project.FetchAllowedHosts ?? new List<string>())</textarea></label>
+            <label class="check"><input type="checkbox" name="fetchAllowAllPublic" value="true" checked="@(project.FetchAllowAllPublic == true)" /> Allow every public host (the list is then ignored; private, loopback, link-local, reserved and metadata addresses stay blocked)</label>
+            <button type="submit">Save fetch settings</button>
+        </form>
+        @if (fetchBlocked.Count > 0)
+        {
+            <h4>Recently blocked calls</h4>
+            <p class="muted">Calls the policy refused in the recent window (the server keeps a bounded in-memory history). Allow a host only if your game should reach it.</p>
+            <table>
+                <thead><tr><th>Host</th><th>Reason</th><th>Endpoint</th><th>Last seen (UTC)</th><th></th></tr></thead>
+                <tbody>
+                @foreach (var blocked in fetchBlocked)
+                {
+                    <tr>
+                        <td><code>@blocked.Host</code></td>
+                        <td>@blocked.Reason</td>
+                        <td><code>@blocked.Endpoint</code></td>
+                        <td>@blocked.LastSeen.UtcDateTime.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture)</td>
+                        <td>
+                            @if (blocked.Reason == "host_not_allowed")
+                            {
+                                <form method="post" action="@url/settings">
+                                    @Html.AntiForgeryToken()<input type="hidden" name="tab" value="fetch-allow-host" />
+                                    <input type="hidden" name="host" value="@blocked.Host" />
+                                    <button type="submit">Allow this host</button>
+                                </form>
+                            }
+                        </td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        }
+        else
+        {
+            <p class="muted">No blocked calls in the recent window.</p>
+        }
     </details>
     <details class="card settings-advanced">
         <summary>Revision policy (game versions)</summary>
