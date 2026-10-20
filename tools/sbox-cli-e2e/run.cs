@@ -216,6 +216,13 @@ static class E2E
 
 	static async Task<Server> StartServerAsync(Options o, string work, Evidence ev, List<Process> started)
 	{
+		var listenerProbe = new System.Net.Sockets.TcpListener(IPAddress.Loopback, o.Port);
+		try { listenerProbe.Start(); }
+		catch (System.Net.Sockets.SocketException ex)
+		{
+			throw new InvalidOperationException($"Managed test port {o.Port} is unavailable. Stop only your own test server, choose --port, or use --server-url for an existing backend.", ex);
+		}
+		finally { listenerProbe.Stop(); }
 		var serverProject = Path.Combine(o.Root, "src", "SboxNetworkStorage.Server");
 		string[] command;
 		if (o.ServerBinary is not null)
@@ -241,6 +248,8 @@ static class E2E
 		started.Add(serverProcess);
 		var url = $"http://127.0.0.1:{o.Port}";
 		await WaitForHealthAsync(url, log);
+		if (serverProcess.HasExited)
+			throw new InvalidOperationException($"Managed test backend exited with {serverProcess.ExitCode}; see {log}. A different listener is not this run's backend.");
 		// A prebuilt binary's source commit is not this checkout's; /v3/server-info still reports its version.
 		var commit = o.ServerBinary is null
 			? (await Proc.RunAsync("git", ["rev-parse", "HEAD"], o.Root, TimeSpan.FromSeconds(10))).Stdout.Trim()
@@ -991,8 +1000,11 @@ static class Proc
 	{
 		var info = new ProcessStartInfo(file) { WorkingDirectory = cwd, RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
 		foreach (var a in args) info.ArgumentList.Add(a);
-		var p = Process.Start(info)!;
+		// Open the log before launching: a log error must not leave an untracked listening child.
 		var writer = new StreamWriter(new FileStream(log, FileMode.Append, FileAccess.Write, FileShare.ReadWrite)) { AutoFlush = true };
+		Process p;
+		try { p = Process.Start(info)!; }
+		catch { writer.Dispose(); throw; }
 		var openStreams = 2;
 		DataReceivedEventHandler forward = (_, e) =>
 		{
