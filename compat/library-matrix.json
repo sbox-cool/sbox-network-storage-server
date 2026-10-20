@@ -23,6 +23,13 @@
       "minServer": "0.5.0",
       "status": "supported",
       "notes": "First library that reports its own version. Package revision is recorded after publish."
+    },
+    {
+      "version": "1.2.0",
+      "revision": 427072,
+      "minServer": "0.5.0",
+      "status": "supported",
+      "notes": "Published as sbox.game r427072 from sbox-cool/sbox-network-storage main ddf9b61 (every shipped file matches except *.sbproj, which the publisher rewrites). Adds batched analytics, encrypted requests v2 with signing-key pinning and uniform /api storage routes; the library sends single-event analytics when the server does not report the analytics-batch capability and keeps /v3 as its default root, so it keeps working on servers without these features."
     }
   ],
   "deprecated": [],

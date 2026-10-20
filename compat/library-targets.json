@@ -10,6 +10,13 @@
       "label": "library main (next release)"
     },
     {
+      "ref": "git:ddf9b617c0c4fdf26c9c0e91c5cd34fa915b1750",
+      "label": "published r427072",
+      "version": "1.2.0",
+      "revision": 427072,
+      "notes": "Batched analytics, encrypted requests v2 and uniform /api storage routes; matches library main ddf9b61 (sbox-cool/sbox-network-storage#62)."
+    },
+    {
       "ref": "git:780d09cd12b7ac624f02246165564267ad77627f",
       "label": "published r423774",
       "version": "1.1.0",
