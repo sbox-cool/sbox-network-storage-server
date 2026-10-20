@@ -102,7 +102,10 @@ public sealed record WorkspaceProject(
     // Media store policy (per project, off by default). Shape: { enabled, purposes: { <name>: {...} } }; parsed by MediaPolicyParser.
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] Dictionary<string, object>? Media = null,
     /// <summary>Opt-in (off when absent): endpoint webhook steps enqueue to the durable outbox instead of sending inline.</summary>
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? WebhookOutbox = null
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? WebhookOutbox = null,
+    // Opt-in (off when absent): every endpoint call must carry an auth session (SECURITY_SESSION_REQUIRED).
+    // Not part of the signed security config, matching the reference (services/network-storage-security-config.js).
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? RequireAuthSessions = null
 );
 public static class WorkspaceProjectProfiles
 {

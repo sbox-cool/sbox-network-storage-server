@@ -239,6 +239,18 @@ managed service. Sync your `Editor/Network Storage/` sources after pointing
 the editor at your server (see [client-setup.md](client-setup.md)), then
 publish a new build so players run against the synced revision.
 
+## Encrypted requests
+
+When **Enable encrypted requests** is on, the library sends endpoint calls as an
+encrypted envelope (see [admin-panel.md](admin-panel.md#encrypted-requests)).
+The mode the library must use comes from the signed security config. The
+server refuses a call made in the wrong mode with a security code. Those codes
+(`SECURITY_*`, `AUTH_SESSION_*`, `ENCRYPTED_REQUEST_*`, `REQUEST_SIGNATURE_*`)
+arrive on endpoint routes as HTTP 200. The code is in `error.code`, and the
+status the server intended is the number in the body `status`. Other endpoint
+errors keep their HTTP status. The library refreshes its security config and
+retries once on a `SECURITY_*` code.
+
 ## Query results
 
 `GET /api/queries/{projectId}/{queryId}` (also `/v1/queries/...`,

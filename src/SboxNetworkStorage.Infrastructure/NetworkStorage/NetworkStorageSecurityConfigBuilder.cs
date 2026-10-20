@@ -74,14 +74,7 @@ internal static class NetworkStorageSecurityConfigBuilder
 
     public static JsonElement Build(string projectId, JsonElement project, DateTimeOffset generatedAt)
     {
-        var settings = new JsonObject
-        {
-            ["enableAuthSessions"] = ReadBoolean(project, "enableAuthSessions"),
-            ["authSessionTtlSeconds"] = ReadClampedInteger(project, "authSessionTtlSeconds", DefaultAuthSessionTtlSeconds, 60, 86_400),
-            ["enableEncryptedRequests"] = ReadBoolean(project, "enableEncryptedRequests"),
-            ["encryptedRequestWindowSeconds"] = ReadClampedInteger(project, "encryptedRequestWindowSeconds", DefaultEncryptedRequestWindowSeconds, 30, 600),
-            ["analytics"] = ReadAnalyticsSettings(project),
-        };
+        var settings = SettingsOf(project);
 
         var publicKeyPem = SigningKey.ExportSubjectPublicKeyInfoPem();
         var parameters = SigningKey.ExportParameters(includePrivateParameters: false);
@@ -181,6 +174,19 @@ internal static class NetworkStorageSecurityConfigBuilder
         }
     }
 
+    /// <summary>The settings the config version hashes and the signed config publishes.</summary>
+    internal static JsonObject SettingsOf(JsonElement project) => new()
+    {
+        ["enableAuthSessions"] = ReadBoolean(project, "enableAuthSessions"),
+        ["authSessionTtlSeconds"] = ReadClampedInteger(project, "authSessionTtlSeconds", DefaultAuthSessionTtlSeconds, 60, 86_400),
+        ["enableEncryptedRequests"] = ReadBoolean(project, "enableEncryptedRequests"),
+        ["encryptedRequestWindowSeconds"] = ReadClampedInteger(project, "encryptedRequestWindowSeconds", DefaultEncryptedRequestWindowSeconds, 30, 600),
+        ["analytics"] = ReadAnalyticsSettings(project),
+    };
+
+    /// <summary>Config version the server reports and enforces: the hash the signed config publishes.</summary>
+    internal static string ConfigVersionOf(JsonElement project) => HashPrefix(StableSerialize(SettingsOf(project)));
+
     private static bool ReadBoolean(JsonElement project, string name) =>
         project.ValueKind == JsonValueKind.Object
         && project.TryGetProperty(name, out var value)
@@ -231,4 +237,11 @@ internal static class NetworkStorageSecurityConfigBuilder
 
     private static string Base64UrlEncode(ReadOnlySpan<byte> value) =>
         Convert.ToBase64String(value).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+}
+
+/// <summary>Public entry point for server-side security checks: the config version the signed config publishes.</summary>
+public static class NetworkStorageSecurityConfigVersion
+{
+    /// <summary>Config version for a raw project JSON object (equal to the signed config's <c>configVersion</c>).</summary>
+    public static string Of(JsonElement project) => NetworkStorageSecurityConfigBuilder.ConfigVersionOf(project);
 }

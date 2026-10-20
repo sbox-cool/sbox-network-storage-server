@@ -197,6 +197,18 @@ public static class EndpointExecutionEndpoints
         var claimedSteamId = PlayerIdentity.ClaimedSteamId(context.Request, body);
         var hasSecretKey = string.Equals(auth.KeyType, "secret", StringComparison.OrdinalIgnoreCase);
 
+        // Security-mode gate (reference execution-routes.js order). It runs before identity, so a call that the
+        // project's security mode refuses costs no Steam or session lookup.
+        var encryptedEnvelope = HttpMethods.IsPost(context.Request.Method) && EncryptedEndpointEnvelope.TryRead(body, out _);
+        var securityDenial = EndpointSecurityGate.Check(access.Project, EndpointSecurityGate.ConfigVersionOf(access.Project),
+            body, hasSecretKey, PlayerIdentity.ReadSessionToken(context.Request, body) is not null, encryptedEnvelope);
+        if (securityDenial is { } gateDenial)
+        {
+            await WriteEndpointErrorAsync(context, gateDenial.Status, gateDenial.Code, gateDenial.Message,
+                gateDenial.Security);
+            return;
+        }
+
         // Phase 4: opt-in server enforcement, after auth. Secret-key callers
         // (dedicated servers) are exempt; requests without a known revision
         // fall back to live. Fail-open: lookup failures allow the request.
@@ -297,17 +309,18 @@ public static class EndpointExecutionEndpoints
         }
         // Projects with enableEncryptedRequests advertise it in the signed security
         // config; the library then sends only {security, encrypted, envelope}.
+        EncryptedEndpointEnvelope.Result? decryptedEnvelope = null;
         if (HttpMethods.IsPost(context.Request.Method) && EncryptedEndpointEnvelope.TryRead(body, out var envelope))
         {
             // The library derives the envelope key from its public ApiKey (x-public-key / ?apiKey).
             var decrypted = EncryptedEndpointEnvelope.Decrypt(envelope, FirstNonEmpty(publicKey, apiKeyQuery) ?? "",
-                projectId, endpointSlug, hasSecretKey ? null : steamId, ResolveAuthSessionId(context, body, projectId),
-                DateTimeOffset.UtcNow);
+                projectId, endpointSlug, hasSecretKey ? null : steamId, ResolveAuthSessionId(context, body, projectId));
             if (!decrypted.Ok)
             {
                 await WriteEndpointErrorAsync(context, decrypted.Status, decrypted.Code!, decrypted.Message!);
                 return;
             }
+            decryptedEnvelope = decrypted;
             body = decrypted.Payload;
         }
 
@@ -369,6 +382,21 @@ public static class EndpointExecutionEndpoints
             await WriteEndpointErrorAsync(context, StatusCodes.Status500InternalServerError,
                 "ENDPOINT_EXECUTION_FAILED", "The endpoint failed to execute.");
             return;
+        }
+
+        // Replay ids are consumed only once the endpoint is known to exist (reference order), so probes for
+        // unknown slugs do not burn them. The window is the project's own setting, clamped to 30-600 seconds.
+        if (decryptedEnvelope is { } accepted)
+        {
+            var endpointExists = liveEndpointDef is not null || (dataSource is not null
+                && await dataSource.ReadEndpointDefinitionAsync(projectId, endpointSlug, context.RequestAborted) is not null);
+            var replayWindow = Math.Clamp(access.Project.EncryptedRequestWindowSeconds ?? 120, 30, 600);
+            if (endpointExists && EncryptedEndpointEnvelope.ConsumeReplay(projectId, accepted, replayWindow,
+                    DateTimeOffset.UtcNow) is { } replay)
+            {
+                await WriteEndpointErrorAsync(context, replay.Status, replay.Code!, replay.Message!);
+                return;
+            }
         }
 
         var execStart = System.Diagnostics.Stopwatch.GetTimestamp();
@@ -556,14 +584,55 @@ public static class EndpointExecutionEndpoints
         catch { /* reporting is best-effort */ }
     }
 
-    private static Task WriteEndpointErrorAsync(HttpContext context, int status, string code, string message)
+    private static Task WriteEndpointErrorAsync(HttpContext context, int status, string code, string message,
+        object? security = null)
     {
+        if (IsSecurityErrorCode(code))
+            return WriteSecurityErrorAsync(context, status, code, message, security);
         context.Response.StatusCode = status;
         object body = new { ok = false, error = new { code, message } };
         if (context.Items["RevisionStatus"] is Dictionary<string, object?> revisionStatus)
             body = RevisionStatusInjector.WithStatus(body, revisionStatus);
         return context.Response.WriteAsJsonAsync(body, JsonOptions);
     }
+
+    /// <summary>
+    /// Security-class errors (session, encryption, signature, replay) are HTTP 200 with the error in the body,
+    /// matching the reference epError. The library reads the body status and security context to refresh its
+    /// config and retry; a non-2xx would surface as a transport failure first. Other codes keep their status.
+    /// </summary>
+    private static Task WriteSecurityErrorAsync(HttpContext context, int status, string code, string message,
+        object? security)
+    {
+        var requestId = context.TraceIdentifier;
+        context.Response.StatusCode = StatusCodes.Status200OK;
+        context.Response.Headers["X-Request-Id"] = requestId;
+        var error = new Dictionary<string, object?> { ["code"] = code, ["message"] = message, ["requestId"] = requestId };
+        var body = new Dictionary<string, object?>
+        {
+            ["ok"] = false,
+            ["status"] = status,
+            ["error"] = error,
+            ["message"] = message,
+            ["_requestId"] = requestId,
+        };
+        if (security is not null)
+        {
+            error["security"] = security;
+            body["security"] = security;
+            body["retrySafe"] = true;
+        }
+        object payload = body;
+        if (context.Items["RevisionStatus"] is Dictionary<string, object?> revisionStatus)
+            payload = RevisionStatusInjector.WithStatus(payload, revisionStatus);
+        return context.Response.WriteAsJsonAsync(payload, JsonOptions);
+    }
+
+    private static bool IsSecurityErrorCode(string code)
+        => code.StartsWith("SECURITY_", StringComparison.Ordinal)
+            || code.StartsWith("AUTH_SESSION_", StringComparison.Ordinal)
+            || code.StartsWith("ENCRYPTED_REQUEST_", StringComparison.Ordinal)
+            || code.StartsWith("REQUEST_SIGNATURE_", StringComparison.Ordinal);
 
     /// <summary>
     /// Fire-and-forget <c>endpoint.executed</c> hook emission for module
@@ -599,19 +668,10 @@ public static class EndpointExecutionEndpoints
         return null;
     }
 
-    private static string? ReadBodyString(JsonElement body, string name) => PlayerIdentity.ReadBodyString(body, name);
-
     /// <summary>Id of the valid auth session presented with this request (same sources as identity resolution).</summary>
     private static string? ResolveAuthSessionId(HttpContext context, JsonElement body, string projectId)
     {
-        var authorization = context.Request.Headers.Authorization.FirstOrDefault() ?? "";
-        var token = FirstNonEmpty(
-            context.Request.Headers["x-auth-session"].FirstOrDefault(),
-            context.Request.Headers["x-auth-session-token"].FirstOrDefault(),
-            authorization.StartsWith("bearer ", StringComparison.OrdinalIgnoreCase) ? authorization[7..].Trim() : null,
-            context.Request.Query["authSessionToken"].FirstOrDefault(),
-            context.Request.Query["sessionToken"].FirstOrDefault(),
-            ReadBodyString(body, "authSessionToken"), ReadBodyString(body, "sessionToken"));
+        var token = PlayerIdentity.ReadSessionToken(context.Request, body);
         if (token is null) return null;
         var valid = context.RequestServices.GetRequiredService<INetworkStorageAuthSessionService>().Validate(projectId, token);
         return valid.Ok ? valid.Session?.Id : null;

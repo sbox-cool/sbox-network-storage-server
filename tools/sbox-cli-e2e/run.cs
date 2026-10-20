@@ -4,6 +4,7 @@
 // sbox-ns. Writes evidence.json, summary.md and a draft compat/library-matrix.json `tested` row.
 // Usage: dotnet run tools/sbox-cli-e2e/run.cs -- --help
 using System.Diagnostics;
+using System.Net;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
@@ -349,7 +350,7 @@ static class E2E
 		ev.Step("editor.play_start", play);
 		await WaitAsync(120, async () => J.Bool((await cli.CallAsync("instance_status")).Json, "isPlaying"));
 		await Task.Delay(3000);
-		await RuntimeProbeAsync(ev, cli, null, server, fixture, "editor", toolset);
+		await RuntimeProbeAsync(ev, cli, null, server, fixture, "editor", toolset, o.Library == "main");
 		File.WriteAllText(Path.Combine(ev.Dir, "editor-console.txt"), (await cli.CallAsync("read_console", new JsonObject { ["filter"] = "NetworkStorage", ["limit"] = 200 })).Text);
 		ev.Step("editor.play_stop", await cli.CallAsync("play_stop"));
 		if (!o.Attach) await cli.CallAsync("instance_console_command", new JsonObject { ["command"] = "quit" });
@@ -372,7 +373,7 @@ static class E2E
 		ev.Identity["os"] ??= RuntimeInformation.OSDescription;
 		var toolset = HasTool(await cli.CallAsync("search_tools", new JsonObject { ["query"] = "ns_call_endpoint" }, connect: pid), "ns_call_endpoint");
 		ev.Identity["dedicatedDriver"] = toolset ? "network_storage toolset" : "run_csharp";
-		await RuntimeProbeAsync(ev, cli, pid, server, fixture, "dedicated", toolset);
+		await RuntimeProbeAsync(ev, cli, pid, server, fixture, "dedicated", toolset, o.Library == "main");
 		File.WriteAllText(Path.Combine(ev.Dir, "dedicated-console.txt"), (await cli.CallAsync("read_console", new JsonObject { ["filter"] = "NetworkStorage", ["limit"] = 200 }, connect: pid)).Text);
 	}
 
@@ -394,7 +395,7 @@ static class E2E
 	}
 
 	/// <summary>Real library calls in play mode (editor) or on the dedicated server, checked against the fixture definitions.</summary>
-	static async Task RuntimeProbeAsync(Evidence ev, SboxCli cli, string? pid, Server server, string fixture, string target, bool toolset)
+	static async Task RuntimeProbeAsync(Evidence ev, SboxCli cli, string? pid, Server server, string fixture, string target, bool toolset, bool libraryMain)
 	{
 		var dedicated = target == "dedicated";
 		var apiRoot = await ConfigureApiRootAsync(ev, server, fixture, target);
@@ -448,6 +449,50 @@ static class E2E
 		// Observations only (known findings, sbox-cool/sbox-network-storage#23): old-shape conditions and endpoint-only reads.
 		var legacy = await Call("legacy-cond");
 		ev.Observe($"{target}.legacy-cond", Ok(legacy) ? "ok" : Code(legacy));
+		// #151: the owner switches encrypted requests on and off while the game runs, and the library follows each switch.
+		// On: a plain call is refused with SECURITY_ENCRYPTION_REQUIRED and the library retries encrypted.
+		// Off: an encrypted call is refused with SECURITY_ENCRYPTION_DISABLED and the library retries plain.
+		// Every phase must still end in a 200 (required for the main library). Attached servers are only observed.
+		if (dedicated && server.Cli is null)
+			ev.Observe($"{target}.encryption-switch", "skipped: sbox-ns was not started by this run");
+		else if (dedicated)
+		{
+			OwnerConsole owner;
+			try { owner = await OwnerConsole.SignInAsync(server); }
+			catch (Exception ex) when (ex is InvalidOperationException or HttpRequestException)
+			{
+				ev.Check($"{target}.encryption-switch", "C", false, $"owner sign-in through admin login-link failed: {ex.Message}", required: libraryMain);
+				return;
+			}
+			async Task<bool> Save(bool enable)
+			{
+				var status = await owner.SetEncryptedRequestsAsync(enable);
+				ev.Check($"{target}.encryption-{(enable ? "on" : "off")}-saved", "C", status == 302,
+					$"owner saves the security tab with encrypted requests {(enable ? "on" : "off")} (HTTP {status})", required: libraryMain);
+				return status == 302;
+			}
+			if (await Save(true))
+			{
+				// The library cannot encrypt a GET (a null input sends a plain GET), so the encrypted retry is exercised on a POST.
+				var first = await Call("echo", new JsonObject { ["hello"] = "world" });
+				ev.Check($"{target}.encryption-on", "C", Ok(first),
+					$"encryption on: POST echo succeeds after the library's encrypted retry (got '{(Ok(first) ? "ok" : Code(first))}')", required: libraryMain);
+			}
+			if (await Save(false))
+			{
+				var second = await Call("ping");
+				ev.Check($"{target}.encryption-off", "C", Ok(second) && Body(second).Contains("pong"),
+					$"encryption off: ping succeeds after the library's plain retry (got '{(Ok(second) ? "ok" : Code(second))}')", required: libraryMain);
+			}
+			if (await Save(true))
+			{
+				var third = await Call("echo", new JsonObject { ["hello"] = "world" });
+				ev.Check($"{target}.encryption-on-again", "C", Ok(third),
+					$"encryption back on: POST echo succeeds after the library's encrypted retry (got '{(Ok(third) ? "ok" : Code(third))}')", required: libraryMain);
+			}
+			var refused = await server.Cli!.RunAsync(["dev", "logs_requests"], stdin: new JsonObject { ["projectId"] = server.ProjectId, ["limit"] = 200 }.ToJsonString());
+			ev.Observe($"{target}.encryption-409-rows", Regex.Matches(refused.Stdout, "\"status\":\\s*409").Count.ToString());
+		}
 	}
 
 	record IdleStatus(JsonNode? Instance, JsonNode? Editor);
@@ -661,6 +706,72 @@ sealed class NsCli(string[] command, string config, string data)
 	public string[] DirArgs => ["--config-dir", config, "--data-dir", data];
 	public Task<Proc.Result> RunAsync(string[] args, string? stdin = null) =>
 		Proc.RunAsync(command[0], [.. command[1..], .. args, .. DirArgs], Environment.CurrentDirectory, TimeSpan.FromMinutes(2), stdin);
+}
+
+/// <summary>Signs in as the server's owner with `sbox-ns admin login-link` and saves the dashboard's security tab, as a browser would.</summary>
+sealed class OwnerConsole
+{
+	readonly HttpClient http;
+	readonly string projectPath;
+
+	OwnerConsole(HttpClient http, string projectId)
+	{
+		this.http = http;
+		projectPath = "/dashboard/projects/" + Uri.EscapeDataString(projectId);
+	}
+
+	public static async Task<OwnerConsole> SignInAsync(Server server)
+	{
+		var link = await server.Cli!.RunAsync(["admin", "login-link", "--minutes", "5"]);
+		var url = link.Stdout.Split('\n').Select(l => l.Trim()).FirstOrDefault(l => l.Contains("/login/link?token="))
+			?? throw new InvalidOperationException("sbox-ns admin login-link printed no link: " + link.Stderr);
+		var token = Uri.UnescapeDataString(url[(url.IndexOf("token=", StringComparison.Ordinal) + "token=".Length)..]);
+		var http = new HttpClient(new HttpClientHandler { CookieContainer = new CookieContainer(), AllowAutoRedirect = false })
+		{
+			BaseAddress = new Uri(server.Url),
+			Timeout = TimeSpan.FromSeconds(30),
+		};
+		var page = await http.GetAsync("/login/link?token=" + Uri.EscapeDataString(token));
+		var csrf = Antiforgery(await page.Content.ReadAsStringAsync())
+			?? throw new InvalidOperationException($"login link page has no antiforgery token (HTTP {(int)page.StatusCode})");
+		// Confirming consumes the single-use link. An existing owner signs in; with none, the same form creates one.
+		var password = $"e2e-{Guid.NewGuid():N}-Aa1!";
+		var confirm = await http.PostAsync("/login/link", new FormUrlEncodedContent(new Dictionary<string, string>
+		{
+			["token"] = token,
+			["__RequestVerificationToken"] = csrf,
+			["username"] = "e2e-owner",
+			["password"] = password,
+			["confirmPassword"] = password,
+			["cf-turnstile-response"] = "",
+		}));
+		if (confirm.StatusCode != HttpStatusCode.Redirect)
+			throw new InvalidOperationException($"login link confirmation returned HTTP {(int)confirm.StatusCode}");
+		return new OwnerConsole(http, server.ProjectId);
+	}
+
+	/// <summary>Saves the security tab with encrypted requests on or off; the other security settings keep their current values.</summary>
+	public async Task<int> SetEncryptedRequestsAsync(bool enable)
+	{
+		var html = await (await http.GetAsync(projectPath)).Content.ReadAsStringAsync();
+		var form = new Dictionary<string, string>
+		{
+			["tab"] = "security",
+			["__RequestVerificationToken"] = Antiforgery(html) ?? throw new InvalidOperationException("owner project page has no antiforgery token"),
+			["authSessionTtlSeconds"] = Input(html, "authSessionTtlSeconds") ?? "3600",
+			["encryptedRequestWindowSeconds"] = Input(html, "encryptedRequestWindowSeconds") ?? "120",
+		};
+		foreach (var name in new[] { "requireSboxAuth", "enableAuthSessions", "requireAuthSessions" })
+			if (Checked(html, name)) form[name] = "on";
+		if (enable) form["enableEncryptedRequests"] = "on";
+		var saved = await http.PostAsync(projectPath + "/settings", new FormUrlEncodedContent(form));
+		return (int)saved.StatusCode;
+	}
+
+	static string? Antiforgery(string html) => Input(html, "__RequestVerificationToken");
+	static bool Checked(string html, string name) => Tag(html, name) is { } tag && Regex.IsMatch(tag, @"\schecked\b") && !tag.Contains("checked=\"False\"");
+	static string? Input(string html, string name) => Tag(html, name) is { } tag && Regex.Match(tag, "\\svalue=\"([^\"]*)\"") is { Success: true } v ? v.Groups[1].Value : null;
+	static string? Tag(string html, string name) => Regex.Match(html, $"<input\\b[^>]*\\sname=\"{Regex.Escape(name)}\"[^>]*>") is { Success: true } m ? m.Value : null;
 }
 
 static class Http
