@@ -661,6 +661,18 @@ static class E2E
                 ev.Check($"{target}.v2-rotation", "C", Ok(afterRotation) && J.Str(Evidence.TryParse(Body(afterRotation)), "probe") == "after-key-rotation",
                     "a cached expired request key triggers signed-config refresh and a successful v2 retry", required: true);
                 ev.Observe($"{target}.v2-previous-key-id", oldKeyId ?? "missing");
+                var v1Status = await owner.SetEncryptedModeAsync("v1");
+                ev.Check($"{target}.v2-to-v1-saved", "C", v1Status == 302, $"owner switches the cached v2 caller to v1 (HTTP {v1Status})", required: true);
+                if (v1Status != 302) throw new InvalidOperationException("Could not switch v2-required to v1.");
+                var v1Retry = await Call("echo", new JsonObject { ["hello"] = "v2-to-v1" });
+                ev.Check($"{target}.v2-to-v1", "C", Ok(v1Retry) && J.Str(Evidence.TryParse(Body(v1Retry)), "probe") == "v2-to-v1",
+                    "without Configure, the cached v2 caller adapts to SECURITY_* and retries with v1", required: true);
+                var v2Status = await owner.SetEncryptedModeAsync("v2-required");
+                ev.Check($"{target}.v1-to-v2-saved", "C", v2Status == 302, $"owner switches the cached v1 caller to v2-required (HTTP {v2Status})", required: true);
+                if (v2Status != 302) throw new InvalidOperationException("Could not switch v1 back to v2-required.");
+                var v2Retry = await Call("echo", new JsonObject { ["hello"] = "v1-to-v2" });
+                ev.Check($"{target}.v1-to-v2", "C", Ok(v2Retry) && J.Str(Evidence.TryParse(Body(v2Retry)), "probe") == "v1-to-v2",
+                    "without Configure, the cached v1 caller adapts to SECURITY_* and retries with v2", required: true);
             }
             else
                 ev.Observe($"{target}.v2", v2Library ? "not exercised: reference server does not offer v2" : "not exercised: library predates v2");

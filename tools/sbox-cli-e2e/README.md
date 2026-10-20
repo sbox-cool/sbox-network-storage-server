@@ -71,9 +71,10 @@ writes are `ci-only`.
    This headless contract check complements, rather than replaces, the native Sync Tool pull/conflict UI check.
    When both the library and server offer v2, required checks select `v2-required` and
    exercise an encrypted echo/response, a no-input call, refusal after changing a previously
-   valid signing-key pin, recovery with the correct pin, and request-key rotation with zero
-   grace followed by the library's signed-config refresh/retry. Older library/server pairs
-   explicitly report that v2 was not exercised, while retaining the legacy switching checks.
+   valid signing-key pin, recovery with the correct pin, request-key rotation with zero
+   grace followed by the library's signed-config refresh/retry, and v2→v1→v2 switching
+   without reconfiguring the cached caller. Older library/server pairs explicitly report
+   that v2 was not exercised, while retaining the legacy switching checks.
    Then the **rate-limit probe**: the runner sets `server.limits.game_burst` and
    `server.limits.game_per_second` to 1 with `sbox-ns config set`, restarts this server, and makes
    two game-values GETs, five concurrent GETs and one POST `ping` from the game. The second GET must
