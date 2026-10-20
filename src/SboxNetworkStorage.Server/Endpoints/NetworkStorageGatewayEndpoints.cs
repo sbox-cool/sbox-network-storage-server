@@ -84,9 +84,11 @@ public static class NetworkStorageGatewayEndpoints
         // endpoints list from workspace and returns the matching slug, avoiding
         // the legacy server proxy timeout for the most common endpoint read pattern.
         endpoints.MapGet("/v3/endpoints/{projectId}/{endpointSlug}", ServeEndpointSlugReadAsync)
-            .WithDisplayName("Network Storage endpoint read by slug");
+            .WithDisplayName("Network Storage endpoint read by slug")
+            .AsLibraryEnvelopeRoute();
         endpoints.MapGet("/v1/endpoints/{projectId}/{endpointSlug}", ServeEndpointSlugReadAsync)
-            .WithDisplayName("Network Storage endpoint read by slug (v1 alias)");
+            .WithDisplayName("Network Storage endpoint read by slug (v1 alias)")
+            .AsLibraryEnvelopeRoute();
 
         // Native management GET family. The existing ManagementReadHandler
         // already mirrors the legacy server GET surfaces under /v3/manage/:projectId/*, so
@@ -553,6 +555,11 @@ public static class NetworkStorageGatewayEndpoints
         }
         catch (OperationCanceledException) when (!context.RequestAborted.IsCancellationRequested)
         {
+            if (LibraryErrorEnvelope.UsesEnvelope(context))
+            {
+                await LibraryErrorEnvelope.WriteAsync(context, StatusCodes.Status504GatewayTimeout, "ENDPOINT_READ_TIMEOUT", "Endpoint metadata read timed out.");
+                return;
+            }
             context.Response.StatusCode = StatusCodes.Status504GatewayTimeout;
             context.Response.ContentType = "application/json; charset=utf-8";
             await context.Response.WriteAsJsonAsync(new
@@ -564,6 +571,11 @@ public static class NetworkStorageGatewayEndpoints
         }
 
         MeterAuthenticated(context, result);
+        if (result.StatusCode >= StatusCodes.Status400BadRequest && LibraryErrorEnvelope.UsesEnvelope(context))
+        {
+            await LibraryErrorEnvelope.WriteNativeAsync(context, result.StatusCode, result.Body);
+            return;
+        }
         context.Response.StatusCode = result.StatusCode;
         context.Response.ContentType = "application/json; charset=utf-8";
         await context.Response.WriteAsJsonAsync(result.Body, context.RequestAborted);

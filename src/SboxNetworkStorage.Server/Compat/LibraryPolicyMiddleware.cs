@@ -71,13 +71,18 @@ public sealed class LibraryPolicyMiddleware(RequestDelegate next, LibraryCompatP
             return;
         }
         NetworkStorageUsageContext.SetAuthenticated(context, projectId);
-        context.Response.StatusCode = StatusCodes.Status426UpgradeRequired;
         var code = block is null ? "LIBRARY_UNSUPPORTED" : "LIBRARY_BLOCKED";
         context.Items[typeof(LibraryPolicyMiddleware)] = block is null ? "unsupported" : "blocked";
         var message = block is null
             ? $"This project's owner requires library {minimum ?? compat.Embedded.Minimum} or newer. Update the library and republish the game."
             : string.Join(" ", new[] { block.Reason, block.Advisory is null ? null : $"Advisory: {block.Advisory}.",
                 "Update the library and republish the game." }.Where(part => !string.IsNullOrWhiteSpace(part)));
+        if (LibraryErrorEnvelope.UsesEnvelope(context))
+        {
+            await LibraryErrorEnvelope.WriteAsync(context, StatusCodes.Status426UpgradeRequired, code, message);
+            return;
+        }
+        context.Response.StatusCode = StatusCodes.Status426UpgradeRequired;
         await context.Response.WriteAsJsonAsync(new { ok = false, error = new { code, message } }, context.RequestAborted);
     }
 }

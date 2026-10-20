@@ -194,6 +194,36 @@ Responses include `x-ns-server-version` and `x-ns-library-status`: `unknown`, `s
 
 The shipped matrix is immutable and offline: no unsigned remote source can impose a library minimum or a remote kill switch. The release feed may carry a `libraryCompat` overlay, but the overlay only ever tightens the *reported* status on servers that have not been updated (for example to flag a library with a security problem). It never refuses a request: enforcement reads the embedded matrix only, and requests without a parseable library version are never refused by any rule. Header identities and player counts are self-reported, not a security boundary; a hostile caller can spoof versions. Keep all real authentication/authorization checks.
 
+## Endpoint errors for library callers
+
+Endpoint-route errors (`/v3/endpoints/...`) reach a library caller as HTTP 200 with the real status in the body (issue #152). The library reads only the body of a 2xx response, so the status it needs has to be in the body. A caller is a library caller when it sends a non-empty `x-ns-library-version`, a recognised `x-ns-client-type` (`game`, `editor` or `dedicated`), or a body `security` object. Every other client keeps the real HTTP status and the flat body it has always received. Non-endpoint routes return the real status to everyone.
+
+Identification by published library build (from each revision's source). The signal is on the request, not the version string:
+
+| Build | Headers | Body |
+| --- | --- | --- |
+| r238672 | `x-ns-client-type` on every request | `security` and `_endpointSlug` on POST |
+| r422519 | `x-ns-client-type` on the authenticated path only | `security` and `_endpointSlug` on POST |
+| r423774 | `x-ns-library-version` and `x-ns-client-type` on the authenticated path only | `security` and `_endpointSlug` on POST |
+
+The dedicated-server public-key path sends no library header in r422519 or r423774. A body-less GET on that path cannot be identified and keeps the real status. POSTs on that path are identified by their body.
+
+A library caller receives:
+
+```json
+{"ok":false,"status":401,"error":{"code":"UNAUTHORIZED","message":"...","requestId":"..."},"message":"...","_requestId":"..."}
+```
+
+- `status` is the status the error would have had. `error.requestId`, `_requestId` and the `X-Request-Id` header carry the same ID.
+- `_revisionStatus` appears when the revision handshake applies.
+- `retryAfterSeconds` appears on rate-limit (429) errors, and the `Retry-After` header is also set.
+- `security` and `retrySafe: true` appear only on `SECURITY_*` gate denials.
+- A 5xx keeps only a generic message and no stored writes.
+- Not mirrored from the reference envelope: `_auth`, `timing`, `storageDelta`, `docsUrl`, `hints` and the legacy `detail` field.
+- Usage stats and request logs record the real status, not 200.
+
+The server advertises `library-error-envelope` in the `capabilities` of `/v3/server-info`. The parity corpus gates the expectations of the affected steps on that capability (`ifCapability`), so a server without it keeps the base expectations. The #152 differences are listed in `tests/parity/intentional-differences.json` with the reason "Library envelope (#152)".
+
 ## Test evidence, not guessed compatibility
 
 [`compat/library-matrix.json`](../compat/library-matrix.json) is embedded in the server and validated against [`library-matrix.schema.json`](../compat/library-matrix.schema.json). It currently records supported legacy clients and the separate old-editor incident, not fictional library releases or editor passes.

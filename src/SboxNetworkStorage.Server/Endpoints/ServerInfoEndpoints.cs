@@ -17,7 +17,8 @@ public static class ServerInfoEndpoints
     /// <summary>Capabilities this server answers on.</summary>
     public static readonly string[] Capabilities =
         ["records", "global-records", "endpoints", "workflows", "queries", "game-values",
-            "rate-limits", "auth-sessions", "analytics", "analytics-batch", "package-sync", "https-tunnel", "api-root", "media"];
+            "rate-limits", "auth-sessions", "analytics", "analytics-batch", "package-sync", "https-tunnel", "api-root", "media",
+            "library-error-envelope"];
 
     /// <summary>The capabilities list, plus <c>endpoint-js</c> while the JavaScript runtime is enabled (<c>endpoints.scripts</c>).</summary>
     public static string[] CapabilitiesFor(IEnumerable<IEndpointScriptRuntime> scriptRuntimes) =>

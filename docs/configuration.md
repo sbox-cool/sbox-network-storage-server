@@ -387,6 +387,28 @@ is enforced by the game library before it sends.
 
 `endpoints.scripts` in `server.toml` (default `true`) runs JavaScript and TypeScript endpoints. Off makes every scripted endpoint answer `503 SCRIPTS_DISABLED`; YAML endpoints are unaffected. Restart the server after changing it. Limits and error codes are in [endpoints-javascript.md](endpoints-javascript.md).
 
+### Record write queue
+
+Concurrent writes to one record (record API, YAML endpoints and script endpoints) are serialized per project, collection and key inside this server process, as the reference's keyed write queue does. Each write waits for the writes ahead of it, so no update is lost to a race. A write that cannot get a turn answers `429` with `Retry-After`. Live counters (active keys, queued writes, totals) appear as `writeQueue` in the owner Server page's stats feed (`/dashboard/server/stats`). The queue lives in memory; [database.md](database.md#multiple-server-instances) explains what it does not cover.
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `endpoints.write_queue.enabled` | `true` | Serialize concurrent writes to one record. Off restores version-check-only behaviour: `requireSaveVersion` writers get `409 CONFLICT` when they lose, and unversioned writes can lose updates. |
+| `endpoints.write_queue.max_queued` | `64` | Writes that may wait behind one busy record. A write past this answers `429` with `NETWORK_STORAGE_WRITE_QUEUE_FULL`. Clamped to 0 to 1,000,000. |
+| `endpoints.write_queue.timeout_ms` | `10000` | How long one write waits for a busy record before `429` with `NETWORK_STORAGE_WRITE_QUEUE_TIMEOUT`. `Retry-After` is this value rounded up to whole seconds, at least 1. Clamped to 1 to 3,600,000. |
+
+Restart the server after changing these keys.
+
+### Script concurrency gate
+
+A scripted request needs a free slot for its project and a free server-wide slot before it runs. Each project may run 2 scripted requests at once, and the server runs one per processor. A request that finds a slot full waits up to `endpoints.script_gate.wait_ms`. If no slot frees in time, the request is refused without running: `429` with `SCRIPT_BUSY`, `Retry-After`, and `retrySafe: true`, so the caller can resend it unchanged. Live counters (active slots, waiting requests, totals) appear as `scriptGate` in `/dashboard/server/stats`. The gate lives in memory; [database.md](database.md#multiple-server-instances) explains what that means across several instances.
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `endpoints.script_gate.wait_ms` | `2000` | How long a scripted request waits for a free slot before it is refused. `0` refuses at once. `Retry-After` is this value rounded up to whole seconds, at least 1. Clamped to 0 to 60,000. |
+
+Restart the server after changing `endpoints.script_gate.wait_ms`.
+
 ### Game logs
 
 Game logs add no `server.toml` keys. They are turned on per project in the owner dashboard (Game logs section), where the streams, retention, sampling, allowed client events and per-project rate limit are set. Routes: `/api/game-logs/{projectId}`. Details, limits and error codes are in [game-logs.md](game-logs.md).

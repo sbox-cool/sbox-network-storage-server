@@ -255,6 +255,20 @@ public static partial class StorageApiEndpoints
         // delta below lands on the request.
         NetworkStorageUsageContext.Set(context, projectId, SboxNetworkStorage.Infrastructure.NetworkStorage.Usage.UsageKind.Write);
 
+        // Reference parity (withNetworkStorageWriteQueue): the read-modify-write below runs under the keyed
+        // write lease for this record, so concurrent independent writes serialize instead of losing updates.
+        EndpointWriteQueue.RecordLease? lease = null;
+        try
+        {
+            lease = await context.RequestServices.GetRequiredService<EndpointWriteQueue>()
+                .AcquireAsync(projectId, [(collectionId, recordKey)], context.RequestAborted);
+        }
+        catch (EndpointWriteQueueException ex)
+        {
+            await WriteQueueDeniedAsync(context, ex);
+            return;
+        }
+
         var dataPlane = context.RequestServices.GetRequiredService<INetworkStorageDataPlane>();
         string? invalidOperation = null;
         var appliedTooLarge = false;
@@ -284,6 +298,10 @@ public static partial class StorageApiEndpoints
             await ReportDataPlaneErrorAsync(context, projectId, collectionId, recordKey, "record.write", ex);
             return;
         }
+        finally
+        {
+            lease?.Dispose();
+        }
 
         if (invalidOperation is not null)
         {
@@ -311,6 +329,18 @@ public static partial class StorageApiEndpoints
         ops = default;
         return body.ValueKind == JsonValueKind.Object
             && body.TryGetProperty("ops", out ops) && ops.ValueKind == JsonValueKind.Array;
+    }
+
+    /// <summary>
+    /// Refusal from the keyed write queue: 429 with the reference body shape and a Retry-After hint.
+    /// </summary>
+    private static async Task WriteQueueDeniedAsync(HttpContext context, EndpointWriteQueueException ex)
+    {
+        context.Response.StatusCode = StatusCodes.Status429TooManyRequests;
+        context.Response.Headers["Retry-After"] = ex.RetryAfterSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        await context.Response.WriteAsJsonAsync(
+            new { ok = false, status = 429, error = new { code = ex.Code, message = ex.Message }, retryAfterSeconds = ex.RetryAfterSeconds },
+            JsonOptions, context.RequestAborted);
     }
 
     private static async Task WritePayloadTooLargeAsync(HttpContext context, int maxPayloadBytes)
@@ -392,6 +422,19 @@ public static partial class StorageApiEndpoints
             Payload: new { apiKey = MaskApiKey(apiKey) }
         ), CancellationToken.None);
 
+        // Reference parity (withNetworkStorageWriteQueue): read + delete run under the keyed write lease for this record.
+        EndpointWriteQueue.RecordLease? lease = null;
+        try
+        {
+            lease = await context.RequestServices.GetRequiredService<EndpointWriteQueue>()
+                .AcquireAsync(projectId, [(collectionId, recordKey)], context.RequestAborted);
+        }
+        catch (EndpointWriteQueueException ex)
+        {
+            await WriteQueueDeniedAsync(context, ex);
+            return;
+        }
+
         var dataPlane = context.RequestServices.GetRequiredService<INetworkStorageDataPlane>();
         NetworkStorageUsageContext.Set(context, projectId, SboxNetworkStorage.Infrastructure.NetworkStorage.Usage.UsageKind.Write);
         try
@@ -407,6 +450,10 @@ public static partial class StorageApiEndpoints
         {
             await ReportDataPlaneErrorAsync(context, projectId, collectionId, recordKey, "record.delete", ex);
             return;
+        }
+        finally
+        {
+            lease?.Dispose();
         }
 
         context.Response.StatusCode = StatusCodes.Status200OK;
