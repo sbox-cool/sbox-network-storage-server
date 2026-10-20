@@ -110,6 +110,36 @@
         "https://github.com/sbox-cool/sbox-network-storage-server/pull/164"
       ],
       "notes": "Scoped native security regression, Steam sbox-dev.exe 26.10.13a build 38759734332, v2-required. All 12 assertions passed: correct signing pin; encrypted no-input POST; pin re-Configure invalidation and wrong-pin refusal after success; pin recovery; same-account sealed proxy input/response round trip; TOFU first use and persisted store; substituted signing-key/downgrade refusal; retained trusted config and a subsequent encrypted call. Proxy transport used a local delegate between the real client and host library paths, with a real HTTP backend; not a two-PC RPC test. No PostgreSQL, hosted backend, Library Manager installation or publish is asserted by this row."
+    },
+    {
+      "server": "0.1.0-dev",
+      "commit": "ff1ee27b5df45a0d4ae9bfc8b8f802d7806890ad",
+      "kind": "self-hosted",
+      "library": "1.2.0",
+      "librarySource": "git:ddf9b617c0c4fdf26c9c0e91c5cd34fa915b1750",
+      "revision": 427072,
+      "engine": "0000000",
+      "os": "Microsoft Windows 10.0.26100",
+      "database": ["sqlite"],
+      "result": "ci-only",
+      "date": "2026-10-20",
+      "evidence": ["https://github.com/sbox-cool/sbox-network-storage-server/actions/runs/39375584011"],
+      "notes": "Management parity PR #154 tested merge commit. Headless dedicated s&box source build, Facepunch/sbox-public 02e4b232c4e98622f333cc222e48d4a2e99d90b4, reporting engine build 0000000. Library r427072. Ordinary endpoint, JS/TS push/pull, values, legacy encryption switching, rate-limit and version-header checks passed. No native editor or PostgreSQL-in-engine run."
+    },
+    {
+      "server": "0.1.0-dev",
+      "commit": "2137a5a1ca18e91f3113b57ce1884c511f80e785",
+      "kind": "self-hosted",
+      "library": "1.2.0",
+      "librarySource": "git:ddf9b617c0c4fdf26c9c0e91c5cd34fa915b1750",
+      "revision": 427072,
+      "engine": "0000000",
+      "os": "Microsoft Windows 10.0.26100",
+      "database": ["sqlite"],
+      "result": "fail",
+      "date": "2026-10-20",
+      "evidence": ["https://github.com/sbox-cool/sbox-network-storage-server/actions/runs/39376849238"],
+      "notes": "Initial v2 acceptance PR #173 tested merge commit. Headless dedicated source engine Facepunch/sbox-public 02e4b232c4e98622f333cc222e48d4a2e99d90b4, build 0000000. v2-required no-input, wrong-pin refusal and recovery passed. Two content assertions failed because the historical echo fixture returned only ok:true, not the input marker; both calls themselves succeeded. The fixture was subsequently corrected to return an input-derived probe; this row preserves the failed run, not a product-regression claim. No native editor run."
     }
   ]
 }
