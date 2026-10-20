@@ -197,7 +197,7 @@ public sealed partial class EndpointExecutor
                 return new ScriptAttempt(state, attempt, run,
                     ScriptFailure(500, "SCRIPT_LIMIT_EXCEEDED", "The endpoint needs more reads than one request may make.", null));
 
-            var loadDenial = await LoadScriptMissesAsync(inv, state, attempt, budget, ct);
+            var loadDenial = await LoadScriptMissesAsync(inv, state, attempt, ct);
             if (loadDenial is not null) return new ScriptAttempt(state, attempt, run, loadDenial);
         }
     }
@@ -395,7 +395,6 @@ public sealed partial class EndpointExecutor
         ScriptInvocation inv,
         ScriptState state,
         ScriptRound round,
-        ScriptRunBudget budget,
         CancellationToken ct)
     {
         var projectId = inv.ProjectId;
@@ -464,17 +463,7 @@ public sealed partial class EndpointExecutor
         }
 
         if (state.Fetch.PendingCount > 0)
-        {
-            budget.Suspend();
-            try
-            {
-                await state.Fetch.LoadPendingAsync(ct);
-            }
-            finally
-            {
-                budget.Resume();
-            }
-        }
+            await state.Fetch.LoadPendingAsync(ct);
 
         return null;
     }

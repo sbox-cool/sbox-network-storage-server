@@ -89,6 +89,8 @@ public sealed class JavaScriptEndpointRuntime : IEndpointScriptRuntime
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(host);
+        // Each round has host preparation before user evaluation; a previous round must not charge it.
+        budget.Suspend();
         Engine? engine = null;
         try
         {
@@ -123,6 +125,7 @@ public sealed class JavaScriptEndpointRuntime : IEndpointScriptRuntime
             engine.SetValue("globals", environment.Get("globals"));
 
             budget.Start();
+            budget.Resume();
             var handler = engine.Modules.Import(ModuleSpecifier).Get("default");
             if (handler is not Function handlerFunction)
                 return new EndpointScriptOutcome(EndpointScriptOutcomeKind.ScriptError, null,
@@ -148,6 +151,7 @@ public sealed class JavaScriptEndpointRuntime : IEndpointScriptRuntime
         }
         finally
         {
+            budget.Suspend();
             engine?.Dispose();
         }
     }

@@ -84,6 +84,27 @@ public sealed class ScriptedEndpointExecutorTests
         Assert.Contains("SCRIPT_LIMIT_EXCEEDED", JsonSerializer.Serialize(result.Body));
     }
 
+    [Theory]
+    [InlineData("javascript")]
+    [InlineData("typescript")]
+    public async Task Script_StoreWaitBetweenRounds_DoesNotConsumeTheUserCodeBudget(string language)
+    {
+        const string script = "export default function handle(req,ns) { return {coins:ns.records.get('players','steam1').coins}; }";
+        var definitions = new Dictionary<string, object?>
+        {
+            ["proj:ep:script"] = new Dictionary<string, object?> { ["runtime"] = language, ["script"] = script },
+        };
+        var source = new FakeDataSource(definitions, PlayerRecord(42d)) { ReadDelay = TimeSpan.FromSeconds(2) };
+        var javaScript = new JavaScriptEndpointRuntime(true, EndpointScriptLimits.Defaults);
+        IEndpointScriptRuntime runtime = language == "typescript" ? new TypeScriptEndpointRuntime(javaScript) : javaScript;
+        var executor = new EndpointExecutor(source, scriptRuntimes: [runtime]);
+
+        var result = await Run(executor);
+
+        Assert.True(result.Ok, JsonSerializer.Serialize(result.Body) + " " + result.OwnerDetail);
+        Assert.Equal(42, JsonSerializer.SerializeToElement(result.Body).GetProperty("coins").GetInt32());
+    }
+
     [Fact]
     public void Engine_Guards_AreSetOnEveryEngine()
     {
@@ -916,6 +937,8 @@ public sealed class ScriptedEndpointExecutorTests
         /// <summary>Row-reading scans issued. A scan refused by its count must leave this at zero.</summary>
         public int ScanCalls { get; private set; }
 
+        public TimeSpan ReadDelay { get; init; }
+
         public FakeDataSource(Dictionary<string, object?> definitions, Dictionary<string, object?> records)
         {
             _definitions = definitions;
@@ -932,10 +955,11 @@ public sealed class ScriptedEndpointExecutorTests
             => Task.FromResult<IReadOnlyList<Dictionary<string, object?>>>(
                 [new Dictionary<string, object?> { ["collection_id"] = "players", ["name"] = "players" }]);
 
-        public Task<object?> ReadRecordAsync(string projectId, string collectionId, string key, CancellationToken ct)
+        public async Task<object?> ReadRecordAsync(string projectId, string collectionId, string key, CancellationToken ct)
         {
+            if (ReadDelay > TimeSpan.Zero) await Task.Delay(ReadDelay, ct);
             var ck = $"{projectId}:{collectionId}:{key}";
-            return Task.FromResult(_records.TryGetValue(ck, out var record) ? record : null);
+            return _records.TryGetValue(ck, out var record) ? record : null;
         }
 
         public Task<IReadOnlyList<object?>> ScanCollectionAsync(string projectId, string collectionId, CancellationToken ct)

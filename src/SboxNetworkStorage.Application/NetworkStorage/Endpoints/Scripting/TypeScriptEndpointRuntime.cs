@@ -71,6 +71,7 @@ public sealed partial class TypeScriptEndpointRuntime : IEndpointScriptRuntime
 
     public EndpointScriptOutcome Execute(string source, EndpointScriptRequest request, EndpointScriptHost host, ScriptRunBudget budget)
     {
+        budget.Suspend();
         var stripped = Strip(source);
         if (stripped.Diagnostic is not null)
             return new EndpointScriptOutcome(EndpointScriptOutcomeKind.ScriptError, null,
