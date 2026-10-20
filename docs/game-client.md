@@ -33,7 +33,7 @@ natively without a database write:
   "apiVersions": ["v3"],
   "api": { "root": "/api", "aliases": ["/v3"], "since": "0.5.5" },
   "database": "sqlite",
-  "capabilities": ["records", "global-records", "endpoints", "workflows", "queries", "game-values", "rate-limits", "auth-sessions", "analytics", "package-sync", "https-tunnel", "api-root"],
+  "capabilities": ["records", "global-records", "endpoints", "workflows", "queries", "game-values", "rate-limits", "auth-sessions", "analytics", "analytics-batch", "package-sync", "https-tunnel", "api-root"],
   "tunnel": { "enabled": false, "name": "", "hostname": "", "registry": "", "connectorState": "disabled", "connectorVersion": "", "processId": null, "updatedAt": "2026-10-10T00:00:00+00:00" },
   "compat": { "library": { "minimum": "1.1.0", "recommended": "1.1.0", "latest": "1.1.0", "legacy": "supported", "deprecated": [], "blocked": [], "knownBroken": [{ "version": "1.0.165702", "revision": 165702, "engine": ">=26.10", "reason": "Stale library breaks editor startup on s&box engine 26.10 or later.", "issue": "sbox-cool/sbox-network-storage#4" }], "tested": [] }, "matrixUrl": "https://github.com/sbox-cool/sbox-network-storage-server/blob/main/compat/library-matrix.json" },
   "update": null
@@ -45,6 +45,11 @@ natively without a database write:
 an update check has run, else null. `compat` is described under
 [Library compatibility](#library-compatibility). `sbox-ns doctor` also polls
 this route to check the listener.
+
+`analytics-batch` in `capabilities` means the analytics events route also accepts
+a batch body `{"events":[ ... ]}`; see
+[configuration.md](configuration.md#analytics-retention-and-buffering). A library
+batches only when this is advertised and otherwise sends one event per request.
 
 The additive `compat` advertisement and optional `x-ns-library-*` identity/status
 headers are the whole version contract. Unidentified older libraries remain
@@ -165,6 +170,31 @@ it immediately. `/api/server-info` reports whether one is in effect in the `comp
 (`"overlay": {"applied": true}`). Nothing needs network access:
 without the feed, the embedded matrix applies.
 
+## Sync Tool management operations
+
+Management requests use the project's secret key in `x-api-key` and, where the
+operation needs the public/secret pair, its public key in `x-public-key`. Never
+put the secret key in game code.
+
+- `DELETE /v3/manage/{projectId}/keys` revokes both supplied keys and reports
+  success only after neither resolves. A rejected request leaves the pair intact.
+- `PUT .../settings` persists supported fields and returns the same settings
+  projection as `GET .../settings`. An unrelated update preserves the current
+  encryption mode. Explicit `encryptedRequestMode` takes precedence over the
+  legacy `enableEncryptedRequests` flag; unknown modes return HTTP 400 without
+  changing settings. Unsupported backend-mode fields return `SETTING_NOT_STORED`.
+- `POST .../source-upgrade` converts supplied source without writing it.
+  `POST .../suggest-tests` generates cases from the stored endpoint.
+- `GET .../agent-manifest` requires endpoint-read scope. Collection and workflow
+  summaries are included only when requested.
+- `PUT .../endpoints?async=true` returns HTTP 202 with a `jobId`. Poll
+  `GET .../sync-jobs/{jobId}` for `complete` or `failed`. Jobs belong to their
+  owner/project and live in this process, not across a restart. Completed jobs
+  expire five minutes after creation; missing jobs return HTTP 404
+  `JOB_NOT_FOUND`. The `management-sync-jobs` capability advertises this behavior.
+
+The `/api/manage/...` and `/api/v3/manage/...` aliases remain available.
+
 ## Revision init handshake
 
 At game startup the client sends a one-time handshake with its running
@@ -236,15 +266,34 @@ publish a new build so players run against the synced revision.
 
 ## Encrypted requests
 
-When **Enable encrypted requests** is on, the library sends endpoint calls as an
-encrypted envelope (see [admin-panel.md](admin-panel.md#encrypted-requests)).
-The mode the library must use comes from the signed security config. The
-server refuses a call made in the wrong mode with a security code. Those codes
-(`SECURITY_*`, `AUTH_SESSION_*`, `ENCRYPTED_REQUEST_*`, `REQUEST_SIGNATURE_*`)
-arrive on endpoint routes as HTTP 200 for a library caller. The code is in `error.code`, and the
-status the server intended is the number in the body `status` (see
-[compatibility.md](compatibility.md#endpoint-errors-for-library-callers)). The library refreshes its security config and
-retries once on a `SECURITY_*` code.
+The signed security config says which envelope the server accepts for a project.
+`modes.encryptedRequests` is `required` when the mode is anything other than `off`,
+and `disabled` otherwise. For the `v2-preferred` and `v2-required` modes, an
+`encryption` block carries the server's request key (`keyId`, `publicKeyJwk`,
+`fingerprint`) and a `required` flag. The modes and their refusals are in
+[admin-panel.md](admin-panel.md#encrypted-requests).
+
+The v1 envelope (AES-256-GCM with a key derived from the public API key, signed with
+HMAC-SHA256) is what released libraries send. The v2 envelope (a per-request AES-256 key
+wrapped with RSA-OAEP-SHA256, AES-256-GCM payloads, and encrypted responses) needs a
+library that implements it. Wire format: [encrypted-requests-v2.md](encrypted-requests-v2.md).
+
+The server refuses a call made in the wrong mode with a security code. For a library
+caller, those codes (`SECURITY_*`, `AUTH_SESSION_*`, `ENCRYPTED_REQUEST_*`,
+`REQUEST_SIGNATURE_*`) arrive on endpoint routes as HTTP 200. The code is in `error.code`,
+and the status the server intended is the number in the body `status` (see
+[compatibility.md](compatibility.md#endpoint-errors-for-library-callers)). Other endpoint
+errors keep their HTTP status. The library refreshes its security config and retries once
+on a `SECURITY_*` code. After a key rotation, `SECURITY_CONFIG_STALE` means the cached
+config names a key that has expired; the refresh picks up the current key.
+
+A v2 response body has `encrypted: true` and `v: 2`. Any other body is plain JSON.
+Error bodies can be either, because refusals before decryption are plain.
+
+Encrypted requests (v2) protect payload content from anyone without the server's
+private key. They do not hide the bearer or auth tokens the client sends in plain
+headers or in the outer `security` block. An active man in the middle who sees such
+a token can still act with it, so the server must be reached over HTTPS.
 
 ## Query results
 

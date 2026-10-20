@@ -4,6 +4,7 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Mvc.Testing;
 using SboxNetworkStorage.Application.NetworkStorage;
 using SboxNetworkStorage.Application.NetworkStorage.Endpoints;
+using SboxNetworkStorage.Application.NetworkStorage.Endpoints.Scripting;
 using SboxNetworkStorage.Application.Workspace;
 using SboxNetworkStorage.Domain.Workspace;
 using SboxNetworkStorage.Infrastructure.NetworkStorage;
@@ -556,7 +557,7 @@ public abstract class NetworkStorageManagementMutationTests<TFactory> : IClassFi
     }
 
     [SkippableFact]
-    public async Task PreflightSync_ScriptSyntaxError_ReportsSourceLineAndColumn()
+    public async Task PreflightSync_ScriptSyntaxError_IsAnErrorAndFailsPreflight()
     {
         var handler = new ManagementMutationHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
@@ -567,23 +568,28 @@ public abstract class NetworkStorageManagementMutationTests<TFactory> : IClassFi
             scriptRuntimes: EndpointExecutor.CreateScriptRuntimes(scriptsEnabled: true));
 
         var body = """
-        {"endpoints":[{"slug":"broken","runtime":"javascript","script":"const a = 1;\nconst b = ;\n"}]}
+        {"endpoints":[{"slug":"broken","sourcePath":"hello.endpoint.js","runtime":"javascript","script":"const a = 1;\nconst b = ;\n"}]}
         """;
         var result = await handler.ExecuteAsync(
             BuildRequest("POST", "proj-1", apiKey: "sk-valid", routeSuffix: "sync/preflight", body: body));
 
-        Assert.Equal(200, result.StatusCode);
+        Assert.Equal(400, result.StatusCode);
+        Assert.Equal("PREFLIGHT_VALIDATION_FAILED", result.PublicErrorCode);
         var json = JsonSerializer.SerializeToElement(result.Body);
-        var diagnostics = json.GetProperty("endpoints").GetProperty("results")[0].GetProperty("diagnostics").EnumerateArray();
-        var syntax = diagnostics.Single(item => item.GetProperty("code").GetString() == "SCRIPT_SYNTAX");
+        var endpoint = json.GetProperty("endpoints").GetProperty("results")[0];
+        Assert.False(endpoint.GetProperty("ok").GetBoolean());
+        var syntax = endpoint.GetProperty("diagnostics").EnumerateArray()
+            .Single(item => item.GetProperty("code").GetString() == "SCRIPT_SYNTAX");
+        Assert.Equal("error", syntax.GetProperty("severity").GetString());
         Assert.Equal("/script", syntax.GetProperty("sourcePath").GetString());
+        Assert.Equal("hello.endpoint.js", syntax.GetProperty("file").GetString());
         Assert.Equal(2, syntax.GetProperty("line").GetInt32());
         Assert.True(syntax.GetProperty("column").GetInt32() > 0);
         Assert.StartsWith("Line 2, column ", syntax.GetProperty("message").GetString());
     }
 
     [SkippableFact]
-    public async Task PreflightSync_GlobalImport_IsNotReportedWhenProjectGlobalsAreNotLoaded()
+    public async Task PreflightSync_ImportOfMissingGlobal_IsAnErrorAndFailsPreflight()
     {
         var handler = new ManagementMutationHandler(
             new FakeKeyResolver("sk-valid", "proj-1"),
@@ -599,10 +605,12 @@ public abstract class NetworkStorageManagementMutationTests<TFactory> : IClassFi
         var result = await handler.ExecuteAsync(
             BuildRequest("POST", "proj-1", apiKey: "sk-valid", routeSuffix: "sync/preflight", body: body));
 
-        Assert.Equal(200, result.StatusCode);
+        Assert.Equal(400, result.StatusCode);
+        Assert.Equal("PREFLIGHT_VALIDATION_FAILED", result.PublicErrorCode);
         var json = JsonSerializer.SerializeToElement(result.Body);
         var diagnostics = json.GetProperty("endpoints").GetProperty("results")[0].GetProperty("diagnostics").EnumerateArray();
-        Assert.DoesNotContain(diagnostics, item => item.GetProperty("code").GetString()!.StartsWith("GLOBAL_", StringComparison.Ordinal));
+        var missing = diagnostics.Single(item => item.GetProperty("code").GetString() == "GLOBAL_NOT_FOUND");
+        Assert.Equal("error", missing.GetProperty("severity").GetString());
     }
 
     [SkippableFact]
@@ -767,6 +775,271 @@ public abstract class NetworkStorageManagementMutationTests<TFactory> : IClassFi
         var json = JsonSerializer.SerializeToElement(result.Body);
         Assert.False(json.GetProperty("ok").GetBoolean());
         Assert.False(json.GetProperty("endpoints").GetProperty("ok").GetBoolean());
+    }
+
+    [SkippableFact]
+    public async Task PutSync_BrokenScript_RefusesWholeBatchAndWritesNothing()
+    {
+        var store = new InMemoryNetworkStorageStore();
+        var handler = new ManagementMutationHandler(
+            new FakeKeyResolver("sk-valid", "proj-1"),
+            new FakeWorkspace("proj-1"),
+            store,
+            TimeProvider.System,
+            endpointExecutor: null,
+            scriptRuntimes: EndpointExecutor.CreateScriptRuntimes(scriptsEnabled: true));
+
+        var body = """
+        {"endpoints":[
+          {"slug":"get-leaderboard","method":"GET","definition":{"type":"leaderboard"}},
+          {"slug":"hello","sourcePath":"hello.endpoint.js","runtime":"javascript","script":"const a = 1;\nconst b = ;\n"}],
+         "collections":[{"name":"scores","definition":{}}],
+         "workflows":[{"name":"on-submit","definition":{"nodes":[]}}]}
+        """;
+        var result = await handler.ExecuteAsync(
+            BuildRequest("PUT", "proj-1", apiKey: "sk-valid", routeSuffix: "sync", body: body));
+
+        Assert.Equal(400, result.StatusCode);
+        Assert.Equal("VALIDATION_FAILED", result.PublicErrorCode);
+        Assert.Empty(result.IntendedWritePaths);
+        Assert.Empty(store.Endpoints);
+        Assert.Empty(store.Collections);
+        Assert.Empty(store.Workflows);
+
+        var json = JsonSerializer.SerializeToElement(result.Body);
+        Assert.False(json.GetProperty("ok").GetBoolean());
+        Assert.Equal("candidate", json.GetProperty("source").GetString());
+        var failed = json.GetProperty("endpoints").GetProperty("results").EnumerateArray()
+            .Single(item => !item.GetProperty("ok").GetBoolean());
+        Assert.Equal("hello", failed.GetProperty("resourceId").GetString());
+        var flat = Assert.Single(json.GetProperty("diagnostics").EnumerateArray());
+        Assert.Equal("SCRIPT_SYNTAX", flat.GetProperty("code").GetString());
+        Assert.Equal("error", flat.GetProperty("severity").GetString());
+        Assert.Equal("endpoint", flat.GetProperty("resourceKind").GetString());
+        Assert.Equal("hello", flat.GetProperty("resourceId").GetString());
+        Assert.Equal("hello.endpoint.js", flat.GetProperty("file").GetString());
+        Assert.Equal(2, flat.GetProperty("line").GetInt32());
+        Assert.True(flat.GetProperty("column").GetInt32() > 0);
+        var syntax = failed.GetProperty("diagnostics").EnumerateArray()
+            .Single(item => item.GetProperty("code").GetString() == "SCRIPT_SYNTAX");
+        Assert.Equal("error", syntax.GetProperty("severity").GetString());
+        Assert.Equal("hello.endpoint.js", syntax.GetProperty("file").GetString());
+        Assert.Equal(2, syntax.GetProperty("line").GetInt32());
+        Assert.True(syntax.GetProperty("column").GetInt32() > 0);
+    }
+
+    [SkippableFact]
+    public async Task PutSync_ImportOfGlobalInSameBatch_ResolvesAndWrites()
+    {
+        var store = new InMemoryNetworkStorageStore();
+        var handler = new ManagementMutationHandler(
+            new FakeKeyResolver("sk-valid", "proj-1"),
+            new FakeWorkspace("proj-1"),
+            store,
+            TimeProvider.System,
+            endpointExecutor: null,
+            scriptRuntimes: EndpointExecutor.CreateScriptRuntimes(scriptsEnabled: true));
+
+        var body = """
+        {"endpoints":[
+          {"slug":"bank","runtime":"javascript","scope":"global","script":"export function coinsOf() { return 7; }\n"},
+          {"slug":"caller","runtime":"javascript","script":"import { coinsOf } from \"globals/bank\";\nexport default function handle() { return { ok: true, coins: coinsOf() }; }\n"}]}
+        """;
+        var result = await handler.ExecuteAsync(
+            BuildRequest("PUT", "proj-1", apiKey: "sk-valid", routeSuffix: "sync", body: body));
+
+        Assert.Equal(200, result.StatusCode);
+        Assert.Equal(2, store.Endpoints.Count);
+    }
+
+    [SkippableFact]
+    public async Task PutSync_ImportOfStoredGlobal_Resolves()
+    {
+        var store = new InMemoryNetworkStorageStore();
+        await store.UpsertEndpointAsync("proj-1", "bank", "bank", "GET", true,
+            JsonDocument.Parse("""{"runtime":"javascript","scope":"global","script":"export function coinsOf() { return 7; }\n"}""").RootElement,
+            null, 1, CancellationToken.None);
+        var handler = new ManagementMutationHandler(
+            new FakeKeyResolver("sk-valid", "proj-1"),
+            new FakeWorkspace("proj-1"),
+            store,
+            TimeProvider.System,
+            endpointExecutor: null,
+            scriptRuntimes: EndpointExecutor.CreateScriptRuntimes(scriptsEnabled: true));
+
+        var body = """
+        {"endpoints":[{"slug":"caller","runtime":"javascript","script":"import { coinsOf } from \"globals/bank\";\nexport default function handle() { return { ok: true, coins: coinsOf() }; }\n"}]}
+        """;
+        var result = await handler.ExecuteAsync(
+            BuildRequest("PUT", "proj-1", apiKey: "sk-valid", routeSuffix: "sync", body: body));
+
+        Assert.Equal(200, result.StatusCode);
+        Assert.Equal(2, store.Endpoints.Count);
+    }
+
+    [SkippableFact]
+    public async Task PutSync_ImportOfMissingGlobal_RefusesBatchAndWritesNothing()
+    {
+        var store = new InMemoryNetworkStorageStore();
+        var handler = new ManagementMutationHandler(
+            new FakeKeyResolver("sk-valid", "proj-1"),
+            new FakeWorkspace("proj-1"),
+            store,
+            TimeProvider.System,
+            endpointExecutor: null,
+            scriptRuntimes: EndpointExecutor.CreateScriptRuntimes(scriptsEnabled: true));
+
+        var body = """
+        {"endpoints":[{"slug":"caller","runtime":"javascript","script":"import { coinsOf } from \"globals/bank\";\nexport default function handle() { return { ok: true, coins: coinsOf() }; }\n"}]}
+        """;
+        var result = await handler.ExecuteAsync(
+            BuildRequest("PUT", "proj-1", apiKey: "sk-valid", routeSuffix: "sync", body: body));
+
+        Assert.Equal(400, result.StatusCode);
+        Assert.Equal("VALIDATION_FAILED", result.PublicErrorCode);
+        Assert.Empty(store.Endpoints);
+        var json = JsonSerializer.SerializeToElement(result.Body);
+        var diagnostics = json.GetProperty("endpoints").GetProperty("results")[0].GetProperty("diagnostics").EnumerateArray();
+        Assert.Equal("GLOBAL_NOT_FOUND", diagnostics.Single().GetProperty("code").GetString());
+    }
+
+    [SkippableFact]
+    public async Task PutSync_BatchGlobalWithoutImportedExport_RefusesAndKeepsStoredGlobal()
+    {
+        var store = new InMemoryNetworkStorageStore();
+        await store.UpsertEndpointAsync("proj-1", "bank", "bank", "GET", true,
+            JsonDocument.Parse("""{"runtime":"javascript","scope":"global","script":"export function coinsOf() { return 7; }\n"}""").RootElement,
+            null, 1, CancellationToken.None);
+        var handler = new ManagementMutationHandler(
+            new FakeKeyResolver("sk-valid", "proj-1"),
+            new FakeWorkspace("proj-1"),
+            store,
+            TimeProvider.System,
+            endpointExecutor: null,
+            scriptRuntimes: EndpointExecutor.CreateScriptRuntimes(scriptsEnabled: true));
+
+        // The batch replaces the stored bank without coinsOf, so the caller's import no longer resolves.
+        var body = """
+        {"endpoints":[
+          {"slug":"bank","runtime":"javascript","scope":"global","script":"export function other() { return 1; }\n"},
+          {"slug":"caller","runtime":"javascript","script":"import { coinsOf } from \"globals/bank\";\nexport default function handle() { return { ok: true, coins: coinsOf() }; }\n"}]}
+        """;
+        var result = await handler.ExecuteAsync(
+            BuildRequest("PUT", "proj-1", apiKey: "sk-valid", routeSuffix: "sync", body: body));
+
+        Assert.Equal(400, result.StatusCode);
+        Assert.Equal("VALIDATION_FAILED", result.PublicErrorCode);
+        var stored = Assert.Single(store.Endpoints).Value;
+        Assert.Contains("coinsOf", stored.GetProperty("definition_json").GetProperty("script").GetString());
+        var json = JsonSerializer.SerializeToElement(result.Body);
+        var diagnostics = json.GetProperty("endpoints").GetProperty("results").EnumerateArray()
+            .Single(item => !item.GetProperty("ok").GetBoolean())
+            .GetProperty("diagnostics").EnumerateArray();
+        Assert.Equal("GLOBAL_EXPORT_NOT_FOUND", diagnostics.Single().GetProperty("code").GetString());
+    }
+
+    [SkippableFact]
+    public async Task SaveOwnerResource_BrokenScript_IsRefusedAndWritesNothing()
+    {
+        var store = new InMemoryNetworkStorageStore();
+        var handler = new ManagementMutationHandler(
+            new FakeKeyResolver("sk-valid", "proj-1"),
+            new FakeWorkspace("proj-1"),
+            store,
+            TimeProvider.System,
+            endpointExecutor: null,
+            scriptRuntimes: EndpointExecutor.CreateScriptRuntimes(scriptsEnabled: true));
+
+        var resource = ParseJson("""{"slug":"hello","runtime":"javascript","script":"const a = 1;\nconst b = ;\n"}""");
+        var result = await handler.SaveOwnerResourceAsync(1, "proj-1", "endpoint", resource, CancellationToken.None);
+
+        Assert.Equal(400, result.StatusCode);
+        Assert.Equal("PREFLIGHT_VALIDATION_FAILED", result.PublicErrorCode);
+        Assert.Empty(store.Endpoints);
+        var json = JsonSerializer.SerializeToElement(result.Body);
+        Assert.False(json.GetProperty("ok").GetBoolean());
+    }
+
+    [SkippableFact]
+    public async Task PutEndpoints_BrokenScript_RefusesWholeRequestAndWritesNothing()
+    {
+        var store = new InMemoryNetworkStorageStore();
+        var handler = new ManagementMutationHandler(
+            new FakeKeyResolver("sk-valid", "proj-1"),
+            new FakeWorkspace("proj-1"),
+            store,
+            TimeProvider.System,
+            endpointExecutor: null,
+            scriptRuntimes: EndpointExecutor.CreateScriptRuntimes(scriptsEnabled: true));
+
+        var body = """
+        [{"slug":"get-leaderboard","method":"GET","enabled":true,"definition":{"type":"leaderboard"}},
+         {"slug":"hello","method":"GET","enabled":true,"sourcePath":"hello.endpoint.js","runtime":"javascript","script":"const a = 1;\nconst b = ;\n"}]
+        """;
+        var result = await handler.ExecuteAsync(
+            BuildRequest("PUT", "proj-1", apiKey: "sk-valid", routeSuffix: "endpoints", body: body));
+
+        Assert.Equal(400, result.StatusCode);
+        Assert.Equal("VALIDATION_FAILED", result.PublicErrorCode);
+        Assert.Empty(result.IntendedWritePaths);
+        Assert.Empty(store.Endpoints);
+
+        var json = JsonSerializer.SerializeToElement(result.Body);
+        Assert.False(json.GetProperty("ok").GetBoolean());
+        var flat = Assert.Single(json.GetProperty("diagnostics").EnumerateArray());
+        Assert.Equal("SCRIPT_SYNTAX", flat.GetProperty("code").GetString());
+        Assert.Equal("hello", flat.GetProperty("resourceId").GetString());
+        Assert.Equal("hello.endpoint.js", flat.GetProperty("file").GetString());
+        Assert.Equal(2, flat.GetProperty("line").GetInt32());
+    }
+
+    [SkippableFact]
+    public async Task PatchEndpoint_BrokenScript_IsRefusedAndWritesNothing()
+    {
+        var store = new InMemoryNetworkStorageStore();
+        var handler = new ManagementMutationHandler(
+            new FakeKeyResolver("sk-valid", "proj-1"),
+            new FakeWorkspace("proj-1"),
+            store,
+            TimeProvider.System,
+            endpointExecutor: null,
+            scriptRuntimes: EndpointExecutor.CreateScriptRuntimes(scriptsEnabled: true));
+
+        var body = """{"slug":"hello","sourcePath":"hello.endpoint.js","runtime":"javascript","script":"const a = 1;\nconst b = ;\n"}""";
+        var result = await handler.ExecuteAsync(
+            BuildRequest("PATCH", "proj-1", apiKey: "sk-valid", routeSuffix: "endpoints", body: body));
+
+        Assert.Equal(400, result.StatusCode);
+        Assert.Equal("VALIDATION_FAILED", result.PublicErrorCode);
+        Assert.Empty(result.IntendedWritePaths);
+        Assert.Empty(store.Endpoints);
+
+        var json = JsonSerializer.SerializeToElement(result.Body);
+        Assert.False(json.GetProperty("ok").GetBoolean());
+        var flat = Assert.Single(json.GetProperty("diagnostics").EnumerateArray());
+        Assert.Equal("SCRIPT_SYNTAX", flat.GetProperty("code").GetString());
+        Assert.Equal("hello.endpoint.js", flat.GetProperty("file").GetString());
+        Assert.Equal(2, flat.GetProperty("line").GetInt32());
+    }
+
+    [SkippableFact]
+    public async Task PatchEndpoint_ValidScript_IsStored()
+    {
+        var store = new InMemoryNetworkStorageStore();
+        var handler = new ManagementMutationHandler(
+            new FakeKeyResolver("sk-valid", "proj-1"),
+            new FakeWorkspace("proj-1"),
+            store,
+            TimeProvider.System,
+            endpointExecutor: null,
+            scriptRuntimes: EndpointExecutor.CreateScriptRuntimes(scriptsEnabled: true));
+
+        var body = """{"slug":"caller","runtime":"javascript","script":"export default function handle() { return { ok: true }; }\n"}""";
+        var result = await handler.ExecuteAsync(
+            BuildRequest("PATCH", "proj-1", apiKey: "sk-valid", routeSuffix: "endpoints", body: body));
+
+        Assert.Equal(200, result.StatusCode);
+        Assert.Single(store.Endpoints);
     }
 
     [SkippableFact]
@@ -978,6 +1251,8 @@ public abstract class NetworkStorageManagementMutationTests<TFactory> : IClassFi
         public Task<bool> IsLegacyPlayerProjectionsEnabledAsync(string projectId, CancellationToken ct) => Task.FromResult(false);
 
         public Task<bool> IsWebhookOutboxEnabledAsync(string projectId, CancellationToken ct) => Task.FromResult(false);
+
+        public Task<EndpointFetchPolicy> GetEndpointFetchPolicyAsync(string projectId, CancellationToken ct) => Task.FromResult(EndpointFetchPolicy.Closed);
 
         public Task WriteGlobalRecordAsync(
             string projectId, string collectionId, string recordId,

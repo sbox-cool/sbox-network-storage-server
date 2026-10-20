@@ -130,7 +130,8 @@ public sealed class LayoutMigratorTests : IDisposable
         Assert.Equal(9100, after.GetInteger("tunnel.local_port"));
         var created = new List<string>();
         Assert.Equal("session-secret", ServerSecrets.EnsureAndLoad(after, created.Add).AuthSessionSecret);
-        Assert.Empty(created);
+        // The request-encryption keyring is new in this release: it is the only secret generated here.
+        Assert.EndsWith("request_encryption_keys.json", Assert.Single(created));
     }
 
     [TunnelOperatingSystemTests.UnixFact]
@@ -374,7 +375,8 @@ public sealed class LayoutMigratorTests : IDisposable
         Assert.Equal(config.ConfigDirectory, config.RuntimeDirectory);
         var created = new List<string>();
         var secrets = ServerSecrets.EnsureAndLoad(config, created.Add);
-        Assert.Empty(created);
+        // The request-encryption keyring is new in this release: it is the only secret generated here.
+        Assert.EndsWith("request_encryption_keys.json", Assert.Single(created));
         Assert.Equal("session-secret", secrets.AuthSessionSecret);
         Assert.Equal("identity", File.ReadAllText(TunnelManager.IdentityPath(config)));
 

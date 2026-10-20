@@ -485,6 +485,38 @@ public sealed class ManagementSyncToolParityTests
     }
 
     [Fact]
+    public async Task SettingsPutPreservesV2ModeUnlessEncryptionIsExplicitlyChanged()
+    {
+        using var factory = new SqliteHostFactory();
+        var project = await factory.CreateProjectAsync("V2 management settings");
+        using var client = factory.CreateClient();
+        var p = project.ProjectId;
+
+        var enabled = await SendAsync(client, SyncTool(HttpMethod.Put, p, "settings", project,
+            """{"encryptedRequestMode":"v2-required","enableEncryptedRequests":false}"""));
+        Assert.Equal(HttpStatusCode.OK, enabled.Status);
+        Assert.True(enabled.Body.GetProperty("settings").GetProperty("enableEncryptedRequests").GetBoolean());
+        Assert.Equal("v2-required", enabled.Body.GetProperty("settings").GetProperty("encryptedRequestMode").GetString());
+
+        var unrelated = await SendAsync(client, SyncTool(HttpMethod.Put, p, "settings", project,
+            """{"revisionNotifyMessage":"Update available"}"""));
+        Assert.Equal(HttpStatusCode.OK, unrelated.Status);
+        Assert.Equal("v2-required", unrelated.Body.GetProperty("settings").GetProperty("encryptedRequestMode").GetString());
+
+        var invalid = await SendAsync(client, SyncTool(HttpMethod.Put, p, "settings", project,
+            """{"encryptedRequestMode":"v2_required"}"""));
+        Assert.Equal(HttpStatusCode.BadRequest, invalid.Status);
+        var unchanged = await SendAsync(client, SyncTool(HttpMethod.Get, p, "settings", project));
+        Assert.Equal("v2-required", unchanged.Body.GetProperty("settings").GetProperty("encryptedRequestMode").GetString());
+
+        var legacy = await SendAsync(client, SyncTool(HttpMethod.Put, p, "settings", project,
+            """{"enableEncryptedRequests":true}"""));
+        Assert.Equal(HttpStatusCode.OK, legacy.Status);
+        Assert.True(legacy.Body.GetProperty("settings").GetProperty("enableEncryptedRequests").GetBoolean());
+        Assert.False(legacy.Body.GetProperty("settings").TryGetProperty("encryptedRequestMode", out _));
+    }
+
+    [Fact]
     public async Task SuggestTestsBuildsCasesForAStoredEndpointAndRejectsBadRequests()
     {
         using var factory = new SqliteHostFactory();

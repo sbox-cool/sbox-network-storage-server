@@ -80,17 +80,130 @@ The second argument. Its type is `Ns` in `ns.d.ts`.
 | `ns.workflows.run(id, input)` | Runs a workflow of this project and returns its result. See [Legacy workflows](#legacy-workflows). |
 | `ns.now()` | Server time in milliseconds since the Unix epoch. |
 | `ns.log(value)` | Keeps a line for this request, capped by `MaxLogBytes`. Endpoint tests and the owner's error detail show the lines when the call fails. Successful live calls do not keep them, and lines are not written to the server log. |
+| `ns.fetch(url, options?)` | Calls an outside HTTP or HTTPS host. The result is `null` on the first run of the handler; see [Outbound HTTP](#outbound-http-nsfetch). |
 | `ns.fail(code, message, status?)` | Ends the request with a typed error. |
 
 Writes made by a script apply when the endpoint returns normally. A request
 that ends with `ns.fail` does not keep its writes.
+
+## Outbound HTTP: `ns.fetch`
+
+`ns.fetch(url, options?)` calls an outside HTTP or HTTPS host. The owner lists the allowed hosts for each project under **Script fetch (ns.fetch)** ([admin-panel.md](admin-panel.md#script-fetch-nsfetch)). A project with no listed host refuses every call. The operator setting `endpoints.fetch_private_networks` is in [configuration.md](configuration.md#scripted-endpoints). The types `FetchOptions`, `FetchResponse` and `FetchError` are in [`ns.d.ts`](/owner-assets/endpoint-api/ns.d.ts).
+
+```js
+export default function handle(req, ns) {
+  let res;
+  try {
+    res = ns.fetch("https://api.example.com/v1/rank", {
+      method: "POST",
+      body: { steamId: req.player === null ? null : req.player.steamId },
+      timeoutMs: 3000,
+    });
+  } catch (error) {
+    if (error.code === "FETCH_BLOCKED") return { rank: null };
+    throw error; // rethrown: the request answers 502 with the error's code
+  }
+  if (res === null) return null; // first run: the handler runs again with the response
+  return { rank: res.ok && res.json !== null ? res.json.rank : null };
+}
+```
+
+### Calls run in rounds
+
+A call returns `null` until its request has finished. On the first run the handler gets `null` from every new call. The server then sends the queued requests and runs the handler again. The re-run gets each stored response and sends no second request. So:
+
+- Code after a call must handle `null`. The first run may throw on it; that run's result is discarded.
+- Writes and the response come from the final run only.
+- Each round that waits on `ns.fetch` counts toward the re-run limit that store reads share (see [Limits](#limits)). The network wait is not script time.
+
+### Request and response
+
+| Part | Rule |
+| --- | --- |
+| `url` | Absolute `http` or `https` URL with no user name or password, at most 2,048 characters. |
+| `method` | `GET`, `HEAD`, `POST`, `PUT`, `PATCH` or `DELETE`. Default `GET`. The type is uppercase; lowercase also works at run time. |
+| `headers` | An object of strings. At most 32 headers, each value at most 4 KiB, no CR, LF or NUL. These names are refused: `host`, `content-length`, `transfer-encoding`, `connection`, `upgrade`, `expect`, `te`, `trailer`, `keep-alive`, and any `proxy-*`. |
+| `body` | A string, an object or an array, at most 64 KiB. An object or array is sent as JSON with `content-type: application/json`, unless `headers` sets `content-type`. `GET` and `HEAD` take no body. |
+| `timeoutMs` | A number, rounded and clamped to 100 to 10,000. Default 5,000. |
+
+An option name other than `method`, `headers`, `body` or `timeoutMs` is refused as `FETCH_INVALID_REQUEST`.
+
+The response is a `FetchResponse`:
+
+- `status`: the HTTP status.
+- `ok`: true for 200 to 299.
+- `headers`: names in lowercase. A repeated header is joined with `, `.
+- `body`: the text, decoded as UTF-8. Empty for `HEAD`.
+- `json`: the parsed body, or `null` when it is not JSON.
+
+The response body is at most 256 KiB. The server follows redirects for 301, 302, 303, 307 and 308, up to 5 hops. A 303 turns any method except GET and HEAD into GET, and a 301 or 302 does the same for POST. A converted request sends no body and drops the `content-*` headers. A cross-origin hop drops `authorization`, `cookie` and `proxy-authorization`. Every hop repeats the allow-list and address checks.
+
+### Allow-list and address rules
+
+Checks run in this order:
+
+1. **An IP literal** (for example `https://10.0.0.5/`). The address rules run first, so a blocked address is refused even when it is listed. An allowed address still needs an exact entry in the list, unless the project allows every public host.
+2. **A host name.** The allow-list runs first. Then the server resolves the name and checks every address it gets back. One blocked address refuses the call.
+
+Allow-list entries:
+
+- `api.example.com` matches that host. `*.example.com` matches any subdomain at any depth, but not `example.com` itself.
+- Entries are host names only, lowercased, with a trailing dot removed. The port of the URL is not part of the match.
+- A list holds at most 100 entries of at most 253 characters each.
+- An IP-literal entry matches that exact address and still goes through the address rules.
+- With **Allow every public host** on, the list is not read. The address rules still apply.
+
+Address rules apply to every resolved address on every hop:
+
+| Class | Ranges | Blocked | Reason |
+| --- | --- | --- | --- |
+| Metadata | `169.254.169.254`, `169.254.170.2`, `100.100.100.200`, `fd00:ec2::254` | Always | `metadata_address` |
+| Reserved and special-use | `0.0.0.0/8`, `192.0.0.0/24`, `192.0.2.0/24`, `198.18.0.0/15`, `198.51.100.0/24`, `203.0.113.0/24`, `224.0.0.0/4`, `240.0.0.0/4`, `::/96`, `100::/64`, `2001:db8::/32`, `ff00::/8` | Always | `reserved_address` |
+| Private, loopback and link-local | `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `100.64.0.0/10`, `127.0.0.0/8`, `169.254.0.0/16`, `::1/128`, `fc00::/7`, `fe80::/10`, `fec0::/10` | Unless `endpoints.fetch_private_networks` is true | `private_address` |
+
+An IPv4 address inside an IPv4-mapped IPv6 address, a NAT64 address (`64:ff9b::/96`) or a 6to4 address (`2002::/16`) is checked as IPv4. Metadata is checked before private, so `169.254.169.254` reports `metadata_address`.
+
+### Limits, errors and the 502 rule
+
+Per execution, across all rounds:
+
+- At most 5 calls are queued. A call counts when it is queued, including one the transport refuses later (a name that resolves to a blocked address, or a redirect to one). A call refused by the allow-list or by an IP-literal address rule is refused at once and does not count. Each call counts, even when it repeats an earlier URL.
+- `timeoutMs` defaults to 5,000 ms, clamped to 100 to 10,000 ms.
+
+A failed call throws a JavaScript `Error`. Its `message` starts with `ns.fetch:`, and its `code` is one of these:
+
+| Code | When |
+| --- | --- |
+| `FETCH_INVALID_REQUEST` | The URL, an option, a header or the body breaks a rule above. Nothing is sent and the call does not count. |
+| `FETCH_BLOCKED` | The allow-list or an address rule refuses the host. The message gives the reason. |
+| `FETCH_LIMIT_EXCEEDED` | A call beyond the fifth queued call. |
+| `FETCH_TIMEOUT` | No complete response within `timeoutMs`. |
+| `FETCH_RESPONSE_TOO_LARGE` | The response is larger than 256 KiB, by `Content-Length` or as it streams. |
+| `FETCH_FAILED` | A network error, or more than 5 redirects. |
+
+The script can catch these errors. If the uncaught error is an `ns.fetch` error, the request answers `502` with that code:
+
+```json
+{ "ok": false, "error": { "code": "FETCH_BLOCKED", "message": "An outbound request failed." } }
+```
+
+A caught error that the script does not rethrow does not change the response. Any other uncaught error answers `500 SCRIPT_ERROR`.
+
+### Diagnostics
+
+- **Try-it trace.** Each call adds a `fetch#N` step with `host`, `method`, `status`, `error` and `reason`.
+- **Live requests.** A refused call is reported to the owner's Errors page as `EndpointFetch.blocked` (status 502), with the host and reason as tags. Reports are throttled per project, endpoint, host and reason. A report is made even when the script caught the error and the response succeeded. Try-it runs are not reported. The owner's **Script fetch (ns.fetch)** card lists the refusals ([admin-panel.md](admin-panel.md#script-fetch-nsfetch)).
+
+### Not implemented yet
+
+`ns.secrets.get` is not implemented yet. The server has no project secrets store, so do not build on it.
 
 ## Scope, imports and globals
 
 `scope` says who can reach the script:
 
 - `scope: public` (the default). The endpoint is a public HTTP route like any
-  other endpoint. It can also be imported by other scripts.
+  other endpoint. Other scripts cannot import it.
 - `scope: global`. The endpoint is never a public route. A public call
   answers `404 ENDPOINT_NOT_FOUND`, the same as an unknown slug. Its exports
   are shared with other scripts.
@@ -125,6 +238,20 @@ import cycle reports `GLOBAL_CYCLE`, a missing global `GLOBAL_NOT_FOUND`, a
 missing export `GLOBAL_EXPORT_NOT_FOUND`, and module syntax outside the forms
 above `SCRIPT_MODULE_UNSUPPORTED`.
 
+Saving a global endpoint also checks the scripted endpoints that import it,
+and refuses the save if it would break one of them:
+
+- it disables the global (`enabled: false`): `GLOBAL_NOT_FOUND` on `enabled`;
+- it changes the global to `scope: public`: `GLOBAL_NOT_FOUND` on `scope`;
+- it removes an export that an importer names: `GLOBAL_EXPORT_NOT_FOUND` on `script`.
+
+The error names the importer. Fix the importer, or keep the export, then save
+the global again. A global whose own script does not check fails its own save,
+so nothing is compared with its importers. Namespace imports
+(`import * as bank from "globals/bank"`) are checked for a disabled or
+re-scoped global, but not for removed exports. Reads through `globals.<id>`
+are not checked at save time.
+
 ## Legacy workflows
 
 Workflows remain the step-based definitions that YAML endpoints use. Scripts
@@ -139,7 +266,7 @@ endpoints. Nested workflow calls stop at the workflow depth limit (see [Limits](
 An endpoint has either `script` or `steps`, never both. Setting both answers
 `SCRIPT_AND_STEPS` at save time.
 
-Save-time checks (script syntax, source size and runtime) run when the owner dashboard saves an endpoint. The Sync Tool, the package sync and the management push and patch paths store the definition as received and do not run them. A script with a syntax error that arrives through those paths is stored, and its first call fails with `SCRIPT_ERROR`.
+Save-time checks run when the owner dashboard saves an endpoint, and on the Sync Tool and endpoint writes: `PUT .../sync`, `PUT` and `POST .../endpoints`, and the single-resource `PATCH .../endpoints`. A write that carries a script the checks refuse is refused as a whole and stores nothing (see [Sync refusals](#sync-refusals)). A script that passes is stored as received. The package sync (`POST .../package-sync`) does not run these checks.
 
 ## TypeScript
 
@@ -166,17 +293,18 @@ Promises are bounded by the same time limit: a promise that does not settle befo
 
 | Limit | Default | When exceeded |
 | --- | --- | --- |
-| Time per request | 1 s, counted from the start of script work (includes store reads between rounds) | `SCRIPT_LIMIT_EXCEEDED` |
+| Time per request | 1 s, counted from the start of script work (includes store reads between rounds; waits for `ns.fetch` are not counted) | `SCRIPT_LIMIT_EXCEEDED` |
 | Statements per request | 1,000,000, across all engine entries and rounds | `SCRIPT_LIMIT_EXCEEDED` |
 | Memory per engine | 64 MiB (each round has its own engine) | `SCRIPT_LIMIT_EXCEEDED` |
 | Call depth per engine | 200 | `SCRIPT_LIMIT_EXCEEDED` |
-| Re-run rounds per request | 8 | `SCRIPT_LIMIT_EXCEEDED` |
+| Re-run rounds per request | 8. Store reads and `ns.fetch` waits share this count. | `SCRIPT_LIMIT_EXCEEDED` |
+| Outbound `ns.fetch` calls per request | 5 (see [Outbound HTTP](#outbound-http-nsfetch)) | `FETCH_LIMIT_EXCEEDED`, 502 when uncaught |
 | Workflow nesting and steps per request | depth 5, 10,000 steps | `SCRIPT_LIMIT_EXCEEDED` |
 | Record reads per request (record gets and lists, workflow definitions, global modules) | 64, across all rounds | `SCRIPT_LIMIT_EXCEEDED` |
 | Rows per collection scan | 1,000 | `SCAN_TOO_LARGE` (400), checked before any row is read |
 | Record writes and staged data per run | 1,000 writes and 1 MiB of record data | `SCRIPT_LIMIT_EXCEEDED`; the run's writes do not apply |
 | Concurrent scripted requests | one per processor on the server; two per project | A request waits up to `endpoints.script_gate.wait_ms` (default 2 s) for a free slot. Past that it is refused with `SCRIPT_BUSY` (429), `Retry-After`, and `retrySafe: true`, and it never runs. |
-| Script source | 64 KiB | Rejected when the owner dashboard saves it |
+| Script source | 64 KiB | Rejected when the owner dashboard saves it, and refused by a Sync Tool or endpoint push |
 | Response body | 256 KiB | `SCRIPT_LIMIT_EXCEEDED` |
 | Log output per run | 8 KiB | Lines past the cap are dropped and a `[log truncated]` line is kept. |
 
@@ -195,22 +323,37 @@ changing it.
 | `SCRIPT_LIMIT_EXCEEDED` | Run, 500 | A run limit was hit. See [Limits](#limits). |
 | `SCRIPTS_DISABLED` | Run, 503 | `endpoints.scripts` is off. |
 | `SCRIPT_BUSY` | Run, 429 | The server or the project stayed at its maximum number of scripted requests past the wait. Nothing ran, so resend the same request after `Retry-After` (`retrySafe: true`). |
+| `FETCH_*` | Run, 502 | An `ns.fetch` call failed and the script did not catch it. The codes are in [Outbound HTTP](#outbound-http-nsfetch). |
 | `ENDPOINT_NOT_FOUND` | Run, 404 | Unknown slug, or a `scope: global` endpoint called publicly. |
-| `SCRIPT_SYNTAX` | Save | The source cannot be parsed. Reports the line and column. |
+| `SCRIPT_SYNTAX` | Save, sync | The source cannot be parsed. Reports the line and column. |
 | `SCRIPT_AND_STEPS` | Save | An endpoint has both `script` and `steps`. |
 | `MISSING_SCRIPT` | Save | A scripted endpoint has no `script`. |
 | `SCRIPT_FILE_WITHOUT_SCRIPT` | Save | `scriptFile` is set but `script` is not. |
-| `SCRIPT_MODULE_UNSUPPORTED` | Save | Module syntax outside the supported forms. |
-| `GLOBAL_NOT_FOUND` | Save | An import names no enabled global endpoint. |
-| `GLOBAL_EXPORT_NOT_FOUND` | Save | A global endpoint does not export the imported name. |
-| `GLOBAL_CYCLE` | Save | Global imports form a cycle. |
+| `SCRIPT_TOO_LARGE` | Save, sync | The source is larger than the 64 KiB limit. Reported at `/script`. |
+| `SCRIPT_MODULE_UNSUPPORTED` | Save, sync | Module syntax outside the supported forms. |
+| `GLOBAL_NOT_FOUND` | Save, sync | An import names no enabled global endpoint. On a global save, also a scripted endpoint that imports a global the save disables or makes `scope: public`. |
+| `GLOBAL_EXPORT_NOT_FOUND` | Save, sync | A global endpoint does not export the imported name. On a global save, also a scripted endpoint that imports a name the save removes. |
+| `GLOBAL_CYCLE` | Save, sync | Global imports form a cycle. |
 | `SOURCE_COMPILE_FAILED` | Save | The endpoint source did not compile. |
 
-Sync preflight runs the syntax and module checks too. It reports `SCRIPT_SYNTAX` and `SCRIPT_MODULE_UNSUPPORTED` as warnings with the line and column. Preflight does not load the project's globals, so `GLOBAL_*` findings appear only when the owner saves.
+Sync preflight runs the same script checks as the sync write, with the batch's own globals included. Each code marked "Save, sync" above is an error in preflight, and any of them fails it with `PREFLIGHT_VALIDATION_FAILED` (400). Each finding carries `file`, and `line` and `column` where the parser reports them. Other findings stay warnings.
 
 `ns.fail` takes any code and a status from 400 to 499. The codes above are
 the server's own. Template codes, such as `AUTH_REQUIRED` or
 `INSUFFICIENT_COINS`, belong to the template and are listed with it.
+
+## Sync refusals
+
+A write that carries a scripted endpoint the checks refuse is refused as a whole. The checks are the ones marked "Save, sync" in [Typed error codes](#typed-error-codes). They run on `PUT .../sync`, `PUT` and `POST .../endpoints`, and `PATCH .../endpoints`. Nothing is written, not even the other items of the batch. An import of a global pushed in the same batch resolves, and an import of a stored global resolves against its stored definition.
+
+A refused write returns 400 `VALIDATION_FAILED`:
+
+- `ok` is `false`, and `source` is `"candidate"`.
+- `error` is `VALIDATION_FAILED`, and `message` says that nothing was written.
+- `diagnostics` lists every refused finding, with `code`, `severity` (`error`), `message`, `resourceKind`, `resourceId`, `sourcePath` (the JSON pointer, `/script`), `file`, and `line` and `column` where the parser reports them. `file` is the item's `sourcePath` from the push, when it has one.
+- `endpoints` is `{ ok, total, failed, results }`. Each failed endpoint in `results` has its `resourceId`, its own `error` and `message`, and its `diagnostics`.
+
+A sync preflight with the same finding returns 400 `PREFLIGHT_VALIDATION_FAILED`. Each finding is in the `diagnostics` of its item under `endpoints`, with the same fields. Preflight writes nothing.
 
 ## Templates
 
@@ -242,6 +385,9 @@ Editor/Network Storage/
   endpoints/daily-reward.endpoint.yml
   endpoints/daily-reward.endpoint.js
 ```
+
+`scope` travels in the definition too. A file with `scope: global` saves a
+global endpoint, and a file without `scope` saves a public one.
 
 `scriptFile` names the script file from the definition:
 

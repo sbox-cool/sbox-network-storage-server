@@ -83,7 +83,7 @@ internal static class ManagementAgentManifest
                     ["requireSboxAuth"] = project.RequireSboxAuth == true,
                     ["enableAuthSessions"] = project.EnableAuthSessions == true,
                     ["requireAuthSessions"] = project.RequireAuthSessions == true,
-                    ["enableEncryptedRequests"] = project.EnableEncryptedRequests == true,
+                    ["enableEncryptedRequests"] = EncryptedRequestModes.RequiresEncryption(project.EncryptedRequestMode),
                 },
                 ["revision"] = new JsonObject
                 {

@@ -1,5 +1,6 @@
 using SboxNetworkStorage.Application.NetworkStorage.Endpoints.Scripting;
 using System.Text.Json;
+using System.Diagnostics.CodeAnalysis;
 using System.Text.Json.Serialization;
 
 namespace SboxNetworkStorage.Infrastructure.NetworkStorage;
@@ -66,6 +67,15 @@ public static class NetworkStorageDefinitionValidator
 
     public static readonly string[] QueryTypes = ["leaderboard", "count", "sum", "average", "min", "max"];
 
+    /// <summary>
+    /// Codes that refuse a scripted endpoint's save: the source does not parse or is too large, uses a module form the
+    /// server cannot run, or imports a global that is missing, does not export the name, or imports back into a cycle.
+    /// </summary>
+    private static readonly HashSet<string> ScriptSaveRefusalCodes = new(StringComparer.Ordinal)
+    {
+        "SCRIPT_SYNTAX", "SCRIPT_TOO_LARGE", "SCRIPT_MODULE_UNSUPPORTED", "GLOBAL_CYCLE", "GLOBAL_NOT_FOUND", "GLOBAL_EXPORT_NOT_FOUND",
+    };
+
     /// <summary>Compiles a stored resource wrapper (source-backed or plain) and validates the result.</summary>
     public static IReadOnlyList<DefinitionDiagnostic> ValidateResource(
         JsonElement resource, string kind, DefinitionValidationContext context, out JsonElement compiled)
@@ -101,6 +111,44 @@ public static class NetworkStorageDefinitionValidator
         }
         return bag.Items;
     }
+
+    /// <summary>
+    /// True when a finding refuses the save of a scripted endpoint rather than advising. The Sync Tool refuses a batch on
+    /// these; its other findings are warnings that the push stores as given.
+    /// </summary>
+    public static bool RefusesScriptSave(DefinitionDiagnostic finding) =>
+        finding.IsError && ScriptSaveRefusalCodes.Contains(finding.Code);
+
+    /// <summary>
+    /// Analysed imports and exports of the enabled global endpoints among <paramref name="endpoints"/>. A global whose
+    /// source does not analyse is left out: its own save rejected it, so importers see it as missing.
+    /// </summary>
+    public static Dictionary<string, ScriptModuleInfo> ProjectGlobalModules(
+        IEnumerable<(string Id, JsonElement Definition)> endpoints, IReadOnlyList<IEndpointScriptRuntime> scriptRuntimes)
+    {
+        var modules = new Dictionary<string, ScriptModuleInfo>(StringComparer.Ordinal);
+        foreach (var (id, definition) in endpoints)
+        {
+            if (definition.ValueKind != JsonValueKind.Object) continue;
+            if (StringProperty(definition, "scope") != "global" || StringProperty(definition, "runtime") is not { } language) continue;
+            if (definition.TryGetProperty("enabled", out var enabled) && enabled.ValueKind == JsonValueKind.False) continue;
+            if (StringProperty(definition, "script") is not { } source) continue;
+            var engine = scriptRuntimes.FirstOrDefault(candidate => candidate.Language == language);
+            if (engine is null) continue;
+            try
+            {
+                modules[id] = ScriptModuleAnalysis.Analyze(engine.ToJavaScript(source));
+            }
+            catch (Exception ex) when (ex is ScriptModuleException or InvalidOperationException or Acornima.ParseErrorException)
+            {
+                // A global that does not analyse was rejected at its own save; importers see it as missing.
+            }
+        }
+        return modules;
+    }
+
+    private static string? StringProperty(JsonElement element, string name) =>
+        element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
 
     private static void ValidateEndpoint(JsonElement definition, DiagnosticBag bag, DefinitionValidationContext context)
     {
@@ -254,6 +302,81 @@ public static class NetworkStorageDefinitionValidator
             return false;
         }
         return Visit(module) ? path : null;
+    }
+
+    /// <summary>
+    /// Checks a global endpoint's proposed save against the stored scripted endpoints that import it. Each import the save
+    /// would break (the global is disabled, is no longer <c>scope: global</c>, or no longer exports the name) is an error on
+    /// the global's definition, naming the importer. Only those import failures are reported: the saved global's own checks
+    /// cover its imports and cycles. A proposed global whose script does not check or analyse is left to its own save, so
+    /// nothing is reported here.
+    /// </summary>
+    public static IReadOnlyList<DefinitionDiagnostic> ValidateGlobalImporters(
+        string globalId, JsonElement proposed, IReadOnlyList<(string Id, JsonElement Definition)> endpoints, DefinitionValidationContext context)
+    {
+        if (proposed.ValueKind != JsonValueKind.Object) return [];
+        var globals = new Dictionary<string, ScriptModuleInfo>(context.GlobalModules, StringComparer.Ordinal);
+        globals.Remove(globalId);
+        string path;
+        if (!IsGlobalScope(proposed))
+            path = "/scope";
+        else if (proposed.TryGetProperty("enabled", out var enabled) && enabled.ValueKind == JsonValueKind.False)
+            path = "/enabled";
+        else if (TryAnalyzeScript(proposed, context.ScriptRuntimes, out var module))
+        {
+            globals[globalId] = module;
+            path = "/script";
+        }
+        else
+            return [];
+
+        var findings = new List<DefinitionDiagnostic>();
+        foreach (var (importerId, definition) in endpoints)
+        {
+            if (importerId == globalId || !TryAnalyzeScript(definition, context.ScriptRuntimes, out var importer)) continue;
+            if (!importer.GlobalImports.Any(import => import.EndpointId == globalId)) continue;
+            var importerContext = new DefinitionValidationContext
+            {
+                HasProjectResources = true,
+                ResourceId = importerId,
+                ScriptRuntimes = context.ScriptRuntimes,
+                GlobalModules = globals,
+            };
+            // Only the imports of this global: an importer's unrelated break was there before this save.
+            var mention = $"{ScriptModuleAnalysis.GlobalPrefix}{globalId}, which";
+            foreach (var finding in Validate("endpoint", definition, importerContext))
+            {
+                if (finding.IsError && finding.Code is ("GLOBAL_NOT_FOUND" or "GLOBAL_EXPORT_NOT_FOUND") && finding.Message.Contains(mention, StringComparison.Ordinal))
+                    findings.Add(new DefinitionDiagnostic("error", finding.Code,
+                        $"Saving \"{globalId}\" would break an import in \"{importerId}\": {finding.Message}", path));
+            }
+        }
+        return findings;
+    }
+
+    /// <summary>
+    /// Analyses a scripted definition's module imports and exports. False when the definition has no script, its runtime
+    /// is not served here, or its source does not check.
+    /// </summary>
+    public static bool TryAnalyzeScript(JsonElement definition, IReadOnlyList<IEndpointScriptRuntime> runtimes, [NotNullWhen(true)] out ScriptModuleInfo? module)
+    {
+        module = null;
+        if (definition.ValueKind != JsonValueKind.Object
+            || !definition.TryGetProperty("runtime", out var runtime) || runtime.ValueKind != JsonValueKind.String
+            || !definition.TryGetProperty("script", out var script) || script.ValueKind != JsonValueKind.String)
+            return false;
+        var source = script.GetString()!;
+        var engine = runtimes.FirstOrDefault(candidate => candidate.Language == runtime.GetString());
+        if (engine is null || engine.Check(source).Count > 0) return false;
+        try
+        {
+            module = ScriptModuleAnalysis.Analyze(engine.ToJavaScript(source));
+            return true;
+        }
+        catch (ScriptModuleException)
+        {
+            return false;
+        }
     }
 
     private static void ValidateWorkflow(JsonElement definition, DiagnosticBag bag, DefinitionValidationContext context)

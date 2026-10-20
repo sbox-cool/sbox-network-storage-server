@@ -41,7 +41,7 @@ internal static class ManagementSettings
             ["requireAuthSessions"] = project.RequireAuthSessions == true,
             ["enableAuthSessions"] = project.EnableAuthSessions == true,
             ["authSessionTtlSeconds"] = project.AuthSessionTtlSeconds ?? DefaultAuthSessionTtlSeconds,
-            ["enableEncryptedRequests"] = project.EnableEncryptedRequests == true,
+            ["enableEncryptedRequests"] = EncryptedRequestModes.RequiresEncryption(project.EncryptedRequestMode),
             ["encryptedRequestWindowSeconds"] = project.EncryptedRequestWindowSeconds ?? 300,
             ["playerKeyMode"] = project.PlayerKeyMode ?? "player",
             ["revisionEnforcementEnabled"] = project.RevisionEnforcementEnabled == true,
@@ -64,6 +64,7 @@ internal static class ManagementSettings
         if (project.RevisionInGraceAction is { } inGraceAction) settings["revisionInGraceAction"] = inGraceAction;
         if (project.RevisionServerEnforcementEnabled == true) settings["revisionServerEnforcementEnabled"] = true;
         if (project.RevisionRetentionCount is { } retention) settings["revisionRetentionCount"] = retention;
+        if (EncryptedRequestModes.OffersV2(project.EncryptedRequestMode)) settings["encryptedRequestMode"] = project.EncryptedRequestMode;
         return settings;
     }
 
@@ -78,7 +79,10 @@ internal static class ManagementSettings
         if (Field(body, "enableAuthSessions") is { } authSessionsValue) updated = updated with { EnableAuthSessions = IsTruthy(authSessionsValue) };
         if (Field(body, "authSessionTtlSeconds") is { } ttlValue)
             updated = updated with { AuthSessionTtlSeconds = ClampInt(ParseIntLike(ttlValue), DefaultAuthSessionTtlSeconds, MinAuthSessionTtlSeconds, MaxAuthSessionTtlSeconds) };
-        if (Field(body, "enableEncryptedRequests") is { } encryptedValue) updated = updated with { EnableEncryptedRequests = IsTruthy(encryptedValue) };
+        if (Field(body, "encryptedRequestMode") is { } mode)
+            updated = updated with { EncryptedRequestMode = mode.GetString()! };
+        else if (Field(body, "enableEncryptedRequests") is { } encryptedValue)
+            updated = updated with { EncryptedRequestMode = IsTruthy(encryptedValue) ? EncryptedRequestModes.V1 : EncryptedRequestModes.Off };
         if (Field(body, "encryptedRequestWindowSeconds") is { } windowValue)
             updated = updated with { EncryptedRequestWindowSeconds = ClampInt(ParseIntLike(windowValue), DefaultEncryptedRequestWindowSeconds, MinEncryptedRequestWindowSeconds, MaxEncryptedRequestWindowSeconds) };
         if (Field(body, "playerKeyMode") is { } keyModeValue && IsOneOf(keyModeValue, "player", "playerSave"))
@@ -118,7 +122,6 @@ internal static class ManagementSettings
         {
             EnableAuthSessions = updated.EnableAuthSessions == true,
             AuthSessionTtlSeconds = ClampInt(updated.AuthSessionTtlSeconds, DefaultAuthSessionTtlSeconds, MinAuthSessionTtlSeconds, MaxAuthSessionTtlSeconds),
-            EnableEncryptedRequests = updated.EnableEncryptedRequests == true,
             EncryptedRequestWindowSeconds = ClampInt(updated.EncryptedRequestWindowSeconds, DefaultEncryptedRequestWindowSeconds, MinEncryptedRequestWindowSeconds, MaxEncryptedRequestWindowSeconds),
             PlayerKeyMode = updated.PlayerKeyMode ?? "player",
         };

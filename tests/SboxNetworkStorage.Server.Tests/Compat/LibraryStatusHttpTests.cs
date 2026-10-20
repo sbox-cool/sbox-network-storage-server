@@ -99,7 +99,7 @@ public abstract class LibraryStatusHttpTests<TFactory> : IClassFixture<TFactory>
         var library = compat.GetProperty("library");
         Assert.Equal("1.1.0", library.GetProperty("minimum").GetString());
         Assert.Equal("1.1.0", library.GetProperty("recommended").GetString());
-        Assert.Equal("1.1.0", library.GetProperty("latest").GetString());
+        Assert.Equal("1.2.0", library.GetProperty("latest").GetString());
         Assert.Equal("supported", library.GetProperty("legacy").GetString());
         Assert.Equal(JsonValueKind.Array, library.GetProperty("deprecated").ValueKind);
         Assert.Equal(JsonValueKind.Array, library.GetProperty("blocked").ValueKind);

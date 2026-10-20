@@ -182,7 +182,12 @@ handlers can supply the library version (`networkStorageVersion`,
 body fallback enriches telemetry, not authentication or a pre-handler
 enforcement decision. No additional body buffering/parsing is needed. Existing
 response bodies are unchanged except the additive `compat` object in
-`/api/server-info` (also `/v3/server-info`).
+`/api/server-info` (also `/v3/server-info`). One change is not additive: a Sync
+Tool or endpoint write whose script the server refuses is now refused with 400
+`VALIDATION_FAILED`, and nothing is written, where it was stored before. Sync
+preflight fails with `PREFLIGHT_VALIDATION_FAILED` for the same scripts. The
+refusal body adds a top-level `diagnostics` array with the file, line and column;
+see [Sync refusals](endpoints-javascript.md#sync-refusals).
 
 The project's Errors tab captures the same request identity (library/context,
 package revision and game revision). Errors raised outside an HTTP request have

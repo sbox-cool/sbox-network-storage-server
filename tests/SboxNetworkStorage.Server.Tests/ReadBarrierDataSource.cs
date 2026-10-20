@@ -1,4 +1,5 @@
 using SboxNetworkStorage.Application.NetworkStorage.Endpoints;
+using SboxNetworkStorage.Application.NetworkStorage.Endpoints.Scripting;
 using SboxNetworkStorage.Infrastructure.NetworkStorage.Storage;
 
 namespace SboxNetworkStorage.Server.Tests;
@@ -50,4 +51,6 @@ internal sealed class ReadBarrierDataSource(StoreEndpointDataSource inner, int p
         => inner.IsLegacyPlayerProjectionsEnabledAsync(projectId, ct);
     public Task<bool> IsWebhookOutboxEnabledAsync(string projectId, CancellationToken ct)
         => inner.IsWebhookOutboxEnabledAsync(projectId, ct);
+    public Task<EndpointFetchPolicy> GetEndpointFetchPolicyAsync(string projectId, CancellationToken ct)
+        => inner.GetEndpointFetchPolicyAsync(projectId, ct);
 }

@@ -11,18 +11,12 @@ using SboxNetworkStorage.Infrastructure.NetworkStorage.Storage;
 namespace SboxNetworkStorage.Infrastructure.NetworkStorage;
 
 /// <summary>
-/// Native handler for management mutation routes under <c>/v3/manage/:projectId/*</c>.
-/// Performs real store writes when invoked from a production native route
-/// (<c>SuppressSideEffects = false</c>); returns a legacy-compatible dry-run diagnostic
-/// when invoked from the dry-run pipeline (<c>SuppressSideEffects = true</c>).
+/// Constants shared by the native management mutation handler.
 /// </summary>
 internal static class ManagementMutationConstants
 {
     /// <summary>Base CDN path segment for user/project resource files.</summary>
     public const string UserStoragePrefix = "network-storage/users";
-
-    /// <summary>Dry-run suppression reason string.</summary>
-    public const string WriteSuppressedReason = "write_suppressed_dry_run";
 
     /// <summary>Public error code for unsupported mutation routes.</summary>
     public const string NotImplementedCode = "MANAGEMENT_MUTATION_NOT_IMPLEMENTED";
@@ -253,11 +247,6 @@ public sealed partial class ManagementMutationHandler : INetworkStorageHandler
             "PUT:sync" => await PutSyncAsync(request, projectId, ownerUserId, "sync"),
 
             "POST:source-upgrade" => SourceUpgrade(request, auth.KeyType),
-
-            "POST:package-sync" => DryRunResult(ownerUserId, projectId, auth.KeyType,
-                $"{ManagementMutationConstants.UserStoragePrefix}/{ownerUserId}/{projectId}/game-package.json",
-                action: "package_sync", route: $"POST /v3/manage/{projectId}/package-sync",
-                resourceKind: "game-package"),
 
             "POST:auto-test" => await AutoTestAsync(request, projectId, ownerUserId, auth.KeyType),
 
@@ -542,6 +531,9 @@ public sealed partial class ManagementMutationHandler : INetworkStorageHandler
                     new { ok = false, error = "SETTING_NOT_STORED", message = $"'{unstored}' is not a setting this server stores." },
                     Array.Empty<string>(), Array.Empty<string>(), "allowed");
             }
+            if (body.TryGetProperty("encryptedRequestMode", out var mode)
+                && (mode.ValueKind != JsonValueKind.String || !EncryptedRequestModes.IsValid(mode.GetString())))
+                return ManagementRouteFailure(400, "VALIDATION_FAILED", "encryptedRequestMode must be off, v1, v2-preferred, or v2-required.");
 
             var updated = ManagementSettings.Apply(project, body);
             var list = projects.ToList();
@@ -600,6 +592,11 @@ public sealed partial class ManagementMutationHandler : INetworkStorageHandler
         if (validationError is not null)
         {
             return validationError;
+        }
+        var batch = BatchEndpointsFromItems(items);
+        if (await RefuseScriptErrorsAsync(projectId, batch, items.Count, request.CancellationToken) is { } refused)
+        {
+            return refused;
         }
 
         // Reference PUT endpoints?async=true: accept the payload now, write it in the background, poll sync-jobs.
@@ -946,6 +943,11 @@ public sealed partial class ManagementMutationHandler : INetworkStorageHandler
         {
             return ValidationFailedResult("project-sync", "Body must be an object with endpoints, collections, and/or workflows.");
         }
+        if (TryGetSection(root, "endpoints", out var pushedEndpoints) && pushedEndpoints.ValueKind == JsonValueKind.Array
+            && await RefuseScriptErrorsAsync(projectId, CompileBatchEndpoints(pushedEndpoints), pushedEndpoints.GetArrayLength(), request.CancellationToken) is { } refused)
+        {
+            return refused;
+        }
 
         var version = NextVersion();
         var response = new Dictionary<string, object?> { ["ok"] = true, ["source"] = "candidate" };
@@ -1149,6 +1151,9 @@ public sealed partial class ManagementMutationHandler : INetworkStorageHandler
         var failed = 0;
         var warnings = 0;
         var validation = new DefinitionValidationContext { ScriptRuntimes = _scriptRuntimes };
+        var batchGlobals = resourceKind == "endpoint"
+            ? ProjectGlobalsAfterBatch(existing, CompileBatchEndpoints(incoming))
+            : new Dictionary<string, ScriptModuleInfo>();
 
         foreach (var item in incoming.EnumerateArray())
         {
@@ -1179,7 +1184,9 @@ public sealed partial class ManagementMutationHandler : INetworkStorageHandler
                 results.Add(identifierError);
                 continue;
             }
+            var file = GetOptionalString(item, "sourcePath");
             var diagnostics = new List<object>();
+            var scriptErrors = 0;
             if (resourceKind == "collection")
             {
                 var name = GetOptionalString(definition, "name");
@@ -1200,30 +1207,42 @@ public sealed partial class ManagementMutationHandler : INetworkStorageHandler
             }
             else if (resourceKind is "endpoint" or "workflow")
             {
-                // The push path stores what it is given, as the hosted backend does, so these never fail
-                // preflight. Each one would fail when the resource runs (for example a condition with no
-                // check answers 400 ENDPOINT_ERROR.CONDITION), so say so before the game does.
-                foreach (var finding in NetworkStorageDefinitionValidator.Validate(resourceKind, definition, validation))
+                // A script the owner save refuses is an error: the Sync Tool refuses the batch on it and writes nothing.
+                // Other findings are warnings. The push stores what it is given, as the hosted backend does, and each
+                // one fails when the resource runs (for example a condition with no check answers 400
+                // ENDPOINT_ERROR.CONDITION), so say so before the game does.
+                var context = resourceKind == "endpoint"
+                    ? EndpointScriptContext(ResolveSyncId(resourceKind, definition) ?? resourceId, batchGlobals)
+                    : validation;
+                foreach (var finding in NetworkStorageDefinitionValidator.Validate(resourceKind, definition, context))
                 {
-                    // Import findings need the project's globals, which preflight does not load.
-                    if (!finding.IsError || finding.Code.StartsWith("GLOBAL_", StringComparison.Ordinal)) continue;
-                    warnings++;
-                    var diagnostic = new Dictionary<string, object?>
+                    if (!finding.IsError) continue;
+                    if (NetworkStorageDefinitionValidator.RefusesScriptSave(finding))
                     {
-                        ["severity"] = "warning",
-                        ["code"] = finding.Code,
-                        ["message"] = finding.Message,
-                        ["resourceKind"] = resourceKind,
-                        ["resourceId"] = resourceId,
-                        ["sourcePath"] = finding.Path,
-                    };
-                    if (finding.Line is { } errorLine)
-                    {
-                        diagnostic["line"] = errorLine;
-                        diagnostic["column"] = finding.Column;
+                        scriptErrors++;
+                        diagnostics.Add(SyncDiagnostic("error", finding, resourceKind, resourceId, file));
                     }
-                    diagnostics.Add(diagnostic);
+                    else
+                    {
+                        warnings++;
+                        diagnostics.Add(SyncDiagnostic("warning", finding, resourceKind, resourceId, file));
+                    }
                 }
+            }
+
+            if (scriptErrors > 0)
+            {
+                failed++;
+                results.Add(new
+                {
+                    ok = false,
+                    resourceKind,
+                    resourceId,
+                    error = ManagementMutationConstants.ValidationFailedCode,
+                    message = $"The script of {resourceKind} \"{resourceId}\" has errors the server refuses to save, so the push refuses the whole batch until they are fixed.",
+                    diagnostics,
+                });
+                continue;
             }
 
             var action = PreflightMatchesExisting(resourceKind, definition, existing) ? "would_update" : "would_create";
@@ -1240,6 +1259,135 @@ public sealed partial class ManagementMutationHandler : INetworkStorageHandler
             warnings,
             results,
         });
+    }
+
+    /// <summary>An endpoint of a Sync Tool batch, compiled: its store id, its definition, and the source file it names.</summary>
+    private sealed record BatchEndpoint(string Id, JsonElement Definition, string? SourcePath);
+
+    /// <summary>
+    /// The batch's endpoints as the write stores them. An item that does not compile or has no id is left out here;
+    /// its own result reports the problem.
+    /// </summary>
+    private static List<BatchEndpoint> CompileBatchEndpoints(JsonElement endpoints)
+    {
+        var batch = new List<BatchEndpoint>();
+        foreach (var item in endpoints.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.Object) continue;
+            if (!NetworkStorageSourceResourceCompiler.TryCompile(item, "endpoint", out var definition, out _)) continue;
+            if (ResolveSyncId("endpoint", definition) is not { } id) continue;
+            batch.Add(new BatchEndpoint(id, definition, GetOptionalString(item, "sourcePath")));
+        }
+        return batch;
+    }
+
+    /// <summary>
+    /// The endpoints of a per-resource push as the write stores them. Each item is the definition, and its id is the first
+    /// of id, slug or name that is set, as UpsertResourceArrayAsync resolves it.
+    /// </summary>
+    private static List<BatchEndpoint> BatchEndpointsFromItems(IEnumerable<JsonElement> items)
+    {
+        var batch = new List<BatchEndpoint>();
+        foreach (var item in items)
+        {
+            var id = GetOptionalString(item, "id") ?? GetOptionalString(item, "slug") ?? GetOptionalString(item, "name");
+            if (string.IsNullOrWhiteSpace(id)) continue;
+            batch.Add(new BatchEndpoint(id, item, GetOptionalString(item, "sourcePath")));
+        }
+        return batch;
+    }
+
+    /// <summary>
+    /// The project's globals as a batch leaves them: the stored endpoints, each one the batch replaces swapped for its
+    /// incoming definition. An import of a global pushed in the same batch therefore resolves.
+    /// </summary>
+    private IReadOnlyDictionary<string, ScriptModuleInfo> ProjectGlobalsAfterBatch(
+        IEnumerable<JsonElement> storedEndpoints, IReadOnlyList<BatchEndpoint> batch)
+    {
+        var endpoints = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
+        foreach (var row in storedEndpoints)
+            if (GetOptionalString(row, "endpoint_id") is { } id && RevisionOverlay.DefinitionColumn(row) is { } definition)
+                endpoints[id] = definition;
+        foreach (var endpoint in batch)
+            endpoints[endpoint.Id] = endpoint.Definition;
+        return NetworkStorageDefinitionValidator.ProjectGlobalModules(
+            endpoints.Select(pair => (pair.Key, pair.Value)), _scriptRuntimes);
+    }
+
+    /// <summary>
+    /// The validation context for one endpoint of a batch: the batch's and the project's globals, minus the endpoint itself.
+    /// </summary>
+    private DefinitionValidationContext EndpointScriptContext(string id, IReadOnlyDictionary<string, ScriptModuleInfo> globals) => new()
+    {
+        ScriptRuntimes = _scriptRuntimes,
+        ResourceId = id,
+        GlobalModules = globals.Where(pair => pair.Key != id).ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal),
+    };
+
+    /// <summary>One finding as the Sync Tool reports it: severity, code, message, JSON path, and file, line and column when known.</summary>
+    private static Dictionary<string, object?> SyncDiagnostic(
+        string severity, DefinitionDiagnostic finding, string resourceKind, string resourceId, string? file)
+    {
+        var diagnostic = new Dictionary<string, object?>
+        {
+            ["severity"] = severity,
+            ["code"] = finding.Code,
+            ["message"] = finding.Message,
+            ["resourceKind"] = resourceKind,
+            ["resourceId"] = resourceId,
+            ["sourcePath"] = finding.Path,
+        };
+        if (file is not null) diagnostic["file"] = file;
+        if (finding.Line is { } line)
+        {
+            diagnostic["line"] = line;
+            diagnostic["column"] = finding.Column;
+        }
+        return diagnostic;
+    }
+
+    /// <summary>
+    /// Refuses an endpoint write whose scripts the owner save would refuse. <paramref name="batch"/> is every endpoint
+    /// the write stores, compiled. It is checked before any section is written, so a refused write stores nothing, and an
+    /// import of a global in the same batch still resolves. <paramref name="total"/> is the number of items pushed.
+    /// </summary>
+    private async Task<NetworkStorageResult?> RefuseScriptErrorsAsync(string projectId, IReadOnlyList<BatchEndpoint> batch, int total, CancellationToken ct)
+    {
+        var globals = ProjectGlobalsAfterBatch(await _store.ListEndpointsAsync(projectId, ct), batch);
+        var failures = new List<object>();
+        var diagnostics = new List<Dictionary<string, object?>>();
+        foreach (var endpoint in batch)
+        {
+            var refusals = NetworkStorageDefinitionValidator
+                .Validate("endpoint", endpoint.Definition, EndpointScriptContext(endpoint.Id, globals))
+                .Where(NetworkStorageDefinitionValidator.RefusesScriptSave)
+                .Select(finding => SyncDiagnostic("error", finding, "endpoint", endpoint.Id, endpoint.SourcePath))
+                .ToList();
+            if (refusals.Count == 0) continue;
+            diagnostics.AddRange(refusals);
+            failures.Add(new
+            {
+                ok = false,
+                resourceKind = "endpoint",
+                resourceId = endpoint.Id,
+                error = ManagementMutationConstants.ValidationFailedCode,
+                message = $"The script of endpoint \"{endpoint.Id}\" has errors the server refuses to save.",
+                diagnostics = refusals,
+            });
+        }
+        if (failures.Count == 0) return null;
+
+        var response = new Dictionary<string, object?>
+        {
+            ["ok"] = false,
+            ["source"] = "candidate",
+            ["error"] = ManagementMutationConstants.ValidationFailedCode,
+            ["message"] = "Nothing was written. Fix the script errors below and push again.",
+            ["diagnostics"] = diagnostics,
+            ["endpoints"] = new { ok = false, total, failed = failures.Count, results = failures },
+        };
+        return new NetworkStorageResult(400, ManagementMutationConstants.ValidationFailedCode, response,
+            Array.Empty<string>(), Array.Empty<string>(), "allowed");
     }
 
     private static string PreflightResourceId(string resourceKind, JsonElement r, int index) => resourceKind switch
@@ -1542,66 +1690,6 @@ public sealed partial class ManagementMutationHandler : INetworkStorageHandler
                 error = new { code = ManagementMutationConstants.ValidationFailedCode, message }
             },
             authDecision: "allowed");
-
-    // ── Dry-run helpers ──
-
-    /// <summary>
-    /// Builds a successful dry-run result for a known mutation route.
-    /// </summary>
-    private static NetworkStorageResult DryRunResult(
-        long userId, string projectId, string authDecision,
-        string intendedWritePath,
-        string action, string route, string resourceKind)
-    {
-        return DryRunResult(userId, projectId, authDecision,
-            new[] { intendedWritePath }, action, route, resourceKind);
-    }
-
-    private static NetworkStorageResult DryRunResult(
-        long userId, string projectId, string authDecision,
-        string intendedWritePath1, string intendedWritePath2,
-        string action, string route, string resourceKind)
-    {
-        return DryRunResult(userId, projectId, authDecision,
-            new[] { intendedWritePath1, intendedWritePath2 },
-            action, route, resourceKind);
-    }
-
-    private static NetworkStorageResult DryRunResult(
-        long userId, string projectId, string authDecision,
-        string intendedWritePath1, string intendedWritePath2, string intendedWritePath3,
-        string action, string route, string resourceKind)
-    {
-        return DryRunResult(userId, projectId, authDecision,
-            new[] { intendedWritePath1, intendedWritePath2, intendedWritePath3 },
-            action, route, resourceKind);
-    }
-
-    private static NetworkStorageResult DryRunResult(
-        long userId, string projectId, string authDecision,
-        string[] intendedWritePaths,
-        string action, string route, string resourceKind)
-    {
-        var body = new Dictionary<string, object?>
-        {
-            ["ok"] = true,
-            ["source"] = "candidate",
-            ["reason"] = ManagementMutationConstants.WriteSuppressedReason,
-            ["route"] = route,
-            ["action"] = action,
-            ["resourceKind"] = resourceKind,
-            ["projectId"] = projectId,
-            ["IntendedWritePaths"] = intendedWritePaths,
-        };
-
-        return new NetworkStorageResult(
-            200,
-            null,
-            body,
-            StoragePathsRead: Array.Empty<string>(),
-            IntendedWritePaths: intendedWritePaths,
-            AuthDecision: authDecision);
-    }
 
     /// <summary>Extracts the resource name segment(s) from a management route template.</summary>
     private static string? ExtractResourcePath(NetworkStorageRouteClassification route)

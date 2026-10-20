@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using SboxNetworkStorage.Infrastructure.NetworkStorage;
 
 namespace SboxNetworkStorage.Server.Configuration;
 
@@ -19,6 +20,7 @@ public static class ServerSecrets
         var sessionPath = config.GetPath("auth.session_secret_file", config.RuntimeDirectory);
         var encryptionPath = config.GetPath("auth.storage_encryption_key_file", config.RuntimeDirectory);
         var signingPath = config.GetPath("auth.security_signing_key_file", config.RuntimeDirectory);
+        var keyringPath = config.GetPath("auth.request_encryption_keys_file", config.RuntimeDirectory);
 
         using var identity = RuntimeIdentity.Enter(config);
         config.EnsureRuntimeDirectory();
@@ -29,6 +31,7 @@ public static class ServerSecrets
             using var rsa = RSA.Create(2048);
             return rsa.ExportPkcs8PrivateKeyPem();
         }, onCreated);
+        RequestEncryptionKeyring.EnsureAndLoad(keyringPath, DateTimeOffset.UtcNow, onCreated);
 
         var encryptionKey = File.ReadAllText(encryptionPath).Trim();
         if (encryptionKey.Length < 64 || !encryptionKey[..64].All(Uri.IsHexDigit))

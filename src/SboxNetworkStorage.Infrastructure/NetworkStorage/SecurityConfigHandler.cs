@@ -13,11 +13,13 @@ public sealed class SecurityConfigHandler : INetworkStorageHandler
 {
     private readonly INetworkStorageStore _store;
     private readonly TimeProvider _timeProvider;
+    private readonly RequestEncryptionKeyStore _keyStore;
 
-    public SecurityConfigHandler(INetworkStorageStore store, TimeProvider timeProvider)
+    public SecurityConfigHandler(INetworkStorageStore store, TimeProvider timeProvider, RequestEncryptionKeyStore keyStore)
     {
         _store = store;
         _timeProvider = timeProvider;
+        _keyStore = keyStore;
     }
 
     public NetworkStorageRouteFamily Family => NetworkStorageRouteFamily.SecurityConfig;
@@ -68,7 +70,7 @@ public sealed class SecurityConfigHandler : INetworkStorageHandler
                 authDecision: "anonymous");
         }
 
-        var config = NetworkStorageSecurityConfigBuilder.Build(projectId, project.Value, _timeProvider.GetUtcNow());
+        var config = NetworkStorageSecurityConfigBuilder.Build(projectId, project.Value, _timeProvider.GetUtcNow(), _keyStore);
         return NetworkStorageResult.Ok(
             new
             {

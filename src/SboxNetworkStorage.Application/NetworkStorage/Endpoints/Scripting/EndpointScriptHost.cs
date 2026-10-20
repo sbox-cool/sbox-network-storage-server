@@ -65,7 +65,9 @@ public sealed class EndpointScriptHost
                 if (index < arguments.Length && arguments[index].ValueKind != JsonValueKind.Undefined)
                     values[index] = Convert(arguments[index], parameter.ParameterType, name, index);
                 else if (parameter.HasDefaultValue)
-                    values[index] = parameter.DefaultValue;
+                    values[index] = parameter.DefaultValue is null or DBNull
+                        ? (parameter.ParameterType.IsValueType ? Activator.CreateInstance(parameter.ParameterType) : null)
+                        : parameter.DefaultValue;
                 else
                     throw new ArgumentException($"{name} needs argument {index + 1}.");
             }
@@ -89,6 +91,8 @@ public sealed class EndpointScriptHost
             Failure ??= failure;
             return Envelope(false, null, failure.Message);
         }
+        if (error is ScriptFetchException fetch)
+            return Envelope(false, null, fetch.Message, fetch.Code);
         if (error is ScriptLimitExceededException limit)
         {
             Failure ??= new EndpointScriptFailureException(500, "SCRIPT_LIMIT_EXCEEDED", "The endpoint exceeded a limit.", limit.Message);
@@ -121,13 +125,14 @@ public sealed class EndpointScriptHost
         throw new InvalidOperationException($"Unsupported endpoint API parameter type {type.Name}.");
     }
 
-    private static string Envelope(bool ok, object? value, string? error)
-        => JsonSerializer.Serialize(new HostEnvelope(ok, value, error));
+    private static string Envelope(bool ok, object? value, string? error, string? code = null)
+        => JsonSerializer.Serialize(new HostEnvelope(ok, value, error, code));
 
     private sealed record HostEnvelope(
         [property: JsonPropertyName("ok")] bool Ok,
         [property: JsonPropertyName("value")] object? Value,
-        [property: JsonPropertyName("error")] string? Error);
+        [property: JsonPropertyName("error")] string? Error,
+        [property: JsonPropertyName("code"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Code);
 
     // ── Records ──────────────────────────────────────────────────────────────────────────────
 
@@ -229,6 +234,21 @@ public sealed class EndpointScriptHost
     /// endpoint of the project. Used by the module loader only; it is not a script API member.
     /// </summary>
     public string? GlobalModuleSource(string endpointId) => _bindings.GlobalSource(endpointId);
+
+    // ── Outbound HTTP ────────────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Sends an HTTP request to a host on this project's outbound allow-list (or to any public host when the owner
+    /// allows all public hosts). Returns <c>{status, ok, headers, body, json}</c>. A valid call whose result is not
+    /// loaded yet returns null, and the endpoint runs again with the result. A refused, failed or timed-out call throws
+    /// an error with a <c>code</c> that <c>try/catch</c> can read. Uncaught, it ends the request with status 502.
+    /// Private, loopback, link-local, reserved and cloud metadata addresses stay blocked, including through
+    /// redirects. Limits: 5 requests per execution, 64 KiB request body, 256 KiB response, timeout 5 s (100 ms to 10 s).
+    /// </summary>
+    /// <param name="url">Absolute http or https URL.</param>
+    /// <param name="options">Optional <c>{method, headers, body, timeoutMs}</c>.</param>
+    [ScriptApi("fetch")]
+    public object? Fetch(string url, JsonElement options = default) => _bindings.Fetch.Call(url, options);
 
     // ── Context and diagnostics ──────────────────────────────────────────────────────────────
 

@@ -423,12 +423,12 @@ public sealed class ManagementReadHandler : INetworkStorageHandler
     private Task<NetworkStorageResult> HandleSettingsAsync(
         WorkspaceProject project, long userId, string projectId, string authDecision)
     {
-        // Shared with PUT settings (ManagementSettings.View) so both routes return the same projection.
+        // Shared with PUT settings so both routes return the same projection.
         var settings = ManagementSettings.View(project);
 
         // legacy server structures for backward compatibility — settings and config carry the same data
         var enableAuthSessions = project.EnableAuthSessions == true;
-        var enableEncryptedRequests = project.EnableEncryptedRequests == true;
+        var enableEncryptedRequests = EncryptedRequestModes.RequiresEncryption(project.EncryptedRequestMode);
 
         var response = new Dictionary<string, object?>
         {

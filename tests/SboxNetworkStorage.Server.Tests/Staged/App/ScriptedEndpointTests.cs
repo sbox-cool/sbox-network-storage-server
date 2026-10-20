@@ -3,6 +3,8 @@ using Microsoft.Extensions.Logging;
 using SboxNetworkStorage.Application.NetworkStorage.Endpoints;
 using SboxNetworkStorage.Application.NetworkStorage.Endpoints.Scripting;
 using SboxNetworkStorage.Infrastructure.NetworkStorage;
+using SboxNetworkStorage.Server.Owner;
+using SboxNetworkStorage.Storage;
 
 namespace SboxNetworkStorage.Server.Tests.NetworkStorage;
 
@@ -977,6 +979,8 @@ public sealed class ScriptedEndpointExecutorTests
 
         public Task<bool> IsWebhookOutboxEnabledAsync(string projectId, CancellationToken ct) => Task.FromResult(false);
 
+        public Task<EndpointFetchPolicy> GetEndpointFetchPolicyAsync(string projectId, CancellationToken ct) => Task.FromResult(EndpointFetchPolicy.Closed);
+
         public Task WriteGlobalRecordAsync(string projectId, string collectionId, string recordId, IReadOnlyDictionary<string, object?> payload, CancellationToken ct)
             => Task.CompletedTask;
     }
@@ -1153,6 +1157,128 @@ public sealed class ScriptedEndpointValidationTests
         Assert.True(error.IsError);
         Assert.StartsWith("Line 1, column", error.Message);
     }
+
+    private const string ImportsCoinsOf = "import { coinsOf } from \"globals/bank\";\nexport default function handle() { return { ok: true, c: coinsOf() }; }";
+
+    [Fact]
+    public void GlobalSave_RemovingAnImportedExport_NamesTheBrokenImporter()
+    {
+        var importers = new[] { Importer("caller", ImportsCoinsOf) };
+        var proposed = JsonSerializer.SerializeToElement(Script("export function ownerOf() { return 1; }", scope: "global"));
+
+        var error = Assert.Single(NetworkStorageDefinitionValidator.ValidateGlobalImporters("bank", proposed, importers, ContextWith("bank")));
+
+        Assert.Equal("GLOBAL_EXPORT_NOT_FOUND", error.Code);
+        Assert.True(error.IsError);
+        Assert.Equal("/script", error.Path);
+        Assert.Contains("Saving \"bank\"", error.Message);
+        Assert.Contains("\"caller\"", error.Message);
+        Assert.Contains("\"coinsOf\"", error.Message);
+    }
+
+    [Fact]
+    public void GlobalSave_StillExportingTheImport_BreaksNothing()
+    {
+        var importers = new[] { Importer("caller", ImportsCoinsOf) };
+        var proposed = JsonSerializer.SerializeToElement(Script("export function coinsOf() { return 2; }", scope: "global"));
+
+        Assert.Empty(NetworkStorageDefinitionValidator.ValidateGlobalImporters("bank", proposed, importers, ContextWith("bank")));
+    }
+
+    [Fact]
+    public void GlobalSave_Disabled_BreaksItsImporterAtTheEnabledField()
+    {
+        var importers = new[] { Importer("caller", ImportsCoinsOf) };
+        var disabled = Script("export function coinsOf() { return 1; }", scope: "global");
+        disabled["enabled"] = false;
+
+        var error = Assert.Single(NetworkStorageDefinitionValidator.ValidateGlobalImporters("bank", JsonSerializer.SerializeToElement(disabled), importers, ContextWith("bank")));
+
+        Assert.Equal("GLOBAL_NOT_FOUND", error.Code);
+        Assert.Equal("/enabled", error.Path);
+        Assert.Contains("\"caller\"", error.Message);
+    }
+
+    [Fact]
+    public void GlobalSave_ChangedToPublic_BreaksItsImporterAtTheScopeField()
+    {
+        var importers = new[] { Importer("caller", ImportsCoinsOf) };
+        var proposed = JsonSerializer.SerializeToElement(Script("export function coinsOf() { return 1; }", scope: "public"));
+
+        var error = Assert.Single(NetworkStorageDefinitionValidator.ValidateGlobalImporters("bank", proposed, importers, ContextWith("bank")));
+
+        Assert.Equal("GLOBAL_NOT_FOUND", error.Code);
+        Assert.Equal("/scope", error.Path);
+    }
+
+    [Fact]
+    public void GlobalSave_ImporterOfAnotherGlobal_IsNotReported()
+    {
+        var importers = new[] { Importer("caller", "import { x } from \"globals/other\";\nexport default function handle() { return { ok: true, x: x() }; }") };
+        var proposed = JsonSerializer.SerializeToElement(Script("export function ownerOf() { return 1; }", scope: "global"));
+
+        Assert.Empty(NetworkStorageDefinitionValidator.ValidateGlobalImporters("bank", proposed, importers, ContextWith("bank")));
+    }
+
+    [Fact]
+    public void GlobalSave_ThatDoesNotCheck_IsLeftToItsOwnSave()
+    {
+        var importers = new[] { Importer("caller", ImportsCoinsOf) };
+        var proposed = JsonSerializer.SerializeToElement(Script("export function (", scope: "global"));
+
+        Assert.Empty(NetworkStorageDefinitionValidator.ValidateGlobalImporters("bank", proposed, importers, ContextWith("bank")));
+    }
+
+    [Fact]
+    public void GlobalSave_ImporterWithAnUnrelatedBreak_ReportsOnlyTheSavedGlobal()
+    {
+        var importers = new[] { Importer("caller", "import { coinsOf } from \"globals/bank\";\nimport { x } from \"globals/other\";\nexport default function handle() { return { ok: true, c: coinsOf(), x: x() }; }") };
+        var proposed = JsonSerializer.SerializeToElement(Script("export function ownerOf() { return 1; }", scope: "global"));
+
+        var error = Assert.Single(NetworkStorageDefinitionValidator.ValidateGlobalImporters("bank", proposed, importers, ContextWith("bank")));
+
+        Assert.Equal("GLOBAL_EXPORT_NOT_FOUND", error.Code);
+        Assert.Contains("\"coinsOf\"", error.Message);
+    }
+
+    [Fact]
+    public async Task OwnerSave_OfGlobalThatBreaksAnImporter_IsRefusedAndNamesTheImporter()
+    {
+        var store = new InMemoryNetworkStorageStore();
+        await store.UpsertEndpointAsync("p", "bank", "bank", "GET", true,
+            JsonSerializer.SerializeToElement(Script("export function coinsOf() { return 1; }", scope: "global")), null, 1, CancellationToken.None);
+        await store.UpsertEndpointAsync("p", "caller", "caller", "GET", true,
+            JsonSerializer.SerializeToElement(Script(ImportsCoinsOf)), null, 1, CancellationToken.None);
+        var resources = await OwnerProjectResources.LoadAsync(store, "p", CancellationToken.None);
+        var proposed = JsonSerializer.Serialize(new { id = "bank", scope = "global", runtime = "javascript", script = "export function renamed() { return 1; }" });
+
+        var diagnostics = OwnerResourceSource.Check("endpoint", proposed, "bank", resources, 1_000_000,
+            EndpointExecutor.CreateScriptRuntimes(scriptsEnabled: true), out _, out _);
+
+        var error = Assert.Single(diagnostics, item => item.IsError);
+        Assert.Equal("GLOBAL_EXPORT_NOT_FOUND", error.Code);
+        Assert.Contains("\"caller\"", error.Message);
+    }
+
+    [Fact]
+    public async Task OwnerSave_OfGlobalThatKeepsTheExport_IsAccepted()
+    {
+        var store = new InMemoryNetworkStorageStore();
+        await store.UpsertEndpointAsync("p", "bank", "bank", "GET", true,
+            JsonSerializer.SerializeToElement(Script("export function coinsOf() { return 1; }", scope: "global")), null, 1, CancellationToken.None);
+        await store.UpsertEndpointAsync("p", "caller", "caller", "GET", true,
+            JsonSerializer.SerializeToElement(Script(ImportsCoinsOf)), null, 1, CancellationToken.None);
+        var resources = await OwnerProjectResources.LoadAsync(store, "p", CancellationToken.None);
+        var proposed = JsonSerializer.Serialize(new { id = "bank", scope = "global", runtime = "javascript", script = "export function coinsOf() { return 2; }" });
+
+        var diagnostics = OwnerResourceSource.Check("endpoint", proposed, "bank", resources, 1_000_000,
+            EndpointExecutor.CreateScriptRuntimes(scriptsEnabled: true), out _, out _);
+
+        Assert.DoesNotContain(diagnostics, item => item.IsError);
+    }
+
+    private static (string Id, JsonElement Definition) Importer(string id, string source) =>
+        (id, JsonSerializer.SerializeToElement(Script(source)));
 
     private static DefinitionValidationContext ContextWith(string resourceId, params (string Id, string Source)[] globals) => new()
     {

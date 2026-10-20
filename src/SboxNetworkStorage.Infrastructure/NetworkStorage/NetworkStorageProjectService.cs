@@ -9,6 +9,7 @@ using SboxNetworkStorage.Application.NetworkStorage;
 using SboxNetworkStorage.Application.NetworkStorage.GameLogs;
 using SboxNetworkStorage.Application.NetworkStorage.Media;
 using SboxNetworkStorage.Contracts.NetworkStorage;
+using SboxNetworkStorage.Application.NetworkStorage.Endpoints.Scripting;
 using SboxNetworkStorage.Application.Workspace;
 using SboxNetworkStorage.Domain.Workspace;
 using Microsoft.Extensions.Configuration;
@@ -509,7 +510,9 @@ public sealed class NetworkStorageProjectService(
                         EnableAuthSessions = IsChecked(formValues.GetValueOrDefault("enableAuthSessions")),
                         RequireAuthSessions = IsChecked(formValues.GetValueOrDefault("requireAuthSessions")),
                         AuthSessionTtlSeconds = ParseIntOrDefault(formValues.GetValueOrDefault("authSessionTtlSeconds"), 3600, 60, 86400),
-                        EnableEncryptedRequests = IsChecked(formValues.GetValueOrDefault("enableEncryptedRequests")),
+                        EncryptedRequestMode = formValues.GetValueOrDefault("encryptedRequestMode") is { } postedMode && EncryptedRequestModes.IsValid(postedMode)
+                            ? postedMode
+                            : project.EncryptedRequestMode,
                         EncryptedRequestWindowSeconds = ParseIntOrDefault(formValues.GetValueOrDefault("encryptedRequestWindowSeconds"), 120, 30, 600)
                     };
                     break;
@@ -562,19 +565,36 @@ public sealed class NetworkStorageProjectService(
                 }
             case "analytics":
                 {
-                    var analytics = new Dictionary<string, object>
-                    {
-                        ["enabled"] = IsChecked(formValues.GetValueOrDefault("analyticsEnabled")),
-                        ["captureSessions"] = IsChecked(formValues.GetValueOrDefault("captureSessions")),
-                        ["captureEndpoints"] = IsChecked(formValues.GetValueOrDefault("captureEndpoints")),
-                        ["captureStorage"] = IsChecked(formValues.GetValueOrDefault("captureStorage"))
-                    };
+                    // Merge into the stored object. The form-managed keys are written explicitly (an unchecked
+                    // box is absent from the post); keys this form does not manage are kept.
+                    var analytics = project.Analytics is null
+                        ? new Dictionary<string, object>()
+                        : new Dictionary<string, object>(project.Analytics);
+                    analytics["enabled"] = IsChecked(formValues.GetValueOrDefault("analyticsEnabled"));
+                    analytics["captureSessions"] = IsChecked(formValues.GetValueOrDefault("captureSessions"));
+                    analytics["managedLibraryEvents"] = IsChecked(formValues.GetValueOrDefault("managedLibraryEvents"));
+                    analytics["allowedEventTypes"] = PlayerAnalyticsAllowedEvents.ParseForm(formValues.GetValueOrDefault("analyticsAllowedEventTypes"))
+                        ?? PlayerAnalyticsAllowedEvents.ReadStored(JsonSerializer.SerializeToNode(project.Analytics));
                     project = project with { Analytics = analytics };
                     break;
                 }
             case "media":
                 {
                     project = project with { Media = BuildMediaSettings(project.Media, formValues) };
+                    break;
+                }
+            case "fetch":
+                {
+                    project = project with
+                    {
+                        FetchAllowedHosts = FetchPolicyForm.ParseAllowList(formValues.GetValueOrDefault("fetchAllowedHosts")),
+                        FetchAllowAllPublic = IsChecked(formValues.GetValueOrDefault("fetchAllowAllPublic")) ? true : null
+                    };
+                    break;
+                }
+            case "fetch-allow-host":
+                {
+                    project = project with { FetchAllowedHosts = FetchPolicyForm.AddExactHost(project.FetchAllowedHosts, formValues.GetValueOrDefault("host")) };
                     break;
                 }
             case "revisions":

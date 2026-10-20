@@ -89,9 +89,38 @@ public sealed class EndpointErrorReporter(
         return CaptureAsync(projectId, endpointSlug, method, steamId, statusCode, $"EndpointScript.{errorCode}", message, ownerDetail, ct);
     }
 
+    /// <summary>Classification of an <c>ns.fetch</c> call the project's policy refused. The owner panel lists these.</summary>
+    public const string FetchBlockedClassification = "EndpointFetch.blocked";
+    /// <summary>Archive tag prefix carrying the refused host.</summary>
+    public const string FetchHostTagPrefix = "fetch-host:";
+    /// <summary>Archive tag prefix carrying the refusal reason.</summary>
+    public const string FetchReasonTagPrefix = "fetch-reason:";
+
+    /// <summary>
+    /// Capture an <c>ns.fetch</c> call that the project's allow-list or address rules refused. The owner sees the
+    /// host and reason in the project's fetch panel and can allow the host from there. Repeats are throttled per
+    /// project, endpoint, host and reason (not per player), so one blocked host produces one report per window.
+    /// </summary>
+    public Task CaptureFetchBlockedAsync(string projectId, string endpointSlug, string method, string? steamId,
+        string host, string reason, CancellationToken ct)
+    {
+        var fingerprint = $"fetch|{projectId}|{endpointSlug}|{host}|{reason}";
+        if (!conflictThrottle.ShouldReport(fingerprint))
+        {
+            logger.LogDebug(
+                "Suppressed duplicate ns.fetch blocked report for {Host} ({Reason}) from {ProjectId}/{Slug} (throttled within {WindowMinutes}m)",
+                host, reason, projectId, endpointSlug, EndpointConflictReportThrottle.Window.TotalMinutes);
+            return Task.CompletedTask;
+        }
+        return CaptureAsync(projectId, endpointSlug, method, steamId, 502, FetchBlockedClassification,
+            $"ns.fetch blocked host {host} ({reason})", stackTrace: null, ct,
+            tags: [.. ErrorTags, $"{FetchHostTagPrefix}{host}", $"{FetchReasonTagPrefix}{reason}"]);
+    }
+
     private async Task CaptureAsync(
         string projectId, string endpointSlug, string method, string? steamId,
-        int statusCode, string classification, string message, string? stackTrace, CancellationToken ct)
+        int statusCode, string classification, string message, string? stackTrace, CancellationToken ct,
+        IReadOnlyList<string>? tags = null)
     {
         var captured = new CapturedErrorDto(
             Id: Guid.NewGuid().ToString("D"),
@@ -106,7 +135,7 @@ public sealed class EndpointErrorReporter(
             StackTrace: stackTrace,
             ProjectId: string.IsNullOrEmpty(projectId) ? null : projectId,
             SteamId: string.IsNullOrEmpty(steamId) ? null : steamId,
-            Tags: ErrorTags);
+            Tags: tags ?? ErrorTags);
 
         // Archive first so the error reaches /admin/errors and the per-project
         // Network Storage dashboard even when external alerting is suppressed
