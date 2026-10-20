@@ -38,11 +38,7 @@ internal static class NetworkStorageSourceResourceCompiler
 
         try
         {
-            var sourceFormat = ReadString(resource, "sourceFormat")
-                ?? InferFormat(ReadString(resource, "sourcePath"));
-            var source = string.Equals(sourceFormat, "json", StringComparison.OrdinalIgnoreCase)
-                ? ParseJson(sourceText)
-                : ParseYaml(sourceText);
+            var source = ParseSource(resource, sourceText);
 
             if (source is null)
             {
@@ -93,6 +89,29 @@ internal static class NetworkStorageSourceResourceCompiler
             error = $"Invalid YAML source: {ex.Message}";
             return false;
         }
+    }
+
+    /// <summary>The parsed root object of a source-backed resource; null when the resource carries no sourceText.</summary>
+    internal static JsonObject? ParseSourceObject(JsonElement resource)
+    {
+        if (resource.ValueKind != JsonValueKind.Object
+            || !resource.TryGetProperty("sourceText", out var sourceTextProperty)
+            || sourceTextProperty.ValueKind != JsonValueKind.String
+            || string.IsNullOrWhiteSpace(sourceTextProperty.GetString()))
+        {
+            return null;
+        }
+
+        return ParseSource(resource, sourceTextProperty.GetString()!);
+    }
+
+    private static JsonObject ParseSource(JsonElement resource, string sourceText)
+    {
+        var sourceFormat = ReadString(resource, "sourceFormat")
+            ?? InferFormat(ReadString(resource, "sourcePath"));
+        return string.Equals(sourceFormat, "json", StringComparison.OrdinalIgnoreCase)
+            ? ParseJson(sourceText)
+            : ParseYaml(sourceText);
     }
 
     private static JsonObject ParseJson(string sourceText)

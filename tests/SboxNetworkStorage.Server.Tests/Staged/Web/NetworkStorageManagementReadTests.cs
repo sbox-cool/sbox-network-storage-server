@@ -437,46 +437,6 @@ public abstract class NetworkStorageManagementReadTests<TFactory> : IClassFixtur
     }
 
     // ══════════════════════════════════════════════════════════════════
-    // Unsupported routes return explicit MANAGEMENT_ROUTE_NOT_IMPLEMENTED
-    // ══════════════════════════════════════════════════════════════════
-
-    [SkippableFact]
-    public async Task SyncJobReturnsNotImplemented()
-    {
-        var handler = new ManagementReadHandler(
-            new FakeKeyResolver("sk-valid", "proj-1"),
-            new FakeWorkspaceManagement("proj-1"),
-            new FakeProjectService());
-
-        var result = await handler.ExecuteAsync(
-            BuildRequest("proj-1", apiKey: "sk-valid", routeSuffix: "sync-jobs", additionalParam: "job-1"));
-
-        Assert.Equal(200, result.StatusCode);
-        var json = JsonSerializer.SerializeToElement(result.Body);
-        Assert.False(json.GetProperty("ok").GetBoolean());
-        Assert.Equal("MANAGEMENT_ROUTE_NOT_IMPLEMENTED",
-            json.GetProperty("error").GetString());
-    }
-
-    [SkippableFact]
-    public async Task AgentManifestReturnsNotImplemented()
-    {
-        var handler = new ManagementReadHandler(
-            new FakeKeyResolver("sk-valid", "proj-1"),
-            new FakeWorkspaceManagement("proj-1"),
-            new FakeProjectService());
-
-        var result = await handler.ExecuteAsync(
-            BuildRequest("proj-1", apiKey: "sk-valid", routeSuffix: "agent-manifest"));
-
-        Assert.Equal(200, result.StatusCode);
-        var json = JsonSerializer.SerializeToElement(result.Body);
-        Assert.False(json.GetProperty("ok").GetBoolean());
-        Assert.Equal("MANAGEMENT_ROUTE_NOT_IMPLEMENTED",
-            json.GetProperty("error").GetString());
-    }
-
-    // ══════════════════════════════════════════════════════════════════
     // Endpoint integration test
     // ══════════════════════════════════════════════════════════════════
 

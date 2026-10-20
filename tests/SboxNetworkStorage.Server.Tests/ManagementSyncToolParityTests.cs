@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
+using SboxNetworkStorage.Application.NetworkStorage;
 using SboxNetworkStorage.Infrastructure.NetworkStorage;
 using SboxNetworkStorage.Server.Hosting;
 using SboxNetworkStorage.Server.Tests.Hosting;
@@ -271,5 +272,319 @@ public sealed class ManagementSyncToolParityTests
 
         Assert.Equal(HttpStatusCode.OK, (await SendAsync(client, SyncTool(HttpMethod.Delete, p, "rate-limit-rules", project, "{}"))).Status);
         Assert.Empty((await SendAsync(client, SyncTool(HttpMethod.Get, p, "rate-limit-rules", project))).Body.GetProperty("rules").EnumerateArray());
+    }
+
+    // ── DELETE keys: reference routeManageDestroyKeys + destroyApiKeyPair ──
+
+    private static HttpRequestMessage PublicOnlyEndpointCall(SelfHostProject project)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Post, $"/v3/endpoints/{project.ProjectId}/grant_coins");
+        request.Headers.Add("x-public-key", project.PublicKey);
+        request.Content = JsonContent.Create(new { steamId = SteamId, input = new { } });
+        return request;
+    }
+
+    [Fact]
+    public async Task DestroyKeysRevokesTheKeyPairOnEveryAuthPath()
+    {
+        using var factory = new SqliteHostFactory();
+        var project = await factory.CreateProjectAsync("Revocation parity");
+        using var client = factory.CreateClient();
+        var p = project.ProjectId;
+        Assert.Equal(HttpStatusCode.OK, (await SendAsync(client, SyncTool(HttpMethod.Patch, p, "collections", project,
+            """{"collection":{"name":"players","collectionType":"per-steamid","schema":{"coins":{"type":"number"}}}}"""))).Status);
+        Assert.Equal(HttpStatusCode.OK, (await SendAsync(client, SyncTool(HttpMethod.Patch, p, "endpoints", project, GrantCoins))).Status);
+        await SeedPlayerAsync(client, project, 10);
+
+        // Precondition: the pair works on the management, public endpoint and secret storage paths.
+        Assert.Equal(HttpStatusCode.OK, (await SendAsync(client, SyncTool(HttpMethod.Get, p, "endpoints", project))).Status);
+        Assert.Equal(HttpStatusCode.OK, (await SendAsync(client, PublicOnlyEndpointCall(project))).Status);
+        Assert.Equal(15, await StoredCoinsAsync(client, project)); // 10 seeded, +5 from the public endpoint call above
+
+        var destroyed = await SendAsync(client, SyncTool(HttpMethod.Delete, p, "keys", project));
+        Assert.Equal(HttpStatusCode.OK, destroyed.Status);
+        Assert.True(destroyed.Body.GetProperty("ok").GetBoolean());
+        Assert.Equal("Key pair destroyed.", destroyed.Body.GetProperty("message").GetString());
+
+        // The revoked pair stops working on every path.
+        Assert.Equal(HttpStatusCode.Unauthorized, (await SendAsync(client, SyncTool(HttpMethod.Get, p, "endpoints", project))).Status);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await SendAsync(client, SyncTool(HttpMethod.Delete, p, "keys", project))).Status);
+        Assert.NotEqual(HttpStatusCode.OK, (await SendAsync(client, PublicOnlyEndpointCall(project))).Status);
+
+        var secretStorageRequest = new HttpRequestMessage(HttpMethod.Get, $"/v3/storage/{p}/players/{SteamId}");
+        secretStorageRequest.Headers.Add("x-api-key", project.SecretKey);
+        Assert.NotEqual(HttpStatusCode.OK, (await SendAsync(client, secretStorageRequest)).Status);
+    }
+
+    [Fact]
+    public async Task DestroyKeysRejectsMalformedOrForeignKeysWithoutRevoking()
+    {
+        using var factory = new SqliteHostFactory();
+        var project = await factory.CreateProjectAsync("Revocation guards");
+        var other = await factory.CreateProjectAsync("Revocation other");
+        using var client = factory.CreateClient();
+        var p = project.ProjectId;
+
+        // x-public-key that is not a public key is refused before anything is revoked.
+        var secretAsPublic = SyncTool(HttpMethod.Delete, p, "keys", project);
+        secretAsPublic.Headers.Remove("x-public-key");
+        secretAsPublic.Headers.Add("x-public-key", project.SecretKey);
+        var malformed = await SendAsync(client, secretAsPublic);
+        Assert.Equal(HttpStatusCode.BadRequest, malformed.Status);
+        Assert.Equal("INVALID_PUBLIC_KEY", malformed.Body.GetProperty("error").GetString());
+
+        // A public key from another project does not authorise destroying this project's pair.
+        var foreign = SyncTool(HttpMethod.Delete, p, "keys", project);
+        foreign.Headers.Remove("x-public-key");
+        foreign.Headers.Add("x-public-key", other.PublicKey);
+        var foreignResult = await SendAsync(client, foreign);
+        Assert.Equal(HttpStatusCode.Unauthorized, foreignResult.Status);
+        Assert.Equal("Invalid public key for this project.", foreignResult.Body.GetProperty("message").GetString());
+
+        // Both refusals left the pair intact.
+        Assert.Equal(HttpStatusCode.OK, (await SendAsync(client, SyncTool(HttpMethod.Get, p, "endpoints", project))).Status);
+    }
+
+    [Fact]
+    public async Task AgentManifestSummarisesEndpointsAndAddsCollectionsAndWorkflowsOnRequest()
+    {
+        using var factory = new SqliteHostFactory();
+        var project = await factory.CreateProjectAsync("Agent manifest");
+        using var client = factory.CreateClient();
+        var p = project.ProjectId;
+        Assert.Equal(HttpStatusCode.OK, (await SendAsync(client, SyncTool(HttpMethod.Patch, p, "endpoints", project, GrantCoins))).Status);
+        Assert.Equal(HttpStatusCode.OK, (await SendAsync(client, SyncTool(HttpMethod.Patch, p, "collections", project,
+            """{"collection":{"name":"players","collectionType":"per-steamid","schema":{"coins":{"type":"number"}}}}"""))).Status);
+        Assert.Equal(HttpStatusCode.OK, (await SendAsync(client, SyncTool(HttpMethod.Patch, p, "workflows", project,
+            """{"workflow":{"id":"setup","name":"Setup","steps":[]}}"""))).Status);
+
+        var summary = await SendAsync(client, SyncTool(HttpMethod.Get, p, "agent-manifest", project));
+        Assert.Equal(HttpStatusCode.OK, summary.Status);
+        Assert.True(summary.Body.GetProperty("ok").GetBoolean());
+        Assert.Equal(p, summary.Body.GetProperty("project").GetProperty("id").GetString());
+        Assert.Equal("grant_coins", Assert.Single(summary.Body.GetProperty("endpoints").EnumerateArray()).GetProperty("slug").GetString());
+        Assert.Equal(1, summary.Body.GetProperty("endpointCount").GetInt32());
+        // Reference routeManageGetAgentManifest always returns these keys; they stay empty unless the flag is set.
+        Assert.Empty(summary.Body.GetProperty("collections").EnumerateArray());
+        Assert.Equal(0, summary.Body.GetProperty("collectionCount").GetInt32());
+        Assert.Empty(summary.Body.GetProperty("workflows").EnumerateArray());
+        Assert.Equal(0, summary.Body.GetProperty("workflowCount").GetInt32());
+
+        var full = await SendAsync(client, SyncTool(HttpMethod.Get, p, "agent-manifest?includeCollections=true&includeWorkflows=true", project));
+        Assert.Equal(HttpStatusCode.OK, full.Status);
+        Assert.Equal("players", Assert.Single(full.Body.GetProperty("collections").EnumerateArray()).GetProperty("name").GetString());
+        Assert.Equal(1, full.Body.GetProperty("collectionCount").GetInt32());
+        Assert.Single(full.Body.GetProperty("workflows").EnumerateArray());
+        Assert.Equal(1, full.Body.GetProperty("workflowCount").GetInt32());
+    }
+
+    [Fact]
+    public async Task AgentManifestRequiresTheEndpointsReadScope()
+    {
+        using var factory = new SqliteHostFactory();
+        var project = await factory.CreateProjectAsync("Agent manifest scope");
+        using var client = factory.CreateClient();
+        var p = project.ProjectId;
+        string withoutEndpoints;
+        string withoutSettings;
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var keys = scope.ServiceProvider.GetRequiredService<INetworkStorageProjectService>();
+            (_, withoutEndpoints) = await keys.CreateProjectKeyAsync(1, p, "no-endpoints", "secret", new() { ["endpoints"] = "none" }, CancellationToken.None);
+            (_, withoutSettings) = await keys.CreateProjectKeyAsync(1, p, "no-settings", "secret", new() { ["endpoints"] = "r", ["settings"] = "none" }, CancellationToken.None);
+        }
+
+        var denied = SyncTool(HttpMethod.Get, p, "agent-manifest", project);
+        denied.Headers.Remove("x-api-key");
+        denied.Headers.Add("x-api-key", withoutEndpoints);
+        Assert.Equal(HttpStatusCode.Forbidden, (await SendAsync(client, denied)).Status);
+
+        // Control: a key that lacks only settings access still reads the manifest.
+        var allowed = SyncTool(HttpMethod.Get, p, "agent-manifest", project);
+        allowed.Headers.Remove("x-api-key");
+        allowed.Headers.Add("x-api-key", withoutSettings);
+        Assert.Equal(HttpStatusCode.OK, (await SendAsync(client, allowed)).Status);
+    }
+
+    [Fact]
+    public async Task SyncJobLookupReportsUnknownJobsAsTypedNotFound()
+    {
+        using var factory = new SqliteHostFactory();
+        var project = await factory.CreateProjectAsync("Sync job lookup");
+        using var client = factory.CreateClient();
+        var missing = await SendAsync(client, SyncTool(HttpMethod.Get, project.ProjectId, "sync-jobs/sync_does_not_exist", project));
+        Assert.Equal(HttpStatusCode.NotFound, missing.Status);
+        Assert.Equal("JOB_NOT_FOUND", missing.Body.GetProperty("error").GetString());
+    }
+
+    [Fact]
+    public async Task AsyncEndpointSyncAcceptsWithAJobIdAndPollsToCompletion()
+    {
+        using var factory = new SqliteHostFactory();
+        var project = await factory.CreateProjectAsync("Async endpoint sync");
+        var other = await factory.CreateProjectAsync("Async endpoint sync other");
+        using var client = factory.CreateClient();
+        var p = project.ProjectId;
+
+        var accepted = await SendAsync(client, SyncTool(HttpMethod.Put, p, "endpoints?async=true", project,
+            """[{"slug":"async_ping","method":"GET","enabled":true,"steps":[],"response":{"status":200,"body":{"ok":true}}}]"""));
+        Assert.Equal(HttpStatusCode.Accepted, accepted.Status);
+        Assert.True(accepted.Body.GetProperty("ok").GetBoolean());
+        Assert.Equal("accepted", accepted.Body.GetProperty("status").GetString());
+        var jobId = accepted.Body.GetProperty("jobId").GetString()!;
+
+        var job = await WaitForSyncJobAsync(client, project, jobId);
+        Assert.Equal("complete", job.GetProperty("status").GetString());
+        Assert.Equal(1, job.GetProperty("results").GetProperty("createdCount").GetInt32());
+
+        var listed = await SendAsync(client, SyncTool(HttpMethod.Get, p, "endpoints", project));
+        Assert.Equal("async_ping", Assert.Single(listed.Body.GetProperty("data").EnumerateArray()).GetProperty("slug").GetString());
+
+        // A job is visible only to the project that created it.
+        var foreign = await SendAsync(client, SyncTool(HttpMethod.Get, other.ProjectId, $"sync-jobs/{jobId}", other));
+        Assert.Equal(HttpStatusCode.NotFound, foreign.Status);
+        Assert.Equal("JOB_NOT_FOUND", foreign.Body.GetProperty("error").GetString());
+    }
+
+    [Fact]
+    public async Task AsyncEndpointSyncRejectsNonArrayBodiesBeforeAcceptingAJob()
+    {
+        using var factory = new SqliteHostFactory();
+        var project = await factory.CreateProjectAsync("Async endpoint shape");
+        using var client = factory.CreateClient();
+        var p = project.ProjectId;
+
+        // Reference routeManagePutEndpoints checks the array shape before it reads `async`, so no job is created.
+        var rejected = await SendAsync(client, SyncTool(HttpMethod.Put, p, "endpoints?async=true", project, """{"slug":"not_an_array"}"""));
+        Assert.Equal(HttpStatusCode.BadRequest, rejected.Status);
+        Assert.Equal("VALIDATION_FAILED", rejected.Body.GetProperty("error").GetProperty("code").GetString());
+
+        var listed = await SendAsync(client, SyncTool(HttpMethod.Get, p, "endpoints", project));
+        Assert.Empty(listed.Body.GetProperty("data").EnumerateArray());
+    }
+
+    [Fact]
+    public async Task SettingsPutPersistsStoredFieldsAndRejectsBackendModes()
+    {
+        using var factory = new SqliteHostFactory();
+        var project = await factory.CreateProjectAsync("Settings parity");
+        using var client = factory.CreateClient();
+        var p = project.ProjectId;
+
+        var put = await SendAsync(client, SyncTool(HttpMethod.Put, p, "settings", project, """{"revisionNotifyMessage":"Please update"}"""));
+        Assert.Equal(HttpStatusCode.OK, put.Status);
+        Assert.Equal("Please update", put.Body.GetProperty("settings").GetProperty("revisionNotifyMessage").GetString());
+
+        var read = await SendAsync(client, SyncTool(HttpMethod.Get, p, "settings", project));
+        Assert.Equal(HttpStatusCode.OK, read.Status);
+        Assert.Equal("Please update", read.Body.GetProperty("settings").GetProperty("revisionNotifyMessage").GetString());
+
+        var rejected = await SendAsync(client, SyncTool(HttpMethod.Put, p, "settings", project, """{"storageBackendMode":"spacetime"}"""));
+        Assert.Equal(HttpStatusCode.BadRequest, rejected.Status);
+        Assert.Equal("SETTING_NOT_STORED", rejected.Body.GetProperty("error").GetString());
+    }
+
+    [Fact]
+    public async Task SettingsPutPreservesV2ModeUnlessEncryptionIsExplicitlyChanged()
+    {
+        using var factory = new SqliteHostFactory();
+        var project = await factory.CreateProjectAsync("V2 management settings");
+        using var client = factory.CreateClient();
+        var p = project.ProjectId;
+
+        var enabled = await SendAsync(client, SyncTool(HttpMethod.Put, p, "settings", project,
+            """{"encryptedRequestMode":"v2-required","enableEncryptedRequests":false}"""));
+        Assert.Equal(HttpStatusCode.OK, enabled.Status);
+        Assert.True(enabled.Body.GetProperty("settings").GetProperty("enableEncryptedRequests").GetBoolean());
+        Assert.Equal("v2-required", enabled.Body.GetProperty("settings").GetProperty("encryptedRequestMode").GetString());
+
+        var unrelated = await SendAsync(client, SyncTool(HttpMethod.Put, p, "settings", project,
+            """{"revisionNotifyMessage":"Update available"}"""));
+        Assert.Equal(HttpStatusCode.OK, unrelated.Status);
+        Assert.Equal("v2-required", unrelated.Body.GetProperty("settings").GetProperty("encryptedRequestMode").GetString());
+
+        var invalid = await SendAsync(client, SyncTool(HttpMethod.Put, p, "settings", project,
+            """{"encryptedRequestMode":"v2_required"}"""));
+        Assert.Equal(HttpStatusCode.BadRequest, invalid.Status);
+        var unchanged = await SendAsync(client, SyncTool(HttpMethod.Get, p, "settings", project));
+        Assert.Equal("v2-required", unchanged.Body.GetProperty("settings").GetProperty("encryptedRequestMode").GetString());
+
+        var legacy = await SendAsync(client, SyncTool(HttpMethod.Put, p, "settings", project,
+            """{"enableEncryptedRequests":true}"""));
+        Assert.Equal(HttpStatusCode.OK, legacy.Status);
+        Assert.True(legacy.Body.GetProperty("settings").GetProperty("enableEncryptedRequests").GetBoolean());
+        Assert.False(legacy.Body.GetProperty("settings").TryGetProperty("encryptedRequestMode", out _));
+    }
+
+    [Fact]
+    public async Task SuggestTestsBuildsCasesForAStoredEndpointAndRejectsBadRequests()
+    {
+        using var factory = new SqliteHostFactory();
+        var project = await factory.CreateProjectAsync("Suggest tests");
+        using var client = factory.CreateClient();
+        var p = project.ProjectId;
+        Assert.Equal(HttpStatusCode.OK, (await SendAsync(client, SyncTool(HttpMethod.Patch, p, "endpoints", project, GrantCoins))).Status);
+
+        var suggested = await SendAsync(client, SyncTool(HttpMethod.Post, p, "suggest-tests", project, """{"slug":"grant_coins"}"""));
+        Assert.Equal(HttpStatusCode.OK, suggested.Status);
+        Assert.True(suggested.Body.GetProperty("ok").GetBoolean());
+        Assert.Equal("grant_coins", suggested.Body.GetProperty("endpoint").GetString());
+        Assert.Equal(JsonValueKind.Array, suggested.Body.GetProperty("suggestions").ValueKind);
+
+        var missing = await SendAsync(client, SyncTool(HttpMethod.Post, p, "suggest-tests", project, "{}"));
+        Assert.Equal(HttpStatusCode.BadRequest, missing.Status);
+        Assert.Equal("MISSING_SLUG", missing.Body.GetProperty("error").GetString());
+
+        var unknown = await SendAsync(client, SyncTool(HttpMethod.Post, p, "suggest-tests", project, """{"slug":"no_such_endpoint"}"""));
+        Assert.Equal(HttpStatusCode.BadRequest, unknown.Status);
+        Assert.Equal("ENDPOINT_NOT_FOUND", unknown.Body.GetProperty("error").GetString());
+    }
+
+    [Fact]
+    public async Task SourceUpgradeCanonicalisesSourceWithoutWritingTheProject()
+    {
+        using var factory = new SqliteHostFactory();
+        var project = await factory.CreateProjectAsync("Source upgrade");
+        using var client = factory.CreateClient();
+        var p = project.ProjectId;
+        const string source = "sourceVersion: 1\nkind: endpoint\nid: health_check\nname: Health\nmethod: GET\nsteps: []\nresponse:\n  status: 200\n  body:\n    ok: true\n";
+
+        var upgraded = await SendAsync(client, SyncTool(HttpMethod.Post, p, "source-upgrade", project, JsonSerializer.Serialize(new
+        {
+            kind = "endpoint",
+            id = "health_check",
+            sourceFormat = "yaml",
+            sourcePath = "endpoints/health_check.yml",
+            sourceText = source,
+        })));
+        Assert.Equal(HttpStatusCode.OK, upgraded.Status);
+        Assert.True(upgraded.Body.GetProperty("ok").GetBoolean());
+        Assert.Equal("endpoint", upgraded.Body.GetProperty("resourceKind").GetString());
+        Assert.Equal("health_check", upgraded.Body.GetProperty("resourceId").GetString());
+        Assert.Contains("health_check", upgraded.Body.GetProperty("upgradedSourceText").GetString());
+
+        // The upgrade is pure: it returns text and leaves the stored endpoints alone.
+        var listed = await SendAsync(client, SyncTool(HttpMethod.Get, p, "endpoints", project));
+        Assert.Empty(listed.Body.GetProperty("data").EnumerateArray());
+
+        var invalid = await SendAsync(client, SyncTool(HttpMethod.Post, p, "source-upgrade", project, """{"kind":"not_a_kind","sourceText":"x"}"""));
+        Assert.Equal(HttpStatusCode.BadRequest, invalid.Status);
+        Assert.Equal("SOURCE_UPGRADE_FAILED", invalid.Body.GetProperty("error").GetString());
+    }
+
+    private static async Task<JsonElement> WaitForSyncJobAsync(HttpClient client, SelfHostProject project, string jobId)
+    {
+        for (var attempt = 0; attempt < 400; attempt++)
+        {
+            var poll = await SendAsync(client, SyncTool(HttpMethod.Get, project.ProjectId, $"sync-jobs/{jobId}", project));
+            Assert.Equal(HttpStatusCode.OK, poll.Status);
+            var job = poll.Body.GetProperty("job");
+            if (job.GetProperty("status").GetString() is not ("accepted" or "processing"))
+            {
+                return job;
+            }
+            await Task.Delay(25);
+        }
+        throw new TimeoutException($"Sync job {jobId} did not finish.");
     }
 }

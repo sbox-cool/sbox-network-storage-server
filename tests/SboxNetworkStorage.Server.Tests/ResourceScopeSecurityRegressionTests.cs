@@ -50,11 +50,11 @@ public abstract class ResourceScopeSecurityRegressionTests<TFactory> : IClassFix
         var project = await factory.CreateProjectAsync();
         var key = await CreateKeyAsync(project.ProjectId, Scopes.ToDictionary(scope => scope, _ => "r"));
         using var client = factory.CreateClient();
-        // Only routes registered in NetworkStorageGatewayEndpoints are asserted
-        // here. PUT settings, PUT tests, POST source-upgrade/run-tests/
-        // test-endpoint, and DELETE keys have no Gateway route and return
-        // 404/501 independent of the key (parity gaps tracked by the HTTP
-        // corpus, not scope bypasses). Package sync has its own string error
+        // Only the routes listed below are asserted here. PUT settings, PUT tests,
+        // POST source-upgrade/run-tests/test-endpoint/suggest-tests and DELETE keys are
+        // registered in NetworkStorageGatewayEndpoints; their scopes are enforced by
+        // ManagementMutationHandler.AuthorizeMutation and covered by
+        // NetworkStorageManagementMutationTests. Package sync has its own string error
         // envelope and is asserted separately below.
         foreach (var (method, category, body) in new[]
         {

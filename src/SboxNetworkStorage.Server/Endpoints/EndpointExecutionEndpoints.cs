@@ -181,9 +181,13 @@ public static class EndpointExecutionEndpoints
         // If the slug is not on the route, read it from the JSON body. Library builds published until
         // May 2026 (for example sbox.game r238672) POST /v3/endpoints/{projectId} with the slug only in
         // "_endpointSlug"; the newer library also sends it but puts the slug in the path too.
+        // Reference (execution-routes.js L838-847): when the slug comes from the body, the
+        // transport fields are removed from the script input.
+        var slugFromBody = false;
         if (string.IsNullOrEmpty(endpointSlug) && body.ValueKind == JsonValueKind.Object)
         {
             endpointSlug = BodyString(body, "endpoint") ?? BodyString(body, "slug") ?? BodyString(body, "_endpointSlug") ?? "";
+            slugFromBody = endpointSlug.Length > 0;
         }
 
         if (string.IsNullOrEmpty(endpointSlug))
@@ -399,7 +403,7 @@ public static class EndpointExecutionEndpoints
         // GET (and other non-POST methods) read query parameters. Reserved auth keys
         // are never surfaced as endpoint input.
         var input = HttpMethods.IsPost(context.Request.Method)
-            ? ParseInput(body)
+            ? ParseInput(body, slugFromBody)
             : BuildInputFromQuery(context.Request.Query);
 
         // The identity passed to the executor is never taken from endpoint input.
@@ -894,7 +898,7 @@ public static class EndpointExecutionEndpoints
         return ("ENDPOINT_NATIVE_ERROR", "Native endpoint execution returned an error result.");
     }
 
-    private static IReadOnlyDictionary<string, object?> ParseInput(JsonElement body)
+    private static IReadOnlyDictionary<string, object?> ParseInput(JsonElement body, bool slugFromBody)
     {
         if (body.ValueKind != JsonValueKind.Object)
             return ReadOnlyDictionary<string, object?>.Empty;
@@ -910,7 +914,8 @@ public static class EndpointExecutionEndpoints
         var dict = new Dictionary<string, object?>();
         foreach (var prop in source.EnumerateObject())
         {
-            if (prop.NameEquals("endpoint") || prop.NameEquals("slug"))
+            if (prop.NameEquals("endpoint") || prop.NameEquals("slug")
+                || (slugFromBody && prop.NameEquals("_endpointSlug")))
                 continue;
             dict[prop.Name] = JsonToObject(prop.Value);
         }

@@ -264,6 +264,7 @@ public static class NetworkStorageRouteCatalog
         new("PUT", "/v3/manage/:projectId/rate-limit-rules", NetworkStorageAlias.V3, NetworkStorageRouteFamily.Management, NetworkStoragePlane.ManagementMutation, true, NetworkStorageRouteDisposition.Mirror, null),
         new("POST", "/v3/manage/:projectId/rate-limit-rules", NetworkStorageAlias.V3, NetworkStorageRouteFamily.Management, NetworkStoragePlane.ManagementMutation, true, NetworkStorageRouteDisposition.Mirror, null),
         new("DELETE", "/v3/manage/:projectId/rate-limit-rules", NetworkStorageAlias.V3, NetworkStorageRouteFamily.Management, NetworkStoragePlane.ManagementMutation, true, NetworkStorageRouteDisposition.Mirror, null),
+        new("POST", "/v3/manage/:projectId/revision-init", NetworkStorageAlias.V3, NetworkStorageRouteFamily.Management, NetworkStoragePlane.ControlPlaneRead, true, NetworkStorageRouteDisposition.Mirror, null),
         new("POST", "/v3/manage/:projectId/run-tests", NetworkStorageAlias.V3, NetworkStorageRouteFamily.Management, NetworkStoragePlane.ManagementMutation, true, NetworkStorageRouteDisposition.Mirror, null),
         new("GET", "/v3/manage/:projectId/settings", NetworkStorageAlias.V3, NetworkStorageRouteFamily.Management, NetworkStoragePlane.ControlPlaneRead, false, NetworkStorageRouteDisposition.Mirror, null),
         new("PUT", "/v3/manage/:projectId/settings", NetworkStorageAlias.V3, NetworkStorageRouteFamily.Management, NetworkStoragePlane.ManagementMutation, true, NetworkStorageRouteDisposition.Mirror, null),
