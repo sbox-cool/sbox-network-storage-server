@@ -9,9 +9,23 @@ namespace SboxNetworkStorage.Server.Tests;
 /// The owner's custom analytics event allowlist: defaults, stored-list reading, owner form parsing,
 /// and publication in the signed security config that the game library enforces.
 /// </summary>
-public sealed class PlayerAnalyticsAllowedEventsTests
+public sealed class PlayerAnalyticsAllowedEventsTests : IDisposable
 {
     private static readonly string[] ReferenceDefaults = ["death", "respawn", "cast_line", "caught_fish", "sold_fish"];
+    private static readonly DateTimeOffset Now = DateTimeOffset.UnixEpoch;
+
+    private readonly string _folder = Path.Combine(Path.GetTempPath(), "sbox-ns-analytics-" + Guid.NewGuid().ToString("N"));
+    private readonly RequestEncryptionKeyStore _store;
+
+    public PlayerAnalyticsAllowedEventsTests()
+    {
+        Directory.CreateDirectory(_folder);
+        var keysPath = Path.Combine(_folder, "request_encryption_keys.json");
+        RequestEncryptionKeyring.EnsureAndLoad(keysPath, Now);
+        _store = new RequestEncryptionKeyStore(keysPath);
+    }
+
+    public void Dispose() => Directory.Delete(_folder, recursive: true);
 
     [Fact]
     public void Unset_list_uses_the_reference_defaults()
@@ -89,7 +103,7 @@ public sealed class PlayerAnalyticsAllowedEventsTests
     {
         var project = JsonDocument.Parse("""{ "id": "demo-project" }""").RootElement.Clone();
 
-        var config = NetworkStorageSecurityConfigBuilder.Build("demo-project", project, DateTimeOffset.UnixEpoch);
+        var config = NetworkStorageSecurityConfigBuilder.Build("demo-project", project, Now, _store);
 
         var published = config.GetProperty("settings").GetProperty("analytics").GetProperty("allowedEventTypes");
         Assert.Equal(ReferenceDefaults, published.EnumerateArray().Select(entry => entry.GetString()!));
@@ -105,7 +119,7 @@ public sealed class PlayerAnalyticsAllowedEventsTests
             }
             """).RootElement.Clone();
 
-        var config = NetworkStorageSecurityConfigBuilder.Build("demo-project", project, DateTimeOffset.UnixEpoch);
+        var config = NetworkStorageSecurityConfigBuilder.Build("demo-project", project, Now, _store);
 
         var analytics = config.GetProperty("settings").GetProperty("analytics");
         Assert.False(analytics.GetProperty("captureSessions").GetBoolean());

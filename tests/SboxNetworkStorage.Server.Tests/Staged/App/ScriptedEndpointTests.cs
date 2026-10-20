@@ -929,6 +929,8 @@ public sealed class ScriptedEndpointExecutorTests
         /// <summary>When set, secret reads fail the way a stored value without a usable storage key does.</summary>
         public bool SecretsUnavailable { get; set; }
 
+        public EndpointFetchPolicy FetchPolicy { get; init; } = EndpointFetchPolicy.Closed;
+
         public async Task<string?> ReadProjectSecretAsync(string projectId, string name, CancellationToken ct)
         {
             if (SecretsUnavailable)
@@ -993,7 +995,7 @@ public sealed class ScriptedEndpointExecutorTests
 
         public Task<bool> IsWebhookOutboxEnabledAsync(string projectId, CancellationToken ct) => Task.FromResult(false);
 
-        public Task<EndpointFetchPolicy> GetEndpointFetchPolicyAsync(string projectId, CancellationToken ct) => Task.FromResult(EndpointFetchPolicy.Closed);
+        public Task<EndpointFetchPolicy> GetEndpointFetchPolicyAsync(string projectId, CancellationToken ct) => Task.FromResult(FetchPolicy);
 
         public Task WriteGlobalRecordAsync(string projectId, string collectionId, string recordId, IReadOnlyDictionary<string, object?> payload, CancellationToken ct)
             => Task.CompletedTask;

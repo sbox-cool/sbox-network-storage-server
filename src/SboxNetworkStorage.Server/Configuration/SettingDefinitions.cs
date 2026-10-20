@@ -117,6 +117,8 @@ public static class SettingDefinitions
             "File holding the 64-hex-character key that derives secret API key identifiers and encrypts project secrets (ns.secrets.get). Generated on first start. Losing it invalidates existing secret keys and makes stored project secrets unreadable."),
         new(ServerFile, "auth.security_signing_key_file", SettingType.String, "secrets/security_signing_key.pem",
             "RSA private key (PEM) that signs the published security config read by game clients. Generated on first start."),
+        new(ServerFile, "auth.request_encryption_keys_file", SettingType.String, "secrets/request_encryption_keys.json",
+            "RSA private keys (JSON) that unwrap encrypted-request v2 payloads (relative to the state folder, <data dir>/state). Generated on first start. Rotate with `sbox-ns security rotate-key`."),
         new(ServerFile, "auth.security_signing_key_id", SettingType.String, "",
             "Key id published with the signed security config. Empty derives it from the public key; set it to keep the key id of a migrated server."),
         new(ServerFile, "adminpanel.enabled", SettingType.Boolean, true, "Serve owner administration endpoints. Disable leaves game APIs available. Restart after changing."),

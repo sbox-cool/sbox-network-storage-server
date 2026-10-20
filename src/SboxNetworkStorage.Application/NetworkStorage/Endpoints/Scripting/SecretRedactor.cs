@@ -1,60 +1,93 @@
 using System.Diagnostics.CodeAnalysis;
+using System.Text;
+using System.Text.Json;
 
 namespace SboxNetworkStorage.Application.NetworkStorage.Endpoints.Scripting;
 
 /// <summary>
-/// Replaces the values of project secrets a script read with <c>[secret:NAME]</c> wherever one run's output leaves the
-/// script: logs, the try-it trace, failure text, and the response body. Matching is exact text, longest value first.
-/// A value that the script transformed (encoded, split, or converted to a number) is not caught. Record keys are never
-/// rewritten. Persisted record data is not changed: the trace copy of a write is redacted, the stored data is not.
+/// Redacts unchanged project-secret strings at output boundaries. Structured values are traversed before
+/// serialization, including property names. This is accidental-disclosure protection, not information-flow
+/// isolation from a trusted script that deliberately transforms a secret.
 /// </summary>
 public sealed class SecretRedactor
 {
     private readonly (string Value, string Token)[] _pairs;
 
-    /// <summary>Builds the redactor from the secrets a run read. Null and empty values are dropped.</summary>
     public SecretRedactor(IEnumerable<KeyValuePair<string, string?>> secrets)
     {
-        _pairs = secrets
-            .Where(pair => !string.IsNullOrEmpty(pair.Value))
+        _pairs = secrets.Where(pair => !string.IsNullOrEmpty(pair.Value))
             .Select(pair => (pair.Value!, $"[secret:{pair.Key}]"))
-            .OrderByDescending(pair => pair.Item1.Length)
-            .ToArray();
+            .OrderByDescending(pair => pair.Item1.Length).ToArray();
     }
 
-    /// <summary>Redacts a string. Returns it unchanged when no secret was read.</summary>
     [return: NotNullIfNotNull(nameof(text))]
     public string? Text(string? text)
     {
         if (text is null || _pairs.Length == 0) return text;
-        foreach (var (value, token) in _pairs)
-            text = text.Replace(value, token, StringComparison.Ordinal);
-        return text;
+        StringBuilder? output = null;
+        var offset = 0;
+        while (offset < text.Length)
+        {
+            var next = text.Length;
+            (string Value, string Token) match = default;
+            foreach (var pair in _pairs)
+            {
+                var index = text.IndexOf(pair.Value, offset, StringComparison.Ordinal);
+                if (index >= 0 && index < next)
+                {
+                    next = index;
+                    match = pair;
+                }
+            }
+            if (match.Value is null) break;
+            output ??= new StringBuilder(text.Length);
+            output.Append(text, offset, next - offset).Append(match.Token);
+            offset = next + match.Value.Length;
+        }
+        return output is null ? text : output.Append(text, offset, text.Length - offset).ToString();
     }
 
-    public List<string> Lines(IEnumerable<string> lines) => lines.Select(line => Text(line)).ToList();
+    public bool Contains(object? value) => value switch
+    {
+        string text => _pairs.Any(pair => text.Contains(pair.Value, StringComparison.Ordinal)),
+        JsonElement json => Contains(ScriptJson.ToPlain(json)),
+        IReadOnlyDictionary<string, object?> map => map.Any(pair => Contains(pair.Key) || Contains(pair.Value)),
+        IEnumerable<object?> list => list.Any(Contains),
+        _ => false,
+    };
 
-    /// <summary>Redacts every string inside a plain object graph (dictionaries, lists and scalars). Keys are kept.</summary>
+    public List<string> Logs(IEnumerable<JsonElement> values) => values.Select(value =>
+        value.ValueKind == JsonValueKind.String ? Text(value.GetString())! : JsonSerializer.Serialize(Value(value))).ToList();
+
     public object? Value(object? value)
     {
         if (_pairs.Length == 0) return value;
         return value switch
         {
             string text => Text(text),
+            JsonElement json => Value(ScriptJson.ToPlain(json)),
             IReadOnlyDictionary<string, object?> map => Map(map),
             IEnumerable<object?> list => list.Select(Value).ToList(),
             _ => value,
         };
     }
 
-    public IReadOnlyDictionary<string, object?>? Map(IReadOnlyDictionary<string, object?>? map) =>
-        map is null || _pairs.Length == 0
-            ? map
-            : map.ToDictionary(pair => pair.Key, pair => Value(pair.Value), StringComparer.Ordinal);
+    public IReadOnlyDictionary<string, object?>? Map(IReadOnlyDictionary<string, object?>? map)
+    {
+        if (map is null || _pairs.Length == 0) return map;
+        var result = new Dictionary<string, object?>(map.Count, StringComparer.Ordinal);
+        foreach (var pair in map)
+            if (!result.TryAdd(Text(pair.Key), Value(pair.Value)))
+                throw new SecretOutputCollisionException();
+        return result;
+    }
 
     public EndpointStepTrace Step(EndpointStepTrace step) =>
-        _pairs.Length == 0 ? step : step with { Result = Value(step.Result) };
+        _pairs.Length == 0 ? step : step with { Id = Text(step.Id), Type = Text(step.Type), Result = Value(step.Result) };
 
     public EndpointTraceWrite Write(EndpointTraceWrite write) =>
-        _pairs.Length == 0 ? write : write with { Data = Map(write.Data) };
+        _pairs.Length == 0 ? write : write with { Collection = Text(write.Collection), Key = Text(write.Key), Data = Map(write.Data) };
 }
+
+/// <summary>A redacted object would lose fields; do not emit a misleading or secret-bearing result.</summary>
+public sealed class SecretOutputCollisionException : Exception;

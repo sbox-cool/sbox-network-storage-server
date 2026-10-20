@@ -67,7 +67,8 @@ public static class PostgresMigrations
     private static string V11(string p) => $"""
         CREATE TABLE {p}project_secrets (
             project_id {Key}, secret_name {Key}, value_enc text NOT NULL, updated_at_unix_ms bigint NOT NULL,
-            PRIMARY KEY (project_id, secret_name));
+            PRIMARY KEY (project_id, secret_name),
+            FOREIGN KEY (project_id) REFERENCES {p}projects(project_id) ON DELETE CASCADE);
         """;
 
     // Additive: three new tables plus two indexes. No existing table is touched, so the

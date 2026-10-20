@@ -179,7 +179,7 @@ out of migration archives).
 | Field | Type | Meaning |
 | --- | --- | --- |
 | `format` | string | Always `"sbox-ns-export"` |
-| `formatVersion` | integer | `1`; newer versions are refused by older servers |
+| `formatVersion` | integer | `1` remains readable; this server writes `2`, which adds optional whole-server project-secret ciphertext. Older servers refuse v2 before importing |
 | `sboxNsVersion` | string | Producer and its version, informational (e.g. `"sboxcool-hosted 2026.10"`) |
 | `schemaVersion` | integer | Producer schema version, informational (`1`) |
 | `provider` | string | Source store, informational (e.g. `"scylladb"`) |
@@ -213,6 +213,7 @@ false); `*_json` columns marked *JSON* take any JSON value and may be omitted
 | `.../workflows.jsonl` | `workflow_id`, `name`, `version_hash` (nullable), `version`; `definition_json` (JSON) |
 | `.../queries.jsonl` | `query_id`, `name`, `requires_secret_key`, `version`; `definition_json` (JSON) |
 | `.../api-keys.jsonl` | `api_key`, `user_id` = `"1"`, `key_type` (`public`/`secret`), `key_hash`, `key_identifier`, `label`, `enabled`, `version`; `permissions_json` (JSON). Public: `api_key` starts with `sbox_ns_`. Secret: `api_key` is the masked `sbox_sk_xxxx...xxxx` form and `key_hash` is the 64-character hex SHA-256 of the full key |
+| `.../project-secrets.jsonl` | Format v2 whole-server archives with `includesConfig` and `includesSecrets` only: `secret_name`, `value_enc` (versioned base64 ciphertext), `updated_at_unix_ms`. Excluded from portable project archives and `--no-secrets` exports |
 | `.../pages.jsonl` | `page_slug`, `title`, `content_json` (string), `created_at_unix_ms`, `updated_at_unix_ms` |
 | `.../game-values.jsonl` | `version_hash` (nullable), `version`; `payload_json` (JSON) |
 | `.../rate-limits.jsonl` | `version`; `rules_json` (JSON) |

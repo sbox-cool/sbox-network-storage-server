@@ -1,3 +1,4 @@
+using System.IO;
 using SboxNetworkStorage.Server.Tests.Hosting;
 using System.Net;
 using System.Security.Cryptography;
@@ -11,7 +12,7 @@ using SboxNetworkStorage.Infrastructure.NetworkStorage.Storage;
 
 namespace SboxNetworkStorage.Server.Tests;
 
-public abstract class NetworkStorageSecurityConfigTests<TFactory> : IClassFixture<TFactory>
+public abstract class NetworkStorageSecurityConfigTests<TFactory> : IClassFixture<TFactory>, IDisposable
     where TFactory : SelfHostFactory
 {
     private const string ProjectJson = """
@@ -27,16 +28,24 @@ public abstract class NetworkStorageSecurityConfigTests<TFactory> : IClassFixtur
 
     private readonly SelfHostFactory factory;
     private readonly HttpClient client;
+    private readonly string keysFolder = Path.Combine(Path.GetTempPath(), "sbox-ns-config-" + Guid.NewGuid().ToString("N"));
+    private readonly RequestEncryptionKeyStore keys;
 
     protected NetworkStorageSecurityConfigTests(TFactory factory)
     {
         Skip.IfNot(factory.IsAvailable, factory.SkipReason);
         this.factory = factory;
+        Directory.CreateDirectory(keysFolder);
+        var keysPath = Path.Combine(keysFolder, "request_encryption_keys.json");
+        RequestEncryptionKeyring.EnsureAndLoad(keysPath, DateTimeOffset.UtcNow);
+        keys = new RequestEncryptionKeyStore(keysPath);
         client = factory.WithWebHostBuilder(builder =>
         {
             builder.UseSetting("NETWORK_STORAGE_AUTH_SESSION_SECRET", "test-secret-do-not-use-in-production");
         }).CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
     }
+
+    public void Dispose() => Directory.Delete(keysFolder, recursive: true);
 
     private static NetworkStorageRequest BuildRequest(string projectId)
     {
@@ -55,7 +64,7 @@ public abstract class NetworkStorageSecurityConfigTests<TFactory> : IClassFixtur
     [SkippableFact]
     public async Task ProjectMetadataReturnsSignedBunCompatiblePayload()
     {
-        var handler = new SecurityConfigHandler(new StubProjectStore(ProjectJson), TimeProvider.System);
+        var handler = new SecurityConfigHandler(new StubProjectStore(ProjectJson), TimeProvider.System, keys);
 
         var result = await handler.ExecuteAsync(BuildRequest("demo-project"));
 
@@ -90,7 +99,7 @@ public abstract class NetworkStorageSecurityConfigTests<TFactory> : IClassFixtur
               "analytics": { "enabled": false }
             }
             """;
-        var handler = new SecurityConfigHandler(new StubProjectStore(nullProjectJson), TimeProvider.System);
+        var handler = new SecurityConfigHandler(new StubProjectStore(nullProjectJson), TimeProvider.System, keys);
 
         var result = await handler.ExecuteAsync(BuildRequest("demo-project"));
 
@@ -105,7 +114,7 @@ public abstract class NetworkStorageSecurityConfigTests<TFactory> : IClassFixtur
     [SkippableFact]
     public async Task MissingProjectReturnsNotFoundCode()
     {
-        var handler = new SecurityConfigHandler(new StubProjectStore(), TimeProvider.System);
+        var handler = new SecurityConfigHandler(new StubProjectStore(), TimeProvider.System, keys);
 
         var result = await handler.ExecuteAsync(BuildRequest("demo-project"));
 
@@ -119,7 +128,7 @@ public abstract class NetworkStorageSecurityConfigTests<TFactory> : IClassFixtur
     [SkippableFact]
     public async Task StoreErrorReturnsReadFailedCode()
     {
-        var handler = new SecurityConfigHandler(new StubProjectStore(throws: true), TimeProvider.System);
+        var handler = new SecurityConfigHandler(new StubProjectStore(throws: true), TimeProvider.System, keys);
 
         var result = await handler.ExecuteAsync(BuildRequest("demo-project"));
 
@@ -246,6 +255,8 @@ public abstract class NetworkStorageSecurityConfigTests<TFactory> : IClassFixtur
     }
 }
 
+[Collection(SecurityConfigProcessEnvironmentCollection.Name)]
 public sealed class NetworkStorageSecurityConfigTests_Sqlite(SqliteHostFactory factory) : NetworkStorageSecurityConfigTests<SqliteHostFactory>(factory);
 
+[Collection(SecurityConfigProcessEnvironmentCollection.Name)]
 public sealed class NetworkStorageSecurityConfigTests_Postgres(PostgresHostFactory factory) : NetworkStorageSecurityConfigTests<PostgresHostFactory>(factory);

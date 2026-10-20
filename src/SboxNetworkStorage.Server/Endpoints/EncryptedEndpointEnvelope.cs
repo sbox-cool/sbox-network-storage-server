@@ -113,6 +113,25 @@ internal static partial class EncryptedEndpointEnvelope
             || Str(envelope, "signature").Length == 0)
             return Invalid("Encrypted request envelope is missing iv, encryptedPayload, or signature.");
 
+        var binding = ValidateIdentityBinding(envelope, steamId, sessionId);
+        if (binding is not null) return binding;
+
+        using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(publicKey));
+        var expected = hmac.ComputeHash(Encoding.UTF8.GetBytes(StableJson(SignatureBinding(envelope))));
+        byte[] presented;
+        try { presented = Convert.FromHexString(Str(envelope, "signature")); }
+        catch (FormatException) { return Invalid("Encrypted request signature does not match the envelope."); }
+        return CryptographicOperations.FixedTimeEquals(presented, expected)
+            ? null
+            : Invalid("Encrypted request signature does not match the envelope.");
+    }
+
+    /// <summary>
+    /// Identity binding shared with v2: the envelope must bind a steamId or sessionId, a session-bound envelope needs
+    /// the validated auth session, and a presented session or steamId must match the envelope.
+    /// </summary>
+    internal static Result? ValidateIdentityBinding(JsonElement envelope, string? steamId, string? sessionId)
+    {
         var identity = Identity(envelope);
         if (identity.Type.Length == 0)
             return Invalid("Encrypted request envelope must bind a steamId or sessionId.");
@@ -131,15 +150,7 @@ internal static partial class EncryptedEndpointEnvelope
         {
             return Invalid("Encrypted request steamId does not match the authenticated Steam ID.");
         }
-
-        using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(publicKey));
-        var expected = hmac.ComputeHash(Encoding.UTF8.GetBytes(StableJson(SignatureBinding(envelope))));
-        byte[] presented;
-        try { presented = Convert.FromHexString(Str(envelope, "signature")); }
-        catch (FormatException) { return Invalid("Encrypted request signature does not match the envelope."); }
-        return CryptographicOperations.FixedTimeEquals(presented, expected)
-            ? null
-            : Invalid("Encrypted request signature does not match the envelope.");
+        return null;
     }
 
     /// <summary>
@@ -172,7 +183,7 @@ internal static partial class EncryptedEndpointEnvelope
             : new Result(false, 409, "ENCRYPTED_REQUEST_REPLAY_DETECTED", "This encrypted request id has already been accepted for this identity.", default);
     }
 
-    private static (string Type, string Value) Identity(JsonElement envelope)
+    internal static (string Type, string Value) Identity(JsonElement envelope)
     {
         var sessionId = Str(envelope, "sessionId").Trim();
         if (sessionId.Length > 0) return ("session", sessionId);
@@ -204,7 +215,7 @@ internal static partial class EncryptedEndpointEnvelope
         "steamId", "apiKey", "token", "authSessionToken", "sessionToken", "encryptedRequestId",
     };
 
-    private static JsonElement WithoutReservedKeys(JsonElement payload)
+    internal static JsonElement WithoutReservedKeys(JsonElement payload)
     {
         var stripped = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
         foreach (var property in payload.EnumerateObject())
@@ -221,9 +232,9 @@ internal static partial class EncryptedEndpointEnvelope
         return binding;
     }
 
-    private static string StableJson(SortedDictionary<string, string> value) => JsonSerializer.Serialize(value, JsOptions);
+    internal static string StableJson(SortedDictionary<string, string> value) => JsonSerializer.Serialize(value, JsOptions);
 
-    private static byte[] DecodeBytes(string value)
+    internal static byte[] DecodeBytes(string value)
     {
         if (value.Length == 0) throw new FormatException("value is required.");
         if (value.Length % 2 == 0 && value.All(Uri.IsHexDigit)) return Convert.FromHexString(value);
@@ -231,7 +242,7 @@ internal static partial class EncryptedEndpointEnvelope
         return Convert.FromBase64String(base64.PadRight(base64.Length + (4 - base64.Length % 4) % 4, '='));
     }
 
-    private static string Str(JsonElement element, string name)
+    internal static string Str(JsonElement element, string name)
         => element.TryGetProperty(name, out var value)
             ? value.ValueKind switch
             {
@@ -241,9 +252,9 @@ internal static partial class EncryptedEndpointEnvelope
             }
             : "";
 
-    private static string FirstNonEmpty(string value, string fallback) => value.Length > 0 ? value : fallback;
+    internal static string FirstNonEmpty(string value, string fallback) => value.Length > 0 ? value : fallback;
 
-    private static Result Invalid(string message) => new(false, 401, "REQUEST_SIGNATURE_INVALID", message, default);
+    internal static Result Invalid(string message) => new(false, 401, "REQUEST_SIGNATURE_INVALID", message, default);
 
     [GeneratedRegex("^([0-9]{9,11})_([A-Za-z0-9_-]{6,})$", RegexOptions.None, 100)]
     private static partial Regex RequestIdPattern();

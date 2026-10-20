@@ -11,7 +11,7 @@ namespace SboxNetworkStorage.Infrastructure.NetworkStorage.Metadata;
 /// query results follow the data. Every other operation passes straight through. Identifiers the store would
 /// reject are passed through too, so callers see the store's own validation errors.
 /// </summary>
-public sealed class MetadataCachingNetworkStore : INetworkStorageStore, IProjectImportStore, IAuthoritativeProjectStore, ISerializableStoreTransactions
+public sealed class MetadataCachingNetworkStore : INetworkStorageStore, IProjectImportStore, IAuthoritativeProjectStore, ISerializableStoreTransactions, IProjectSecretStore
 {
     private readonly INetworkStorageStore _inner;
     private readonly ProjectMetadataCache _cache;
@@ -32,6 +32,21 @@ public sealed class MetadataCachingNetworkStore : INetworkStorageStore, IProject
         _queries = queries ?? throw new ArgumentNullException(nameof(queries));
         _pending = pending;
     }
+
+    private IProjectSecretStore Secrets => _inner as IProjectSecretStore
+        ?? throw new NotSupportedException("The underlying store does not support project secrets.");
+
+    public Task<IReadOnlyList<ProjectSecretSummary>> ListProjectSecretsAsync(string projectId, CancellationToken ct) =>
+        Secrets.ListProjectSecretsAsync(projectId, ct);
+
+    public Task<string?> GetProjectSecretSealedAsync(string projectId, string name, CancellationToken ct) =>
+        Secrets.GetProjectSecretSealedAsync(projectId, name, ct);
+
+    public Task<ProjectSecretWriteResult> SetProjectSecretAsync(string projectId, string name, string sealedValue, long updatedAtUnixMs, int maxSecrets, CancellationToken ct) =>
+        Secrets.SetProjectSecretAsync(projectId, name, sealedValue, updatedAtUnixMs, maxSecrets, ct);
+
+    public Task<bool> DeleteProjectSecretAsync(string projectId, string name, CancellationToken ct) =>
+        Secrets.DeleteProjectSecretAsync(projectId, name, ct);
 
     private bool Cacheable(string projectId, string? id = null)
         => _pending is null

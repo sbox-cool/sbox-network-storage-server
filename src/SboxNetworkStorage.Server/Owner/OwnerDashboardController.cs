@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text.Json;
 using Microsoft.AspNetCore.Authorization;
@@ -10,6 +11,7 @@ using SboxNetworkStorage.Application.NetworkStorage;
 using SboxNetworkStorage.Application.NetworkStorage.Secrets;
 using SboxNetworkStorage.Application.NetworkStorage.GameLogs;
 using SboxNetworkStorage.Infrastructure.NetworkStorage.GameLogs;
+using SboxNetworkStorage.Infrastructure.NetworkStorage;
 using SboxNetworkStorage.Application.NetworkStorage.Media;
 using SboxNetworkStorage.Application.NetworkStorage.Endpoints.Scripting;
 using SboxNetworkStorage.Application.Workspace;
@@ -72,13 +74,15 @@ public sealed record OwnerFetchBlockedHost(string Host, string Reason, string En
 public sealed record OwnerProjectModel(WorkspaceProject Project, NetworkStorageProjectResources? Resources,
     IReadOnlyList<ApiKeyInfo> Keys, OwnerConnectInfo Connect, OwnerRequestSummary? LastRequest,
     IReadOnlyList<OwnerRequestSummary> RecentRejected, AuthorityCheckService.AuthorityCheckResult? Authority = null, string? RawKey = null, string? Error = null,
-    IReadOnlyList<ProjectSecretSummary>? Secrets = null, bool SecretsAvailable = true);
+    IReadOnlyList<ProjectSecretSummary>? Secrets = null, bool SecretsAvailable = true,
+    RequestEncryptionKeyInfo? EncryptionKey = null, string? SigningKeyFingerprint = null);
 
 /// <summary>Standalone adaptation of the Network Storage project/settings/key management surface.</summary>
 [Authorize(AuthenticationSchemes = OwnerHostingExtensions.Scheme)]
 public sealed class OwnerDashboardController(INetworkStorageProjectService projects, IWorkspaceStore workspace,
     IAuditLogger audit, INetworkStorageStore store, EffectiveConfig config, IMemoryCache cache, TimeProvider time, GameLogQueue gameLogs,
-    ReleaseStatusService releaseStatus, IErrorArchive errorArchive, ProjectSecretsService secrets) : Controller
+    ReleaseStatusService releaseStatus, RequestEncryptionKeyStore encryptionKeys, OwnerAccountService accounts,
+    IErrorArchive errorArchive, ProjectSecretsService secrets) : Controller
 {
     private const long Owner = NetworkStorageServices.LocalOwnerUserId;
     private const int RecentRequests = 200;
@@ -232,6 +236,32 @@ public sealed class OwnerDashboardController(INetworkStorageProjectService proje
         return Redirect(ProjectUrl(projectId));
     }
 
+    /// <summary>Rotates the server-wide request encryption key. The previous key stays valid for the grace period. Needs the owner's password, and the authenticator or a recovery code when enabled, as for export.</summary>
+    [HttpPost("/dashboard/projects/{projectId}/encryption/rotate")]
+    public async Task<IActionResult> RotateEncryptionKey(string projectId, [FromForm] string? graceSeconds,
+        [FromForm] string? password, [FromForm] string? secondFactor, CancellationToken ct)
+    {
+        if (await LoadProjectAsync(projectId, ct) is null) return NotFound();
+        try
+        {
+            if (!await accounts.ConfirmAsync(User.Identity!.Name!, User.FindFirstValue(OwnerHostingExtensions.StampClaim), password, secondFactor, ct))
+                return await ProjectErrorAsync(projectId, "Enter your password, and your authenticator or recovery code if you enabled one.", ct);
+        }
+        catch (OwnerAuthenticatorUnavailableException)
+        {
+            return await ProjectErrorAsync(projectId, "This server cannot read your authenticator. Use a recovery code, or run sbox-ns admin reset-2fa on the server.", ct);
+        }
+        if (!int.TryParse(graceSeconds, NumberStyles.None, CultureInfo.InvariantCulture, out var grace)
+            || grace < 0 || grace > RequestEncryptionKeyring.MaxGraceSeconds)
+            return await ProjectErrorAsync(projectId, $"Grace period must be a whole number of seconds from 0 to {RequestEncryptionKeyring.MaxGraceSeconds}.", ct);
+        var previousKeyId = encryptionKeys.Current().Current.KeyId;
+        var keyring = RequestEncryptionKeyring.Rotate(encryptionKeys.Path, time.GetUtcNow(), grace);
+        encryptionKeys.Reload();
+        await AuditAsync(projectId, "encryption.key.rotate", new { previousKeyId, keyId = keyring.Current.KeyId, graceSeconds = grace }, ct);
+        OwnerFlash.Success(this, $"Request encryption key rotated. The previous key stays valid for {grace} seconds.");
+        return Redirect(ProjectUrl(projectId) + "#project-settings");
+    }
+
     [HttpPost("/dashboard/projects/{projectId}/keys")]
     public async Task<IActionResult> CreateKey(string projectId, [FromForm] string? label, [FromForm] string? keyType, CancellationToken ct)
     {
@@ -368,7 +398,8 @@ public sealed class OwnerDashboardController(INetworkStorageProjectService proje
         var authority = AuthorityCheckService.AnalyzeLoaded(access.Project.HostingProfile, resources, keys, rawRequests);
         var secretList = await secrets.ListAsync(projectId, ct);
         return new OwnerProjectModel(access.Project, resources,
-            keys, connect, requests.FirstOrDefault(), rejected, authority, Secrets: secretList, SecretsAvailable: secrets.IsAvailable);
+            keys, connect, requests.FirstOrDefault(), rejected, authority, Secrets: secretList, SecretsAvailable: secrets.IsAvailable,
+            EncryptionKey: encryptionKeys.Current().Current, SigningKeyFingerprint: NetworkStorageSecurityConfigSigningKey.Fingerprint);
     }
 
     private static OwnerRequestSummary Summary(JsonElement row) => new(

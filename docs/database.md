@@ -203,7 +203,7 @@ Until the record API accepts an expected version, run one server process per dat
 
 ## Project secrets table
 
-Schema version 11 adds `{prefix}project_secrets` (`project_id`, `secret_name`, `value_enc`, `updated_at_unix_ms`; primary key `(project_id, secret_name)`). The migration is tagged additive (see [Rollback-safe migrations](#rollback-safe-migrations)). `value_enc` holds a version-prefixed, base64 AES-GCM ciphertext under the storage encryption key; the table never holds plaintext. Deleting a project deletes its rows first. On PostgreSQL, each write to a project's secrets takes a transaction advisory lock, so the 64-secret cap holds across server instances.
+Schema version 11 adds `{prefix}project_secrets` (`project_id`, `secret_name`, `value_enc`, `updated_at_unix_ms`; primary key `(project_id, secret_name)`). The migration is tagged additive (see [Rollback-safe migrations](#rollback-safe-migrations)): existing tables and statements are unchanged. `value_enc` holds version-prefixed, base64 AES-GCM ciphertext; the table never holds plaintext. A foreign key to `projects` with `ON DELETE CASCADE` prevents orphan writes and preserves cleanup when an older binary deletes a project. The owner-deletion operation removes the authoritative project and membership in one transaction. PostgreSQL secret writes take a transaction advisory lock, so the 64-secret cap holds across server instances.
 
 ## Backups and restores
 

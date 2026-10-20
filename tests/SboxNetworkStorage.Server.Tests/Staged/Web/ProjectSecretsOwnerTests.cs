@@ -62,4 +62,23 @@ public sealed class ProjectSecretsOwnerTests
         Assert.DoesNotContain(FirstValue, page);
         Assert.DoesNotContain(ReplacedValue, page);
     }
+
+    [Fact]
+    public async Task MultilineSecret_IsPreservedAndDeletingTheProjectRemovesTheCredential()
+    {
+        var (factory, owner, project, url) = await SetupAsync();
+        using var host = factory;
+        using var client = owner;
+        const string credential = "-----BEGIN KEY-----\nvalue with spaces  \n-----END KEY-----\n";
+        using (var saved = await PostFormAsync(owner, url, url + "/secrets", ("name", "PEM"), ("value", credential)))
+            Assert.Equal(HttpStatusCode.Redirect, saved.StatusCode);
+        var service = factory.Services.GetRequiredService<SboxNetworkStorage.Application.NetworkStorage.Secrets.ProjectSecretsService>();
+        Assert.Equal(credential, await service.ReadAsync(project.ProjectId, "PEM", CancellationToken.None));
+        var page = await owner.GetStringAsync(url);
+        Assert.DoesNotContain("-----BEGIN KEY-----", page);
+        using (var deleted = await PostFormAsync(owner, url, url + "/delete", ("confirmation", project.ProjectId)))
+            Assert.Equal(HttpStatusCode.Redirect, deleted.StatusCode);
+        Assert.Empty(await factory.Services.GetRequiredService<IProjectSecretStore>().ListProjectSecretsAsync(project.ProjectId, CancellationToken.None));
+        Assert.Null(await factory.Services.GetRequiredService<INetworkStorageStore>().ReadProjectAsync(project.ProjectId, CancellationToken.None));
+    }
 }

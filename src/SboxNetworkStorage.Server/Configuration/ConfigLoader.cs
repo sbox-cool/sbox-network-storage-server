@@ -208,7 +208,7 @@ public static class ConfigLoader
         };
     }
 
-    private static readonly string[] AuthFileKeys = ["auth.session_secret_file", "auth.storage_encryption_key_file", "auth.security_signing_key_file"];
+    private static readonly string[] AuthFileKeys = ["auth.session_secret_file", "auth.storage_encryption_key_file", "auth.security_signing_key_file", "auth.request_encryption_keys_file"];
 
     /// <summary><c>server.data_dir</c> as the environment and flags will leave it; the overlay cannot set it, so the layout can be resolved before the overlay loads.</summary>
     private static string ConfiguredDataDirectory(

@@ -416,6 +416,11 @@ public sealed partial class EndpointExecutor
         var projectId = inv.ProjectId;
         var checkedSource = _dataSource as IEndpointSnapshotDataSource;
         var secretSource = _dataSource as IEndpointSecretSource;
+        // A fetch built with provisional nulls is not a real request. Resolve state, discard unsent calls,
+        // then let the next round build its request from the resolved values.
+        var unresolvedState = round.MissedRecords.Count > 0 || round.MissedScans.Count > 0
+            || round.MissedWorkflows.Count > 0 || round.MissedGlobals.Count > 0 || round.MissedSecrets.Count > 0;
+        if (unresolvedState) state.Fetch.DiscardPending();
 
         foreach (var (cacheKey, (cid, rk)) in round.MissedRecords)
         {
@@ -494,7 +499,7 @@ public sealed partial class EndpointExecutor
             }
         }
 
-        if (state.Fetch.PendingCount > 0)
+        if (!unresolvedState && state.Fetch.PendingCount > 0)
         {
             budget.Suspend();
             try
@@ -562,14 +567,32 @@ public sealed partial class EndpointExecutor
         return runtime.ToJavaScript(source);
     }
 
-    /// <summary>Maps a finished run to the response. Carries the refused fetch calls for the owner's diagnostics.</summary>
+    /// <summary>Applies the secret policy to every terminal output, including errors and blocked-fetch diagnostics.</summary>
     private async Task<EndpointExecutionResult> FinishScriptRunAsync(
         ScriptInvocation inv,
         ScriptState state,
         ScriptRound round,
         ScriptRun run,
-        CancellationToken ct) =>
-        (await FinishScriptRunCoreAsync(inv, state, round, run, ct)) with { FetchBlocked = state.Fetch.Blocked };
+        CancellationToken ct)
+    {
+        var redact = new SecretRedactor(state.Secrets);
+        try
+        {
+            var result = await FinishScriptRunCoreAsync(inv, state, round, run, ct);
+            return result with
+            {
+                FetchBlocked = state.Fetch.Blocked.Select(call =>
+                    call with { Host = redact.Text(call.Host), Reason = redact.Text(call.Reason) }).ToList(),
+            };
+        }
+        catch (SecretOutputCollisionException)
+        {
+            inv.Trace?.Steps.Clear();
+            inv.Trace?.PendingWrites.Clear();
+            inv.Trace?.ScriptLogs.Clear();
+            return ScriptFailure(500, "SECRET_OUTPUT_REJECTED", "Secret redaction would make the output ambiguous.", null);
+        }
+    }
 
     /// <summary>One trace step per fetch call, for the try-it trace and the owner's per-call view.</summary>
     private static IEnumerable<EndpointStepTrace> FetchTraceSteps(ScriptFetchSession fetch, SecretRedactor redact) =>
@@ -587,10 +610,12 @@ public sealed partial class EndpointExecutor
         ScriptRun run,
         CancellationToken ct)
     {
-        // A project secret the run read never leaves the script: logs, trace, failure text and the response carry
-        // [secret:NAME] instead. Built from this pass's state, the only pass whose output is returned.
         var redact = new SecretRedactor(state.Secrets);
-        var logs = redact.Lines(run.Host.Logs);
+        var logs = redact.Logs(run.Host.LogValues);
+        // Record data can later reach clients without loading the secret, and projections can persist it in
+        // telemetry. Reject it rather than merely hiding the preview of a write that would leak later.
+        if (round.DurableWrites.Any(write => redact.Contains(write.Collection) || redact.Contains(write.Key) || redact.Contains(write.Data)))
+            return ScriptFailure(400, "SECRET_WRITE_FORBIDDEN", "Project secrets cannot be stored in records.", null);
         if (inv.Trace is not null)
         {
             inv.Trace.Steps.AddRange(round.TraceSteps.Select(redact.Step));
@@ -600,7 +625,8 @@ public sealed partial class EndpointExecutor
         }
 
         if (run.Host.Failure is { } failure)
-            return ScriptFailure(failure.Status, failure.Code, redact.Text(failure.Message), ScriptOwnerDetail(redact.Text(failure.OwnerDetail), logs));
+            return ScriptFailure(failure.Status, redact.Contains(failure.Code) ? "SECRET_ERROR_REDACTED" : failure.Code,
+                redact.Text(failure.Message), ScriptOwnerDetail(redact.Text(failure.OwnerDetail), logs));
 
         var outcome = run.Outcome;
         switch (outcome.Kind)
@@ -612,17 +638,18 @@ public sealed partial class EndpointExecutor
                     return ScriptFailure(502, fetchCode, "An outbound request failed.", ScriptOwnerDetail(redact.Text(outcome.OwnerDetail), logs));
                 return ScriptFailure(500, "SCRIPT_ERROR", "The endpoint script failed.", ScriptOwnerDetail(redact.Text(outcome.OwnerDetail), logs));
         }
+        var responseBody = outcome.Body is { } body ? redact.Value(ScriptJson.ToPlain(body)) : null;
 
         if (inv.LiveServe && round.DurableWrites.Count > 0)
         {
             var denial = await FlushDurableWritesAsync(inv.ProjectId, round.DurableWrites, state.ReadSet, inv.VersionCheckedCollections, ct);
-            if (denial is not null) return denial;
+            if (denial is not null) return denial with { Body = redact.Value(denial.Body), OwnerDetail = redact.Text(denial.OwnerDetail) };
             // Best-effort, like the YAML path: a projection failure never fails the committed call.
             if (inv.LegacyPlayerProjections && inv.SteamId != "anonymous")
                 await ApplyPostFlushProjectionsAsync(inv.ProjectId, round.DurableWrites, state.Records, inv.CollectionNameToId, inv.EndpointSlug, ct);
         }
 
-        return new EndpointExecutionResult(true, 200, outcome.Body is { } body ? redact.Value(ScriptJson.ToPlain(body)) : null);
+        return new EndpointExecutionResult(true, 200, responseBody);
     }
 
     private static EndpointExecutionResult ScriptLoadLimit() =>

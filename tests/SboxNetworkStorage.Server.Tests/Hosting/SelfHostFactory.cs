@@ -288,6 +288,7 @@ public abstract class SelfHostFactory : IDisposable
             ["auth.session_secret_file"] = Path.Combine(SharedSecretsDirectory, "auth_session_secret"),
             ["auth.storage_encryption_key_file"] = Path.Combine(SharedSecretsDirectory, "storage_encryption_key"),
             ["auth.security_signing_key_file"] = Path.Combine(SharedSecretsDirectory, "security_signing_key.pem"),
+            ["auth.request_encryption_keys_file"] = Path.Combine(SharedSecretsDirectory, "request_encryption_keys.json"),
         };
         if (Driver == StoreDriver.Postgres)
         {
@@ -343,6 +344,7 @@ public abstract class SelfHostFactory : IDisposable
             ["auth.session_secret_file"] = Path.Combine(directory, "auth_session_secret"),
             ["auth.storage_encryption_key_file"] = Path.Combine(directory, "storage_encryption_key"),
             ["auth.security_signing_key_file"] = Path.Combine(directory, "security_signing_key.pem"),
+            ["auth.request_encryption_keys_file"] = Path.Combine(directory, "request_encryption_keys.json"),
         }, environment: _ => null);
         ServerSecrets.EnsureAndLoad(config);
         return directory;

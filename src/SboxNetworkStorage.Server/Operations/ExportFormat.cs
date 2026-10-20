@@ -14,7 +14,7 @@ public static partial class ExportFormat
     public const string FormatName = "sbox-ns-export";
 
     /// <summary>Bump when the archive layout or a dump file shape changes incompatibly.</summary>
-    public const int CurrentVersion = 1;
+    public const int CurrentVersion = 2;
 
     public const string ManifestEntry = "manifest.json";
     public const string DataPrefix = "data/";
@@ -29,7 +29,7 @@ public static partial class ExportFormat
     [
         "project", "collections", "records", "ledger-entries", "global-records", "endpoints", "workflows",
         "queries", "api-keys", "pages", "game-values", "rate-limits", "checkpoint-cursor", "player-profiles",
-        "player-sessions", "player-events", "audit-logs", "usage",
+        "player-sessions", "player-events", "audit-logs", "usage", "project-secrets",
     ];
 
     public static readonly JsonSerializerOptions ManifestJson = new()

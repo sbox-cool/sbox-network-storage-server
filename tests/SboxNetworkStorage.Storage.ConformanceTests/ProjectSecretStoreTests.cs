@@ -8,7 +8,13 @@ public abstract class ProjectSecretStoreTests : IAsyncLifetime
     private RelationalNetworkStorageStore? _store;
     protected abstract RelationalNetworkStorageStore Create();
     protected abstract Task Cleanup();
-    public async Task InitializeAsync() { _store = Create(); await _store.MigrateAsync(CancellationToken.None); }
+    public async Task InitializeAsync()
+    {
+        _store = Create();
+        await _store.MigrateAsync(CancellationToken.None);
+        foreach (var id in new[] { "proj_example", "proj_other" })
+            await _store.UpsertProjectAsync(id, System.Text.Json.JsonSerializer.SerializeToElement(new { id }), 1, CancellationToken.None);
+    }
     public async Task DisposeAsync() { if (_store is not null) await _store.DisposeAsync(); await Cleanup(); }
 
     private IProjectSecretStore Secrets => _store!;
@@ -65,6 +71,18 @@ public abstract class ProjectSecretStoreTests : IAsyncLifetime
         Assert.Equal(3, results.Count(r => r == ProjectSecretWriteResult.Created));
         Assert.Equal(7, results.Count(r => r == ProjectSecretWriteResult.LimitReached));
         Assert.Equal(3, (await Secrets.ListProjectSecretsAsync("proj_example", CancellationToken.None)).Count);
+    }
+
+    [SkippableFact]
+    public async Task Deleting_a_project_removes_its_secrets_and_prevents_orphan_writes()
+    {
+        await Set("proj_example", "A");
+        await Set("proj_other", "A");
+        await _store!.DeleteProjectAsync("proj_example", CancellationToken.None);
+        Assert.Null(await Secrets.GetProjectSecretSealedAsync("proj_example", "A", CancellationToken.None));
+        Assert.Equal("sealed-value", await Secrets.GetProjectSecretSealedAsync("proj_other", "A", CancellationToken.None));
+        await Assert.ThrowsAnyAsync<System.Data.Common.DbException>(() => Set("proj_example", "B"));
+        Assert.Empty(await Secrets.ListProjectSecretsAsync("proj_example", CancellationToken.None));
     }
 }
 

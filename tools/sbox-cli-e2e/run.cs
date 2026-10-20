@@ -950,7 +950,7 @@ sealed class OwnerConsole
 		};
 		foreach (var name in new[] { "requireSboxAuth", "enableAuthSessions", "requireAuthSessions" })
 			if (Checked(html, name)) form[name] = "on";
-		if (enable) form["enableEncryptedRequests"] = "on";
+		form["encryptedRequestMode"] = enable ? "v1" : "off";
 		var saved = await http.PostAsync(projectPath + "/settings", new FormUrlEncodedContent(form));
 		return (int)saved.StatusCode;
 	}

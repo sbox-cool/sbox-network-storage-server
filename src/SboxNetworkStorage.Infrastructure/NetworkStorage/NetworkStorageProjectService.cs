@@ -445,6 +445,16 @@ public sealed class NetworkStorageProjectService(
     public async Task DeleteProjectAsync(long storageOwnerUserId, string projectId, CancellationToken cancellationToken)
     {
         var projects = await workspaceStore.GetUserProjectsAsync(storageOwnerUserId, cancellationToken);
+        if (!projects.Any(p => string.Equals(p.Id, projectId, StringComparison.OrdinalIgnoreCase))) return;
+        // The authoritative row and its secret rows must disappear together. The FK also serialises deletion
+        // against secret creation, so a racing owner POST cannot leave an orphaned credential.
+        await using (var transaction = await networkStore.BeginTransactionAsync(cancellationToken))
+        {
+            await transaction.Store.DeleteProjectAsync(projectId, cancellationToken);
+            await transaction.Store.DeleteProjectMembershipAsync(storageOwnerUserId.ToString(CultureInfo.InvariantCulture), projectId, cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+        }
+        keyCache?.InvalidateProjectKeys(projectId);
         var updated = projects.Where(p => !string.Equals(p.Id, projectId, StringComparison.OrdinalIgnoreCase)).ToList();
         await workspaceStore.SaveUserProjectsAsync(storageOwnerUserId, updated, cancellationToken);
         // Queued sends for a deleted project must not go out after the project is gone.
@@ -510,7 +520,9 @@ public sealed class NetworkStorageProjectService(
                         EnableAuthSessions = IsChecked(formValues.GetValueOrDefault("enableAuthSessions")),
                         RequireAuthSessions = IsChecked(formValues.GetValueOrDefault("requireAuthSessions")),
                         AuthSessionTtlSeconds = ParseIntOrDefault(formValues.GetValueOrDefault("authSessionTtlSeconds"), 3600, 60, 86400),
-                        EnableEncryptedRequests = IsChecked(formValues.GetValueOrDefault("enableEncryptedRequests")),
+                        EncryptedRequestMode = formValues.GetValueOrDefault("encryptedRequestMode") is { } postedMode && EncryptedRequestModes.IsValid(postedMode)
+                            ? postedMode
+                            : project.EncryptedRequestMode,
                         EncryptedRequestWindowSeconds = ParseIntOrDefault(formValues.GetValueOrDefault("encryptedRequestWindowSeconds"), 120, 30, 600)
                     };
                     break;

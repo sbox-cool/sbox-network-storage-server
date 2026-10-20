@@ -56,7 +56,7 @@ interface NsWorkflows {
   run(workflowId: string, input: Record<string, unknown>): unknown;
 }
 
-/** Project secrets, read-only. Set in the owner panel. Values are never returned to clients, logs or traces. */
+/** Project secrets, read-only. Unchanged values are redacted at output boundaries; do not echo or persist transformed secrets. */
 interface NsSecrets {
   /**
    * The value of a project secret, or null when no secret has that name. Names are case-sensitive. A secret that

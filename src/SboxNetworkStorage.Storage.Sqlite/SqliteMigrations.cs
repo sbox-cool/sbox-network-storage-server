@@ -72,7 +72,8 @@ public static class SqliteMigrations
         CREATE TABLE {p}project_secrets (
             project_id TEXT NOT NULL, secret_name TEXT NOT NULL, value_enc TEXT NOT NULL,
             updated_at_unix_ms INTEGER NOT NULL,
-            PRIMARY KEY (project_id, secret_name)) STRICT, WITHOUT ROWID;
+            PRIMARY KEY (project_id, secret_name),
+            FOREIGN KEY (project_id) REFERENCES {p}projects(project_id) ON DELETE CASCADE) STRICT, WITHOUT ROWID;
         """;
 
     // Additive: three new tables plus two indexes. No existing table is touched, so the
