@@ -305,7 +305,7 @@ Promises are bounded by the same time limit: a promise that does not settle befo
 
 | Limit | Default | When exceeded |
 | --- | --- | --- |
-| Time per request | 1 s, counted from the start of script work (includes store reads between rounds; waits for `ns.fetch` are not counted) | `SCRIPT_LIMIT_EXCEEDED` |
+| Script execution time per request | 1 s of user-code evaluation across all rounds. Engine setup, TypeScript stripping and asynchronous host reads/fetches between rounds are excluded; they still observe request cancellation and the load/round limits. | `SCRIPT_LIMIT_EXCEEDED` |
 | Statements per request | 1,000,000, across all engine entries and rounds | `SCRIPT_LIMIT_EXCEEDED` |
 | Memory per engine | 64 MiB (each round has its own engine) | `SCRIPT_LIMIT_EXCEEDED` |
 | Call depth per engine | 200 | `SCRIPT_LIMIT_EXCEEDED` |

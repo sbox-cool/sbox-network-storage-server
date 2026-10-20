@@ -10,9 +10,9 @@ namespace SboxNetworkStorage.Application.NetworkStorage.Endpoints.Scripting;
 /// <remarks>
 /// Covers: wall-clock time, statements executed across all engines (<see cref="EndpointScriptLimits.MaxStatements"/>),
 /// and workflow depth and steps (see <see cref="Workflows"/>).
-/// The clock starts at <see cref="Start"/>, which the runtime calls once engine setup is done and user code is about
-/// to run. Engine construction (the hardening script and the prelude) is not counted against the time budget, so a slow
-/// host does not turn a valid script into a timeout. Store reads between re-run rounds are counted.
+/// The clock runs only while evaluating user modules, calling the handler and serialising its response. Every round
+/// shares the time already spent; engine setup, TypeScript stripping and asynchronous host reads between rounds are
+/// outside that clock. Host reads still observe request cancellation and the shared load/round limits.
 /// Memory is not shared: each round's engine gets its own <see cref="EndpointScriptLimits.MemoryBytes"/> limit, and
 /// rounds run one at a time, so the peak is one engine's limit.
 /// </remarks>
@@ -49,8 +49,7 @@ public sealed class ScriptRunBudget : IDisposable
     public ScriptWorkflowBudget Workflows { get; }
 
     /// <summary>
-    /// Arms the time budget. Idempotent: later rounds of the same request keep the first start. Call it after engine
-    /// setup and before user code runs.
+    /// Starts the first user-code segment. Later segments call <see cref="Resume"/> with the same remaining budget.
     /// </summary>
     internal void Start()
     {
@@ -62,10 +61,7 @@ public sealed class ScriptRunBudget : IDisposable
         Workflows.Start();
     }
 
-    /// <summary>
-    /// Stops the time budget while the host waits on outbound HTTP between rounds. Script time does not run during
-    /// that wait, so a slow remote host cannot make a valid script time out. Idempotent.
-    /// </summary>
+    /// <summary>Pauses script time during host preparation and asynchronous work between execution rounds.</summary>
     internal void Suspend()
     {
         if (!_started || _suspended)
