@@ -56,6 +56,15 @@ interface NsWorkflows {
   run(workflowId: string, input: Record<string, unknown>): unknown;
 }
 
+/** Project secrets, read-only. Unchanged values are redacted at output boundaries; do not echo or persist transformed secrets. */
+interface NsSecrets {
+  /**
+   * The value of a project secret, or null when no secret has that name. Names are case-sensitive. A secret that
+   * exists but cannot be decrypted fails the run with SECRET_UNAVAILABLE instead of returning null.
+   */
+  get(name: string): string | null;
+}
+
 /** Options for `ns.fetch`. Every field is optional. */
 interface FetchOptions {
   /** HTTP method. Defaults to GET. */
@@ -90,6 +99,7 @@ interface Ns {
   records: NsRecords;
   values: NsValues;
   workflows: NsWorkflows;
+  secrets: NsSecrets;
   /** Server time in milliseconds since the Unix epoch. */
   now(): number;
   /** Writes a value to the server log. */

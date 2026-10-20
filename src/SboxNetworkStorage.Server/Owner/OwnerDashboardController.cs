@@ -8,6 +8,7 @@ using Microsoft.Extensions.Caching.Memory;
 using SboxNetworkStorage.Application.Common;
 using SboxNetworkStorage.Application.Errors;
 using SboxNetworkStorage.Application.NetworkStorage;
+using SboxNetworkStorage.Application.NetworkStorage.Secrets;
 using SboxNetworkStorage.Application.NetworkStorage.GameLogs;
 using SboxNetworkStorage.Infrastructure.NetworkStorage.GameLogs;
 using SboxNetworkStorage.Infrastructure.NetworkStorage;
@@ -73,13 +74,15 @@ public sealed record OwnerFetchBlockedHost(string Host, string Reason, string En
 public sealed record OwnerProjectModel(WorkspaceProject Project, NetworkStorageProjectResources? Resources,
     IReadOnlyList<ApiKeyInfo> Keys, OwnerConnectInfo Connect, OwnerRequestSummary? LastRequest,
     IReadOnlyList<OwnerRequestSummary> RecentRejected, AuthorityCheckService.AuthorityCheckResult? Authority = null, string? RawKey = null, string? Error = null,
+    IReadOnlyList<ProjectSecretSummary>? Secrets = null, bool SecretsAvailable = true,
     RequestEncryptionKeyInfo? EncryptionKey = null, string? SigningKeyFingerprint = null);
 
 /// <summary>Standalone adaptation of the Network Storage project/settings/key management surface.</summary>
 [Authorize(AuthenticationSchemes = OwnerHostingExtensions.Scheme)]
 public sealed class OwnerDashboardController(INetworkStorageProjectService projects, IWorkspaceStore workspace,
     IAuditLogger audit, INetworkStorageStore store, EffectiveConfig config, IMemoryCache cache, TimeProvider time, GameLogQueue gameLogs,
-    ReleaseStatusService releaseStatus, RequestEncryptionKeyStore encryptionKeys, OwnerAccountService accounts, IErrorArchive errorArchive) : Controller
+    ReleaseStatusService releaseStatus, RequestEncryptionKeyStore encryptionKeys, OwnerAccountService accounts,
+    IErrorArchive errorArchive, ProjectSecretsService secrets) : Controller
 {
     private const long Owner = NetworkStorageServices.LocalOwnerUserId;
     private const int RecentRequests = 200;
@@ -275,6 +278,36 @@ public sealed class OwnerDashboardController(INetworkStorageProjectService proje
         return Redirect(ProjectUrl(projectId) + "?created=" + notice + "#api-keys");
     }
 
+    [HttpPost("/dashboard/projects/{projectId}/secrets")]
+    public async Task<IActionResult> SetSecret(string projectId, [FromForm] string? name, [FromForm] string? value, CancellationToken ct)
+    {
+        if (await LoadProjectAsync(projectId, ct) is null) return NotFound();
+        // The value is written once and never shown again; the audit trail records the name only.
+        try
+        {
+            var outcome = await secrets.SetAsync(projectId, name ?? string.Empty, value ?? string.Empty, ct);
+            await AuditAsync(projectId, "secret.set", new { name }, ct);
+            OwnerFlash.Success(this, outcome == ProjectSecretSetOutcome.Created ? $"Secret {name} saved." : $"Secret {name} replaced.");
+        }
+        catch (Exception ex) when (ex is ProjectSecretValidationException or ProjectSecretUnavailableException)
+        {
+            return await ProjectErrorAsync(projectId, ex.Message, ct);
+        }
+        return Redirect(ProjectUrl(projectId) + "#secrets");
+    }
+
+    [HttpPost("/dashboard/projects/{projectId}/secrets/delete")]
+    public async Task<IActionResult> DeleteSecret(string projectId, [FromForm] string? name, CancellationToken ct)
+    {
+        if (await LoadProjectAsync(projectId, ct) is null) return NotFound();
+        if (!ProjectSecretsService.IsValidName(name)) return await ProjectErrorAsync(projectId, "Choose a secret to delete.", ct);
+        if (!OwnerConfirm.IsConfirmed(Request)) return OwnerConfirm.Page(this);
+        if (!await secrets.DeleteAsync(projectId, name!, ct)) return await ProjectErrorAsync(projectId, $"No secret named {name} is set.", ct);
+        await AuditAsync(projectId, "secret.delete", new { name }, ct);
+        OwnerFlash.Success(this, $"Secret {name} deleted.");
+        return Redirect(ProjectUrl(projectId) + "#secrets");
+    }
+
     [HttpPost("/dashboard/projects/{projectId}/keys/toggle")]
     public Task<IActionResult> ToggleKey(string projectId, [FromForm] string? key, CancellationToken ct)
         => ChangeKeyAsync(projectId, key, false, ct);
@@ -363,9 +396,10 @@ public sealed class OwnerDashboardController(INetworkStorageProjectService proje
             && request.At >= since).ToList();
         var resources = await projects.GetProjectResourcesForOwnerAsync(Owner, projectId, ct);
         var authority = AuthorityCheckService.AnalyzeLoaded(access.Project.HostingProfile, resources, keys, rawRequests);
+        var secretList = await secrets.ListAsync(projectId, ct);
         return new OwnerProjectModel(access.Project, resources,
-            keys, connect, requests.FirstOrDefault(), rejected, authority, EncryptionKey: encryptionKeys.Current().Current,
-            SigningKeyFingerprint: NetworkStorageSecurityConfigSigningKey.Fingerprint);
+            keys, connect, requests.FirstOrDefault(), rejected, authority, Secrets: secretList, SecretsAvailable: secrets.IsAvailable,
+            EncryptionKey: encryptionKeys.Current().Current, SigningKeyFingerprint: NetworkStorageSecurityConfigSigningKey.Fingerprint);
     }
 
     private static OwnerRequestSummary Summary(JsonElement row) => new(

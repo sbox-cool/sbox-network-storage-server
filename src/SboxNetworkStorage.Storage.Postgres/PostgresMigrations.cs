@@ -26,6 +26,7 @@ public static class PostgresMigrations
         new(8, "Durable Discord webhook outbox and per-target delivery state for endpoint webhook steps", SchemaChange.Additive, V8),
         new(9, "Media objects and single-use upload grant records for the media store", SchemaChange.Additive, V9),
         new(10, "Structured game logs: per-project entries with GIN-indexed tokens and jsonb attrs (off by default)", SchemaChange.Additive, V10),
+        new(11, "Project secrets: per-project named values sealed with the storage encryption key (ns.secrets.get)", SchemaChange.Additive, V11),
     ];
 
     // Additive: two new tables with indexes. Nothing existing is touched; older binaries never read them.
@@ -60,6 +61,14 @@ public static class PostgresMigrations
         CREATE INDEX ix_game_log_project_event_ts ON {p}game_log_entries (project_id, event, ts_unix_ms DESC);
         CREATE INDEX ix_game_log_search_tokens ON {p}game_log_entries USING gin (search_tokens);
         CREATE INDEX ix_game_log_attrs ON {p}game_log_entries USING gin (attrs_json jsonb_path_ops);
+        """;
+
+    // Additive: one new table. Older binaries never read or write it. value_enc holds the sealed value only (see ProjectSecretCipher).
+    private static string V11(string p) => $"""
+        CREATE TABLE {p}project_secrets (
+            project_id {Key}, secret_name {Key}, value_enc text NOT NULL, updated_at_unix_ms bigint NOT NULL,
+            PRIMARY KEY (project_id, secret_name),
+            FOREIGN KEY (project_id) REFERENCES {p}projects(project_id) ON DELETE CASCADE);
         """;
 
     // Additive: three new tables plus two indexes. No existing table is touched, so the

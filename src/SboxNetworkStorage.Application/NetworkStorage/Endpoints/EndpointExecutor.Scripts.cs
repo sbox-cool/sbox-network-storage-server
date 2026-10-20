@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using SboxNetworkStorage.Application.NetworkStorage.Endpoints.Scripting;
+using SboxNetworkStorage.Application.NetworkStorage.Secrets;
 using Microsoft.Extensions.Logging;
 
 namespace SboxNetworkStorage.Application.NetworkStorage.Endpoints;
@@ -87,6 +88,9 @@ public sealed partial class EndpointExecutor
         /// <summary>Loaded global module sources (JavaScript) keyed by endpoint id. A missing or disabled global is stored as null.</summary>
         public Dictionary<string, string?> Globals { get; } = new(StringComparer.Ordinal);
 
+        /// <summary>Project secrets loaded so far, keyed by name. A missing secret is stored as null.</summary>
+        public Dictionary<string, string?> Secrets { get; } = new(StringComparer.Ordinal);
+
         public IReadOnlyList<string> WorkflowIds { get; set; } = [];
 
         public IReadOnlyList<string> GlobalIds { get; set; } = [];
@@ -117,10 +121,13 @@ public sealed partial class EndpointExecutor
 
         public HashSet<string> MissedGlobals { get; } = new(StringComparer.Ordinal);
 
+        /// <summary>Secret names a run read that are not loaded yet. The run reruns once they are.</summary>
+        public HashSet<string> MissedSecrets { get; } = new(StringComparer.Ordinal);
+
         /// <summary>Fetch calls this round queued that still need a network result. They are loaded, then the round re-runs.</summary>
         public int MissedFetches { get; set; }
 
-        public int Misses => MissedRecords.Count + MissedScans.Count + MissedWorkflows.Count + MissedGlobals.Count + MissedFetches;
+        public int Misses => MissedRecords.Count + MissedScans.Count + MissedWorkflows.Count + MissedGlobals.Count + MissedSecrets.Count + MissedFetches;
     }
 
     private sealed record ScriptRun(EndpointScriptHost Host, EndpointScriptOutcome Outcome);
@@ -331,6 +338,13 @@ public sealed partial class EndpointExecutor
             return null;
         }
 
+        string? SecretGet(string name)
+        {
+            if (state.Secrets.TryGetValue(name, out var value)) return value;
+            round.MissedSecrets.Add(name);
+            return null;
+        }
+
         var request = new EndpointExecutionRequest(
             Input: inv.Input,
             SteamId: inv.SteamId,
@@ -376,6 +390,7 @@ public sealed partial class EndpointExecutor
             WorkflowIds: () => state.WorkflowIds,
             EndpointIds: () => state.GlobalIds,
             GlobalSource: GlobalSource,
+            Secret: SecretGet,
             Fetch: state.Fetch);
 
         var host = new EndpointScriptHost(bindings, runtime.Limits.MaxLogBytes, _logger);
@@ -399,6 +414,12 @@ public sealed partial class EndpointExecutor
     {
         var projectId = inv.ProjectId;
         var checkedSource = _dataSource as IEndpointSnapshotDataSource;
+        var secretSource = _dataSource as IEndpointSecretSource;
+        // A fetch built with provisional nulls is not a real request. Resolve state, discard unsent calls,
+        // then let the next round build its request from the resolved values.
+        var unresolvedState = round.MissedRecords.Count > 0 || round.MissedScans.Count > 0
+            || round.MissedWorkflows.Count > 0 || round.MissedGlobals.Count > 0 || round.MissedSecrets.Count > 0;
+        if (unresolvedState) state.Fetch.DiscardPending();
 
         foreach (var (cacheKey, (cid, rk)) in round.MissedRecords)
         {
@@ -462,7 +483,22 @@ public sealed partial class EndpointExecutor
             state.Globals[id] = await ReadGlobalModuleSourceAsync(projectId, id, ct);
         }
 
-        if (state.Fetch.PendingCount > 0)
+        foreach (var name in round.MissedSecrets)
+        {
+            if (++state.Loads > MaxScriptStateLoads) return ScriptLoadLimit();
+            if (secretSource is null)
+                return ScriptFailure(500, "SECRET_UNAVAILABLE", "A project secret is unavailable on this server.", "The data source cannot read project secrets.");
+            try
+            {
+                state.Secrets[name] = await secretSource.ReadProjectSecretAsync(projectId, name, ct);
+            }
+            catch (ProjectSecretUnavailableException error)
+            {
+                return ScriptFailure(500, "SECRET_UNAVAILABLE", "A project secret is unavailable on this server.", error.Message);
+            }
+        }
+
+        if (!unresolvedState && state.Fetch.PendingCount > 0)
             await state.Fetch.LoadPendingAsync(ct);
 
         return null;
@@ -520,21 +556,39 @@ public sealed partial class EndpointExecutor
         return runtime.ToJavaScript(source);
     }
 
-    /// <summary>Maps a finished run to the response. Carries the refused fetch calls for the owner's diagnostics.</summary>
+    /// <summary>Applies the secret policy to every terminal output, including errors and blocked-fetch diagnostics.</summary>
     private async Task<EndpointExecutionResult> FinishScriptRunAsync(
         ScriptInvocation inv,
         ScriptState state,
         ScriptRound round,
         ScriptRun run,
-        CancellationToken ct) =>
-        (await FinishScriptRunCoreAsync(inv, state, round, run, ct)) with { FetchBlocked = state.Fetch.Blocked };
+        CancellationToken ct)
+    {
+        var redact = new SecretRedactor(state.Secrets);
+        try
+        {
+            var result = await FinishScriptRunCoreAsync(inv, state, round, run, ct);
+            return result with
+            {
+                FetchBlocked = state.Fetch.Blocked.Select(call =>
+                    call with { Host = redact.Text(call.Host), Reason = redact.Text(call.Reason) }).ToList(),
+            };
+        }
+        catch (SecretOutputCollisionException)
+        {
+            inv.Trace?.Steps.Clear();
+            inv.Trace?.PendingWrites.Clear();
+            inv.Trace?.ScriptLogs.Clear();
+            return ScriptFailure(500, "SECRET_OUTPUT_REJECTED", "Secret redaction would make the output ambiguous.", null);
+        }
+    }
 
     /// <summary>One trace step per fetch call, for the try-it trace and the owner's per-call view.</summary>
-    private static IEnumerable<EndpointStepTrace> FetchTraceSteps(ScriptFetchSession fetch) =>
+    private static IEnumerable<EndpointStepTrace> FetchTraceSteps(ScriptFetchSession fetch, SecretRedactor redact) =>
         fetch.Trace.Select(entry => new EndpointStepTrace(
             $"fetch#{entry.Ordinal}",
             "fetch",
-            new { host = entry.Host, method = entry.Method, status = entry.Status, error = entry.ErrorCode, reason = entry.Reason },
+            new { host = redact.Text(entry.Host), method = redact.Text(entry.Method), status = entry.Status, error = entry.ErrorCode, reason = redact.Text(entry.Reason) },
             Passed: entry.ErrorCode is null));
 
     /// <summary>Maps a finished run to the response, committing its writes when it succeeded.</summary>
@@ -545,39 +599,46 @@ public sealed partial class EndpointExecutor
         ScriptRun run,
         CancellationToken ct)
     {
+        var redact = new SecretRedactor(state.Secrets);
+        var logs = redact.Logs(run.Host.LogValues);
+        // Record data can later reach clients without loading the secret, and projections can persist it in
+        // telemetry. Reject it rather than merely hiding the preview of a write that would leak later.
+        if (round.DurableWrites.Any(write => redact.Contains(write.Collection) || redact.Contains(write.Key) || redact.Contains(write.Data)))
+            return ScriptFailure(400, "SECRET_WRITE_FORBIDDEN", "Project secrets cannot be stored in records.", null);
         if (inv.Trace is not null)
         {
-            inv.Trace.Steps.AddRange(round.TraceSteps);
-            inv.Trace.Steps.AddRange(FetchTraceSteps(state.Fetch));
-            inv.Trace.PendingWrites.AddRange(round.TraceWrites);
-            inv.Trace.ScriptLogs.AddRange(run.Host.Logs);
+            inv.Trace.Steps.AddRange(round.TraceSteps.Select(redact.Step));
+            inv.Trace.Steps.AddRange(FetchTraceSteps(state.Fetch, redact));
+            inv.Trace.PendingWrites.AddRange(round.TraceWrites.Select(redact.Write));
+            inv.Trace.ScriptLogs.AddRange(logs);
         }
 
-        var logs = run.Host.Logs;
         if (run.Host.Failure is { } failure)
-            return ScriptFailure(failure.Status, failure.Code, failure.Message, ScriptOwnerDetail(failure.OwnerDetail, logs));
+            return ScriptFailure(failure.Status, redact.Contains(failure.Code) ? "SECRET_ERROR_REDACTED" : failure.Code,
+                redact.Text(failure.Message), ScriptOwnerDetail(redact.Text(failure.OwnerDetail), logs));
 
         var outcome = run.Outcome;
         switch (outcome.Kind)
         {
             case EndpointScriptOutcomeKind.LimitExceeded:
-                return ScriptFailure(500, "SCRIPT_LIMIT_EXCEEDED", "The endpoint exceeded a limit.", ScriptOwnerDetail(outcome.OwnerDetail, logs));
+                return ScriptFailure(500, "SCRIPT_LIMIT_EXCEEDED", "The endpoint exceeded a limit.", ScriptOwnerDetail(redact.Text(outcome.OwnerDetail), logs));
             case EndpointScriptOutcomeKind.ScriptError:
                 if (outcome.ErrorCode is { } fetchCode)
-                    return ScriptFailure(502, fetchCode, "An outbound request failed.", ScriptOwnerDetail(outcome.OwnerDetail, logs));
-                return ScriptFailure(500, "SCRIPT_ERROR", "The endpoint script failed.", ScriptOwnerDetail(outcome.OwnerDetail, logs));
+                    return ScriptFailure(502, fetchCode, "An outbound request failed.", ScriptOwnerDetail(redact.Text(outcome.OwnerDetail), logs));
+                return ScriptFailure(500, "SCRIPT_ERROR", "The endpoint script failed.", ScriptOwnerDetail(redact.Text(outcome.OwnerDetail), logs));
         }
+        var responseBody = outcome.Body is { } body ? redact.Value(ScriptJson.ToPlain(body)) : null;
 
         if (inv.LiveServe && round.DurableWrites.Count > 0)
         {
             var denial = await FlushDurableWritesAsync(inv.ProjectId, round.DurableWrites, state.ReadSet, inv.VersionCheckedCollections, ct);
-            if (denial is not null) return denial;
+            if (denial is not null) return denial with { Body = redact.Value(denial.Body), OwnerDetail = redact.Text(denial.OwnerDetail) };
             // Best-effort, like the YAML path: a projection failure never fails the committed call.
             if (inv.LegacyPlayerProjections && inv.SteamId != "anonymous")
                 await ApplyPostFlushProjectionsAsync(inv.ProjectId, round.DurableWrites, state.Records, inv.CollectionNameToId, inv.EndpointSlug, ct);
         }
 
-        return new EndpointExecutionResult(true, 200, outcome.Body is { } body ? ScriptJson.ToPlain(body) : null);
+        return new EndpointExecutionResult(true, 200, responseBody);
     }
 
     private static EndpointExecutionResult ScriptLoadLimit() =>

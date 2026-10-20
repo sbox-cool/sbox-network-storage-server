@@ -90,6 +90,16 @@ public sealed class PostgresNetworkStorageStore : RelationalNetworkStorageStore
         await command.ExecuteNonQueryAsync(ct);
     }
 
+    /// <summary>Transaction-scoped advisory lock: concurrent secret writes for one project run one at a time.</summary>
+    protected override async Task LockProjectSecretsAsync(DbConnection connection, DbTransaction transaction, string projectId, CancellationToken ct)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "SELECT pg_advisory_xact_lock(hashtext(@lock_key))";
+        AddText(command, "lock_key", $"sbox-ns:project-secrets:{_schema}:{projectId}");
+        await command.ExecuteNonQueryAsync(ct);
+    }
+
     protected override async Task<bool> SchemaVersionTableExistsAsync(DbConnection connection, CancellationToken ct)
     {
         await using var command = connection.CreateCommand();
