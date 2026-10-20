@@ -241,9 +241,9 @@ encrypted envelope (see [admin-panel.md](admin-panel.md#encrypted-requests)).
 The mode the library must use comes from the signed security config. The
 server refuses a call made in the wrong mode with a security code. Those codes
 (`SECURITY_*`, `AUTH_SESSION_*`, `ENCRYPTED_REQUEST_*`, `REQUEST_SIGNATURE_*`)
-arrive on endpoint routes as HTTP 200. The code is in `error.code`, and the
-status the server intended is the number in the body `status`. Other endpoint
-errors keep their HTTP status. The library refreshes its security config and
+arrive on endpoint routes as HTTP 200 for a library caller. The code is in `error.code`, and the
+status the server intended is the number in the body `status` (see
+[compatibility.md](compatibility.md#endpoint-errors-for-library-callers)). The library refreshes its security config and
 retries once on a `SECURITY_*` code.
 
 ## Query results

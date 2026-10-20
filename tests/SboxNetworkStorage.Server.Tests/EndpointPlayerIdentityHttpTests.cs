@@ -327,24 +327,15 @@ public abstract class EndpointPlayerIdentityHttpTests<TFactory> : IClassFixture<
     }
 
     /// <summary>
-    /// Security-class errors on endpoint routes answer HTTP 200 with the status in the body (reference epError);
-    /// other endpoint errors keep their HTTP status.
+    /// These requests are plain HTTP callers (no library identity), which keep the real status on endpoint routes.
+    /// The library envelope (HTTP 200 with the status in the body) is covered by LibraryErrorEnvelopeHttpTests.
     /// </summary>
     private static async Task AssertErrorAsync(HttpResponseMessage response, HttpStatusCode status, string code)
     {
+        Assert.Equal(status, response.StatusCode);
         using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-        if (IsSecurityClass(code))
-        {
-            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-            Assert.Equal((int)status, body.RootElement.GetProperty("status").GetInt32());
-        }
-        else Assert.Equal(status, response.StatusCode);
         Assert.Equal(code, body.RootElement.GetProperty("error").GetProperty("code").GetString());
     }
-
-    private static bool IsSecurityClass(string code) =>
-        code.StartsWith("SECURITY_", StringComparison.Ordinal) || code.StartsWith("AUTH_SESSION_", StringComparison.Ordinal)
-        || code.StartsWith("ENCRYPTED_REQUEST_", StringComparison.Ordinal) || code.StartsWith("REQUEST_SIGNATURE_", StringComparison.Ordinal);
 
     private static async Task AssertUntouchedAsync(Setup setup)
     {

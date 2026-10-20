@@ -18,7 +18,7 @@ public static class ServerInfoEndpoints
     public static readonly string[] Capabilities =
         ["records", "global-records", "endpoints", "workflows", "queries", "game-values",
             "rate-limits", "auth-sessions", "analytics", "package-sync", "https-tunnel", "api-root", "media",
-            "management-sync-jobs"];
+            "library-error-envelope", "management-sync-jobs"];
 
     /// <summary>The capabilities list, plus <c>endpoint-js</c> while the JavaScript runtime is enabled (<c>endpoints.scripts</c>).</summary>
     public static string[] CapabilitiesFor(IEnumerable<IEndpointScriptRuntime> scriptRuntimes) =>
