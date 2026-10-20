@@ -641,7 +641,7 @@ static class E2E
                 }
                 await ConfigurePin(pin);
                 var sealedEcho = await Call("echo", new JsonObject { ["hello"] = "v2-sealed-round-trip" });
-                ev.Check($"{target}.v2-response", "C", Ok(sealedEcho) && Body(sealedEcho).Contains("v2-sealed-round-trip"),
+                ev.Check($"{target}.v2-response", "C", Ok(sealedEcho) && J.Str(Evidence.TryParse(Body(sealedEcho)), "probe") == "v2-sealed-round-trip",
                     "v2-required echo returns the authenticated, decrypted response through the real library", required: true);
                 var noInput = await Call("ping");
                 ev.Check($"{target}.v2-no-input", "C", Ok(noInput) && Body(noInput).Contains("pong"),
@@ -658,7 +658,7 @@ static class E2E
                 var rotated = await server.Cli!.RunAsync(["security", "rotate-key", "--grace-seconds", "0"]);
                 ev.Check($"{target}.v2-key-rotated", "C", rotated.Code == 0, "rotate the request key with zero grace", required: true);
                 var afterRotation = await Call("echo", new JsonObject { ["hello"] = "after-key-rotation" });
-                ev.Check($"{target}.v2-rotation", "C", Ok(afterRotation) && Body(afterRotation).Contains("after-key-rotation"),
+                ev.Check($"{target}.v2-rotation", "C", Ok(afterRotation) && J.Str(Evidence.TryParse(Body(afterRotation)), "probe") == "after-key-rotation",
                     "a cached expired request key triggers signed-config refresh and a successful v2 retry", required: true);
                 ev.Observe($"{target}.v2-previous-key-id", oldKeyId ?? "missing");
             }
