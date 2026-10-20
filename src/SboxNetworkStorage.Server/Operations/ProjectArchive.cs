@@ -52,6 +52,8 @@ public static class ProjectArchive
                 }
                 var id = manifest.Projects[0].Id;
                 var projectPrefix = ExportFormat.ProjectsPrefix + id + "/";
+                if (entry.Name == ExportFormat.ProjectEntry(id, "project-secrets"))
+                    throw new ExportArchiveException("Portable project archives must not contain project secrets.");
                 var apiKeysEntry = ExportFormat.ProjectEntry(id, "api-keys");
                 if (entry.Name == ExportFormat.WorkspaceObjectsEntry || entry.Name == ExportFormat.MembershipsEntry || entry.Name == apiKeysEntry)
                 {

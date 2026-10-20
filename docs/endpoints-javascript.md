@@ -194,9 +194,21 @@ A caught error that the script does not rethrow does not change the response. An
 - **Try-it trace.** Each call adds a `fetch#N` step with `host`, `method`, `status`, `error` and `reason`.
 - **Live requests.** A refused call is reported to the owner's Errors page as `EndpointFetch.blocked` (status 502), with the host and reason as tags. Reports are throttled per project, endpoint, host and reason. A report is made even when the script caught the error and the response succeeded. Try-it runs are not reported. The owner's **Script fetch (ns.fetch)** card lists the refusals ([admin-panel.md](admin-panel.md#script-fetch-nsfetch)).
 
-### Not implemented yet
+## Project secrets: `ns.secrets.get`
 
-`ns.secrets.get` is not implemented yet. The server has no project secrets store, so do not build on it.
+`ns.secrets.get(name)` returns the value of a named secret that the owner stored for this project, or `null` when no secret has that name. The owner sets, replaces and deletes secrets in the project page's **Secrets** section. Names are case-sensitive: 1 to 64 letters, digits, `_`, `.` or `-`, starting with a letter or digit. A name outside those rules throws an error. The type is `NsSecrets` in [`ns.d.ts`](/owner-assets/endpoint-api/ns.d.ts).
+
+- **Read-only.** A script cannot write secrets. A value is read when a run needs it and is kept for that run only.
+- **Write-only in the panel.** After saving, the panel shows the name and the last update time, never the value. Saving an existing name replaces its value.
+- **Limits.** 64 secrets per project. A value is 1 to 4096 UTF-8 bytes.
+- **Encrypted at rest.** Values are sealed with AES-256-GCM under a key derived from the storage encryption key (`auth.storage_encryption_key_file`, see [configuration.md](configuration.md#project-secrets)). Without that key a secret cannot be saved, and a run that reads a stored secret fails with `SECRET_UNAVAILABLE` (500) instead of receiving `null`.
+- **Accidental-output protection.** Unchanged values read during a run are replaced with `[secret:NAME]` in responses, structured logs (before JSON escaping), property names, failure details, traces and blocked-fetch diagnostics. Replacements are matched against the original text once, longest value first; a replacement token is never scanned again. Colliding redacted property names fail closed with `SECRET_OUTPUT_REJECTED`. Very short secrets can mask unrelated text.
+- **No secret-bearing record writes.** A write whose collection, key, property name or string data contains a secret read by the run is rejected with `SECRET_WRITE_FORBIDDEN`, before persistence or player projections. Hiding only a write preview would leave a credential available to later reads.
+- **Trusted scripts, not information-flow isolation.** Scripts intentionally receive strings and may send them to an allowed external API. They can also encode, split or otherwise transform those strings; exact-value redaction cannot reliably recognise transformed data. Do not return or persist data derived from a secret. This is not a sandbox against a malicious project owner.
+- **Outbound requests.** A secret may be sent to an allowed host in an `ns.fetch` header or body; that is the intended use. Redaction covers what the script logs or returns, not the outbound request.
+- **Audit.** Owner set, replace and delete actions are audited with the secret's name only. Script reads are not audited individually.
+- **Moving servers.** Portable project archives exclude project secrets; re-enter them on the destination. Whole-server export format v2 carries their ciphertext only when secrets are included, and needs the same storage encryption key to decrypt after import. `--no-secrets` excludes both the values and that key. Format v1 archives remain importable. Deleting a project removes its secret rows atomically and prevents a racing save from leaving an orphan.
+
 
 ## Scope, imports and globals
 
@@ -324,6 +336,7 @@ changing it.
 | `SCRIPTS_DISABLED` | Run, 503 | `endpoints.scripts` is off. |
 | `SCRIPT_BUSY` | Run, 429 | The server or the project stayed at its maximum number of scripted requests past the wait. Nothing ran, so resend the same request after `Retry-After` (`retrySafe: true`). |
 | `FETCH_*` | Run, 502 | An `ns.fetch` call failed and the script did not catch it. The codes are in [Outbound HTTP](#outbound-http-nsfetch). |
+| `SECRET_UNAVAILABLE` | Run, 500 | The script read a project secret that is stored but cannot be decrypted, or no `STORAGE_ENCRYPTION_KEY` is configured. Nothing is returned. See [Project secrets](#project-secrets-nssecretsget). |
 | `ENDPOINT_NOT_FOUND` | Run, 404 | Unknown slug, or a `scope: global` endpoint called publicly. |
 | `SCRIPT_SYNTAX` | Save, sync | The source cannot be parsed. Reports the line and column. |
 | `SCRIPT_AND_STEPS` | Save | An endpoint has both `script` and `steps`. |

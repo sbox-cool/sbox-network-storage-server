@@ -161,6 +161,38 @@
         <div class="owner-dialog-actions"><button type="submit">Create key</button><button type="submit" class="secondary" formmethod="dialog" formnovalidate value="cancel">Cancel</button></div>
     </form></div></dialog>
 </section>
+<section class="card" id="secrets">
+    <div class="section-head"><div><h2>Secrets</h2><p>Named values for endpoint scripts, read with <code>ns.secrets.get("NAME")</code>. Write-only: a value is never shown again after you save it; only its name and last update appear here. Up to 64 secrets per project, 4 KiB each.</p></div></div>
+    @if (!Model.SecretsAvailable) { <p class="notice">Set <code>STORAGE_ENCRYPTION_KEY</code> on this server before saving secrets. Secrets cannot be stored or read without it.</p> }
+    @if (Model.Secrets is not { Count: > 0 }) { <p class="muted">No secrets yet.</p> }
+    else
+    {
+    <div class="table-scroll"><table data-sortable>
+        <thead><tr><th>Name</th><th>Updated</th><th></th></tr></thead>
+        <tbody>
+        @foreach (var secret in Model.Secrets!)
+        {
+            <tr>
+                <td><code>@secret.Name</code></td><td>@DateTimeOffset.FromUnixTimeMilliseconds(secret.UpdatedAtUnixMs).UtcDateTime.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture)</td>
+                <td class="actions">
+                    <form method="post" action="@url/secrets/delete">
+                        @Html.AntiForgeryToken()<input name="name" type="hidden" value="@secret.Name" /><input name="confirmTitle" type="hidden" value="Delete secret" /><input name="confirmMessage" type="hidden" value="Delete the secret &quot;@secret.Name&quot;? Endpoint scripts that read it start failing." />
+                        <button class="danger" type="submit" data-confirm-title="Delete secret" data-confirm="Delete the secret &quot;@secret.Name&quot;? Endpoint scripts that read it start failing.">Delete</button>
+                    </form>
+                </td>
+            </tr>
+        }
+        </tbody>
+    </table></div>
+    }
+    <form method="post" action="@url/secrets" class="secret-form">
+        @Html.AntiForgeryToken()
+        <label>Name <input name="name" required maxlength="64" autocomplete="off" /></label>
+        <label>Value <textarea name="value" required rows="3" autocomplete="off" spellcheck="false" aria-describedby="secret-value-help"></textarea></label>
+        <p id="secret-value-help" class="muted">Paste the exact value, including line breaks. It is never displayed again. Saving an existing name replaces its value.</p>
+        <button type="submit">Save secret</button>
+    </form>
+</section>
 <section class="grid" id="project-settings">
     <article class="card">
         <h2>Project settings</h2>

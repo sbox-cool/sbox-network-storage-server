@@ -88,6 +88,7 @@ public sealed class StoreDumpReader(INetworkStorageStore store)
         "api-keys" => row => store.UpsertApiKeyAsync(p, Str(row, "api_key"), Str(row, "user_id"), Str(row, "key_type"),
             Str(row, "key_hash"), Str(row, "key_identifier"), Str(row, "label"), Bool(row, "enabled"),
             Json(row, "permissions_json"), Long(row, "version"), ct),
+        "project-secrets" => row => RestoreSecretAsync(p, row, ct),
         "pages" => row => store.UpsertPageAsync(p, Str(row, "page_slug"), Str(row, "title"), Str(row, "content_json"),
             Long(row, "created_at_unix_ms"), Long(row, "updated_at_unix_ms"), ct),
         "game-values" => row => store.UpsertGameValuesAsync(p, Json(row, "payload_json"), OptStr(row, "version_hash"), Long(row, "version"), ct),
@@ -110,6 +111,21 @@ public sealed class StoreDumpReader(INetworkStorageStore store)
         "usage" => row => RestoreStorageBytesAsync(p, Long(row, "storage_bytes"), ct),
         _ => throw new ExportArchiveException($"Unknown project resource '{resource}'.")
     };
+
+    private async Task RestoreSecretAsync(string projectId, JsonElement row, CancellationToken ct)
+    {
+        if (store is not IProjectSecretStore secrets)
+            throw new ExportArchiveException("This store cannot restore project secrets.");
+        var name = Str(row, "secret_name");
+        if (!SboxNetworkStorage.Application.NetworkStorage.Secrets.ProjectSecretsService.IsValidName(name))
+            throw new ExportArchiveException("Invalid project secret name.");
+        var sealedValue = Str(row, "value_enc");
+        var bytes = Convert.FromBase64String(sealedValue);
+        if (bytes.Length is < 30 or > 4125 || bytes[0] != 1)
+            throw new ExportArchiveException("Invalid sealed project secret.");
+        if (await secrets.SetProjectSecretAsync(projectId, name, sealedValue, Long(row, "updated_at_unix_ms"), 64, ct) == ProjectSecretWriteResult.LimitReached)
+            throw new ExportArchiveException("The project secret limit would be exceeded.");
+    }
 
     /// <summary>
     /// The cumulative storage footprint is a sum of additive counters, so the import

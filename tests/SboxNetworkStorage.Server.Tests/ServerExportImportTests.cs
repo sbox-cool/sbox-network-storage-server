@@ -55,6 +55,31 @@ public abstract class ServerExportImportTests<TFactory> : IDisposable
     }
 
     [SkippableFact]
+    public async Task WholeServerArchiveRestoresSealedSecretsButPortableAndNoSecretsArchivesOmitThem()
+    {
+        var id = await SeedAsync();
+        const string credential = "backup-only-credential-9724";
+        var service = factory.Services.GetRequiredService<SboxNetworkStorage.Application.NetworkStorage.Secrets.ProjectSecretsService>();
+        await service.SetAsync(id, "API_KEY", credential, Ct);
+        var archive = await ExportAsync(Source, factory.Config, includeSecrets: true);
+        var entries = ReadArchive(archive);
+        var secretEntry = ExportFormat.ProjectEntry(id, "project-secrets");
+        Assert.Contains(secretEntry, entries.Keys);
+        Assert.DoesNotContain(credential, Encoding.UTF8.GetString(entries[secretEntry]));
+        var target = await factory.NewStoreAsync();
+        await ImportAsync(archive, target, factory.Config, new ImportOptions(Force: false, RestoreConfig: false));
+        var sealedValue = await ((IProjectSecretStore)target).GetProjectSecretSealedAsync(id, "API_KEY", Ct);
+        Assert.NotNull(sealedValue);
+        var cipher = factory.Services.GetRequiredService<SboxNetworkStorage.Application.NetworkStorage.Secrets.IProjectSecretCipher>();
+        Assert.Equal(credential, cipher.Open(id, "API_KEY", sealedValue));
+
+        var portable = ReadArchive(await ProjectExportAsync(id));
+        Assert.DoesNotContain(secretEntry, portable.Keys);
+        var noSecrets = ReadArchive(await ExportAsync(Source, factory.Config, includeSecrets: false));
+        Assert.DoesNotContain(secretEntry, noSecrets.Keys);
+    }
+
+    [SkippableFact]
     public async Task RoundTripCarriesTheLegacyPlayerProjectionsFlag()
     {
         var projectId = await SeedAsync();
