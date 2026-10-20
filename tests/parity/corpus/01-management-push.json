@@ -1463,12 +1463,20 @@
             "x-public-key": "${publicKey}"
           },
           "expect": {
-            "status": 404,
+            "status": 200,
             "requiredFields": [
               "$.ok"
             ],
-            "fieldEquals": {
-              "$.error": "JOB_NOT_FOUND"
+            "ifCapability": {
+              "management-sync-jobs": {
+                "status": 404,
+                "requiredFields": [
+                  "$.ok"
+                ],
+                "fieldEquals": {
+                  "$.error": "JOB_NOT_FOUND"
+                }
+              }
             }
           }
         },
