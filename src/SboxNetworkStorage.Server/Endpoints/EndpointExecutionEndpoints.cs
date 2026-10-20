@@ -337,7 +337,7 @@ public static class EndpointExecutionEndpoints
             try
             {
                 blockDenial = await moduleBlocker.CheckAsync(projectId, steamId,
-                    ModuleHookEventData.HasWriteSteps(liveEndpointDef), hasSecretKey, context.RequestAborted);
+                    !isGlobalEndpoint && ModuleHookEventData.HasWriteSteps(liveEndpointDef), hasSecretKey, context.RequestAborted);
             }
             catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested)
             {
@@ -346,7 +346,7 @@ public static class EndpointExecutionEndpoints
             catch { /* block-store failure: fail open to the request path */ }
             if (blockDenial is not null)
             {
-                // A global endpoint records no rejection; the 403 below is the unchanged public answer.
+                // A global endpoint is classed read-only above, so it is denied only for an all-scope block: the same 403 an unknown slug gets.
                 if (!isGlobalEndpoint)
                 {
                     moduleEmitter?.TryEmit(ModuleHookDispatcher.Describe("request.rejected", projectId, DateTimeOffset.UtcNow,

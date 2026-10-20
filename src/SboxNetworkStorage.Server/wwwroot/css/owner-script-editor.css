@@ -34,6 +34,11 @@
 .script-docs-detail code { display: block; padding: .5rem .6rem; white-space: pre-wrap; }
 .script-docs-detail p { margin: 0; color: var(--muted); font-size: .9rem; }
 .script-docs-insert { justify-self: start; }
+.script-globals { display: grid; gap: .4rem; margin-top: .75rem; }
+.script-globals h3 { margin: 0; font-size: .9rem; }
+.script-globals-list { list-style: none; margin: 0; padding: 0; display: grid; gap: .4rem; }
+.script-globals-list li { display: flex; flex-wrap: wrap; align-items: center; gap: .25rem .6rem; }
+.script-globals-list span { font-size: .85rem; }
 .script-docs > summary:focus-visible,
 .script-docs-item:focus-visible,
 .script-docs-filter:focus-visible { outline: 2px solid var(--accent-fg); outline-offset: 2px; }

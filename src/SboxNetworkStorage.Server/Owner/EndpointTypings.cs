@@ -48,11 +48,29 @@ internal static class EndpointTypings
         AppendInterface(builder, "GameValueGroups", resources.ValueItems().Select(item => GroupMember(item.Id, item.Keys)));
         AppendInterface(builder, "WorkflowAliases", ScriptWorkflowAliases.Build(resources.WorkflowIds()).Keys
             .Select(alias => $"{Key(alias)}(input?: Record<string, unknown>): unknown;"));
-        AppendInterface(builder, "GlobalModules", resources.GlobalExports(scriptRuntimes)
-            .OrderBy(pair => pair.Key, StringComparer.Ordinal)
+        var globals = resources.GlobalExports(scriptRuntimes).OrderBy(pair => pair.Key, StringComparer.Ordinal).ToList();
+        AppendInterface(builder, "GlobalModules", globals
             .Select(pair => $"{Key(pair.Key)}: {{ {string.Concat(pair.Value.Exports.Select(ExportMember))}}};"));
+        // One ambient module per global endpoint, so `import ... from "globals/<id>"` completes the path and its exports.
+        foreach (var pair in globals)
+            AppendGlobalModule(builder, pair.Key, pair.Value.Exports);
         return builder.ToString();
     }
+
+    private static void AppendGlobalModule(StringBuilder builder, string id, IEnumerable<ScriptExport> exports)
+    {
+        builder.Append("declare module ").Append(Key("globals/" + id)).Append(" {\n");
+        foreach (var export in exports.Where(export => Identifier.IsMatch(export.Name) && export.Name != "default"))
+            builder.Append("  ").Append(ModuleExport(export)).Append('\n');
+        builder.Append("}\n");
+    }
+
+    private static string ModuleExport(ScriptExport export) => export.Kind switch
+    {
+        ScriptExportKind.Function => $"export function {export.Name}({Parameters(export.Parameters)}): unknown;",
+        ScriptExportKind.Class => $"export const {export.Name}: new (...args: unknown[]) => unknown;",
+        _ => $"export const {export.Name}: unknown;",
+    };
 
     private static string GroupMember(string id, IReadOnlyList<string> keys) =>
         $"{Key(id)}: {{ {string.Concat(keys.Select(key => $"{Key(key)}: unknown; "))}}};";

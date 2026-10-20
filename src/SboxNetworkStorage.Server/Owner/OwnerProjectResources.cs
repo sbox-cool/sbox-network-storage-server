@@ -105,6 +105,24 @@ internal sealed class OwnerProjectResources
     }
 
     /// <summary>
+    /// Ids of the scripted endpoints that import <c>globals/&lt;globalId&gt;</c>, sorted. An endpoint whose source does
+    /// not check is skipped: it cannot run, so it is not a usage that the global's owner needs to see.
+    /// </summary>
+    public IReadOnlyList<string> GlobalImporters(string globalId, IReadOnlyList<IEndpointScriptRuntime> scriptRuntimes)
+    {
+        var importers = new List<string>();
+        foreach (var row in Endpoints)
+        {
+            if (Text(row, "endpoint_id") is not { } id || id == globalId) continue;
+            if (Column(row, "definition_json") is not { } definition) continue;
+            if (!NetworkStorageDefinitionValidator.TryAnalyzeScript(definition, scriptRuntimes, out var module)) continue;
+            if (module.GlobalImports.Any(import => import.EndpointId == globalId)) importers.Add(id);
+        }
+        importers.Sort(StringComparer.Ordinal);
+        return importers;
+    }
+
+    /// <summary>
     /// Analysed imports and exports of the project's enabled global endpoints, excluding <paramref name="resourceId"/>.
     /// </summary>
     private Dictionary<string, ScriptModuleInfo> ProjectGlobalModules(string? resourceId, IReadOnlyList<IEndpointScriptRuntime> scriptRuntimes)

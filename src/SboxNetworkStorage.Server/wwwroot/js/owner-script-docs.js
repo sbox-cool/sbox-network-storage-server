@@ -129,6 +129,23 @@
     return out;
   }
 
+  // The global endpoint modules the project typings declare, each with its export names:
+  // `declare module "globals/<id>" { export ... }`.
+  function globalModules(text) {
+    var out = [];
+    var block = /declare module "globals\/([^"]+)" \{([\s\S]*?)^\}/gm;
+    var exportLine = /^\s*export\s+(?:(?:function|const|let|var|class)\s+)?([A-Za-z_$][\w$]*)/gm;
+    var match;
+    while ((match = block.exec(String(text || ""))) !== null) {
+      var names = [];
+      var found;
+      exportLine.lastIndex = 0;
+      while ((found = exportLine.exec(match[2])) !== null) names.push(found[1]);
+      out.push({ id: match[1], exports: names });
+    }
+    return out;
+  }
+
   // Case-insensitive match on the path, signature and docs. An empty query keeps every entry.
   function filter(items, query) {
     var needle = String(query || "").trim().toLowerCase();
@@ -138,7 +155,7 @@
     });
   }
 
-  var api = { parse: parse, entries: entries, filter: filter };
+  var api = { parse: parse, entries: entries, filter: filter, globalModules: globalModules };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else global.OwnerScriptDocs = api;
 })(typeof window !== "undefined" ? window : globalThis);

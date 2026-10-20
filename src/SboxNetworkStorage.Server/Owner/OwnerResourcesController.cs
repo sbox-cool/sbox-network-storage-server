@@ -69,7 +69,8 @@ public sealed record OwnerResourceDetailModel(string ProjectId, string ProjectNa
     string Tab, bool IsDraft,
     OwnerResourceIntegration? Integration,
     string? Error = null, IReadOnlyList<DefinitionDiagnostic>? Diagnostics = null,
-    OwnerResourceRow? Row = null, JsonElement? DefinitionJson = null, OwnerScriptView? Script = null);
+    OwnerResourceRow? Row = null, JsonElement? DefinitionJson = null, OwnerScriptView? Script = null,
+    IReadOnlyList<string>? Importers = null);
 
 /// <summary>Quick preview modal body: header, stats, outline, snippet and links.</summary>
 public sealed record OwnerResourcePreviewModel(string ProjectId, string Kind, string Id, string Name,
@@ -413,8 +414,15 @@ public sealed class OwnerResourcesController(INetworkStorageProjectService proje
         var detailRow = BuildRow(kind, match, storedDefinition, usage, queryRuns, counts);
         return new OwnerResourceDetailModel(projectId, access.Project.Name, kind, resourceId, nameSaved,
             text, resources.BuilderJson(), NormalizeTab(tab, false), false, guide,
-            overrideError, overrideDiagnostics, detailRow, json, ScriptFor(kind, json));
+            overrideError, overrideDiagnostics, detailRow, json, ScriptFor(kind, json), GlobalImporterIds(kind, resources, resourceId, json));
     }
+
+    /// <summary>The scripted endpoints that import a saved global endpoint, sorted. Null for any other resource.</summary>
+    private IReadOnlyList<string>? GlobalImporterIds(string kind, OwnerProjectResources resources, string? resourceId, JsonElement? definition) =>
+        kind == "endpoint" && resourceId is not null && definition is { ValueKind: JsonValueKind.Object } scoped
+            && OwnerProjectScope.Text(scoped, "scope") == "global"
+            ? resources.GlobalImporters(resourceId, HttpContext.RequestServices.GetRequiredService<IReadOnlyList<IEndpointScriptRuntime>>())
+            : null;
 
     private async Task<OwnerResourcePreviewModel?> LoadPreviewAsync(string projectId, string kind, string resourceId, CancellationToken ct)
     {

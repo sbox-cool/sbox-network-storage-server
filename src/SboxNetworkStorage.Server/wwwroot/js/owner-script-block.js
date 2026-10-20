@@ -25,7 +25,8 @@
       if (match) { header = i; indicator = match[1]; break; }
     }
     if (header < 0) return null;
-    var indent = -1;
+    var explicit = /[1-9]/.exec(indicator);
+    var indent = explicit ? Number(explicit[0]) : -1;
     var last = header;
     for (var j = header + 1; j < lines.length; j++) {
       var line = lines[j];
@@ -76,11 +77,18 @@
     var lines = source.split(/\r?\n/);
     var indent = block.indent || (options && options.indent) || 2;
     var prefix = " ".repeat(indent);
-    var next = String(script).replace(/\s+$/, "").split(/\r?\n/).map(function (line) {
+    var scriptLines = String(script).replace(/\s+$/, "").split(/\r?\n/);
+    var next = scriptLines.map(function (line) {
       return line.trim() === "" ? "" : prefix + line;
     });
     if (block.body === String(script).replace(/\s+$/, "")) return source;
-    var before = lines.slice(0, block.header + 1);
+    // Without an indentation indicator, YAML reads the first content line's leading spaces as part of the
+    // indent, so a script whose first line starts with a space needs `|<indent>` to keep that space.
+    var first = scriptLines.find(function (line) { return line.trim() !== ""; });
+    var digit = first && first.charAt(0) === " " ? String(indent) : "";
+    var chomp = block.indicator.replace(/[|0-9]/g, "");
+    var header = lines[block.header].replace(/\|[-+0-9]*/, "|" + digit + chomp);
+    var before = lines.slice(0, block.header).concat([header]);
     var after = lines.slice(block.last + 1);
     return before.concat(next, after).join(newline);
   }

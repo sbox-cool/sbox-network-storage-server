@@ -243,6 +243,16 @@ th.num, td.num { text-align: right; }
 .definition-actions { flex-shrink: 0; }
 .definition-panel label[for="definition"] { margin-bottom: .5rem; }
 .definition-panel .code-editor { margin-top: 0; }
+.try-it { margin-top: .75rem; }
+.try-it-fields { display: grid; gap: .75rem; grid-template-columns: minmax(0, 1fr) minmax(0, 14rem); align-items: start; }
+.try-it-fields label:not(.try-it-server) { display: grid; gap: .35rem; }
+.try-it-fields textarea { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; min-height: 6rem; }
+.try-it-server { display: flex; align-items: center; gap: .5rem; align-self: end; }
+.try-it-result { margin-top: .75rem; }
+.try-it-result h3 { font-size: 1rem; margin: .75rem 0 .35rem; }
+.try-it-json { max-height: 18rem; overflow: auto; }
+.try-it-verdict { font-weight: 600; }
+@media (max-width: 760px) { .try-it-fields { grid-template-columns: 1fr; } }
 .definition-sync { margin: .75rem 0 0; }
 .resource-tools { margin: 0 0 1rem; padding-bottom: .75rem; border-bottom: 1px solid var(--line-faint); }
 .resource-tools > summary, .resource-examples > summary { cursor: pointer; font-weight: 600; padding: .4rem 0; }

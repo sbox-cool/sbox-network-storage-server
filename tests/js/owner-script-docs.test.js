@@ -27,12 +27,12 @@ describe("ns.d.ts members", () => {
   it("keeps in step with the Ns interfaces (drift guard)", () => {
     const expected = [
       "ns.records.get", "ns.records.put", "ns.records.delete", "ns.records.list",
-      "ns.values.get", "ns.workflows.run", "ns.now", "ns.log", "ns.fail",
+      "ns.values.get", "ns.workflows.run", "ns.now", "ns.log", "ns.fail", "ns.fetch",
       "req.input", "req.player", "req.method", "req.endpoint", "req.revision",
     ];
     for (const member of expected) assert.ok(byPath.has(member), member);
     const topLevel = all.filter((item) => /^ns\.[^.]+$/.test(item.path)).map((item) => item.name).sort();
-    assert.deepEqual(topLevel, ["fail", "log", "now", "records", "values", "workflows"]);
+    assert.deepEqual(topLevel, ["fail", "fetch", "log", "now", "records", "values", "workflows"]);
   });
 
   it("groups each entry under its root", () => {
@@ -92,5 +92,25 @@ describe("filter", () => {
     assert.ok(found.includes("ns.records.get"));
     assert.ok(!found.includes("ns.now"));
     assert.ok(docs.filter(all, "server time").some((item) => item.path === "ns.now"));
+  });
+});
+
+describe("globalModules", () => {
+  it("lists each declared global module with its export names, including modules with none", () => {
+    const typings = [
+      "declare module \"globals/grant\" {",
+      "  export function handle(req: unknown): unknown;",
+      "  export const limits: unknown;",
+      "}",
+      "",
+      "declare module \"globals/empty\" {",
+      "}",
+      "",
+    ].join("\n");
+    assert.deepEqual(docs.globalModules(typings), [
+      { id: "grant", exports: ["handle", "limits"] },
+      { id: "empty", exports: [] },
+    ]);
+    assert.deepEqual(docs.globalModules(null), []);
   });
 });

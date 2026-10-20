@@ -49,6 +49,23 @@ else if (Model.Kind == "collection" && Model.Row is not null) { <span class="bad
             {
                 <p class="muted">Other scripts import this endpoint as <code>globals/@globalRow.Id</code>. A global endpoint is never an HTTP route.</p>
             }
+            @if (Model.Importers is { } importers)
+            {
+                <h3>Used by</h3>
+                @if (importers.Count == 0)
+                {
+                    <p class="muted">No scripted endpoint imports this global yet.</p>
+                }
+                else
+                {
+                    <ul class="global-importers">
+                        @foreach (var importer in importers)
+                        {
+                            <li><a href="@(baseUrl + "/" + Uri.EscapeDataString(importer))">@importer</a></li>
+                        }
+                    </ul>
+                }
+            }
             @if (string.IsNullOrWhiteSpace(script.Source))
             {
                 <p class="muted">The script is empty.</p>
@@ -113,6 +130,12 @@ else if (isEdit)
             <p id="script-docs-text"></p>
             <button type="button" class="secondary script-docs-insert" id="script-docs-insert" disabled>Insert at cursor</button>
           </div>
+          <section class="script-globals" aria-labelledby="script-globals-heading">
+            <h3 id="script-globals-heading">Available globals</h3>
+            <p class="muted">Global endpoints this script can import. Insert import adds the import line at the top of the script.</p>
+            <p id="script-globals-status" class="muted script-docs-status" role="status" hidden></p>
+            <ul id="script-globals-list" class="script-globals-list"></ul>
+          </section>
         </details>
       </section>
     </div>
@@ -123,6 +146,20 @@ else if (isEdit)
     <p class="muted">Start with a complete definition. Replacing the source requires confirmation; saving is a separate action.</p>
     <div id="example-gallery"><p class="muted">Loading examples...</p></div>
     </div></section>
+    @if (Model.Kind == "endpoint" && !Model.IsDraft && Model.Id is not null)
+    {
+    <section class="card try-it" id="try-it" aria-labelledby="try-it-title" data-try-url="@(url + "/tests/try")" data-endpoint="@Model.Id">
+      <div class="section-heading"><h2 id="try-it-title">Try it</h2></div>
+      <p class="muted" id="try-it-help">Runs the saved definition as a dry run. Nothing is written and no webhooks are sent. Press Ctrl or Cmd with Enter in the input to run.</p>
+      <div class="try-it-fields">
+        <label>Input (JSON object)<textarea id="try-it-input" rows="6" spellcheck="false" aria-describedby="try-it-help">{}</textarea></label>
+        <label>Player Steam ID<input id="try-it-steam" inputmode="numeric" autocomplete="off" placeholder="Default test player" /></label>
+        <label class="try-it-server"><input type="checkbox" id="try-it-server" /> Run as dedicated server</label>
+      </div>
+      <div class="actions"><button type="button" id="try-it-run">Try it</button></div>
+      <div id="try-it-result" class="try-it-result" role="status" aria-live="polite"></div>
+    </section>
+    }
 }
 else if (isCode)
 {
@@ -183,4 +220,5 @@ else if (isCode)
 <script src="/owner-assets/script-block.js" defer></script>
 <script src="/owner-assets/script-docs.js" defer></script>
 <script src="/owner-assets/script-editor.js" defer></script>
+<script src="/owner-assets/endpoint-try.js" defer></script>
 }

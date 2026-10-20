@@ -46,6 +46,10 @@ describe("find", () => {
     assert.equal(found.last, 0);
     assert.equal(found.body, "");
   });
+
+  it("keeps the leading spaces past the indent digit of a block header", () => {
+    assert.equal(block.scriptOf("script: |2\n   const x = 1;\n  const y = 2;\nnext: 2\n"), " const x = 1;\nconst y = 2;");
+  });
 });
 
 describe("runtimeOf", () => {
@@ -86,6 +90,12 @@ describe("replace", () => {
   it("writes blank script lines as empty lines", () => {
     const next = block.replace("script: |\n  a();\nnext: 1\n", "a();\n\nb();");
     assert.equal(next, "script: |\n  a();\n\n  b();\nnext: 1\n");
+  });
+
+  it("adds the indent digit when the first script line starts with a space, and reads it back", () => {
+    const next = block.replace("script: |\nnext: 1\n", " const a = 1;\nconst b = 2;");
+    assert.equal(next, "script: |2\n   const a = 1;\n  const b = 2;\nnext: 1\n");
+    assert.equal(block.scriptOf(next), " const a = 1;\nconst b = 2;");
   });
 
   it("leaves text without a block untouched", () => {

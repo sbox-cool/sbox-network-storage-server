@@ -1261,6 +1261,23 @@ public sealed class ScriptedEndpointValidationTests
     }
 
     [Fact]
+    public async Task GlobalImporters_ListsOnlyTheScriptedEndpointsThatImportTheGlobal()
+    {
+        var store = new InMemoryNetworkStorageStore();
+        await store.UpsertEndpointAsync("p", "bank", "bank", "GET", true,
+            JsonSerializer.SerializeToElement(Script("export function coinsOf() { return 1; }", scope: "global")), null, 1, CancellationToken.None);
+        await store.UpsertEndpointAsync("p", "caller", "caller", "GET", true,
+            JsonSerializer.SerializeToElement(Script(ImportsCoinsOf)), null, 1, CancellationToken.None);
+        await store.UpsertEndpointAsync("p", "idle", "idle", "GET", true,
+            JsonSerializer.SerializeToElement(Script("export default function handle() { return 1; }")), null, 1, CancellationToken.None);
+        var resources = await OwnerProjectResources.LoadAsync(store, "p", CancellationToken.None);
+        var runtimes = EndpointExecutor.CreateScriptRuntimes(scriptsEnabled: true);
+
+        Assert.Equal(new[] { "caller" }, resources.GlobalImporters("bank", runtimes));
+        Assert.Empty(resources.GlobalImporters("idle", runtimes));
+    }
+
+    [Fact]
     public async Task OwnerSave_OfGlobalThatKeepsTheExport_IsAccepted()
     {
         var store = new InMemoryNetworkStorageStore();

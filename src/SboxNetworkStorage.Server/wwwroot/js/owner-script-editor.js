@@ -215,6 +215,9 @@
     var docsSignature = document.getElementById("script-docs-signature");
     var docsText = document.getElementById("script-docs-text");
     var insertButton = document.getElementById("script-docs-insert");
+    var globalsStatus = document.getElementById("script-globals-status");
+    var globalsList = document.getElementById("script-globals-list");
+    var globalImportButtons = [];
 
     var applying = false;
     var active = null;
@@ -369,6 +372,7 @@
         notice.textContent = block ? "" : NO_BLOCK;
         languageLabel.textContent = runtime === "typescript" ? "TypeScript" : "JavaScript";
         insertButton.disabled = !selectedDoc || !scriptHasBlock;
+        syncGlobalImports();
         refreshApiTokens();
       }
 
@@ -502,6 +506,70 @@
         editor.focus();
       });
       renderDocs();
+      setupGlobals();
+    }
+
+    // One row per global endpoint the typings declare: its import path, its exports and Insert import.
+    function setupGlobals() {
+      if (!globalsList) return;
+      var sources = OwnerScriptDocs.globalModules(typings);
+      globalImportButtons = [];
+      globalsList.replaceChildren();
+      globalsStatus.textContent = sources.length ? "" : "No global endpoints are available to import.";
+      globalsStatus.hidden = sources.length > 0;
+      sources.forEach(function (source) {
+        var item = document.createElement("li");
+        var path = document.createElement("code");
+        path.textContent = "globals/" + source.id;
+        var names = document.createElement("span");
+        names.className = "muted";
+        names.textContent = source.exports.length ? source.exports.join(", ") : "No exports";
+        var button = document.createElement("button");
+        button.type = "button";
+        button.className = "secondary script-globals-insert";
+        button.textContent = "Insert import";
+        button.setAttribute("aria-label", "Insert import from globals/" + source.id);
+        button.addEventListener("click", function () { insertImport(source); });
+      globalImportButtons.push({ id: source.id, button: button, hasExports: source.exports.length > 0 });
+        item.append(path, names, button);
+        globalsList.appendChild(item);
+      });
+      syncGlobalImports();
+    }
+
+    function syncGlobalImports() {
+      globalImportButtons.forEach(function (entry) {
+        var imported = importsGlobal(entry.id);
+        entry.button.disabled = !entry.hasExports || !scriptHasBlock || imported;
+        entry.button.textContent = imported ? "Imported" : "Insert import";
+      });
+    }
+
+    // True when the script already imports this global; a second import of the same path would duplicate its bindings.
+    function importsGlobal(id) {
+      if (!scriptModel) return false;
+      var text = scriptModel.getValue();
+      return text.indexOf("\"globals/" + id + "\"") !== -1 || text.indexOf("'globals/" + id + "'") !== -1;
+    }
+
+    // Adds `import { … } from "globals/<id>";` after the last import line, or at the top when there is none.
+    function insertImport(source) {
+      if (!scriptHasBlock || !source.exports.length || !scriptEditor || importsGlobal(source.id)) return;
+      var model = scriptEditor.getModel();
+      var lastImport = 0;
+      for (var line = 1; line <= model.getLineCount(); line++) {
+        if (/^\s*import\s/.test(model.getLineContent(line))) lastImport = line;
+      }
+      var statement = "import { " + source.exports.join(", ") + " } from \"globals/" + source.id + "\";";
+      var range = lastImport
+        ? new monaco.Range(lastImport, model.getLineMaxColumn(lastImport), lastImport, model.getLineMaxColumn(lastImport))
+        : new monaco.Range(1, 1, 1, 1);
+      scriptEditor.executeEdits("owner-globals", [{
+        range: range,
+        text: lastImport ? "\n" + statement : statement + "\n",
+        forceMoveMarkers: true
+      }]);
+      scriptEditor.focus();
     }
 
     function renderDocs() {

@@ -109,6 +109,36 @@ public sealed class OwnerTestsController(INetworkStorageProjectService projects,
         return View("~/Views/Owner/Tests.cshtml", model with { Result = JsonSerializer.SerializeToElement(outcome.Body), Notice = notice });
     }
 
+    /// <summary>Try-it on the endpoint page: one dry run returned as JSON. Nothing is saved as a test.</summary>
+    [HttpPost(Route + "/try")]
+    public async Task<IActionResult> Try(string projectId, CancellationToken ct)
+    {
+        var model = await LoadAsync(projectId, ct);
+        if (model is null) return NotFound();
+        JsonElement body;
+        try
+        {
+            using var document = await JsonDocument.ParseAsync(Request.Body, cancellationToken: ct);
+            body = document.RootElement.Clone();
+        }
+        catch (JsonException error)
+        {
+            return BadRequest(new { error = $"Request is not valid JSON: {error.Message}" });
+        }
+        var endpoint = body.TryGetProperty("endpoint", out var slug) && slug.ValueKind == JsonValueKind.String ? slug.GetString() ?? "" : "";
+        if (!model.Endpoints.Any(candidate => candidate.Slug == endpoint)) return BadRequest(new { error = "Choose an endpoint to try." });
+        var input = body.TryGetProperty("input", out var rawInput) ? rawInput : JsonSerializer.SerializeToElement(new Dictionary<string, object?>());
+        if (input.ValueKind != JsonValueKind.Object) return BadRequest(new { error = "Input must be a JSON object, for example {\"amount\": 5}." });
+        var steamId = body.TryGetProperty("steamId", out var steam) && steam.ValueKind == JsonValueKind.String && steam.GetString() is { Length: > 0 } text
+            ? text : ManagementEndpointTestRunner.DefaultSteamId;
+        if (!SteamIdLooksValid(steamId)) return BadRequest(new { error = "Player Steam ID must be numeric." });
+        var asServer = body.TryGetProperty("asServer", out var server) && server.ValueKind == JsonValueKind.True;
+        var spec = ManagementEndpointTestRunner.ReadSpec(JsonSerializer.SerializeToElement(
+            TestObject(null, "Try it", endpoint, input, steamId, asServer, "any", null)))!;
+        var outcome = await Runner().RunAsync(projectId, OwnerProjectScope.Owner, await PlayerKeyModeAsync(projectId, ct), spec, ct);
+        return outcome.Found ? Json(outcome.Body) : NotFound(new { error = "The endpoint does not exist." });
+    }
+
     [HttpPost(Route + "/run-all")]
     public async Task<IActionResult> RunAll(string projectId, CancellationToken ct)
     {

@@ -168,4 +168,14 @@ public sealed class OwnerEndpointTemplatesTests : IDisposable
         Assert.Equal("export default 1;\nconst b = 2;\n",
             OwnerYamlDefinitions.ParseDefinition(yaml, out _).GetProperty("script").GetString());
     }
+
+    [Fact]
+    public void ScriptsWithLeadingOrTrailingSpacesRoundTripExactly()
+    {
+        const string script = " const a = 1;  \nconst b = 2;  \n";
+        using var document = JsonDocument.Parse("""{"id":"x","script":" const a = 1;  \nconst b = 2;  \n"}""");
+        var yaml = OwnerYamlDefinitions.ToYaml(document.RootElement);
+        Assert.Contains("script: |", yaml);
+        Assert.Equal(script, OwnerYamlDefinitions.ParseDefinition(yaml, out _).GetProperty("script").GetString());
+    }
 }
