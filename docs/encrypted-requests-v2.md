@@ -113,11 +113,11 @@ A refusal is a JSON body with the existing security fields. The `security` objec
 `encryptionMode`, the resolved mode string. `encryptedRequests` stays `required` or
 `disabled`; its meaning is unchanged.
 
-On endpoint routes, security-class codes are returned with HTTP 200. The intended HTTP
-status is in the body's `status` field. Clients must read `error.code` and `status`, not
-the transport status. Codes in these families are security-class: `SECURITY_*`,
-`AUTH_SESSION_*`, `ENCRYPTED_REQUEST_*`, `REQUEST_SIGNATURE_*`. Other codes keep their
-own HTTP status.
+On endpoint routes, callers with a parseable `x-ns-library-version` receive security-class
+errors with HTTP 200 and the intended status in the body's `status` field. Plain HTTP
+callers keep the actual HTTP status. Library callers must read `error.code` and `status`,
+not only the transport status. Security-class families are `SECURITY_*`,
+`AUTH_SESSION_*`, `ENCRYPTED_REQUEST_*` and `REQUEST_SIGNATURE_*`.
 
 | Code | `status` | When |
 | --- | --- | --- |
@@ -150,7 +150,7 @@ Outer body, unchanged from v1:
 | `version` | `"2"` |
 | `algorithm` | `"rsa-oaep-256+aes-256-gcm"` |
 | `projectId` | Project ID, as in v1. |
-| `endpointSlug` | Optional, as in v1. Included in the AAD only when non-empty. |
+| `endpointSlug` | Required for v2, equal to the resolved route slug. Always included in the AAD. v1 remains unchanged. |
 | `keyId` | `encryption.keyId` from the signed config the client holds. |
 | `nonce` | At least 8 characters, as in v1. |
 | `sessionId` or `steamId` | Identity binding, as in v1. `sessionId` is used first when both are present. |
@@ -173,7 +173,7 @@ compact, as v1 `StableJson` produces:
 - `version`
 - `algorithm`
 - `projectId`
-- `endpointSlug` (only when non-empty)
+- `endpointSlug` (required and equal to the route slug)
 - `identityType`: `session` or `steam`
 - `identity`: the `sessionId` or `steamId` value
 - `nonce`
