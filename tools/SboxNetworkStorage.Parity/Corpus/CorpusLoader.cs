@@ -84,6 +84,19 @@ public static class CorpusLoader
                 throw new ParityException($"{path}: {scenario.Name}/{step.Id}: expect.status is required");
             }
 
+            foreach (var (capability, replacement) in step.Expect?.IfCapability ?? new Dictionary<string, Expectation>())
+            {
+                if (replacement.Status is not (>= 100 and <= 599))
+                {
+                    throw new ParityException($"{path}: {scenario.Name}/{step.Id}: expect.ifCapability.{capability}.status is required");
+                }
+
+                if (replacement.IfCapability is not null)
+                {
+                    throw new ParityException($"{path}: {scenario.Name}/{step.Id}: expect.ifCapability.{capability} cannot nest ifCapability");
+                }
+            }
+
             var bodies = (step.Body.HasValue ? 1 : 0) + (step.RawBody is null ? 0 : 1) + (step.GeneratedBody is null ? 0 : 1);
             if (bodies > 1)
             {

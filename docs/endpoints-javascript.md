@@ -175,7 +175,7 @@ Promises are bounded by the same time limit: a promise that does not settle befo
 | Record reads per request (record gets and lists, workflow definitions, global modules) | 64, across all rounds | `SCRIPT_LIMIT_EXCEEDED` |
 | Rows per collection scan | 1,000 | `SCAN_TOO_LARGE` (400), checked before any row is read |
 | Record writes and staged data per run | 1,000 writes and 1 MiB of record data | `SCRIPT_LIMIT_EXCEEDED`; the run's writes do not apply |
-| Concurrent scripted requests | one per processor on the server; two per project | `SCRIPT_BUSY` (503), at once, without queuing |
+| Concurrent scripted requests | one per processor on the server; two per project | A request waits up to `endpoints.script_gate.wait_ms` (default 2 s) for a free slot. Past that it is refused with `SCRIPT_BUSY` (429), `Retry-After`, and `retrySafe: true`, and it never runs. |
 | Script source | 64 KiB | Rejected when the owner dashboard saves it, and refused by a Sync Tool or endpoint push |
 | Response body | 256 KiB | `SCRIPT_LIMIT_EXCEEDED` |
 | Log output per run | 8 KiB | Lines past the cap are dropped and a `[log truncated]` line is kept. |
@@ -194,7 +194,7 @@ changing it.
 | `SCRIPT_ERROR` | Run, 500 | The script threw an error that it did not handle. |
 | `SCRIPT_LIMIT_EXCEEDED` | Run, 500 | A run limit was hit. See [Limits](#limits). |
 | `SCRIPTS_DISABLED` | Run, 503 | `endpoints.scripts` is off. |
-| `SCRIPT_BUSY` | Run, 503 | The server or the project is already running its maximum number of scripted requests. Retry shortly. |
+| `SCRIPT_BUSY` | Run, 429 | The server or the project stayed at its maximum number of scripted requests past the wait. Nothing ran, so resend the same request after `Retry-After` (`retrySafe: true`). |
 | `ENDPOINT_NOT_FOUND` | Run, 404 | Unknown slug, or a `scope: global` endpoint called publicly. |
 | `SCRIPT_SYNTAX` | Save, sync | The source cannot be parsed. Reports the line and column. |
 | `SCRIPT_AND_STEPS` | Save | An endpoint has both `script` and `steps`. |

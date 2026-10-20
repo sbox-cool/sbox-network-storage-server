@@ -68,6 +68,41 @@
         "sbox-cool/sbox-network-storage-server#89"
       ],
       "notes": "No s&box editor run. Owner-console-only release (client surface None). PR and main CI (SQLite, PostgreSQL 13-18), HTTP smoke and SQLite/PostgreSQL differential gate, and the install matrix on the release commit. Recorded after release from the v0.5.3 release notes (#90)."
+    },
+    {
+      "server": "0.1.0-dev",
+      "commit": "66789f7b535efc5f4925d5a4efee577283e6dd46",
+      "kind": "self-hosted",
+      "library": "1.2.0",
+      "librarySource": "git:20d82f1f1170cd07a7dc90398e0acb352152eec7",
+      "engine": "26.10.13",
+      "os": "Windows 11 Home 25H2 (26200), x64",
+      "database": ["sqlite"],
+      "result": "pass",
+      "date": "2026-10-20",
+      "evidence": [
+        "https://github.com/sbox-cool/sbox-network-storage/pull/55",
+        "https://github.com/sbox-cool/sbox-network-storage/pull/54"
+      ],
+      "notes": "Scoped native smoke, not a published package or full matrix: sbox-dev.exe 26.10.13a, engine build 38759734332. Clean restart with main b418aee plus branding and script-sync branches. Default Configure used /v3; earn returned granted=100, POST ping returned pong=true, analytics session join and heartbeat succeeded. Sync Tool connected, listed eight endpoints, displayed the new lime cube. Expected endpoint 409/404/401 were surfaced as HTTP_ERROR on this older server branch, which does not include #163. No PostgreSQL, hosted, Library Manager install or publish exercised. Package .version is stale; no package revision asserted."
+    },
+    {
+      "server": "0.1.0-dev",
+      "commit": "ff60f0a341dc2ec0c18c7ee4b8a044217a414f62",
+      "kind": "self-hosted",
+      "library": "1.2.0",
+      "librarySource": "git:d8c9699",
+      "engine": "26.10.13",
+      "os": "Windows 11 Home 25H2 (26200), x64",
+      "database": ["sqlite"],
+      "result": "pass",
+      "date": "2026-10-20",
+      "evidence": [
+        "https://github.com/sbox-cool/sbox-network-storage/pull/62#issuecomment-6281364078",
+        "https://github.com/sbox-cool/sbox-network-storage/pull/60",
+        "https://github.com/sbox-cool/sbox-network-storage-server/pull/164"
+      ],
+      "notes": "Scoped native security regression, Steam sbox-dev.exe 26.10.13a build 38759734332, v2-required. All 12 assertions passed: correct signing pin; encrypted no-input POST; pin re-Configure invalidation and wrong-pin refusal after success; pin recovery; same-account sealed proxy input/response round trip; TOFU first use and persisted store; substituted signing-key/downgrade refusal; retained trusted config and a subsequent encrypted call. Proxy transport used a local delegate between the real client and host library paths, with a real HTTP backend; not a two-PC RPC test. No PostgreSQL, hosted backend, Library Manager installation or publish is asserted by this row."
     }
   ]
 }

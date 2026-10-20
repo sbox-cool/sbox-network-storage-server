@@ -12,7 +12,7 @@ The brand is the approved 02 Sharp companion: an angular lime cube (lime
 `#70e000` with `#a3f55c`/`#c3ff8a` top and `#58b300`/`#469000` side shading),
 shallower top, original smug eyes, brows and mouth, face vertically centered.
 No blue anywhere. Canonical source:
-`sboxns.com/images/logo-compact.svg` (final centered transform
+`sboxns.com/images/icon.svg` (final centered transform
 `matrix(1 -.166667 0 1 0 0.778336)`).
 
 Shipped assets (`wwwroot/img`, served as embedded resources under

@@ -8,6 +8,28 @@ namespace SboxNetworkStorage.Parity.Replay;
 /// <summary>Evaluates a step's authored expectations against the raw (un-normalized) response.</summary>
 public static class Expectations
 {
+    /// <summary>
+    /// The expectation to enforce on a target: the first <see cref="Expectation.IfCapability"/> entry the target
+    /// advertises, otherwise <paramref name="expect"/> itself.
+    /// </summary>
+    public static Expectation? ForCapabilities(Expectation? expect, IReadOnlySet<string> capabilities)
+    {
+        if (expect?.IfCapability is not { Count: > 0 } replacements)
+        {
+            return expect;
+        }
+
+        foreach (var (capability, replacement) in replacements)
+        {
+            if (capabilities.Contains(capability))
+            {
+                return replacement;
+            }
+        }
+
+        return expect;
+    }
+
     public static List<string> Evaluate(Expectation? expect, int status, JsonElement? body, TemplateContext context)
     {
         var failures = new List<string>();

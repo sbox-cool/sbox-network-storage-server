@@ -132,7 +132,22 @@
             "status": 401,
             "requiredFields": [
               "$.error"
-            ]
+            ],
+            "ifCapability": {
+              "library-error-envelope": {
+                "status": 200,
+                "requiredFields": [
+                  "$.ok",
+                  "$.status",
+                  "$.error.code",
+                  "$._requestId"
+                ],
+                "equals": {
+                  "$.ok": false,
+                  "$.status": 401
+                }
+              }
+            }
           }
         },
         {
@@ -154,7 +169,22 @@
             "status": 401,
             "requiredFields": [
               "$.error"
-            ]
+            ],
+            "ifCapability": {
+              "library-error-envelope": {
+                "status": 200,
+                "requiredFields": [
+                  "$.ok",
+                  "$.status",
+                  "$.error.code",
+                  "$._requestId"
+                ],
+                "equals": {
+                  "$.ok": false,
+                  "$.status": 401
+                }
+              }
+            }
           }
         },
         {
@@ -289,7 +319,22 @@
             "status": 401,
             "requiredFields": [
               "$.error"
-            ]
+            ],
+            "ifCapability": {
+              "library-error-envelope": {
+                "status": 200,
+                "requiredFields": [
+                  "$.ok",
+                  "$.status",
+                  "$.error.code",
+                  "$._requestId"
+                ],
+                "equals": {
+                  "$.ok": false,
+                  "$.status": 401
+                }
+              }
+            }
           }
         },
         {
@@ -381,7 +426,22 @@
             "status": 413,
             "requiredFields": [
               "$.error"
-            ]
+            ],
+            "ifCapability": {
+              "library-error-envelope": {
+                "status": 200,
+                "requiredFields": [
+                  "$.ok",
+                  "$.status",
+                  "$.error.code",
+                  "$._requestId"
+                ],
+                "equals": {
+                  "$.ok": false,
+                  "$.status": 413
+                }
+              }
+            }
           }
         }
       ]
@@ -494,7 +554,22 @@
             "status": 400,
             "requiredFields": [
               "$.error"
-            ]
+            ],
+            "ifCapability": {
+              "library-error-envelope": {
+                "status": 200,
+                "requiredFields": [
+                  "$.ok",
+                  "$.status",
+                  "$.error.code",
+                  "$._requestId"
+                ],
+                "equals": {
+                  "$.ok": false,
+                  "$.status": 400
+                }
+              }
+            }
           }
         },
         {
@@ -525,7 +600,22 @@
             "status": 404,
             "requiredFields": [
               "$.error"
-            ]
+            ],
+            "ifCapability": {
+              "library-error-envelope": {
+                "status": 200,
+                "requiredFields": [
+                  "$.ok",
+                  "$.status",
+                  "$.error.code",
+                  "$._requestId"
+                ],
+                "equals": {
+                  "$.ok": false,
+                  "$.status": 404
+                }
+              }
+            }
           }
         },
         {
