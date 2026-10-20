@@ -31,7 +31,7 @@ public static class ServerArchive
         try
         {
             var createdAt = DateTimeOffset.UtcNow;
-            var dump = new StoreDumpWriter(store, staging);
+            var dump = new StoreDumpWriter(store, staging, includeSecrets ? admin as IProjectSecretStore : null);
             var (workspaceObjects, memberships, projects) = await dump.WriteAsync(ct);
             var stagedConfig = ConfigArchive.Stage(config, includeSecrets, staging);
             var manifest = new ExportManifest(ExportFormat.FormatName, ExportFormat.CurrentVersion, BuildInfo.Version,
@@ -299,6 +299,9 @@ public static class ServerArchive
                 {
                     throw new ExportArchiveException($"The manifest has an invalid resource count for project '{project.Id}': '{resource}'.");
                 }
+                if (resource == "project-secrets" && count > 0
+                    && (!manifest.IncludesSecrets || !manifest.IncludesConfig || manifest.FormatVersion < 2))
+                    throw new ExportArchiveException("Project secrets require a whole-server format v2 archive that includes secrets.");
 
                 var name = ExportFormat.ProjectEntry(project.Id, resource);
                 counts[name] = count;

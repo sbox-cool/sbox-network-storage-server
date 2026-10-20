@@ -10,7 +10,7 @@ namespace SboxNetworkStorage.Server.Operations;
 /// columns); child rows carry their parent keys (<c>collection_id</c>, <c>record_key</c>,
 /// <c>steam_id</c>). Work is batched per collection / player, never per database.
 /// </summary>
-public sealed class StoreDumpWriter(INetworkStorageStore store, string stagingRoot)
+public sealed class StoreDumpWriter(INetworkStorageStore store, string stagingRoot, IProjectSecretStore? secrets = null)
 {
     private const string UsersDirectory = "network-storage/users";
     private readonly List<string> _entries = [];
@@ -198,6 +198,21 @@ public sealed class StoreDumpWriter(INetworkStorageStore store, string stagingRo
         await WriteListAsync(projectId, "workflows", await store.ListWorkflowsAsync(projectId, ct), counts);
         await WriteListAsync(projectId, "queries", await store.ListQueriesAsync(projectId, ct), counts);
         await WriteListAsync(projectId, "api-keys", await store.ListApiKeysAsync(projectId, ct), counts);
+        if (secrets is not null)
+        {
+            await using var file = Open(ExportFormat.ProjectEntry(projectId, "project-secrets"));
+            foreach (var secret in await secrets.ListProjectSecretsAsync(projectId, ct))
+            {
+                if (await secrets.GetProjectSecretSealedAsync(projectId, secret.Name, ct) is not { } sealedValue) continue;
+                file.WriteObject(writer =>
+                {
+                    writer.WriteString("secret_name", secret.Name);
+                    writer.WriteString("value_enc", sealedValue);
+                    writer.WriteNumber("updated_at_unix_ms", secret.UpdatedAtUnixMs);
+                });
+            }
+            Count(file, "project-secrets", counts);
+        }
         await WriteListAsync(projectId, "pages", await store.ListPagesAsync(projectId, ct), counts);
         await WriteSingleAsync(projectId, "game-values", await store.ReadGameValuesAsync(projectId, ct), counts);
         await WriteSingleAsync(projectId, "rate-limits", await store.ReadRateLimitRulesAsync(projectId, ct), counts);

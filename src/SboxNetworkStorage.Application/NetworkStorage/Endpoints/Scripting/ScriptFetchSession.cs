@@ -72,6 +72,14 @@ public sealed class ScriptFetchSession(EndpointFetchPolicy policy, IScriptFetchT
     /// <summary>Starts a new run. Ordinals restart so a re-run lines up with the calls it made before.</summary>
     public void BeginRound() => _ordinal = 0;
 
+    /// <summary>Discards calls built before the current round's state was resolved; they must never be sent.</summary>
+    public void DiscardPending()
+    {
+        foreach (var call in _pending) _trace.Remove(call.Ordinal);
+        _pending.Clear();
+        _blocked.Clear();
+    }
+
     /// <summary>The script-facing <c>ns.fetch(url, options)</c>. Returns the response, or null while the result is loading.</summary>
     public object? Call(string url, JsonElement options)
     {

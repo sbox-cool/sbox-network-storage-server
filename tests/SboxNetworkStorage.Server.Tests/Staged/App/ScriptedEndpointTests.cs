@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using SboxNetworkStorage.Application.NetworkStorage.Endpoints;
 using SboxNetworkStorage.Application.NetworkStorage.Endpoints.Scripting;
+using SboxNetworkStorage.Application.NetworkStorage.Secrets;
 using SboxNetworkStorage.Infrastructure.NetworkStorage;
 using SboxNetworkStorage.Server.Owner;
 using SboxNetworkStorage.Storage;
@@ -908,7 +909,7 @@ public sealed class ScriptedEndpointExecutorTests
         new() { ["proj:players:steam1"] = new Dictionary<string, object?> { ["coins"] = coins } };
 
     /// <summary>Minimal store: endpoint definitions by "proj:ep:slug" and records by "proj:collection:key".</summary>
-    internal sealed class FakeDataSource : IEndpointDataSource, IEndpointScanCounter
+    internal sealed class FakeDataSource : IEndpointDataSource, IEndpointScanCounter, IEndpointSecretSource
     {
         private readonly Dictionary<string, object?> _definitions;
         private readonly Dictionary<string, object?> _records;
@@ -920,6 +921,21 @@ public sealed class ScriptedEndpointExecutorTests
         {
             _definitions = definitions;
             _records = records;
+        }
+
+        /// <summary>Project secrets by "proj:NAME", read by <c>ns.secrets.get</c>.</summary>
+        public Dictionary<string, string> Secrets { get; } = new();
+
+        /// <summary>When set, secret reads fail the way a stored value without a usable storage key does.</summary>
+        public bool SecretsUnavailable { get; set; }
+
+        public EndpointFetchPolicy FetchPolicy { get; init; } = EndpointFetchPolicy.Closed;
+
+        public async Task<string?> ReadProjectSecretAsync(string projectId, string name, CancellationToken ct)
+        {
+            if (SecretsUnavailable)
+                throw new ProjectSecretUnavailableException("STORAGE_ENCRYPTION_KEY is required to store or read project secrets.");
+            return Secrets.TryGetValue($"{projectId}:{name}", out var value) ? value : null;
         }
 
         public Task<Dictionary<string, object?>?> ReadEndpointDefinitionAsync(string projectId, string endpointSlug, CancellationToken ct)
@@ -979,7 +995,7 @@ public sealed class ScriptedEndpointExecutorTests
 
         public Task<bool> IsWebhookOutboxEnabledAsync(string projectId, CancellationToken ct) => Task.FromResult(false);
 
-        public Task<EndpointFetchPolicy> GetEndpointFetchPolicyAsync(string projectId, CancellationToken ct) => Task.FromResult(EndpointFetchPolicy.Closed);
+        public Task<EndpointFetchPolicy> GetEndpointFetchPolicyAsync(string projectId, CancellationToken ct) => Task.FromResult(FetchPolicy);
 
         public Task WriteGlobalRecordAsync(string projectId, string collectionId, string recordId, IReadOnlyDictionary<string, object?> payload, CancellationToken ct)
             => Task.CompletedTask;

@@ -2,6 +2,7 @@ using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging;
+using SboxNetworkStorage.Application.NetworkStorage.Secrets;
 
 namespace SboxNetworkStorage.Application.NetworkStorage.Endpoints.Scripting;
 
@@ -22,6 +23,7 @@ public sealed class EndpointScriptHost
     private readonly EndpointScriptBindings _bindings;
     private readonly int _maxLogBytes;
     private readonly List<string> _logs = [];
+    private readonly List<JsonElement> _logValues = [];
     private int _logBytes;
     private bool _logTruncated;
     private readonly ILogger? _logger;
@@ -48,6 +50,9 @@ public sealed class EndpointScriptHost
 
     /// <summary>Log lines written by <c>ns.log</c>, capped at the runtime's log limit.</summary>
     public IReadOnlyList<string> Logs => _logs;
+
+    /// <summary>Original structured values, retained until the executor applies secret redaction.</summary>
+    public IReadOnlyList<JsonElement> LogValues => _logValues;
 
     /// <summary>Invokes one API member. Never throws: failures come back in the envelope.</summary>
     public string Invoke(string name, string argumentsJson)
@@ -100,9 +105,9 @@ public sealed class EndpointScriptHost
         }
         if (error is ArgumentException or JsonException or InvalidCastException)
             return Envelope(false, null, error.Message);
-        // Unexpected host fault: the endpoint fails closed as a server error. The owner gets the type and message;
-        // the full trace goes to the server log.
-        _logger?.LogError(error, "Endpoint script host fault");
+        // Host exception messages can contain script arguments, including a secret. The executor redacts the
+        // owner-facing detail after all secret reads resolve; the process log records only the fault type.
+        _logger?.LogError("Endpoint script host fault ({ExceptionType})", error.GetType().FullName);
         Failure ??= new EndpointScriptFailureException(500, "SCRIPT_HOST_ERROR", "The endpoint could not complete this request.", DescribeForOwner(error));
         return Envelope(false, null, Failure.Message);
     }
@@ -250,6 +255,21 @@ public sealed class EndpointScriptHost
     [ScriptApi("fetch")]
     public object? Fetch(string url, JsonElement options = default) => _bindings.Fetch.Call(url, options);
 
+    // ── Project secrets ──────────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// A project secret the owner set, or null when the name is not set. Read-only, per execution. The value is never
+    /// returned to game clients, logs, traces or errors: each place it would appear shows <c>[secret:NAME]</c> instead.
+    /// </summary>
+    /// <param name="name">Secret name: 1 to 64 letters, digits, '_', '.' or '-', starting with a letter or digit. Case-sensitive.</param>
+    [ScriptApi("secrets.get")]
+    public string? SecretsGet(string name)
+    {
+        if (!ProjectSecretsService.IsValidName(name))
+            throw new ArgumentException("secrets.get needs a secret name: 1 to 64 letters, digits, '_', '.' or '-', starting with a letter or digit.");
+        return _bindings.Secret(name);
+    }
+
     // ── Context and diagnostics ──────────────────────────────────────────────────────────────
 
     /// <summary>Server time in unix milliseconds, fixed at the start of the request.</summary>
@@ -270,11 +290,13 @@ public sealed class EndpointScriptHost
         if (_logBytes + bytes > _maxLogBytes)
         {
             _logs.Add("[log truncated]");
+            _logValues.Add(JsonSerializer.SerializeToElement("[log truncated]"));
             _logTruncated = true;
             return;
         }
         _logBytes += bytes;
         _logs.Add(line);
+        _logValues.Add(value.Clone());
     }
 
     /// <summary>

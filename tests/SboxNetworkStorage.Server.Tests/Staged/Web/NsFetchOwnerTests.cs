@@ -414,8 +414,11 @@ public sealed class NsFetchTypingsTests
     }
 
     [Fact]
-    public void DeclarationsDoNotExposeASecretsApi()
+    public void SecretsApiIsReadOnlyGet()
     {
-        Assert.DoesNotContain("secrets", EndpointTypings.StaticDeclarations(), StringComparison.Ordinal);
+        var declarations = EndpointTypings.StaticDeclarations();
+        Assert.Matches(@"(?m)^  secrets: NsSecrets;\r?$", BlockBody(declarations, "Ns"));
+        var methods = Regex.Matches(BlockBody(declarations, "NsSecrets"), @"^  (\w+)\(", RegexOptions.Multiline).Select(m => m.Groups[1].Value).ToArray();
+        Assert.Equal(new[] { "get" }, methods);
     }
 }

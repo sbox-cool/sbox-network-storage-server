@@ -18,6 +18,8 @@ public sealed record EndpointScriptBindings(
     Func<IReadOnlyList<string>> WorkflowIds,
     Func<IReadOnlyList<string>> EndpointIds,
     Func<string, string?> GlobalSource,
+    // Reads a project secret by name. Null when unset or not yet loaded; the run then reruns with the value loaded.
+    Func<string, string?> Secret,
     ScriptFetchSession Fetch);
 
 /// <summary>Converts <see cref="JsonElement"/> values into the plain object model the endpoint executor uses.</summary>

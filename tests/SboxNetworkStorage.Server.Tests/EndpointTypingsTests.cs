@@ -19,6 +19,7 @@ public sealed class EndpointTypingsDeclarationTests
         ["NsRecords"] = "records.",
         ["NsValues"] = "values.",
         ["NsWorkflows"] = "workflows.",
+        ["NsSecrets"] = "secrets.",
     };
 
     [Fact]
