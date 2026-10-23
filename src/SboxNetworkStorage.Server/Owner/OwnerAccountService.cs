@@ -62,7 +62,7 @@ public sealed class OwnerAccountService(INetworkStorageStore store, EffectiveCon
     {
         if (_protector is not null) return _protector;
         var directory = Directory.CreateDirectory(Path.Combine(config.DataDirectory, "owner-cookie-keys"));
-        if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(directory.FullName, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        SboxNetworkStorage.Server.Tunnels.TunnelFiles.RestrictDirectory(directory.FullName);
         return _protector = DataProtectionProvider.Create(directory, options => options.SetApplicationName("sbox-ns-owner"))
             .CreateProtector("owner-authenticator-v1");
     }

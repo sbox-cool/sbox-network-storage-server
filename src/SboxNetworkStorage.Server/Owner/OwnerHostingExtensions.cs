@@ -28,7 +28,7 @@ public static class OwnerHostingExtensions
         if (config.GetBoolean("adminpanel.demo_read_only"))
             services.AddHostedService<SboxNetworkStorage.Server.Demo.DemoSeedService>();
         var keys = Directory.CreateDirectory(Path.Combine(config.DataDirectory, "owner-cookie-keys"));
-        if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(keys.FullName, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        SboxNetworkStorage.Server.Tunnels.TunnelFiles.RestrictDirectory(keys.FullName);
         services.AddDataProtection().SetApplicationName("sbox-ns-owner").PersistKeysToFileSystem(keys);
         var authentication = services.AddAuthentication(Scheme);
         if (config.GetBoolean("adminpanel.demo_read_only"))
