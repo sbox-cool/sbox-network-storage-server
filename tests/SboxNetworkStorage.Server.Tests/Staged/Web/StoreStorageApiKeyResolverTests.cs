@@ -84,6 +84,29 @@ public sealed class StoreStorageApiKeyResolverTests
             JsonSerializer.SerializeToElement(permissions), version: 1, CancellationToken.None);
     }
 
+    private static async Task<InMemoryNetworkStorageStore> CreateStoreAsync()
+    {
+        var store = new InMemoryNetworkStorageStore();
+        await store.UpsertProjectAsync(ProjectId, JsonSerializer.SerializeToElement(new { name = "Auth" }), 1, CancellationToken.None);
+        return store;
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Deleted_project_rejects_a_previously_cached_key(bool secret)
+    {
+        var store = await CreateStoreAsync();
+        if (secret) await SeedSecretKeyRow(store, BuildConfig(), ProjectId, new { records = "rw" });
+        else await store.UpsertApiKeyAsync(ProjectId, PublicKey, "42", "public", "", "", "game", true, JsonSerializer.SerializeToElement(new { records = "rw" }), 1, CancellationToken.None);
+        using var cache = new MemoryCache(new MemoryCacheOptions());
+        var resolver = CreateResolver(store, cache);
+        var key = secret ? SecretKey : PublicKey;
+        Assert.NotNull(await resolver.ResolveApiKeyAsync(key, ProjectId, CancellationToken.None));
+        await store.DeleteProjectAsync(ProjectId, CancellationToken.None);
+        Assert.Null(await resolver.ResolveApiKeyAsync(key, ProjectId, CancellationToken.None));
+    }
+
     // ── Happy-path resolution against seeded rows ───────────────────────────
     // The route tests fake IStorageApiKeyResolver; these pin the real
     // StoreStorageApiKeyResolver dispatch (sbox_sk_ prefix → secret path) and
@@ -92,7 +115,7 @@ public sealed class StoreStorageApiKeyResolverTests
     [Fact]
     public async Task ResolveApiKeyAsync_PublicKeyRow_ReturnsEnabledPublicAuth()
     {
-        var store = new InMemoryNetworkStorageStore();
+        var store = await CreateStoreAsync();
         await store.UpsertApiKeyAsync(ProjectId, PublicKey, "42", "public", keyHash: "", keyIdentifier: "",
             label: "game", enabled: true, JsonSerializer.SerializeToElement(new { records = "rw" }), version: 1, CancellationToken.None);
 
@@ -108,7 +131,7 @@ public sealed class StoreStorageApiKeyResolverTests
     [Fact]
     public async Task ResolveApiKeyAsync_PublicKeyRow_Disabled_ReturnsDisabledAuth()
     {
-        var store = new InMemoryNetworkStorageStore();
+        var store = await CreateStoreAsync();
         await store.UpsertApiKeyAsync(ProjectId, PublicKey, "42", "public", keyHash: "", keyIdentifier: "",
             label: "game", enabled: false, JsonSerializer.SerializeToElement(new { records = "rw" }), version: 1, CancellationToken.None);
 
@@ -122,7 +145,7 @@ public sealed class StoreStorageApiKeyResolverTests
     [Fact]
     public async Task ResolveApiKeyAsync_SecretKeyRow_IdentifierAndHashMatch_ReturnsSecretAuthWithPermissions()
     {
-        var store = new InMemoryNetworkStorageStore();
+        var store = await CreateStoreAsync();
         await SeedSecretKeyRow(store, BuildConfig(), ProjectId, new { endpoints = "x" });
 
         using var cache = new MemoryCache(new MemoryCacheOptions());
@@ -139,7 +162,7 @@ public sealed class StoreStorageApiKeyResolverTests
     [Fact]
     public async Task ResolveApiKeyAsync_SecretKeyRow_HashMismatch_ReturnsNull()
     {
-        var store = new InMemoryNetworkStorageStore();
+        var store = await CreateStoreAsync();
         await SeedSecretKeyRow(store, BuildConfig(), ProjectId, new { endpoints = "x" },
             keyHash: "0000000000000000000000000000000000000000000000000000000000000000");
 
@@ -152,7 +175,7 @@ public sealed class StoreStorageApiKeyResolverTests
     [Fact]
     public async Task ResolveApiKeyAsync_SecretKeyRow_OtherProject_ReturnsNull()
     {
-        var store = new InMemoryNetworkStorageStore();
+        var store = await CreateStoreAsync();
         await SeedSecretKeyRow(store, BuildConfig(), "proj_other", new { endpoints = "x" });
 
         using var cache = new MemoryCache(new MemoryCacheOptions());
@@ -168,7 +191,7 @@ public sealed class StoreStorageApiKeyResolverTests
     {
         // An imported archive could carry a row whose api_key is a known plain string but whose
         // key_type says secret; the public path matches api_key verbatim, so it must refuse it.
-        var store = new InMemoryNetworkStorageStore();
+        var store = await CreateStoreAsync();
         await store.UpsertApiKeyAsync(ProjectId, "planted-known-key", "1", "secret", keyHash: "", keyIdentifier: "",
             label: "planted", enabled: true, JsonSerializer.SerializeToElement(new { records = "rw" }), version: 1, CancellationToken.None);
 
@@ -180,7 +203,7 @@ public sealed class StoreStorageApiKeyResolverTests
     public async Task ResolveApiKeyAsync_SecretPathIgnoresRowsNotTypedSecret()
     {
         var config = BuildConfig();
-        var store = new InMemoryNetworkStorageStore();
+        var store = await CreateStoreAsync();
         await store.UpsertApiKeyAsync(ProjectId, SecretKey, "42", "admin", StorageKeyCrypto.HashSecretKey(SecretKey),
             StorageKeyCrypto.DeriveSecretKeyIdentifier(SecretKey, ProjectId, config), "odd", enabled: true,
             JsonSerializer.SerializeToElement(new { endpoints = "x" }), version: 1, CancellationToken.None);
@@ -199,6 +222,9 @@ public sealed class StoreStorageApiKeyResolverTests
             _readPublicException = readPublicException;
             _listSecretException = listSecretException;
         }
+
+        public override Task<JsonElement?> ReadProjectAsync(string projectId, CancellationToken ct)
+            => Task.FromResult<JsonElement?>(JsonSerializer.SerializeToElement(new { name = "Auth" }));
 
         public override async Task<JsonElement?> ReadApiKeyAsync(string projectId, string apiKey, CancellationToken ct)
         {

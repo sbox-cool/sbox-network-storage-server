@@ -114,7 +114,13 @@
         "server": { "$ref": "#/$defs/semver", "description": "Server build tested (/v3/server-info version)." },
         "commit": { "type": "string", "pattern": "^[0-9a-f]{7,40}$", "description": "Server commit the run used, for release-commit matching." },
         "kind": { "enum": ["self-hosted", "hosted"], "description": "Which backend answered (/v3/server-info kind)." },
-        "library": { "$ref": "#/$defs/semver", "description": "Library version tested (LibraryVersion, or the git tag for a git checkout)." },
+        "library": {
+          "anyOf": [
+            { "$ref": "#/$defs/semver" },
+            { "type": "string", "pattern": "^git:[0-9a-f]{7,40}$" }
+          ],
+          "description": "Observed LibraryVersion, or git:<sha> for an unversioned library checkout."
+        },
         "librarySource": { "type": "string", "description": "git:<sha>, library-manager, or release:<tag>." },
         "revision": { "type": "integer", "minimum": 0, "description": "s&box package revision of the library, when known." },
         "engine": { "$ref": "#/$defs/engine", "description": "Full s&box engine build string from the editor, e.g. 26.10.02." },

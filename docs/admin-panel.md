@@ -611,8 +611,9 @@ With **Deliver webhooks in the background** on, the step returns at once with
 - The worker sends only to `https://discord.com/api/webhooks/` or `https://discordapp.com/api/webhooks/` URLs,
   and fails any other queued row without sending.
 
-Turning background delivery off, or deleting the project, marks its pending deliveries suppressed
-(reason `outbox disabled` or `project deleted`). Later calls send inline.
+Turning background delivery off marks pending deliveries suppressed (reason
+`outbox disabled`). Deleting a project removes its outbox along with its other
+database rows; queued deliveries cannot be retried afterward.
 
 ### Request log and errors
 

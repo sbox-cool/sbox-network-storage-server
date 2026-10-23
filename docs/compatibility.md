@@ -248,6 +248,11 @@ components.
 A `tested` row records the exact server version/source commit, library
 version/package revision and source, s&box engine build, operating system,
 backend kind, database providers, `pass`/`fail`/`ci-only`, and evidence URLs.
+For a library with no version constant, use `git:<exact source commit>` as its
+`library` identity rather than inventing a release version. Keep its known package
+revision and source too. Source-built engines may report `0000000`; preserve that
+observed build string and name the sbox-public commit in `notes`. A known failure
+on both candidate and released server is a `fail` row, never a certification.
 Follow [editor-test-plan.md](editor-test-plan.md). Evidence links should
 identify the run, logs/artifacts and related PRs/issues, with secrets removed.
 Compat engine legs are recorded as `ci-only` rows; native editor runs are `pass` rows.
