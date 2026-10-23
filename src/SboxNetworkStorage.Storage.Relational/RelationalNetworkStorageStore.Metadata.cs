@@ -32,32 +32,19 @@ public abstract partial class RelationalNetworkStorageStore
     public async Task DeleteProjectAsync(string projectId, CancellationToken ct)
     {
         V.Id(projectId);
-        await using var lease = await LeaseAsync(ct);
-        var connection = lease.Connection;
-        var id = Text("project_id", projectId);
-        // Sealed secrets go with the project and strictly before its row: a failure here must fail the delete.
-        await ExecuteAsync(connection, $"DELETE FROM {TablePrefix}project_secrets WHERE project_id = @project_id", ct, id);
-
-        await ExecuteAsync(connection, _sql.DeleteProject, ct, id);
-
-        // Best-effort cleanup of usage counters and query run telemetry, as in
-        // production: failures are logged and swallowed because the rows are
-        // inert without the project row.
-        foreach (var sql in new[]
-                 {
-                     _sql.DeleteProjectUsageDaily, _sql.DeleteProjectUsageEndpoints, _sql.DeleteProjectUsageMonthly,
-                     _sql.DeleteProjectQueryLogs, _sql.DeleteProjectQueryLastRuns,
-                 })
+        if (_transaction is null)
         {
-            try
-            {
-                await ExecuteAsync(connection, sql, ct, id);
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                Logger.LogWarning(ex, "Best-effort telemetry cleanup failed for deleted project {ProjectId}", projectId);
-            }
+            await using var transaction = await BeginTransactionAsync(ct);
+            await transaction.Store.DeleteProjectAsync(projectId, ct);
+            await transaction.CommitAsync(ct);
+            return;
         }
+
+        // The snapshot catalog covers every per-project table. Delete dependants first;
+        // never swallow a failure and leave an authenticated orphan behind.
+        foreach (var table in ProjectSnapshotSchema.Tables.Keys.Reverse())
+            await ExecuteAsync($"DELETE FROM {TablePrefix}{table} WHERE project_id = @project_id",
+                ct, Text("project_id", projectId));
     }
 
     // ── collections ─────────────────────────────────────────────────

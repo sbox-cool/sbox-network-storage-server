@@ -40,6 +40,40 @@ public abstract class ProjectSnapshotRoundTripTests : IAsyncLifetime
             await Task.CompletedTask;
         }
     }
+
+    [SkippableFact]
+    public async Task Project_deletion_revokes_keys_and_removes_all_seeded_state_without_touching_another_project()
+    {
+        var ct = CancellationToken.None;
+        foreach (var project in new[] { "deleted", "retained" })
+        {
+            await _store.UpsertProjectAsync(project, Json.Parse("""{"name":"game"}"""), 1, ct);
+            await _store.UpsertApiKeyAsync(project, "public_key", "42", "public", "", "", "game", true, Json.Parse("{}"), 1, ct);
+            await _store.UpsertApiKeyAsync(project, "masked_secret", "42", "secret", "hash", "identifier", "server", true, Json.Parse("{}"), 1, ct);
+            await _store.UpsertProjectMembershipAsync("42", project, "owner", 100, ct);
+            await _store.SetProjectSecretAsync(project, "TOKEN", "sealed-secret", 100, 10, ct);
+            await _store.InsertMediaObjectAsync(new MediaObjectRecord(project, "avatar", "avatar", new string('a', 64),
+                "image/png", 100, 16, 16, "76561198000000123", "private", 100, 1000), ct);
+            await _store.TryInsertMediaGrantAsync(new MediaGrantRecord(project, "grant", "avatar", "76561198000000123", 100, 200), 0, 10, ct);
+        }
+
+        await _store.DeleteProjectAsync("deleted", ct);
+        await _store.DeleteProjectAsync("deleted", ct);
+
+        Assert.Null(await _store.ReadProjectAsync("deleted", ct));
+        Assert.Null(await _store.ReadApiKeyAsync("deleted", "public_key", ct));
+        Assert.Null(await _store.ReadApiKeyAsync("deleted", "masked_secret", ct));
+        Assert.Null(await _store.GetProjectSecretSealedAsync("deleted", "TOKEN", ct));
+        Assert.Null(await _store.GetMediaObjectAsync("deleted", "avatar", ct));
+        Assert.False(await _store.TryConsumeGrantAsync("deleted", "grant", 150, ct));
+        await foreach (var row in _store.ExportProjectRowsAsync("deleted", ct))
+            Assert.Fail($"Deleted project retained a row in {row.Table}.");
+        Assert.NotNull(await _store.ReadApiKeyAsync("retained", "public_key", ct));
+        Assert.Equal("sealed-secret", await _store.GetProjectSecretSealedAsync("retained", "TOKEN", ct));
+        Assert.NotNull(await _store.GetMediaObjectAsync("retained", "avatar", ct));
+        Assert.True(await _store.TryConsumeGrantAsync("retained", "grant", 150, ct));
+        Assert.Equal("retained", (await _store.ListProjectsForUserAsync("42", ct)).Single().GetProperty("project_id").GetString());
+    }
 }
 
 public sealed class SqliteProjectSnapshotRoundTripTests : ProjectSnapshotRoundTripTests

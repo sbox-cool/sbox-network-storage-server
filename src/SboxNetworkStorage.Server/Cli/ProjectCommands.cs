@@ -111,7 +111,6 @@ public static class ProjectCommands
             case "delete":
             {
                 var projectId = context.RequirePositional(2, "projectId");
-                await RequireProjectAsync(workspace, projectId, ct);
                 if (!context.Args.Flag("yes", "y"))
                 {
                     Console.Write($"Delete project {projectId} and all of its data? Type the project id to confirm: ");

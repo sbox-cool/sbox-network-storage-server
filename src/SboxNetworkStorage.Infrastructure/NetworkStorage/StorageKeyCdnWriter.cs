@@ -34,7 +34,7 @@ public sealed class StorageKeyCdnWriter(IWorkspaceStore workspaceStore, ILogger<
         var data = new { userId, projectId, enabled, keyType };
 
         await PutJsonWithVerifyAsync(legacyPath, data, cancellationToken);
-        _ = WriteNewPathAsync(newPath, data).ConfigureAwait(false);
+        await WriteNewPathAsync(newPath, data).ConfigureAwait(false);
     }
 
     public async Task WriteSecretKeyFileAsync(string identifier, string keyHash, long userId, string projectId, Dictionary<string, string>? permissions, CancellationToken cancellationToken)
@@ -55,7 +55,7 @@ public sealed class StorageKeyCdnWriter(IWorkspaceStore workspaceStore, ILogger<
         if (permissions is not null) data["permissions"] = permissions;
 
         await PutJsonWithVerifyAsync(legacyPath, data, cancellationToken);
-        _ = WriteNewPathAsync(newPath, data).ConfigureAwait(false);
+        await WriteNewPathAsync(newPath, data).ConfigureAwait(false);
     }
 
     public async Task UpdateSecretKeyFileAsync(string identifier, string projectId, Dictionary<string, object> updates, CancellationToken cancellationToken)
@@ -71,7 +71,7 @@ public sealed class StorageKeyCdnWriter(IWorkspaceStore workspaceStore, ILogger<
         }
 
         await workspaceStore.PutRawAsync(legacyPath, existing, cancellationToken);
-        _ = WriteNewPathRawAsync($"network-storage-api/keys/projects/{projectId}/sk_{identifier}.json", existing).ConfigureAwait(false);
+        await WriteNewPathRawAsync($"network-storage-api/keys/projects/{projectId}/sk_{identifier}.json", existing).ConfigureAwait(false);
     }
 
     public async Task DeletePublicKeyFileAsync(string apiKey, string projectId, CancellationToken cancellationToken)
@@ -142,7 +142,7 @@ public sealed class StorageKeyCdnWriter(IWorkspaceStore workspaceStore, ILogger<
         };
 
         await PutJsonAsync(legacyPath, payload, cancellationToken);
-        _ = WriteNewPathAsync(newPath, payload).ConfigureAwait(false);
+        await WriteNewPathAsync(newPath, payload).ConfigureAwait(false);
     }
 
     private async Task PutJsonWithVerifyAsync(string path, object data, CancellationToken cancellationToken)
