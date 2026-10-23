@@ -21,6 +21,8 @@ public static class AlertWebhookUrlPolicy
             return "The webhook host must not be localhost.";
         if (!IPAddress.TryParse(host, out var address))
             return null;
+        if (address.IsIPv4MappedToIPv6)
+            address = address.MapToIPv4();
         if (address.Equals(IPAddress.Any) || address.Equals(IPAddress.IPv6Any))
             return "The webhook host must not be an unspecified address.";
         if (IPAddress.IsLoopback(address))
