@@ -459,6 +459,11 @@ step types). New steps get a unique id based on the step type. Blocks offer
 handle: drag it, use the up and down buttons, or press Alt+Up and Alt+Down
 on the handle.
 
+Random steps follow the legacy Bun rules: a missing or nonnumeric weight contributes zero
+(not an implicit weight of one); if all weights are nonpositive the selection is uniform.
+A float range whose maximum is no greater than its minimum returns the minimum.
+The alpha-one beta approximation clamps its beta shape to at least one.
+
 Guided edits write small targeted changes into the source text. Comments,
 unknown fields, quoting and formatting survive, and large integers keep
 their exact digits. Switching tabs never rewrites the source. **Raw source**

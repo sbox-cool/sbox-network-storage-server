@@ -20,6 +20,7 @@ public static class RandomValueGenerator
     /// <summary>Uniform random float in [min, max] — matches legacy server's <c>randomFloat(min, max)</c>.</summary>
     public static double RandomFloat(double min, double max)
     {
+        if (max <= min) return min;
         var unit = RandomNumberGenerator.GetInt32(int.MaxValue) / (double)int.MaxValue;
         return min + unit * (max - min);
     }
@@ -54,11 +55,11 @@ public static class RandomValueGenerator
         return items[^1]; // floating-point edge case
     }
 
-    private static double GetWeight(object? item, string weightField)
+    internal static double GetWeight(object? item, string weightField)
     {
-        if (item is Dictionary<string, object?> dict && dict.TryGetValue(weightField, out var w))
-            return EndpointExpression.JsNumber(w);
-        return 1d;
+        var weight = item is Dictionary<string, object?> dict && dict.TryGetValue(weightField, out var value)
+            ? EndpointExpression.JsNumber(value) : 0d;
+        return double.IsNaN(weight) ? 0d : weight;
     }
 
     /// <summary>
@@ -69,7 +70,7 @@ public static class RandomValueGenerator
     {
         double val;
         if (Math.Abs(alpha - 1) < 1e-9)
-            val = BetaOneN(beta, min, max);
+            val = BetaOneN(beta, min, max, RandomNumberGenerator.GetInt32(int.MaxValue) / (double)int.MaxValue);
         else if (Math.Abs(alpha - beta) < 1e-9)
             val = BetaSymmetric(alpha, min, max);
         else
@@ -78,12 +79,8 @@ public static class RandomValueGenerator
     }
 
     // alpha=1 approximation: power-law from max
-    private static double BetaOneN(double beta, double min, double max)
-    {
-        var u = RandomNumberGenerator.GetInt32(int.MaxValue) / (double)int.MaxValue;
-        var val = max - (max - min) * Math.Pow(u, 1.0 / beta);
-        return val;
-    }
+    internal static double BetaOneN(double beta, double min, double max, double unit)
+        => max - (max - min) * Math.Pow(unit, 1.0 / Math.Max(1, beta));
 
     // Symmetric beta approximation: average of alpha uniform samples
     private static double BetaSymmetric(double alpha, double min, double max)
