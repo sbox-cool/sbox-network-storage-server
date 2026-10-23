@@ -191,6 +191,39 @@ public abstract class AnalyticsBatchHttpTests<TFactory> : IClassFixture<TFactory
         Assert.Contains("analytics-batch", capabilities);
     }
 
+    [SkippableFact]
+    public async Task HeartbeatWithNonAsciiDigitSteamIdIsIgnoredAndDoesNotCostOtherEvents()
+    {
+        var project = await _factory.CreateProjectAsync();
+        using var client = _factory.CreateClient();
+        const string steamId = "76561198000000121";
+
+        using var valid = await PostEventsAsync(client, EventsPath(project), new { steamId, type = "custom.neighbour" }, project.PublicKey);
+        Assert.Equal(HttpStatusCode.OK, valid.StatusCode);
+        // Arabic-Indic digits pass char.IsDigit but not the store's ID rules.
+        using var heartbeat = await PostEventsAsync(client, $"/v3/storage/{project.ProjectId}/stats/heartbeat",
+            new { steamId = "\u0667\u0666\u0665\u0666\u0661\u0661\u0669\u0668\u0660\u0660\u0660\u0660\u0660\u0660\u0661\u0662\u0661" },
+            project.PublicKey);
+
+        Assert.Equal(new[] { "custom.neighbour" }, await StoredEventTypesAsync(project, steamId));
+    }
+
+    [SkippableFact]
+    public async Task WriterSkipsAnEventTheStoreRefusesAndKeepsTheRestOfTheBatch()
+    {
+        var project = await _factory.CreateProjectAsync();
+        const string steamId = "76561198000000122";
+        var queue = _factory.Services.GetRequiredService<AnalyticsEventQueue>();
+        var payload = JsonSerializer.SerializeToElement(new { });
+        AnalyticsEvent Event(string id, string type) => new(project.ProjectId, id, type, type, "client", null, null, null, "", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), payload, null);
+
+        queue.Enqueue(Event(steamId, "custom.before_bad"));
+        queue.Enqueue(Event("not a valid id!", "custom.bad"));
+        queue.Enqueue(Event(steamId, "custom.after_bad"));
+
+        Assert.Equal(new[] { "custom.after_bad", "custom.before_bad" }, await StoredEventTypesAsync(project, steamId));
+    }
+
     private static string EventsPath(SelfHostProject project, string root = "/v3/storage")
         => $"{root}/{project.ProjectId}/analytics/events";
 

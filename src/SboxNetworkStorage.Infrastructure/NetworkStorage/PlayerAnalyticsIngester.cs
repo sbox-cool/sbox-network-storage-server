@@ -486,7 +486,7 @@ public sealed class PlayerAnalyticsIngester(
         return null;
     }
 
-    private static bool IsPlausibleSteamId(string s) => s.Length >= 4 && s.Length <= 32 && s.All(char.IsDigit);
+    private static bool IsPlausibleSteamId(string s) => s.Length >= 4 && s.Length <= 32 && s.All(char.IsAsciiDigit);
 
     private static JsonElement ToJsonElement(object? payload)
     {

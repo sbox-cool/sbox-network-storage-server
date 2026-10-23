@@ -1,6 +1,7 @@
 using System.Globalization;
 using Tomlyn;
 using Tomlyn.Syntax;
+using SboxNetworkStorage.Server.Tunnels;
 
 namespace SboxNetworkStorage.Server.Configuration;
 
@@ -60,24 +61,14 @@ public sealed class EffectiveConfig
     /// </summary>
     public void EnsureRuntimeDirectory()
     {
+        TunnelFiles.RestrictDirectory(DataDirectory);
         if (Layout == ConfigLayout.Legacy)
         {
             Directory.CreateDirectory(ConfigDirectory);
             return;
         }
 
-        Directory.CreateDirectory(DataDirectory);
-        if (!Directory.Exists(StateDirectory))
-        {
-            if (OperatingSystem.IsWindows())
-            {
-                Directory.CreateDirectory(StateDirectory);
-            }
-            else
-            {
-                Directory.CreateDirectory(StateDirectory, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
-            }
-        }
+        TunnelFiles.RestrictDirectory(StateDirectory);
 
         var marker = StateLayout.MarkerPath(DataDirectory);
         if (!File.Exists(marker))

@@ -194,6 +194,7 @@ What still protects data across processes:
 
 - **Version checks.** YAML collections with `requireSaveVersion` check the record version before they commit. A writer that lost the race gets `409 CONFLICT` and must reload before retrying. The owner and dev paths that take `expectedVersion` behave the same way.
 - **Store transactions.** Endpoint record writes and deletes commit in one transaction, so a rejected write never leaves a half-applied endpoint (see [Transactions](#transactions)).
+- **Media blobs.** On PostgreSQL, uploads, imports and retention sweeps for the same project and SHA-256 take a transaction advisory lock. A sweep therefore cannot delete bytes that another instance is about to reference. See [media.md](media.md#retention-and-deletion).
 
 What is not protected across processes:
 

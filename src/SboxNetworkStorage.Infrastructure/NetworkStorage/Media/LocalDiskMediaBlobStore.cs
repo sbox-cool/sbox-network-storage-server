@@ -40,6 +40,14 @@ public sealed class LocalDiskMediaBlobStore : IMediaBlobStore
         }
     }
 
+    public Task DeleteAsync(string projectId, string sha256, CancellationToken ct)
+    {
+        // A blob already gone is not an error. Windows throws when the project directory itself is missing, so check first.
+        var path = PathFor(projectId, sha256);
+        if (File.Exists(path)) File.Delete(path);
+        return Task.CompletedTask;
+    }
+
     public Task<MediaBlob?> OpenReadAsync(string projectId, string sha256, CancellationToken ct)
     {
         var path = PathFor(projectId, sha256);

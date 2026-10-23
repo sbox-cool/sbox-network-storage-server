@@ -25,6 +25,10 @@ public abstract partial class RelationalNetworkStorageStore : INetworkStorageSto
     // Set only on the bound view returned by Bind; null on the shared singleton store.
     private DbTransaction? _transaction;
 
+    // Held by TryImportProjectAsync for the whole import and taken by each blob sweep in this process, so a sweep never
+    // reads or deletes an import's rows before they commit. Bound views share it (MemberwiseClone copies the reference).
+    private readonly SemaphoreSlim _projectImportGate = new(1, 1);
+
     protected RelationalNetworkStorageStore(string tablePrefix, int maxPayloadBytes, TimeProvider? time, ILogger? logger)
     {
         ArgumentNullException.ThrowIfNull(tablePrefix);
@@ -74,6 +78,21 @@ public abstract partial class RelationalNetworkStorageStore : INetworkStorageSto
         if (_transaction is not null)
             throw new InvalidOperationException("Project imports cannot run inside a transaction.");
 
+        // Held for the whole import, so a sweep in this process waits until these rows commit before it reads them.
+        await _projectImportGate.WaitAsync(ct);
+        try
+        {
+            return await ImportProjectRowsAsync(projectId, restore, ct);
+        }
+        finally
+        {
+            _projectImportGate.Release();
+        }
+    }
+
+    private async Task<bool> ImportProjectRowsAsync(string projectId,
+        Func<INetworkStorageStore, CancellationToken, Task> restore, CancellationToken ct)
+    {
         await using var connection = await OpenConnectionAsync(ct);
         await using var transaction = await connection.BeginTransactionAsync(ct);
         await using var claim = Command(connection, _sql.ClaimProject,

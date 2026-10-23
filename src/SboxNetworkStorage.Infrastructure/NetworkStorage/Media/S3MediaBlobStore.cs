@@ -55,6 +55,10 @@ public sealed class S3MediaBlobStore : IMediaBlobStore, IDisposable
         }
     }
 
+    // DeleteObject succeeds for a missing key, so a retried sweep can delete again without a prior existence check.
+    public Task DeleteAsync(string projectId, string sha256, CancellationToken ct) =>
+        _client.DeleteObjectAsync(_bucket, KeyFor(projectId, sha256), ct);
+
     public async Task WriteAsync(string projectId, string sha256, byte[] bytes, CancellationToken ct)
     {
         using var stream = new MemoryStream(bytes, writable: false);

@@ -40,6 +40,20 @@ secret-key endpoints for your box.
   the project's hosting profile first; see [admin-panel.md](admin-panel.md#authority-check)
   for the findings and the CLI/MCP equivalents.
 
+## Self-hosted or managed
+
+The same client library talks to either; only the base URL differs.
+
+| | Self-hosted (this server) | Managed ([sbox.cool](https://sbox.cool/tools/network-storage)) |
+| --- | --- | --- |
+| Cost | Free; you pay for your own server | See sbox.cool |
+| Hosting, uptime, backups | You (`sbox-ns db backup`) | sbox.cool |
+| Database | SQLite or PostgreSQL you operate | Managed |
+| Updates | Notices by default, opt-in automatic | Automatic |
+| Management | Owner console, `sbox-ns` CLI, editor Sync Tool | sbox.cool dashboard, editor Sync Tool |
+| Data location | Your machine | sbox.cool infrastructure |
+| Source | AGPL-3.0 | Closed |
+
 For pointing the game and editor at your server, see
 [client-setup.md](client-setup.md). For what the client says to your
 server, see [game-client.md](game-client.md).

@@ -18,7 +18,7 @@ sends in plain headers or in the outer `security` block. An active man in the mi
 v2 also does not authenticate the server on first contact by itself. The client
 wraps its AES key to the server key it was given. If an attacker substitutes a key
 on the first request, the attacker can read that request. Fingerprint pinning
-(see [Key pinning](#key-pinning-library-later)) closes this gap in the library.
+(see [Key pinning](#key-pinning)) closes this gap in the library.
 
 ## Why v2
 

@@ -108,6 +108,7 @@ public static class NetworkStorageServices
         services.AddSingleton(new MediaServerOptions(Math.Max(1, config.GetInteger("media.max_object_bytes"))));
         services.AddSingleton<MediaGrantTokens>();
         services.AddSingleton<NetworkStorageMediaService>();
+        services.AddHostedService<MediaRetentionSweeperService>();
         services.AddSingleton<ClientOutcomeTracker>(sp => new ClientOutcomeTracker(sp.GetRequiredService<TimeProvider>(), BuildInfo.Version));
         services.AddSingleton<ClientVersionsQuery>();
         services.AddSingleton<ClientVersionWriter>();

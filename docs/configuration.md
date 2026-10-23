@@ -125,6 +125,13 @@ The folders can always be chosen explicitly with the `--config-dir` and
 `--data-dir` flags or the `NS_CONFIG_DIR` and `NS_DATA_DIR` environment
 variables. Run `sbox-ns config path` to print the folders the server will use.
 
+Runtime initialization repairs the data, state, secrets and owner-cookie key directories to
+private access before opening sensitive files. Unix directories use `0700` and secret files
+use `0600`. Windows uses a protected ACL granting the owner/current identity, SYSTEM and
+Administrators, not ordinary Users/Everyone. Existing secret values are never rotated by this
+repair. Keep one data directory per server instance; do not use a shared general-purpose folder
+as `--data-dir`, because its permissions will be tightened.
+
 ## Files and precedence
 
 ```text
@@ -362,6 +369,9 @@ object the server accepts. Media is off by default for every project: enable it
 per project in the owner panel. Metadata always lives in the database. Full
 reference: [media.md](media.md). `media.backend` and the `media.s3.*` keys apply
 at startup, so restart the server after changing them.
+
+Media expires per purpose through `retentionDays` in the purpose policy. A daily
+sweeper deletes expired objects and their unshared bytes; it has no setting of its own.
 
 ### Analytics retention
 

@@ -163,7 +163,11 @@ public sealed class AnalyticsWriterService(
         }
     }
 
-    /// <summary>Writes one batch; the caller holds <c>_writeGate</c>. A failed batch is rolled back and reported, never thrown.</summary>
+    /// <summary>
+    /// Writes one batch; the caller holds <c>_writeGate</c>. A failed batch is rolled back and reported, never thrown.
+    /// A batch can mix events from every project, so an event the store refuses as invalid input
+    /// (<see cref="ArgumentException"/>) is skipped on its own instead of costing the rest of the batch.
+    /// </summary>
     private async Task WriteBatchAsync(IReadOnlyList<AnalyticsEvent> batch, CancellationToken ct)
     {
         try
@@ -171,12 +175,45 @@ public sealed class AnalyticsWriterService(
             await WriteTransactionAsync(batch, ct);
             RecordSuccess(batch[0].ProjectId);
         }
+        catch (ArgumentException ex)
+        {
+            _logger.LogWarning(ex, "A batch of {Count} analytics events contained an invalid event; writing them one at a time", batch.Count);
+            await WriteOneByOneAsync(batch, ct);
+        }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            _logger.LogWarning(ex, "Writing a batch of {Count} analytics events failed; the transaction was rolled back", batch.Count);
-            if (failureTracker.RecordFailure())
-                _ = failureTracker.FireTransitionAlertAsync(batch[0].ProjectId, failureTracker.ConsecutiveFailures, CancellationToken.None);
+            ReportFailure(ex, batch);
         }
+    }
+
+    private async Task WriteOneByOneAsync(IReadOnlyList<AnalyticsEvent> batch, CancellationToken ct)
+    {
+        var skipped = 0;
+        foreach (var analyticsEvent in batch)
+        {
+            try
+            {
+                await WriteTransactionAsync([analyticsEvent], ct);
+            }
+            catch (ArgumentException)
+            {
+                skipped++;
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                ReportFailure(ex, batch);
+                return;
+            }
+        }
+        if (skipped > 0) _logger.LogWarning("Skipped {Skipped} invalid analytics event(s)", skipped);
+        RecordSuccess(batch[0].ProjectId);
+    }
+
+    private void ReportFailure(Exception ex, IReadOnlyList<AnalyticsEvent> batch)
+    {
+        _logger.LogWarning(ex, "Writing a batch of {Count} analytics events failed; the transaction was rolled back", batch.Count);
+        if (failureTracker.RecordFailure())
+            _ = failureTracker.FireTransitionAlertAsync(batch[0].ProjectId, failureTracker.ConsecutiveFailures, CancellationToken.None);
     }
 
     private async Task WriteTransactionAsync(IReadOnlyList<AnalyticsEvent> events, CancellationToken ct)

@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        The client reachability table in the README is untested. Reports like this one fill it in.
+        The client reachability table in docs/client-setup.md is only partly tested. Reports like this one fill it in.
         Do not include your real domain or IP address if you prefer not to.
   - type: dropdown
     id: url-type

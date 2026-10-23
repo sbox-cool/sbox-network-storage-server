@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using SboxNetworkStorage.Infrastructure.NetworkStorage;
+using SboxNetworkStorage.Server.Tunnels;
 
 namespace SboxNetworkStorage.Server.Configuration;
 
@@ -31,7 +32,9 @@ public static class ServerSecrets
             using var rsa = RSA.Create(2048);
             return rsa.ExportPkcs8PrivateKeyPem();
         }, onCreated);
+        TunnelFiles.RestrictDirectory(Path.GetDirectoryName(keyringPath)!);
         RequestEncryptionKeyring.EnsureAndLoad(keyringPath, DateTimeOffset.UtcNow, onCreated);
+        TunnelFiles.Restrict(keyringPath);
 
         var encryptionKey = File.ReadAllText(encryptionPath).Trim();
         if (encryptionKey.Length < 64 || !encryptionKey[..64].All(Uri.IsHexDigit))
@@ -47,16 +50,11 @@ public static class ServerSecrets
 
     private static void EnsureFile(string path, Func<string> generate, Action<string>? onCreated)
     {
+        TunnelFiles.RestrictDirectory(Path.GetDirectoryName(path)!);
         if (File.Exists(path))
         {
+            TunnelFiles.Restrict(path);
             return;
-        }
-
-        var directory = Path.GetDirectoryName(path)!;
-        Directory.CreateDirectory(directory);
-        if (!OperatingSystem.IsWindows())
-        {
-            File.SetUnixFileMode(directory, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
         }
 
         var options = new FileStreamOptions { Mode = FileMode.CreateNew, Access = FileAccess.Write };
@@ -70,6 +68,7 @@ public static class ServerSecrets
         {
             writer.Write(generate());
         }
+        TunnelFiles.Restrict(path);
 
         onCreated?.Invoke(path);
     }

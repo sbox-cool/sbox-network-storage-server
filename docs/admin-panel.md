@@ -11,6 +11,19 @@ signup or SSH tunnel is needed.
 - `/dashboard/server`: live host and process stats ([monitoring](monitoring.md))
 - `/dashboard/server/alerts`: alert rules, notification channels and history ([monitoring](monitoring.md), [alerting](alerting.md))
 
+## Screenshots
+
+From release 0.5.4. The overview, records, record editor, version history and monitoring shots come
+from the public [demo](https://demo.sboxns.com); the rest from an owner instance seeded with the
+same data.
+
+| | |
+| --- | --- |
+| ![Project overview](images/console-project-overview.png) **Project overview** | ![Game values](images/console-game-values.png) **Game values** groups and tables |
+| ![Endpoint pipeline](images/console-endpoint-pipeline.png) **Endpoint pipeline** | ![Endpoint test](images/console-endpoint-test.png) **Endpoint test**, a dry run that stores nothing |
+| ![Player records](images/console-player-records.png) **Player records** keyed by Steam ID | ![Record editor](images/console-record-editor.png) **Record editor** with schema validation |
+| ![Version history](images/console-version-history.png) **Version history** | ![Server monitoring](images/console-server-monitoring.png) **Server monitoring** |
+
 ## First login: `sbox-ns admin login-link`
 
 Run this on the server, for example over SSH or through an agent with shell access:
@@ -175,6 +188,9 @@ there once. Reloading the page does not create another key or show the raw
 key again. Revoking a key and deleting saved tests, rate limit rules, webhook
 profiles and pages ask for confirmation in a dialog first; deleting a project
 or a record still needs its ID or key typed, checked by the server.
+
+Disabled API keys cannot execute queries or read player ledgers, including secret-key queries.
+These reads return `401 UNAUTHORIZED` before loading a query or player history.
 
 **All projects** keeps a **Use with a coding agent** card with copyable
 commands for connecting Claude Code or another MCP client to `sbox-ns mcp`

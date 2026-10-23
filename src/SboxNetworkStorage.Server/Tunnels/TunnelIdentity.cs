@@ -130,19 +130,28 @@ public static class TunnelFiles
             File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
     }
 
-    public static void WriteSecret(string path, string value, bool overwrite = true)
+    /// <summary>Creates or repairs a private directory before sensitive children are opened.</summary>
+    public static void RestrictDirectory(string path)
     {
-        var directory = Path.GetDirectoryName(path)!;
-        Directory.CreateDirectory(directory);
         if (OperatingSystem.IsWindows())
         {
-            var folder = new DirectoryInfo(directory);
+            var folder = Directory.CreateDirectory(path);
             var security = folder.GetAccessControl();
             ProtectWindows(security, directory: true);
             folder.SetAccessControl(security);
         }
         else
-            File.SetUnixFileMode(directory, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        {
+            const UnixFileMode mode = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute;
+            Directory.CreateDirectory(path, mode);
+            File.SetUnixFileMode(path, mode);
+        }
+    }
+
+    public static void WriteSecret(string path, string value, bool overwrite = true)
+    {
+        var directory = Path.GetDirectoryName(path)!;
+        RestrictDirectory(directory);
         var temp = Path.Combine(directory, $".{Path.GetFileName(path)}.{Guid.NewGuid():N}.tmp");
         try
         {

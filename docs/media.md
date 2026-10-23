@@ -244,11 +244,33 @@ same bytes share one blob file; each upload still gets its own object row.
 
 ## Retention and deletion
 
-**Not implemented yet.** `retentionDays` is recorded on each object as
-`expiresAtUnixMs`. Expiry is enforced at read time: after that time `GET` and `HEAD`
-return `404 MEDIA_NOT_FOUND`, and expired objects no longer count toward the project
-quota. Neither the object row nor the blob is deleted yet. The M5 sweeper will purge
-them; until it ships, stored bytes grow for as long as the blob backend has room.
+**Implemented.** `retentionDays` is recorded on each object as `expiresAtUnixMs`.
+Expiry is enforced at read time: after that time `GET` and `HEAD` return
+`404 MEDIA_NOT_FOUND`, and expired objects no longer count toward the project quota.
+
+A background sweeper purges expired media. It starts one minute after the server
+starts and then runs once a day. It reads expired object rows in batches and
+groups each batch by project and SHA-256. It deletes a blob only when every
+object row that points at those bytes is expired and in the batch, and it checks
+that again under the blob lock. An unexpired row that shares the bytes keeps the
+blob, and so does a row renewed after the batch was read. The sweeper deletes the
+blob before the rows, so a crash between the two leaves an expired row with no
+bytes. Reads already return 404 for that row, and the next sweep removes it. If a
+blob delete fails, its rows stay and the next sweep retries. Failed deletes are
+logged as warnings.
+
+Uploads, imports and sweeps for the same project and bytes take one lock. An upload
+writes its bytes before it takes the lock and re-checks them under the lock, so no
+database connection is held across blob I/O. A sweep waits for any project import
+running in the same process before it takes the lock. On PostgreSQL the lock is a
+transaction advisory lock, so it also holds across server instances that share the
+database and the media bucket. On SQLite the lock covers only the one process. With
+a versioned S3 bucket, a delete adds a delete marker;
+the earlier versions keep their bytes, and their storage cost, until a lifecycle
+rule removes them.
+
+An export that runs while a sweep is removing a row can refuse with "has no stored
+bytes". Run the export again once the sweep has finished.
 
 ## Backups and export
 
