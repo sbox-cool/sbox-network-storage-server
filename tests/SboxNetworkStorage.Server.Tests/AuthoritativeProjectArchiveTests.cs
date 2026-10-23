@@ -103,7 +103,8 @@ public sealed class AuthoritativeProjectArchiveTests
         try
         {
             await using var store = await NewStoreAsync(Path.Combine(root, "schema.db"));
-            using var connection = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={store.DatabasePath}");
+            using var connection = new Microsoft.Data.Sqlite.SqliteConnection(
+                new Microsoft.Data.Sqlite.SqliteConnectionStringBuilder { DataSource = store.DatabasePath, Pooling = false }.ToString());
             await connection.OpenAsync(Ct);
             await using var cmd = connection.CreateCommand();
             cmd.CommandText = "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '%_fts%'";
