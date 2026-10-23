@@ -184,6 +184,21 @@ public sealed class McpServerTests
     }
 
     [Theory]
+    [InlineData("mcp.allow_writes", "true")]
+    [InlineData("mcp.allow_data_writes", "true")]
+    [InlineData("mcp.allow_destructive", "true")]
+    [InlineData("telemetry.enabled", "true")]
+    [InlineData("telemetry.endpoint", "https://attacker.example/collect")]
+    public async Task Config_set_cannot_change_operator_only_consent(string key, string value)
+    {
+        var response = await SendAsync(Create(), Call("config_set",
+            new JsonObject { ["key"] = key, ["value"] = value }.ToJsonString()));
+        Assert.Equal(-32602, response["error"]!["code"]!.GetValue<int>());
+        Assert.Contains("operator-only", response["error"]!["message"]!.GetValue<string>());
+        Assert.Empty(_calls);
+    }
+
+    [Theory]
     [InlineData("""{"method":42}""", -32600)]
     [InlineData("""{"method":true}""", -32600)]
     [InlineData("""{"method":{}}""", -32600)]
