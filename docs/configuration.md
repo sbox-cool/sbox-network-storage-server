@@ -125,6 +125,13 @@ The folders can always be chosen explicitly with the `--config-dir` and
 `--data-dir` flags or the `NS_CONFIG_DIR` and `NS_DATA_DIR` environment
 variables. Run `sbox-ns config path` to print the folders the server will use.
 
+Runtime initialization repairs the data, state, secrets and owner-cookie key directories to
+private access before opening sensitive files. Unix directories use `0700` and secret files
+use `0600`. Windows uses a protected ACL granting the owner/current identity, SYSTEM and
+Administrators, not ordinary Users/Everyone. Existing secret values are never rotated by this
+repair. Keep one data directory per server instance; do not use a shared general-purpose folder
+as `--data-dir`, because its permissions will be tightened.
+
 ## Files and precedence
 
 ```text
