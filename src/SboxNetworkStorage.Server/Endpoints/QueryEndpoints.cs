@@ -73,7 +73,7 @@ public static class QueryEndpoints
 
         var resolver = context.RequestServices.GetRequiredService<IStorageApiKeyResolver>();
         var auth = await resolver.ResolveApiKeyAsync(apiKey, projectId, context.RequestAborted);
-        if (auth is null)
+        if (auth is null || !auth.Enabled)
         {
             await QueryErrorAsync(context, requestId, StatusCodes.Status401Unauthorized, "UNAUTHORIZED", "Invalid API key.");
             return;

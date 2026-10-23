@@ -189,6 +189,9 @@ key again. Revoking a key and deleting saved tests, rate limit rules, webhook
 profiles and pages ask for confirmation in a dialog first; deleting a project
 or a record still needs its ID or key typed, checked by the server.
 
+Disabled API keys cannot execute queries or read player ledgers, including secret-key queries.
+These reads return `401 UNAUTHORIZED` before loading a query or player history.
+
 **All projects** keeps a **Use with a coding agent** card with copyable
 commands for connecting Claude Code or another MCP client to `sbox-ns mcp`
 over SSH, a local `.mcp.json`, the Claude Code plugin, and the three

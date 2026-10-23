@@ -133,6 +133,11 @@ public sealed class McpServer
             a =>
             {
                 var key = RequireString(a, "key");
+                var canonicalKey = SettingDefinitions.Find(key)?.Key
+                    ?? throw new McpToolException($"Unknown setting: {key}");
+                if (canonicalKey.StartsWith("mcp.", StringComparison.Ordinal)
+                    || canonicalKey.StartsWith("telemetry.", StringComparison.Ordinal))
+                    throw new McpToolException($"{canonicalKey} is operator-only; change it outside the agent session with sbox-ns config set.");
                 // A secret value would land in this transcript and in the child process command line.
                 if (SettingDefinitions.Find(key) is { Secret: true } definition)
                 {

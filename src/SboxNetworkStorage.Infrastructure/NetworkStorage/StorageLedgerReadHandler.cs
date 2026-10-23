@@ -68,7 +68,7 @@ public sealed class StorageLedgerReadHandler : INetworkStorageHandler
             return UnauthorizedResult();
         }
 
-        if (auth is null)
+        if (auth is null || !auth.Enabled)
         {
             return UnauthorizedResult();
         }

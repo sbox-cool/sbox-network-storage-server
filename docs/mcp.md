@@ -114,6 +114,10 @@ server, read on every call (no restart):
 sbox-ns config set mcp.allow_writes true
 ```
 
+Run that command yourself outside the agent session. `config_set` refuses every `mcp.*` and
+`telemetry.*` setting: agents cannot grant themselves write/delete permissions, opt into
+statistics, or redirect the statistics endpoint. Read-only inspection remains available.
+
 When a switch is off, the tool says exactly which command turns it on. Every
 change also needs a `confirm` argument that repeats what it changes (for
 example `proj_123/endpoint/mine`), and is written to the project's audit log as
