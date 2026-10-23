@@ -187,6 +187,7 @@ public sealed partial class EndpointExecutor
     {
         // One budget for the whole pass: every round shares its time, statement and workflow limits.
         using var budget = new ScriptRunBudget(runtime.Limits, ct);
+        fetch.BeginPass();
 
         var protectedCollections = inv.LiveServe ? inv.VersionCheckedCollections : null;
         var state = new ScriptState(protectedCollections is null ? null : new EndpointReadSet(protectedCollections), fetch);

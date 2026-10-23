@@ -230,6 +230,55 @@ public sealed class NsFetchScriptedTests
     }
 
     [Fact]
+    public async Task Fetch_CallBuiltFromAnEarlierCallsResult_IsSentAgainWithinOnePass()
+    {
+        var transport = new FakeFetchTransport(request => ScriptFetchResult.Ok(new ScriptFetchResponse(200,
+            new Dictionary<string, string>(StringComparer.Ordinal) { ["content-type"] = "application/json" },
+            request.Url.EndsWith("/token", StringComparison.Ordinal)
+                ? """{"token":"abc"}"""
+                : JsonSerializer.Serialize(new { url = request.Url }))));
+        var executor = Executor("""
+            export default function handle(req, ns) {
+              const a = ns.fetch("https://api.example.com/token");
+              const b = ns.fetch("https://api.example.com/data?t=" + (a ? a.json.token : ""));
+              if (a === null || b === null) return null;
+              return { data: b.json.url };
+            }
+            """, transport, Hosts("api.example.com"));
+
+        var result = await Run(executor);
+
+        Assert.True(result.Ok, result.OwnerDetail);
+        Assert.Equal(200, result.Status);
+        Assert.Contains("data?t=abc", JsonSerializer.Serialize(result.Body));
+        Assert.Equal("https://api.example.com/data?t=abc", transport.Requests[^1].Url);
+    }
+
+    [Fact]
+    public async Task Fetch_CallsResentWithChangedArgumentsWithinOnePass_StillCountTowardTheLimit()
+    {
+        var transport = new FakeFetchTransport(request => ScriptFetchResult.Ok(new ScriptFetchResponse(200,
+            new Dictionary<string, string>(StringComparer.Ordinal) { ["content-type"] = "application/json" },
+            JsonSerializer.Serialize(new { n = request.Url.Length }))));
+        var executor = Executor("""
+            export default function handle(req, ns) {
+              let previous = "";
+              for (let i = 1; i <= 4; i++) {
+                const r = ns.fetch("https://api.example.com/" + i + "?p=" + previous);
+                previous = r === null ? "" : String(r.json.n);
+              }
+              return { ok: true };
+            }
+            """, transport, Hosts("api.example.com"));
+
+        var result = await Run(executor);
+
+        Assert.Equal(502, result.Status);
+        Assert.Contains("FETCH_LIMIT_EXCEEDED", JsonSerializer.Serialize(result.Body));
+        Assert.Equal(ScriptFetchSession.MaxRequestsPerExecution, transport.Calls);
+    }
+
+    [Fact]
     public async Task Fetch_SlowTransport_WaitDoesNotCountAgainstScriptTimeLimit()
     {
         // The transport takes 1.5 s, longer than the 1 s script limit. The wait runs outside the script's budget.

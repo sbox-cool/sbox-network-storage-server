@@ -19,8 +19,9 @@ public sealed record ScriptFetchTraceEntry(int Ordinal, string Host, string Meth
 /// Per-execution state of <c>ns.fetch</c>, shared by every round of one request. The script calls
 /// <see cref="Call"/> synchronously. A valid call that has no result yet is queued and returns null. The
 /// executor then calls <see cref="LoadPendingAsync"/>, and the handler re-runs and finds the stored result. A
-/// call is identified by its ordinal within the run. An executed ordinal may only replay the same request;
-/// changed arguments are refused rather than issuing another external side effect from a discarded pass.
+/// call is identified by its ordinal within the run. Within one pass, a call built from an earlier call's still-null
+/// result may change between rounds and is sent again. An ordinal executed by an earlier pass may only replay the same
+/// request; changed arguments are refused rather than issuing another external side effect from a discarded pass.
 /// </summary>
 public sealed class ScriptFetchSession(EndpointFetchPolicy policy, IScriptFetchTransport transport, bool captureTrace = false)
 {
@@ -52,11 +53,13 @@ public sealed class ScriptFetchSession(EndpointFetchPolicy policy, IScriptFetchT
 
     private static readonly string LimitMessage = $"ns.fetch: one execution may make at most {MaxRequestsPerExecution} outbound requests.";
 
-    private readonly Dictionary<int, (string Key, ScriptFetchResult Result)> _completed = [];
+    private readonly Dictionary<int, (string Key, ScriptFetchResult Result, int Pass)> _completed = [];
     private readonly List<PendingCall> _pending = [];
     private readonly SortedDictionary<int, ScriptFetchTraceEntry>? _trace = captureTrace ? new() : null;
     private readonly List<EndpointFetchBlockedCall> _blocked = [];
     private int _ordinal;
+    private int _pass;
+    private int _sent;
 
     private sealed record PendingCall(string Key, int Ordinal, string Host, ScriptFetchRequest Request);
 
@@ -68,6 +71,9 @@ public sealed class ScriptFetchSession(EndpointFetchPolicy policy, IScriptFetchT
 
     /// <summary>Fetch calls in ordinal order, for the endpoint trace. The first 64 calls are kept.</summary>
     public IReadOnlyList<ScriptFetchTraceEntry> Trace => _trace?.Values.ToList() ?? [];
+
+    /// <summary>Starts a new pass of the handler. Calls executed by an earlier pass may only replay unchanged.</summary>
+    public void BeginPass() => _pass++;
 
     /// <summary>Starts a new run. Only this round's resolved calls belong in its diagnostics.</summary>
     public void BeginRound()
@@ -102,14 +108,18 @@ public sealed class ScriptFetchSession(EndpointFetchPolicy policy, IScriptFetchT
 
         if (_completed.TryGetValue(ordinal, out var done))
         {
-            if (!string.Equals(done.Key, call.Key, StringComparison.Ordinal))
+            if (string.Equals(done.Key, call.Key, StringComparison.Ordinal))
+            {
+                SetCompletedTrace(call, done.Result);
+                return Deliver(done.Result);
+            }
+            if (done.Pass != _pass)
             {
                 SetTrace(ordinal, call.Host, call.Request.Method, null, "FETCH_REPLAY_CONFLICT", "request_changed");
                 throw new ScriptFetchException("FETCH_REPLAY_CONFLICT",
                     "ns.fetch: an executed call changed during a script rerun; no second request was sent. An earlier external effect may already have completed.");
             }
-            SetCompletedTrace(call, done.Result);
-            return Deliver(done.Result);
+            // Same pass: the call was built from a result that was still loading, so it is sent again below.
         }
 
         if (FetchHostRules.TryGetIpLiteral(call.Host, out var literal)
@@ -119,7 +129,7 @@ public sealed class ScriptFetchSession(EndpointFetchPolicy policy, IScriptFetchT
         if (!policy.AllowAllPublic && !FetchHostRules.IsAllowed(call.Host, policy.AllowedHosts))
             throw Refuse(call, "host_not_allowed");
 
-        if (_completed.Count + _pending.Count >= MaxRequestsPerExecution)
+        if (_sent + _pending.Count >= MaxRequestsPerExecution)
         {
             SetTrace(ordinal, call.Host, call.Request.Method, null, "FETCH_LIMIT_EXCEEDED", null);
             throw new ScriptFetchException("FETCH_LIMIT_EXCEEDED", LimitMessage);
@@ -138,13 +148,14 @@ public sealed class ScriptFetchSession(EndpointFetchPolicy policy, IScriptFetchT
 
         var calls = _pending.ToArray();
         _pending.Clear();
+        _sent += calls.Length;
         var results = await Task.WhenAll(calls.Select(call => transport.SendAsync(call.Request, policy, ct)));
 
         for (var i = 0; i < calls.Length; i++)
         {
             var call = calls[i];
             var result = results[i];
-            _completed[call.Ordinal] = (call.Key, result);
+            _completed[call.Ordinal] = (call.Key, result, _pass);
             SetCompletedTrace(call, result);
         }
     }
