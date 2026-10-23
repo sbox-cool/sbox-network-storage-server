@@ -5,6 +5,7 @@ namespace SboxNetworkStorage.Server.Tests.Media;
 
 internal sealed class FakeMediaStore : IMediaStore
 {
+    private readonly SemaphoreSlim _quotaGate = new(1, 1);
     public HashSet<string> Used { get; } = [];
     public List<MediaObjectRecord> Objects { get; } = [];
     public List<MediaGrantRecord> Grants { get; } = [];
@@ -72,6 +73,13 @@ internal sealed class FakeMediaStore : IMediaStore
         BeforeNextBlobLock = null;
         if (hook is not null) await hook();
         await work(this);
+    }
+
+    public async Task RunUnderMediaQuotaLockAsync(string projectId, string purpose, Func<IMediaStore, Task> work, CancellationToken ct)
+    {
+        await _quotaGate.WaitAsync(ct);
+        try { await work(this); }
+        finally { _quotaGate.Release(); }
     }
 
     public Task<IDisposable> EnterMediaSweepGateAsync(CancellationToken ct) => Task.FromResult<IDisposable>(new NoGate());

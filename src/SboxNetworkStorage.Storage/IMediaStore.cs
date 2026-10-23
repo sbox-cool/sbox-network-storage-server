@@ -66,6 +66,13 @@ public interface IMediaStore
     Task RunUnderMediaBlobLockAsync(string projectId, string sha256, Func<IMediaStore, Task> work, CancellationToken ct);
 
     /// <summary>
+    /// Serialises quota accounting for one project and purpose, across store instances. The callback uses the bound
+    /// transaction: checking bytes, consuming a grant and inserting its object either commit together or roll back.
+    /// Take the blob lock first when both locks are needed.
+    /// </summary>
+    Task RunUnderMediaQuotaLockAsync(string projectId, string purpose, Func<IMediaStore, Task> work, CancellationToken ct);
+
+    /// <summary>
     /// Waits until no project import is running in this process, and holds that position until the returned handle is
     /// disposed. A sweep takes it before any blob lock, so it never deletes bytes whose rows have not committed yet, and
     /// a sweep waiting out an import holds no blob lock that uploads need.

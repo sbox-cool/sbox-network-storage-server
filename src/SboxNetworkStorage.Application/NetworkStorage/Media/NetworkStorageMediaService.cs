@@ -77,7 +77,7 @@ public sealed class NetworkStorageMediaService
         if (!SteamIdPattern.IsMatch(ownerSteamId))
             return MediaResult<IssuedMediaGrant>.Fail(400, "MEDIA_INVALID_REQUEST", "forSteamId must be a 17-digit Steam ID.");
 
-        var quotaFailure = await CheckQuotaAsync(projectId, purpose, request.SizeBytes, nowUnixMs, ct);
+        var quotaFailure = await CheckQuotaAsync(_store, projectId, purpose, request.SizeBytes, nowUnixMs, ct);
         if (quotaFailure is not null) return MediaResult<IssuedMediaGrant>.Fail(quotaFailure.Status, quotaFailure.Code, quotaFailure.Message);
 
         var expiresAt = nowUnixMs + MediaGrantTokens.TtlSeconds * 1000L;
@@ -138,11 +138,8 @@ public sealed class NetworkStorageMediaService
         if (digest != claims.Sha256)
             return MediaResult<MediaObjectRecord>.Fail(422, "MEDIA_HASH_MISMATCH", "Body sha256 does not match the grant.");
 
-        var quotaFailure = await CheckQuotaAsync(claims.ProjectId, purpose, body.LongLength, nowUnixMs, ct);
+        var quotaFailure = await CheckQuotaAsync(_store, claims.ProjectId, purpose, body.LongLength, nowUnixMs, ct);
         if (quotaFailure is not null) return MediaResult<MediaObjectRecord>.Fail(quotaFailure.Status, quotaFailure.Code, quotaFailure.Message);
-
-        if (!await _store.TryConsumeGrantAsync(claims.ProjectId, claims.GrantId, nowUnixMs, ct))
-            return MediaResult<MediaObjectRecord>.Fail(409, "GRANT_USED", "Upload grant has already been used.");
 
         var record = new MediaObjectRecord(
             ProjectId: claims.ProjectId, MediaId: claims.MediaId, Purpose: claims.Purpose, Sha256: digest,
@@ -160,9 +157,23 @@ public sealed class NetworkStorageMediaService
         {
             if (!await _blobs.ExistsAsync(claims.ProjectId, digest, ct))
                 await _blobs.WriteAsync(claims.ProjectId, digest, body, ct);
-            await store.InsertMediaObjectAsync(record, ct);
+            await store.RunUnderMediaQuotaLockAsync(claims.ProjectId, purpose.Name, async quotaStore =>
+            {
+                quotaFailure = await CheckQuotaAsync(quotaStore, claims.ProjectId, purpose, body.LongLength, nowUnixMs, ct);
+                if (quotaFailure is not null) return;
+                if (!await quotaStore.TryConsumeGrantAsync(claims.ProjectId, claims.GrantId, nowUnixMs, ct))
+                {
+                    quotaFailure = new MediaFailure(409, "GRANT_USED", "Upload grant has already been used.");
+                    return;
+                }
+                await quotaStore.InsertMediaObjectAsync(record, ct);
+            }, ct);
+            // A rejected parallel upload must not strand bytes that no committed object references.
+            if (quotaFailure is not null && (await store.ListMediaReferencesBySha256Async(claims.ProjectId, digest, ct)).Count == 0)
+                await _blobs.DeleteAsync(claims.ProjectId, digest, ct);
         }, ct);
-        return MediaResult<MediaObjectRecord>.Success(record);
+        return quotaFailure is null ? MediaResult<MediaObjectRecord>.Success(record)
+            : MediaResult<MediaObjectRecord>.Fail(quotaFailure.Status, quotaFailure.Code, quotaFailure.Message);
     }
 
     /// <summary>
@@ -278,10 +289,10 @@ public sealed class NetworkStorageMediaService
         return MediaResult<(MediaObjectRecord, MediaBlob?)>.Success((record, blob));
     }
 
-    private async Task<MediaFailure?> CheckQuotaAsync(string projectId, MediaPurposePolicy purpose, long incomingBytes, long nowUnixMs, CancellationToken ct)
+    private static async Task<MediaFailure?> CheckQuotaAsync(IMediaStore store, string projectId, MediaPurposePolicy purpose, long incomingBytes, long nowUnixMs, CancellationToken ct)
     {
         if (purpose.ProjectQuotaBytes <= 0) return null;
-        var stored = await _store.SumMediaObjectBytesAsync(projectId, purpose.Name, nowUnixMs, ct);
+        var stored = await store.SumMediaObjectBytesAsync(projectId, purpose.Name, nowUnixMs, ct);
         return stored + incomingBytes > purpose.ProjectQuotaBytes
             ? new MediaFailure(413, "MEDIA_QUOTA_EXCEEDED", "Project media quota for this purpose is exhausted.")
             : null;

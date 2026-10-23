@@ -78,6 +78,10 @@ public abstract partial class RelationalNetworkStorageStore : IMediaStore
     /// <summary>True when <see cref="LockMediaBlobKeyAsync"/> excludes other server processes.</summary>
     protected virtual bool MediaBlobLocksSpanProcesses => false;
 
+    /// <summary>Provider hook: PostgreSQL serialises quota gates with a transaction advisory lock.</summary>
+    protected virtual Task LockMediaQuotaKeyAsync(DbConnection connection, DbTransaction transaction, string key, CancellationToken ct) =>
+        Task.CompletedTask;
+
     public async Task<bool> TryConsumeGrantAsync(string projectId, string grantId, long nowUnixMs, CancellationToken ct)
     {
         StoreValidation.Id(projectId);
@@ -245,6 +249,24 @@ public abstract partial class RelationalNetworkStorageStore : IMediaStore
         await using var connection = await OpenConnectionAsync(ct);
         await using var transaction = await connection.BeginTransactionAsync(ct);
         await LockMediaBlobKeyAsync(connection, transaction, key, ct);
+        await work(Bind(transaction));
+        await transaction.CommitAsync(ct);
+    }
+
+    public async Task RunUnderMediaQuotaLockAsync(string projectId, string purpose, Func<IMediaStore, Task> work, CancellationToken ct)
+    {
+        StoreValidation.Id(projectId);
+        var key = $"{projectId}:{purpose}";
+        if (_transaction is { } bound)
+        {
+            await LockMediaQuotaKeyAsync(bound.Connection!, bound, key, ct);
+            await work(this);
+            return;
+        }
+        // SQLite's transaction starts with its write lock, before the callback reads the quota.
+        await using var connection = await OpenConnectionAsync(ct);
+        await using var transaction = await connection.BeginTransactionAsync(ct);
+        await LockMediaQuotaKeyAsync(connection, transaction, key, ct);
         await work(Bind(transaction));
         await transaction.CommitAsync(ct);
     }

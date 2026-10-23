@@ -76,6 +76,9 @@ public sealed class MetadataCachingNetworkStore : INetworkStorageStore, IProject
     public Task RunUnderMediaBlobLockAsync(string projectId, string sha256, Func<IMediaStore, Task> work, CancellationToken ct) =>
         MediaStore.RunUnderMediaBlobLockAsync(projectId, sha256, work, ct);
 
+    public Task RunUnderMediaQuotaLockAsync(string projectId, string purpose, Func<IMediaStore, Task> work, CancellationToken ct) =>
+        MediaStore.RunUnderMediaQuotaLockAsync(projectId, purpose, work, ct);
+
     public Task<IDisposable> EnterMediaSweepGateAsync(CancellationToken ct) =>
         MediaStore.EnterMediaSweepGateAsync(ct);
 

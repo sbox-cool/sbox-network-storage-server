@@ -100,6 +100,15 @@ public sealed class PostgresNetworkStorageStore : RelationalNetworkStorageStore
         await command.ExecuteNonQueryAsync(ct);
     }
 
+    protected override async Task LockMediaQuotaKeyAsync(DbConnection connection, DbTransaction transaction, string key, CancellationToken ct)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "SELECT pg_advisory_xact_lock(hashtext(@lock_key))";
+        AddText(command, "lock_key", $"sbox-ns:media-quota:{_schema}:{key}");
+        await command.ExecuteNonQueryAsync(ct);
+    }
+
     protected override bool MediaBlobLocksSpanProcesses => true;
 
     /// <summary>Transaction-scoped advisory lock: concurrent secret writes for one project run one at a time.</summary>
