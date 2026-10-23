@@ -45,12 +45,22 @@ public static class ModuleHookEventData
         return fields;
     }
 
-    /// <summary>True when an endpoint definition performs writes (write/delete steps).</summary>
+    /// <summary>Conservatively classifies calls that can mutate data, including scripts and delegated workflows.</summary>
     public static bool HasWriteSteps(object? definition)
     {
         try
         {
-            return WriteStepsOf(definition).Any();
+            var runtime = definition switch
+            {
+                JsonElement element when element.ValueKind == JsonValueKind.Object
+                    && element.TryGetProperty("runtime", out var value) && value.ValueKind == JsonValueKind.String
+                    => value.GetString(),
+                IReadOnlyDictionary<string, object?> map when map.TryGetValue("runtime", out var value)
+                    => value as string,
+                _ => null,
+            };
+            if (!string.IsNullOrEmpty(runtime)) return true;
+            return StepsOf(definition).Any(step => TypeOf(step) is "write" or "delete" or "workflow");
         }
         catch
         {

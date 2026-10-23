@@ -47,21 +47,6 @@ public sealed class PlayerBlockService(
         return null;
     }
 
-    /// <summary>True when an endpoint definition performs writes (write/delete steps).</summary>
-    public static bool HasWriteSteps(JsonElement definition)
-    {
-        if (definition.ValueKind != JsonValueKind.Object) return false;
-        if (!definition.TryGetProperty("steps", out var steps) || steps.ValueKind != JsonValueKind.Array)
-            return false;
-        foreach (var step in steps.EnumerateArray())
-        {
-            if (step.ValueKind == JsonValueKind.Object && step.TryGetProperty("type", out var type)
-                && type.ValueKind == JsonValueKind.String && type.GetString() is "write" or "delete")
-                return true;
-        }
-        return false;
-    }
-
     public async Task BlockAsync(string projectId, string steamId, string scope, string? reason,
         long? expiresAtUnixMs, string? createdBy, CancellationToken ct)
     {

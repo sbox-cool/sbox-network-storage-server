@@ -22,6 +22,8 @@ never download code at runtime and never run outside code.
    project definitions (ownership stripped, names and records kept); delete data also removes
    the module's definitions, its records (ledger entries included) and its game-values items.
    Definitions outside the module's namespace are never touched.
+   Deleting module records has no 10,000-record cutoff; records beyond that boundary are removed
+   too and cannot reappear when the module is reinstalled.
 6. **Upgrade.** A catalog upgrade without new permissions applies on next install. A version
    that adds permissions is held: the installed version keeps running until the owner approves
    the new permissions on the Modules page. Applying an upgrade, automatic or approved, first
@@ -123,6 +125,10 @@ yet measured.
 
 Player blocks (writes or all, optional expiry and public reason) return `403 PLAYER_BLOCKED`.
 Unblocking takes effect immediately.
+Write-scope blocks conservatively include all scripted endpoints and endpoints invoking a
+workflow, because either can stage writes outside top-level YAML write steps. A script or
+workflow used only for reading is still classified as potentially mutating; ordinary YAML
+read-only endpoints remain callable. Secret-key trusted callers remain exempt.
 
 ## Player insights
 
