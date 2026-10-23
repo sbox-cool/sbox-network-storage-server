@@ -132,6 +132,8 @@ address), unspecified addresses and `localhost` are refused at save time.
 RFC 1918 private addresses stay allowed for self-hosters whose alert
 receiver lives on their own network. Alert sends never follow HTTP
 redirects.
+IPv4-mapped IPv6 literals use the same checks as IPv4: `[::ffff:169.254.169.254]` and its
+hexadecimal form are refused too. Mapping does not otherwise disable allowed private-network receivers.
 
 ## SMTP setup
 
