@@ -91,6 +91,29 @@ public abstract class IngressValidationAndFlushLimitRegressionTests<TFactory> : 
     }
 
     [SkippableFact]
+    public async Task TrailingNewlineRecordKey_PostAndGet_ReturnNotFoundWithoutMutation()
+    {
+        var project = await _factory.CreateProjectAsync();
+        using var client = _factory.CreateClient();
+        var validPath = $"/v3/storage/{project.ProjectId}/{Collection}/{SteamId}?apiKey={project.SecretKey}";
+        var invalidPath = $"/v3/storage/{project.ProjectId}/{Collection}/{SteamId}%0A?apiKey={project.SecretKey}";
+
+        using var seeded = await client.PostAsJsonAsync(validPath, new { playerName = "original" });
+        Assert.Equal(HttpStatusCode.OK, seeded.StatusCode);
+
+        using var badPost = await client.PostAsJsonAsync(invalidPath, new { playerName = "newline" });
+        Assert.Equal(HttpStatusCode.NotFound, badPost.StatusCode);
+
+        using var badGet = await client.GetAsync(invalidPath);
+        Assert.Equal(HttpStatusCode.NotFound, badGet.StatusCode);
+
+        using var read = await client.GetAsync(validPath);
+        Assert.Equal(HttpStatusCode.OK, read.StatusCode);
+        var body = await read.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("original", body.GetProperty("playerName").GetString());
+    }
+
+    [SkippableFact]
     public async Task LegitimateKeyChars_RoundTripUnchanged()
     {
         var project = await _factory.CreateProjectAsync();

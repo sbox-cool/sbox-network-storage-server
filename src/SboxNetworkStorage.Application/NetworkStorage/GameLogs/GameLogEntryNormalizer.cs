@@ -47,7 +47,7 @@ public static class GameLogEntryNormalizer
     private const int MaxEventLength = 128;
     private const int MaxClientFieldLength = GameLogPolicy.MaxClientFieldLength;
     private const long ClientClockSkewMs = 5 * 60_000;
-    private static readonly Regex EventPattern = new(@"^[a-z][a-z0-9_]*(\.[a-z0-9_]+)*$", RegexOptions.CultureInvariant);
+    private static readonly Regex EventPattern = new(@"^[a-z][a-z0-9_]*(\.[a-z0-9_]+)*\z", RegexOptions.CultureInvariant);
     private static readonly HashSet<string> Levels = new(StringComparer.Ordinal) { "debug", "info", "warn", "error" };
 
     private readonly record struct EntryResult(GameLogRow? Row, string? Reject, bool Truncated, bool Sampled);

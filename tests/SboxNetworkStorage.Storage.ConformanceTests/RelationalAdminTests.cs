@@ -572,6 +572,7 @@ public sealed class PostgresAdminTests : RelationalAdminTests
             Assert.Throws<ArgumentException>(() => (options with { SslMode = "sometimes" }).BuildConnectionString());
             Assert.Throws<ArgumentException>(() => (options with { Database = "" }).BuildConnectionString());
             Assert.Throws<ArgumentException>(() => (options with { Schema = "bad-schema" }).ValidateSchema());
+            Assert.Throws<ArgumentException>(() => (options with { Schema = "ns_prod\n" }).ValidateSchema());
         }
         finally
         {

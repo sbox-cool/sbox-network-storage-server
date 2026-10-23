@@ -286,9 +286,12 @@ public abstract partial class StoreConformanceTests
         var s = await StoreAsync();
         await Assert.ThrowsAsync<ArgumentException>(() => s.ReadProjectAsync("bad id", Ct));
         await Assert.ThrowsAsync<ArgumentException>(() => s.ReadProjectAsync("", Ct));
+        await Assert.ThrowsAsync<ArgumentException>(() => s.ReadProjectAsync("p1\n", Ct));
         await Assert.ThrowsAsync<ArgumentException>(() => s.UpsertProjectAsync(new string('a', 129), Json.Parse("{}"), 1, Ct));
         await Assert.ThrowsAsync<ArgumentException>(() => s.ReadCollectionAsync("p1", "a:b", Ct));
+        await Assert.ThrowsAsync<ArgumentException>(() => s.ReadCollectionAsync("p1", "collection\n", Ct));
         await Assert.ThrowsAsync<ArgumentException>(() => s.UpsertRecordAsync("p1", "c", "bad/key", Json.Parse("{}"), false, 1, Ct));
+        await Assert.ThrowsAsync<ArgumentException>(() => s.UpsertRecordAsync("p1", "c", "key\n", Json.Parse("{}"), false, 1, Ct));
         await Assert.ThrowsAsync<ArgumentException>(() => s.ReadPlayerProfileAsync("p1", "steam id", Ct));
 
         var tooLarge = Json.Parse("\"" + new string('x', 64 * 1024) + "\"");

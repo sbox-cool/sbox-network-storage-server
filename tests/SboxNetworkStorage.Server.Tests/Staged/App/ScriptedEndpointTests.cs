@@ -1061,6 +1061,13 @@ public sealed class ScriptedEndpointExecutorTests
 /// <summary>Save-time validation of scripted endpoints: runtime, script source, and exclusivity with steps.</summary>
 public sealed class ScriptedEndpointValidationTests
 {
+    [Fact]
+    public void Global_module_id_validation_rejects_trailing_newlines()
+    {
+        Assert.True(GlobalModuleLoader.IsValidModuleId("bank"));
+        Assert.False(GlobalModuleLoader.IsValidModuleId("bank\n"));
+    }
+
     private static readonly DefinitionValidationContext Context = new()
     {
         ScriptRuntimes = EndpointExecutor.CreateScriptRuntimes(scriptsEnabled: true),
