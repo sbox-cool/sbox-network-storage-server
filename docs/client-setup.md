@@ -133,6 +133,18 @@ Secret keys (dedicated servers, tools) count as trusted backend calls: they need
 `collections` execute permission and may read, write and delete in any
 collection without s&box tokens.
 
+### Indexed record operations
+
+Operation paths can cross existing arrays: an `inc` at `inventory.0.count` updates the first
+item without replacing the array or its siblings. This applies to `set`, `inc`, `push`, `pull`,
+`remove`/`delete`, `merge` and `set_if_null`, both in direct document operations and endpoint
+write steps. Numeric dictionary keys remain ordinary keys.
+
+Array indices use canonical nonnegative integers (`0`, not `01` or `-1`). A write may append
+at the next consecutive index, but sparse gaps are rejected as an invalid operation rather
+than allocating attacker-selected amounts of memory. Rejected operations do not persist a
+partially modified document.
+
 ## Error codes
 
 The project's **Logs** and **Errors** tabs in the [dashboard](admin-panel.md#request-log-and-errors)
