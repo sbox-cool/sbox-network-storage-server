@@ -28,7 +28,6 @@ public sealed class AuthoritativeProjectArchiveTests
             await oss.UpsertRecordAsync(Project, "extra", "extra", Element(new { stale = true }), false, 1, Ct);
             using var initial = new MemoryStream();
             var exported = await AuthoritativeProjectArchive.ExportAsync(Project, 1, Secrets, hosted.ExportProjectRowsAsync(Project, Ct), initial, Ct);
-            Assert.Equal(28, exported.Tables.Count);
             Assert.All(exported.Tables, table => Assert.Equal(1, table.Value.Rows));
             initial.Position = 0;
             await AuthoritativeProjectArchive.ImportAsync(initial, oss, Project, 1, Secrets, Ct);
@@ -96,6 +95,44 @@ public sealed class AuthoritativeProjectArchiveTests
         finally { Directory.Delete(root, true); }
     }
 
+    [Fact]
+    public async Task EveryTableWithProjectIdColumnIsCoveredInProjectSnapshotSchema()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "snapshot-test-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            await using var store = await NewStoreAsync(Path.Combine(root, "schema.db"));
+            using var connection = new Microsoft.Data.Sqlite.SqliteConnection(
+                new Microsoft.Data.Sqlite.SqliteConnectionStringBuilder { DataSource = store.DatabasePath, Pooling = false }.ToString());
+            await connection.OpenAsync(Ct);
+            await using var cmd = connection.CreateCommand();
+            cmd.CommandText = "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '%_fts%'";
+            var tablesWithProjectId = new List<string>();
+            await using (var reader = await cmd.ExecuteReaderAsync(Ct))
+            {
+                var tables = new List<string>();
+                while (await reader.ReadAsync(Ct)) tables.Add(reader.GetString(0));
+                foreach (var t in tables)
+                {
+                    await using var colCmd = connection.CreateCommand();
+                    colCmd.CommandText = $"PRAGMA table_info({t})";
+                    await using var colReader = await colCmd.ExecuteReaderAsync(Ct);
+                    while (await colReader.ReadAsync(Ct))
+                    {
+                        if (colReader.GetString(1) == "project_id")
+                        {
+                            tablesWithProjectId.Add(t);
+                            break;
+                        }
+                    }
+                }
+            }
+            Assert.Equal(ProjectSnapshotSchema.Tables.Keys.Order(StringComparer.Ordinal), tablesWithProjectId.Order(StringComparer.Ordinal));
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
     private static async Task<SqliteNetworkStorageStore> NewStoreAsync(string path)
     {
         var store = new SqliteNetworkStorageStore(new SqliteStoreOptions { DatabasePath = path });
@@ -103,11 +140,16 @@ public sealed class AuthoritativeProjectArchiveTests
         return store;
     }
     private static Dictionary<string, object?> Row(string table) => ProjectSnapshotSchema.Tables[table].ToDictionary(
-        column => column.Key, column => column.Key == "project_id" ? (object?)Project : column.Value switch
+        column => column.Key, column => column.Key switch
         {
-            JsonValueKind.String => column.Key.EndsWith("_json", StringComparison.Ordinal) ? "{\"preserved\":true}" : "value",
-            JsonValueKind.True => true,
-            _ => 1L
+            "project_id" => (object?)Project,
+            "source" => "server",
+            _ => column.Value switch
+            {
+                JsonValueKind.String => column.Key.EndsWith("_json", StringComparison.Ordinal) ? "{\"preserved\":true}" : "value",
+                JsonValueKind.True => true,
+                _ => 1L
+            }
         }, StringComparer.Ordinal);
     private static async IAsyncEnumerable<ProjectSnapshotRow> FixtureRows([EnumeratorCancellation] CancellationToken ct = default)
     {

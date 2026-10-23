@@ -288,3 +288,13 @@ sign security configs.
   `sbox-ns export` lists them so you can copy them yourself.
 - Transfer archives over SSH, keep them off shared storage, and delete them
   once the move is done.
+
+## Internal project snapshot core
+
+`IAuthoritativeProjectStore` and `AuthoritativeProjectArchive` are an internal, non-live migration
+core, not another CLI export/import mode. Their snapshot includes the per-project metadata
+introduced through schema v12 (including sealed secrets, revocations, media metadata and logs).
+Replacement removes dependent rows before replacing the project and restores them in dependency
+order in one transaction. Provider-local surrogate IDs are regenerated; they are not portable
+project identities. Media blob bytes are outside this snapshot core: use the supported portable
+export/import paths above to move actual media files.

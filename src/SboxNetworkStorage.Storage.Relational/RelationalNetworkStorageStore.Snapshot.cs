@@ -1,4 +1,5 @@
 using System.Data;
+using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 
@@ -48,7 +49,7 @@ public abstract partial class RelationalNetworkStorageStore : IAuthoritativeProj
         if (_transaction is not null) throw new InvalidOperationException("Snapshot imports cannot run inside a transaction.");
         await using var connection = await OpenConnectionAsync(ct);
         await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.Serializable, ct);
-        foreach (var table in ProjectSnapshotSchema.Tables.Keys)
+        foreach (var table in ProjectSnapshotSchema.Tables.Keys.Reverse())
         {
             await using var delete = Command(connection, $"DELETE FROM {TablePrefix}{table} WHERE project_id = @project_id",
                 [Text("project_id", projectId)], transaction);
