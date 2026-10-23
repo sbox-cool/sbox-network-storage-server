@@ -86,6 +86,10 @@ The second argument. Its type is `Ns` in `ns.d.ts`.
 Writes made by a script apply when the endpoint returns normally. A request
 that ends with `ns.fail` does not keep its writes.
 
+Script record keys are literal: `item` and `item_default` name different records, just as in
+the document API and owner console. No `_default` suffix is stripped by `get`, `put` or
+`delete`. Legacy YAML read/write steps keep their historical `_default` key normalization.
+
 ## Outbound HTTP: `ns.fetch`
 
 `ns.fetch(url, options?)` calls an outside HTTP or HTTPS host. The owner lists the allowed hosts for each project under **Script fetch (ns.fetch)** ([admin-panel.md](admin-panel.md#script-fetch-nsfetch)). A project with no listed host refuses every call. The operator setting `endpoints.fetch_private_networks` is in [configuration.md](configuration.md#scripted-endpoints). The types `FetchOptions`, `FetchResponse` and `FetchError` are in [`ns.d.ts`](/owner-assets/endpoint-api/ns.d.ts).

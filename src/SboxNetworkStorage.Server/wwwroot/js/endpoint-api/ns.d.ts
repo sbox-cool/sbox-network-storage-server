@@ -49,6 +49,7 @@ interface WorkflowAliases {}
 /** Exports of global endpoints by endpoint id: `globals.<endpointId>.<export>`. The project typings fill in GlobalModules. */
 interface GlobalModules {}
 
+/** Keys are literal: "item" and "item_default" are distinct, unlike legacy YAML key normalization. */
 interface NsRecords {
   /**
    * Reads a record. Returns null when it does not exist.
