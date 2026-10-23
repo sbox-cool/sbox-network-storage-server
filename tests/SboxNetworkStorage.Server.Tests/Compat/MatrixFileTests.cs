@@ -91,4 +91,21 @@ public sealed class MatrixFileTests
             { "server": "0.5.0", "kind": "self-hosted", "library": "1.1.0", "librarySource": "git:abc1234", "engine": "latest", "os": "Windows", "database": ["sqlite"], "result": "pass", "evidence": ["x#1"] }
             """)).IsValid);
     }
+
+    [Theory]
+    [InlineData("git:026acfac737e351c4d58c5af2989d159c3a33fe3", true)]
+    [InlineData("git:5c33cb5", true)]
+    [InlineData("legacy", false)]
+    [InlineData("git:main", false)]
+    [InlineData("git:abc123", false)]
+    public void UnversionedEvidenceRequiresAnExactSourceIdentity(string library, bool valid)
+    {
+        var json = JsonSerializer.Serialize(new
+        {
+            schemaVersion = 1, minimum = "1.1.0", recommended = "1.1.0",
+            libraries = Array.Empty<object>(), deprecated = Array.Empty<object>(), blocked = Array.Empty<object>(),
+            tested = new[] { new { server = "0.1.0-dev", library, database = new[] { "sqlite" }, result = "ci-only", evidence = new[] { "x/y#1" } } }
+        });
+        Assert.Equal(valid, Validate(json).IsValid);
+    }
 }
