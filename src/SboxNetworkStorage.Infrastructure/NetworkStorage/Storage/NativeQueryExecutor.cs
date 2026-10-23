@@ -708,7 +708,7 @@ public sealed partial class NativeQueryExecutor
         if (string.IsNullOrEmpty(key)) return null;
         var segment = key.Contains('_') ? key.Split('_')[0] : key;
         // SteamID64: 17 digits starting with 7656119.
-        return segment.Length == 17 && segment.StartsWith("7656119", StringComparison.Ordinal) && segment.All(char.IsDigit)
+        return segment.Length == 17 && segment.StartsWith("7656119", StringComparison.Ordinal) && segment.All(char.IsAsciiDigit)
             ? segment
             : null;
     }
