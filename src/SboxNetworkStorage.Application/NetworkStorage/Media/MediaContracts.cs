@@ -8,6 +8,8 @@ public interface IMediaBlobStore
 {
     Task<bool> ExistsAsync(string projectId, string sha256, CancellationToken ct);
     Task WriteAsync(string projectId, string sha256, byte[] bytes, CancellationToken ct);
+    /// <summary>Deletes the blob. Deleting a missing blob succeeds, so a retried sweep can call this again safely.</summary>
+    Task DeleteAsync(string projectId, string sha256, CancellationToken ct);
     /// <summary>
     /// Opens the blob for streaming, or returns null when it is missing. The caller disposes the result. Bytes are
     /// never buffered here: the endpoint copies the stream straight to the response.

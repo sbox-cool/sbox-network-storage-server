@@ -67,6 +67,21 @@ public sealed class MetadataCachingNetworkStore : INetworkStorageStore, IProject
     public Task<long> SumMediaObjectBytesAsync(string projectId, string purpose, long nowUnixMs, CancellationToken ct) =>
         MediaStore.SumMediaObjectBytesAsync(projectId, purpose, nowUnixMs, ct);
 
+    public Task<IReadOnlyList<MediaObjectRecord>> ListExpiredMediaObjectsAsync(long nowUnixMs, (string ProjectId, string MediaId)? after, int limit, CancellationToken ct) =>
+        MediaStore.ListExpiredMediaObjectsAsync(nowUnixMs, after, limit, ct);
+
+    public Task<IReadOnlyList<MediaReference>> ListMediaReferencesBySha256Async(string projectId, string sha256, CancellationToken ct) =>
+        MediaStore.ListMediaReferencesBySha256Async(projectId, sha256, ct);
+
+    public Task RunUnderMediaBlobLockAsync(string projectId, string sha256, Func<IMediaStore, Task> work, CancellationToken ct) =>
+        MediaStore.RunUnderMediaBlobLockAsync(projectId, sha256, work, ct);
+
+    public Task<IDisposable> EnterMediaSweepGateAsync(CancellationToken ct) =>
+        MediaStore.EnterMediaSweepGateAsync(ct);
+
+    public Task<bool> DeleteExpiredMediaObjectAsync(string projectId, string mediaId, long nowUnixMs, CancellationToken ct) =>
+        MediaStore.DeleteExpiredMediaObjectAsync(projectId, mediaId, nowUnixMs, ct);
+
     public Task<ProjectSecretWriteResult> SetProjectSecretAsync(string projectId, string name, string sealedValue, long updatedAtUnixMs, int maxSecrets, CancellationToken ct) =>
         Secrets.SetProjectSecretAsync(projectId, name, sealedValue, updatedAtUnixMs, maxSecrets, ct);
 

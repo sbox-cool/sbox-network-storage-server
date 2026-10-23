@@ -153,6 +153,8 @@ project, so after fixing the cause the corrected archive can be retried normally
 
 Portable project archives are capped at 64 MiB for the upload and 256 MiB expanded, and media bytes count toward both. Media bytes are checked against their archive names and written during the project's import transaction. A rolled-back import can therefore leave blob files that no object row references. They are unreferenced and safe to delete.
 
+Import writes media blobs under the same per-project, per-SHA-256 lock that uploads and retention sweeps use (see [media.md](media.md#retention-and-deletion)). On PostgreSQL that lock holds across server instances, so a sweep cannot remove bytes an in-flight import is about to reference.
+
 API key rows must have the shape sbox-ns writes, or the import is refused: a
 public key is stored in full and starts with `sbox_ns_`; a secret key is stored
 only masked (`sbox_sk_xxxx...xxxx`) with a 64-character hex `key_hash`, so an

@@ -151,8 +151,11 @@ public sealed class StoreDumpReader(INetworkStorageStore store, MediaImport? med
             Str(row, "owner_steam_id"), Str(row, "visibility"), Long(row, "created_at_unix_ms"), Long(row, "expires_at_unix_ms"));
         if (!ExportFormat.IsMediaSha256(record.Sha256))
             throw new FormatException("media object sha256 is not a lowercase hex digest");
-        await media.RestoreRowAsync(record, ct);
-        await objects.UpsertMediaObjectAsync(record, ct);
+        await objects.RunUnderMediaBlobLockAsync(projectId, record.Sha256, async target =>
+        {
+            await media.RestoreRowAsync(record, ct);
+            await target.UpsertMediaObjectAsync(record, ct);
+        }, ct);
     }
 
     private static int Dimension(JsonElement row, string name)

@@ -36,10 +36,41 @@ public interface IMediaStore
 
     /// <summary>
     /// Sum of stored object sizes for one purpose in one project, counting only rows still unexpired at
-    /// <paramref name="nowUnixMs"/>. Expired rows stop counting toward the quota at read time; the sweeper that
-    /// deletes them has not shipped yet.
+    /// <paramref name="nowUnixMs"/>. Expired rows stop counting toward the quota at read time, before the retention
+    /// sweeper deletes them.
     /// </summary>
     Task<long> SumMediaObjectBytesAsync(string projectId, string purpose, long nowUnixMs, CancellationToken ct);
+
+    /// <summary>
+    /// Up to <paramref name="limit"/> object rows whose expiry is at or before <paramref name="nowUnixMs"/>, across every
+    /// project, in (project, media id) order after <paramref name="after"/> (null starts at the beginning). Rows are read
+    /// in pages so the retention sweeper stays bounded; pass the last row's key as the next cursor.
+    /// </summary>
+    Task<IReadOnlyList<MediaObjectRecord>> ListExpiredMediaObjectsAsync(long nowUnixMs, (string ProjectId, string MediaId)? after, int limit, CancellationToken ct);
+
+    /// <summary>Every object row in the project that stores these bytes, expired rows included, with each row's expiry.</summary>
+    Task<IReadOnlyList<MediaReference>> ListMediaReferencesBySha256Async(string projectId, string sha256, CancellationToken ct);
+
+    /// <summary>
+    /// Deletes the object row only while it is still expired at <paramref name="nowUnixMs"/>. Returns false when the row is
+    /// missing or unexpired, so the sweeper can never remove a live object.
+    /// </summary>
+    Task<bool> DeleteExpiredMediaObjectAsync(string projectId, string mediaId, long nowUnixMs, CancellationToken ct);
+
+    /// <summary>
+    /// Runs <paramref name="work"/> while holding the blob lock for (project, sha256). Uploads, archive imports and
+    /// sweeps all take this lock. On PostgreSQL it is a transaction advisory lock that holds across server instances, and
+    /// <paramref name="work"/> runs on that transaction, so the rows it writes commit with the lock release. Inside a
+    /// project import the lock lasts until the import transaction ends.
+    /// </summary>
+    Task RunUnderMediaBlobLockAsync(string projectId, string sha256, Func<IMediaStore, Task> work, CancellationToken ct);
+
+    /// <summary>
+    /// Waits until no project import is running in this process, and holds that position until the returned handle is
+    /// disposed. A sweep takes it before any blob lock, so it never deletes bytes whose rows have not committed yet, and
+    /// a sweep waiting out an import holds no blob lock that uploads need.
+    /// </summary>
+    Task<IDisposable> EnterMediaSweepGateAsync(CancellationToken ct);
 }
 
 public sealed record MediaGrantRecord(
@@ -63,3 +94,5 @@ public sealed record MediaObjectRecord(
     string Visibility,
     long CreatedAtUnixMs,
     long ExpiresAtUnixMs);
+
+public sealed record MediaReference(string MediaId, long ExpiresAtUnixMs);

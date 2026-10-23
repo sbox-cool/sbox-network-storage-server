@@ -67,6 +67,17 @@ public abstract partial class RelationalNetworkStorageStore : IMediaStore
     protected virtual Task LockMediaGrantOwnerAsync(DbConnection connection, DbTransaction transaction, string key, CancellationToken ct) =>
         Task.CompletedTask;
 
+    /// <summary>
+    /// Provider hook: a lock on one (project, sha256) blob key, taken on <paramref name="transaction"/> and released when
+    /// it ends. The base takes none. A provider whose lock excludes other server processes overrides this and returns
+    /// true from <see cref="MediaBlobLocksSpanProcesses"/>.
+    /// </summary>
+    protected virtual Task LockMediaBlobKeyAsync(DbConnection connection, DbTransaction transaction, string key, CancellationToken ct) =>
+        Task.CompletedTask;
+
+    /// <summary>True when <see cref="LockMediaBlobKeyAsync"/> excludes other server processes.</summary>
+    protected virtual bool MediaBlobLocksSpanProcesses => false;
+
     public async Task<bool> TryConsumeGrantAsync(string projectId, string grantId, long nowUnixMs, CancellationToken ct)
     {
         StoreValidation.Id(projectId);
@@ -159,10 +170,107 @@ public abstract partial class RelationalNetworkStorageStore : IMediaStore
     public Task<long> SumMediaObjectBytesAsync(string projectId, string purpose, long nowUnixMs, CancellationToken ct)
     {
         StoreValidation.Id(projectId);
-        // Expired rows stop counting here, at read time; the sweeper that deletes them has not shipped yet.
+        // Expired rows stop counting here, at read time; the retention sweeper deletes them later.
         return QueryInt64ScalarAsync($"""
             SELECT COALESCE(SUM(size_bytes), 0) FROM {TablePrefix}media_objects
             WHERE project_id = @project AND purpose = @purpose AND expires_at_unix_ms > @now
             """, ct, Text("project", projectId), Text("purpose", purpose), Int64("now", nowUnixMs));
+    }
+
+    /// <summary>
+    /// Expired rows in (project, media id) order. The cursor is a row-value comparison, which SQLite and PostgreSQL both
+    /// order the same way as the ORDER BY.
+    /// </summary>
+    public async Task<IReadOnlyList<MediaObjectRecord>> ListExpiredMediaObjectsAsync(
+        long nowUnixMs, (string ProjectId, string MediaId)? after, int limit, CancellationToken ct)
+    {
+        var args = new List<Arg> { Int64("now", nowUnixMs), Int32("limit", limit) };
+        var cursor = string.Empty;
+        if (after is { } key)
+        {
+            cursor = "AND (project_id, media_id) > (@afterProject, @afterMedia)";
+            args.Add(Text("afterProject", key.ProjectId));
+            args.Add(Text("afterMedia", key.MediaId));
+        }
+
+        await using var lease = await LeaseAsync(ct);
+        await using var command = Command(lease, $"""
+            SELECT project_id, media_id, purpose, sha256, content_type, size_bytes, width, height, owner_steam_id, visibility,
+                   created_at_unix_ms, expires_at_unix_ms
+            FROM {TablePrefix}media_objects
+            WHERE expires_at_unix_ms <= @now {cursor}
+            ORDER BY project_id, media_id
+            LIMIT @limit
+            """, args.ToArray());
+        await using var reader = await command.ExecuteReaderAsync(ct);
+        var rows = new List<MediaObjectRecord>();
+        while (await reader.ReadAsync(ct)) rows.Add(ReadMediaObject(reader));
+        return rows;
+    }
+
+    /// <summary>Every object row in the project that stores these bytes, expired rows included, with each row's expiry.</summary>
+    public async Task<IReadOnlyList<MediaReference>> ListMediaReferencesBySha256Async(string projectId, string sha256, CancellationToken ct)
+    {
+        StoreValidation.Id(projectId);
+        await using var lease = await LeaseAsync(ct);
+        await using var command = Command(lease,
+            $"SELECT media_id, expires_at_unix_ms FROM {TablePrefix}media_objects WHERE project_id = @project AND sha256 = @sha",
+            [Text("project", projectId), Text("sha", sha256)]);
+        await using var reader = await command.ExecuteReaderAsync(ct);
+        var references = new List<MediaReference>();
+        while (await reader.ReadAsync(ct)) references.Add(new MediaReference(reader.GetString(0), reader.GetInt64(1)));
+        return references;
+    }
+
+    /// <summary>
+    /// Runs <paramref name="work"/> under the blob lock for (project, sha256). Inside a project import the lock joins the
+    /// import transaction. Outside one, a provider with cross-process locks gets its own transaction, which holds the
+    /// lock and the rows <paramref name="work"/> writes until it commits. Other providers run the work directly.
+    /// </summary>
+    public async Task RunUnderMediaBlobLockAsync(string projectId, string sha256, Func<IMediaStore, Task> work, CancellationToken ct)
+    {
+        StoreValidation.Id(projectId);
+        var key = $"{projectId}:{sha256}";
+        if (_transaction is { } bound)
+        {
+            await LockMediaBlobKeyAsync(bound.Connection!, bound, key, ct);
+            await work(this);
+            return;
+        }
+        if (!MediaBlobLocksSpanProcesses)
+        {
+            await work(this);
+            return;
+        }
+        await using var connection = await OpenConnectionAsync(ct);
+        await using var transaction = await connection.BeginTransactionAsync(ct);
+        await LockMediaBlobKeyAsync(connection, transaction, key, ct);
+        await work(Bind(transaction));
+        await transaction.CommitAsync(ct);
+    }
+
+    /// <summary>
+    /// Waits until no project import runs in this process, and holds that place until the handle is disposed. The
+    /// caller takes it before any blob lock, so a sweep waiting out an import never holds a blob lock.
+    /// </summary>
+    public async Task<IDisposable> EnterMediaSweepGateAsync(CancellationToken ct)
+    {
+        await _projectImportGate.WaitAsync(ct);
+        return new GateRelease(_projectImportGate);
+    }
+
+    private sealed class GateRelease(SemaphoreSlim gate) : IDisposable
+    {
+        public void Dispose() => gate.Release();
+    }
+
+    public async Task<bool> DeleteExpiredMediaObjectAsync(string projectId, string mediaId, long nowUnixMs, CancellationToken ct)
+    {
+        StoreValidation.Id(projectId);
+        await using var lease = await LeaseAsync(ct);
+        await using var command = Command(lease,
+            $"DELETE FROM {TablePrefix}media_objects WHERE project_id = @project AND media_id = @media AND expires_at_unix_ms <= @now",
+            [Text("project", projectId), Text("media", mediaId), Int64("now", nowUnixMs)]);
+        return await command.ExecuteNonQueryAsync(ct) == 1;
     }
 }

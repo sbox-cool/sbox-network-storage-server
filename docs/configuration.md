@@ -363,6 +363,9 @@ per project in the owner panel. Metadata always lives in the database. Full
 reference: [media.md](media.md). `media.backend` and the `media.s3.*` keys apply
 at startup, so restart the server after changing them.
 
+Media expires per purpose through `retentionDays` in the purpose policy. A daily
+sweeper deletes expired objects and their unshared bytes; it has no setting of its own.
+
 ### Analytics retention
 
 Player analytics are written by one background writer in batches of up to 500

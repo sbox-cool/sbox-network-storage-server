@@ -128,6 +128,53 @@ public abstract class MediaStoreTests : IAsyncLifetime
         Assert.Equal(4_700, await Media.SumMediaObjectBytesAsync("proj_example", "avatar", 1_000, CancellationToken.None));
         Assert.Equal(700, await Media.SumMediaObjectBytesAsync("proj_example", "avatar", 1_500, CancellationToken.None));
     }
+
+    [SkippableFact]
+    public async Task Expired_listing_pages_by_project_and_media_id_and_skips_live_rows()
+    {
+        await Media.InsertMediaObjectAsync(Record("med_c", expiresAt: 1_500), CancellationToken.None);
+        await Media.InsertMediaObjectAsync(Record("med_a", expiresAt: 1_500), CancellationToken.None);
+        await Media.InsertMediaObjectAsync(Record("med_b", expiresAt: 9_000), CancellationToken.None);
+        await Media.InsertMediaObjectAsync(Record("med_d", expiresAt: 1_500), CancellationToken.None);
+        await Media.InsertMediaObjectAsync(Record("med_e", expiresAt: 2_000), CancellationToken.None);
+        await Media.InsertMediaObjectAsync(Record("med_o", projectId: "proj_other", expiresAt: 1_500), CancellationToken.None);
+
+        var first = await Media.ListExpiredMediaObjectsAsync(2_000, null, 2, CancellationToken.None);
+        Assert.Equal(new[] { "med_a", "med_c" }, first.Select(o => o.MediaId));
+        var second = await Media.ListExpiredMediaObjectsAsync(2_000, (first[^1].ProjectId, first[^1].MediaId), 2, CancellationToken.None);
+        Assert.Equal(new[] { "med_d", "med_e" }, second.Select(o => o.MediaId));
+        var third = await Media.ListExpiredMediaObjectsAsync(2_000, (second[^1].ProjectId, second[^1].MediaId), 2, CancellationToken.None);
+        Assert.Equal(new[] { "med_o" }, third.Select(o => o.MediaId));
+        Assert.Empty(await Media.ListExpiredMediaObjectsAsync(2_000, (third[^1].ProjectId, third[^1].MediaId), 2, CancellationToken.None));
+    }
+
+    [SkippableFact]
+    public async Task Sha_lookup_lists_every_row_for_the_bytes_within_the_project()
+    {
+        var shared = new string('b', 64);
+        await Media.InsertMediaObjectAsync(Record("med_1") with { Sha256 = shared }, CancellationToken.None);
+        await Media.InsertMediaObjectAsync(Record("med_2", expiresAt: 1_500) with { Sha256 = shared }, CancellationToken.None);
+        await Media.InsertMediaObjectAsync(Record("med_3", projectId: "proj_other") with { Sha256 = shared }, CancellationToken.None);
+        await Media.InsertMediaObjectAsync(Record("med_4") with { Sha256 = new string('c', 64) }, CancellationToken.None);
+
+        var references = await Media.ListMediaReferencesBySha256Async("proj_example", shared, CancellationToken.None);
+        Assert.Equal(new[] { ("med_1", 2_000L), ("med_2", 1_500L) },
+            references.OrderBy(r => r.MediaId, StringComparer.Ordinal).Select(r => (r.MediaId, r.ExpiresAtUnixMs)));
+    }
+
+    [SkippableFact]
+    public async Task Delete_expired_removes_only_rows_that_are_expired_at_the_given_time()
+    {
+        await Media.InsertMediaObjectAsync(Record("med_live", expiresAt: 9_000), CancellationToken.None);
+        await Media.InsertMediaObjectAsync(Record("med_expired", expiresAt: 1_500), CancellationToken.None);
+
+        Assert.False(await Media.DeleteExpiredMediaObjectAsync("proj_example", "med_live", 2_000, CancellationToken.None));
+        Assert.False(await Media.DeleteExpiredMediaObjectAsync("proj_other", "med_expired", 2_000, CancellationToken.None));
+        Assert.False(await Media.DeleteExpiredMediaObjectAsync("proj_example", "med_expired", 1_499, CancellationToken.None));
+        Assert.True(await Media.DeleteExpiredMediaObjectAsync("proj_example", "med_expired", 2_000, CancellationToken.None));
+        Assert.False(await Media.DeleteExpiredMediaObjectAsync("proj_example", "med_expired", 2_000, CancellationToken.None));
+        Assert.Equal(new[] { "med_live" }, (await Media.ListMediaObjectsAsync("proj_example", CancellationToken.None)).Select(o => o.MediaId));
+    }
 }
 
 public sealed class SqliteMediaStoreTests : MediaStoreTests
