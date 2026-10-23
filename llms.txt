@@ -4,7 +4,9 @@
 
 ## Start here
 
-- [README](README.md): Linux VPS quickstart, HTTPS tunnel opt-in, project/public-key setup, security model, game values, editor secret key and Base URL, YAML definition sync, owner console, preview caveats and CLI reference.
+- [README](README.md): What the server is, three-step quickstart, feature summary and status.
+- [Docs index](docs/README.md): Every guide grouped by start, build, operate and compatibility.
+- [CLI reference](docs/cli.md): Every `sbox-ns` command grouped, with links to the guides.
 - [Self-hosting](docs/self-hosting.md): Linux/macOS, Windows, Docker, manual installation, services, HTTPS, optional tunnel/email/telemetry and backups.
 - [Client setup](docs/client-setup.md): Connect the s&box editor and game to a self-hosted Base URL; distinguish syncing definitions from moving runtime player records.
 - [Hosting models](docs/hosting-models.md): Player-hosted, dedicated and hybrid games; where authority lives and which key each caller uses.
