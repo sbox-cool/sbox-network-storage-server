@@ -115,6 +115,24 @@ public sealed class ModuleLifecycleTests
     }
 
     [Fact]
+    public async Task Uninstall_deletes_records_beyond_ten_thousand_and_they_do_not_return_on_reinstall()
+    {
+        var (store, _, installer, _) = Setup();
+        Assert.True((await installer.InstallAsync(Owner, Project, "economy", null, default)).Ok);
+        for (var i = 0; i <= 10_000; i++)
+            await store.UpsertRecordAsync(Project, "economy_balance", $"player{i:D5}",
+                JsonSerializer.SerializeToElement(new { balance = i }), false, 1, default);
+        await store.UpsertRecordAsync(Project, "unrelated", "keep", JsonSerializer.SerializeToElement(new { keep = true }), false, 1, default);
+
+        Assert.True((await installer.UninstallAsync(Owner, Project, "economy", "economy", keepData: false, default)).Ok);
+        Assert.Null(await store.ReadRecordAsync(Project, "economy_balance", "player10000", default));
+        Assert.Empty(await store.ListRecordsAsync(Project, "economy_balance", default));
+        Assert.True((await installer.InstallAsync(Owner, Project, "economy", null, default)).Ok);
+        Assert.Null(await store.ReadRecordAsync(Project, "economy_balance", "player10000", default));
+        Assert.NotNull(await store.ReadRecordAsync(Project, "unrelated", "keep", default));
+    }
+
+    [Fact]
     public async Task Disable_hides_hooks_panels_and_endpoints_while_keeping_data()
     {
         var (store, workspace, installer, _) = Setup();
