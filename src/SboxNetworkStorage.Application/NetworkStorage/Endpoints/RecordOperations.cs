@@ -31,9 +31,9 @@ public static class RecordOperations
     public sealed record OpMetaEntry(string? Source, string? Reason);
 
     /// <summary>
-    /// Apply an array of operations to an existing document. Matches the JS
-    /// <c>applyOperations</c> semantics exactly (loose equality in pull/remove,
-    /// near-zero snap in inc, set-if-null guard, increment tracking for rate limits).
+    /// Apply operations with legacy object/array traversal, loose equality in pull/remove,
+    /// near-zero snap in inc, set-if-null guards and increment tracking for rate limits.
+    /// Array writes must address existing elements or the next consecutive index, never sparse gaps.
     /// </summary>
     public static ApplyResult Apply(Dictionary<string, object?>? existing, List<object?> ops)
     {
@@ -55,156 +55,163 @@ public static class RecordOperations
             if (!ValidOps.Contains(opStr))
                 return new ApplyResult(false, null, null, null, $"ops[{i}]: invalid op \"{opStr}\". Must be: {string.Join(", ", ValidOps)}");
 
-            switch (opStr)
+            try
             {
-                case "set":
+                switch (opStr)
                 {
-                    if (!op.TryGetValue("value", out var value) || EndpointExpression.IsUndefined(value))
-                        return new ApplyResult(false, null, null, null, $"ops[{i}]: \"set\" requires a \"value\".");
-                    if (value is double numVal)
+                    case "set":
                     {
-                        var prev = GetNested(data, path);
-                        var delta = numVal - (prev is double pn ? pn : 0);
-                        if (delta > 0) increments[path] = (increments.TryGetValue(path, out var cur) ? cur : 0) + delta;
-                    }
-                    SetNested(data, path, value);
-                    CaptureMeta(op, opMeta, path);
-                    break;
-                }
-
-                case "inc":
-                {
-                    if (!op.TryGetValue("value", out var valObj) || valObj is not double incVal)
-                        return new ApplyResult(false, null, null, null, $"ops[{i}]: \"inc\" requires a numeric \"value\".");
-                    var current = GetNested(data, path);
-                    var newVal = (current is double cn ? cn : 0) + incVal;
-                    if (newVal != 0 && Math.Abs(newVal) < 1e-9) newVal = 0;
-                    SetNested(data, path, newVal);
-                    if (incVal > 0) increments[path] = (increments.TryGetValue(path, out var cur2) ? cur2 : 0) + incVal;
-                    CaptureMeta(op, opMeta, path);
-                    break;
-                }
-
-                case "push":
-                {
-                    if (!op.TryGetValue("value", out var pushVal) || EndpointExpression.IsUndefined(pushVal))
-                        return new ApplyResult(false, null, null, null, $"ops[{i}]: \"push\" requires a \"value\".");
-                    var arr = GetNested(data, path);
-                    if (arr is List<object?> list)
-                        list.Add(pushVal);
-                    else
-                        SetNested(data, path, new List<object?> { pushVal });
-                    break;
-                }
-
-                case "pull":
-                {
-                    if (!op.TryGetValue("match", out var matchObj) || matchObj is not Dictionary<string, object?> match)
-                        return new ApplyResult(false, null, null, null, $"ops[{i}]: \"pull\" requires a \"match\" object.");
-                    var arr2 = GetNested(data, path);
-                    if (arr2 is List<object?> list2)
-                    {
-                        var filtered = new List<object?>();
-                        foreach (var item in list2)
+                        if (!op.TryGetValue("value", out var value) || EndpointExpression.IsUndefined(value))
+                            return new ApplyResult(false, null, null, null, $"ops[{i}]: \"set\" requires a \"value\".");
+                        if (value is double numVal)
                         {
-                            if (item is not Dictionary<string, object?> itemDict)
-                            {
-                                // Primitives: match.value for direct comparison (loose)
-                                if (match.TryGetValue("value", out var mVal) && EndpointExpression.LooseEquals(item, mVal))
-                                    continue;
-                                filtered.Add(item);
-                            }
-                            else
-                            {
-                                // Objects: keep if NOT all match fields equal
-                                if (MatchesAll(itemDict, match))
-                                    continue;
-                                filtered.Add(item);
-                            }
+                            var prev = GetNested(data, path);
+                            var delta = numVal - (prev is double pn ? pn : 0);
+                            if (delta > 0) increments[path] = (increments.TryGetValue(path, out var cur) ? cur : 0) + delta;
                         }
-                        SetNested(data, path, filtered);
-                    }
-                    break;
-                }
-
-                case "delete":
-                case "remove":
-                {
-                    if (!op.TryGetValue("value", out var remVal) || EndpointExpression.IsUndefined(remVal))
-                        return new ApplyResult(false, null, null, null, $"ops[{i}]: \"remove\" requires a \"value\".");
-                    var arr3 = GetNested(data, path);
-                    if (arr3 is List<object?> list3)
-                    {
-                        var filtered = new List<object?>();
-                        foreach (var item in list3)
-                        {
-                            if (item is not Dictionary<string, object?> itemDict2)
-                            {
-                                // Primitives: loose equality
-                                if (EndpointExpression.LooseEquals(item, remVal)) continue;
-                                filtered.Add(item);
-                            }
-                            else if (remVal is Dictionary<string, object?> remDict)
-                            {
-                                // Objects: deep-match all specified fields
-                                if (MatchesAll(itemDict2, remDict)) continue;
-                                filtered.Add(item);
-                            }
-                            else
-                            {
-                                filtered.Add(item);
-                            }
-                        }
-                        SetNested(data, path, filtered);
-                    }
-                    break;
-                }
-
-                case "merge":
-                {
-                    if (!op.TryGetValue("value", out var mergeVal) || mergeVal is not Dictionary<string, object?> mergeDict)
-                        return new ApplyResult(false, null, null, null, $"ops[{i}]: \"merge\" requires an object \"value\".");
-                    var target = GetNested(data, path);
-                    if (target is null || EndpointExpression.IsUndefined(target))
-                    {
-                        SetNested(data, path, new Dictionary<string, object?>());
-                        target = GetNested(data, path);
-                    }
-                    if (target is not Dictionary<string, object?> targetDict)
-                        return new ApplyResult(false, null, null, null, $"ops[{i}]: cannot merge into a non-object at \"{path}\".");
-                    foreach (var (k, v) in mergeDict)
-                    {
-                        if (v is double mergeNum)
-                        {
-                            var mergedPath = path.Length > 0 ? $"{path}.{k}" : k;
-                            var prev2 = GetNested(data, mergedPath);
-                            var delta2 = mergeNum - (prev2 is double pn2 ? pn2 : 0);
-                            if (delta2 > 0) increments[mergedPath] = (increments.TryGetValue(mergedPath, out var cur3) ? cur3 : 0) + delta2;
-                        }
-                        targetDict[k] = v;
-                    }
-                    CaptureMeta(op, opMeta, path);
-                    break;
-                }
-
-                case "set_if_null":
-                {
-                    if (!op.TryGetValue("value", out var sinVal) || EndpointExpression.IsUndefined(sinVal))
-                        return new ApplyResult(false, null, null, null, $"ops[{i}]: \"set_if_null\" requires a \"value\".");
-                    var existing2 = GetNested(data, path);
-                    if (existing2 is null || EndpointExpression.IsUndefined(existing2))
-                    {
-                        if (sinVal is double sinNum)
-                        {
-                            var prev3 = GetNested(data, path);
-                            var delta3 = sinNum - (prev3 is double pn3 ? pn3 : 0);
-                            if (delta3 > 0) increments[path] = (increments.TryGetValue(path, out var cur4) ? cur4 : 0) + delta3;
-                        }
-                        SetNested(data, path, sinVal);
+                        SetNested(data, path, value);
                         CaptureMeta(op, opMeta, path);
+                        break;
                     }
-                    break;
+
+                    case "inc":
+                    {
+                        if (!op.TryGetValue("value", out var valObj) || valObj is not double incVal)
+                            return new ApplyResult(false, null, null, null, $"ops[{i}]: \"inc\" requires a numeric \"value\".");
+                        var current = GetNested(data, path);
+                        var newVal = (current is double cn ? cn : 0) + incVal;
+                        if (newVal != 0 && Math.Abs(newVal) < 1e-9) newVal = 0;
+                        SetNested(data, path, newVal);
+                        if (incVal > 0) increments[path] = (increments.TryGetValue(path, out var cur2) ? cur2 : 0) + incVal;
+                        CaptureMeta(op, opMeta, path);
+                        break;
+                    }
+
+                    case "push":
+                    {
+                        if (!op.TryGetValue("value", out var pushVal) || EndpointExpression.IsUndefined(pushVal))
+                            return new ApplyResult(false, null, null, null, $"ops[{i}]: \"push\" requires a \"value\".");
+                        var arr = GetNested(data, path);
+                        if (arr is List<object?> list)
+                            list.Add(pushVal);
+                        else
+                            SetNested(data, path, new List<object?> { pushVal });
+                        break;
+                    }
+
+                    case "pull":
+                    {
+                        if (!op.TryGetValue("match", out var matchObj) || matchObj is not Dictionary<string, object?> match)
+                            return new ApplyResult(false, null, null, null, $"ops[{i}]: \"pull\" requires a \"match\" object.");
+                        var arr2 = GetNested(data, path);
+                        if (arr2 is List<object?> list2)
+                        {
+                            var filtered = new List<object?>();
+                            foreach (var item in list2)
+                            {
+                                if (item is not Dictionary<string, object?> itemDict)
+                                {
+                                    // Primitives: match.value for direct comparison (loose)
+                                    if (match.TryGetValue("value", out var mVal) && EndpointExpression.LooseEquals(item, mVal))
+                                        continue;
+                                    filtered.Add(item);
+                                }
+                                else
+                                {
+                                    // Objects: keep if NOT all match fields equal
+                                    if (MatchesAll(itemDict, match))
+                                        continue;
+                                    filtered.Add(item);
+                                }
+                            }
+                            SetNested(data, path, filtered);
+                        }
+                        break;
+                    }
+
+                    case "delete":
+                    case "remove":
+                    {
+                        if (!op.TryGetValue("value", out var remVal) || EndpointExpression.IsUndefined(remVal))
+                            return new ApplyResult(false, null, null, null, $"ops[{i}]: \"remove\" requires a \"value\".");
+                        var arr3 = GetNested(data, path);
+                        if (arr3 is List<object?> list3)
+                        {
+                            var filtered = new List<object?>();
+                            foreach (var item in list3)
+                            {
+                                if (item is not Dictionary<string, object?> itemDict2)
+                                {
+                                    // Primitives: loose equality
+                                    if (EndpointExpression.LooseEquals(item, remVal)) continue;
+                                    filtered.Add(item);
+                                }
+                                else if (remVal is Dictionary<string, object?> remDict)
+                                {
+                                    // Objects: deep-match all specified fields
+                                    if (MatchesAll(itemDict2, remDict)) continue;
+                                    filtered.Add(item);
+                                }
+                                else
+                                {
+                                    filtered.Add(item);
+                                }
+                            }
+                            SetNested(data, path, filtered);
+                        }
+                        break;
+                    }
+
+                    case "merge":
+                    {
+                        if (!op.TryGetValue("value", out var mergeVal) || mergeVal is not Dictionary<string, object?> mergeDict)
+                            return new ApplyResult(false, null, null, null, $"ops[{i}]: \"merge\" requires an object \"value\".");
+                        var target = GetNested(data, path);
+                        if (target is null || EndpointExpression.IsUndefined(target))
+                        {
+                            SetNested(data, path, new Dictionary<string, object?>());
+                            target = GetNested(data, path);
+                        }
+                        if (target is not Dictionary<string, object?> targetDict)
+                            return new ApplyResult(false, null, null, null, $"ops[{i}]: cannot merge into a non-object at \"{path}\".");
+                        foreach (var (k, v) in mergeDict)
+                        {
+                            if (v is double mergeNum)
+                            {
+                                var mergedPath = path.Length > 0 ? $"{path}.{k}" : k;
+                                var prev2 = GetNested(data, mergedPath);
+                                var delta2 = mergeNum - (prev2 is double pn2 ? pn2 : 0);
+                                if (delta2 > 0) increments[mergedPath] = (increments.TryGetValue(mergedPath, out var cur3) ? cur3 : 0) + delta2;
+                            }
+                            targetDict[k] = v;
+                        }
+                        CaptureMeta(op, opMeta, path);
+                        break;
+                    }
+
+                    case "set_if_null":
+                    {
+                        if (!op.TryGetValue("value", out var sinVal) || EndpointExpression.IsUndefined(sinVal))
+                            return new ApplyResult(false, null, null, null, $"ops[{i}]: \"set_if_null\" requires a \"value\".");
+                        var existing2 = GetNested(data, path);
+                        if (existing2 is null || EndpointExpression.IsUndefined(existing2))
+                        {
+                            if (sinVal is double sinNum)
+                            {
+                                var prev3 = GetNested(data, path);
+                                var delta3 = sinNum - (prev3 is double pn3 ? pn3 : 0);
+                                if (delta3 > 0) increments[path] = (increments.TryGetValue(path, out var cur4) ? cur4 : 0) + delta3;
+                            }
+                            SetNested(data, path, sinVal);
+                            CaptureMeta(op, opMeta, path);
+                        }
+                        break;
+                    }
                 }
+            }
+            catch (ArgumentException ex)
+            {
+                return new ApplyResult(false, null, null, null, $"ops[{i}]: {ex.Message}");
             }
         }
 
@@ -219,10 +226,8 @@ public static class RecordOperations
         object? current = obj;
         foreach (var part in parts)
         {
-            if (current is Dictionary<string, object?> d)
-                current = d.TryGetValue(part, out var v) ? v : null;
-            else
-                return null;
+            current = ReadChild(current, part);
+            if (current is null) return null;
         }
         return current;
     }
@@ -230,17 +235,48 @@ public static class RecordOperations
     public static void SetNested(Dictionary<string, object?> obj, string path, object? value)
     {
         var parts = path.Split('.');
-        var current = obj;
+        object current = obj;
         for (var i = 0; i < parts.Length - 1; i++)
         {
-            if (!current.TryGetValue(parts[i], out var next) || next is not Dictionary<string, object?> nextDict)
+            var next = ReadChild(current, parts[i]);
+            if (next is not Dictionary<string, object?> && next is not List<object?>)
             {
-                nextDict = new Dictionary<string, object?>();
-                current[parts[i]] = nextDict;
+                next = new Dictionary<string, object?>();
+                WriteChild(current, parts[i], next);
             }
-            current = nextDict;
+            current = next;
         }
-        current[parts[^1]] = value;
+        WriteChild(current, parts[^1], value);
+    }
+
+    private static bool TryArrayIndex(string part, out int index)
+        => int.TryParse(part, NumberStyles.None, CultureInfo.InvariantCulture, out index)
+            && (part.Length == 1 || part[0] != '0');
+
+    private static object? ReadChild(object? current, string part)
+    {
+        if (current is Dictionary<string, object?> dictionary)
+            return dictionary.TryGetValue(part, out var value) ? value : null;
+        if (current is List<object?> list && TryArrayIndex(part, out var index) && index < list.Count)
+            return list[index];
+        return null;
+    }
+
+    private static void WriteChild(object current, string part, object? value)
+    {
+        if (current is Dictionary<string, object?> dictionary)
+        {
+            dictionary[part] = value;
+            return;
+        }
+        if (current is List<object?> list && TryArrayIndex(part, out var index) && index <= list.Count)
+        {
+            if (index == list.Count) list.Add(value);
+            else list[index] = value;
+            return;
+        }
+        // Never expand an attacker-selected sparse index into an enormous list.
+        throw new ArgumentException("Array paths must address an existing element or the next consecutive index.");
     }
 
     // ── Helpers ──

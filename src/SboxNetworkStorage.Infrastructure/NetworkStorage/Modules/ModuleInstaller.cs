@@ -491,15 +491,11 @@ public sealed class ModuleInstaller(
 
     private async Task DeleteCollectionDataAsync(string projectId, string collectionId, CancellationToken ct)
     {
-        var keys = (await store.ListRecordsAsync(projectId, collectionId, ct))
-            .Select(row => row.ValueKind == JsonValueKind.Object && row.TryGetProperty("record_key", out var key)
-                && key.ValueKind == JsonValueKind.String ? key.GetString() : null)
-            .Where(key => key is not null)
-            .Cast<string>()
-            .Take(10_000)
-            .ToList();
-        foreach (var key in keys)
+        foreach (var row in await store.ListRecordsAsync(projectId, collectionId, ct))
         {
+            if (row.ValueKind != JsonValueKind.Object || !row.TryGetProperty("record_key", out var id)
+                || id.ValueKind != JsonValueKind.String) continue;
+            var key = id.GetString()!;
             await store.DeleteLedgerEntriesAsync(projectId, collectionId, key, ct);
             await store.DeleteRecordAsync(projectId, collectionId, key, ct);
         }

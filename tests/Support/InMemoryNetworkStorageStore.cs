@@ -19,10 +19,10 @@ public partial class InMemoryNetworkStorageStore : INetworkStorageStore, IProjec
     public int MaxPayloadBytes => PayloadLimitBytes;
     private static readonly long QueryRunLogTtlMs = 7_776_000L * 1000;
 
-    [GeneratedRegex("^[a-zA-Z0-9_-]{1,128}$", RegexOptions.None, 100)]
+    [GeneratedRegex("^[a-zA-Z0-9_-]{1,128}\\z", RegexOptions.None, 100)]
     private static partial Regex IdPattern();
 
-    [GeneratedRegex("^[a-zA-Z0-9_:-]{1,256}$", RegexOptions.None, 100)]
+    [GeneratedRegex("^[a-zA-Z0-9_:-]{1,256}\\z", RegexOptions.None, 100)]
     private static partial Regex RecordKeyPattern();
 
     private readonly TimeProvider _time;

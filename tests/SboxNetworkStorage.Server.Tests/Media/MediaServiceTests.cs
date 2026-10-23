@@ -86,6 +86,23 @@ public sealed class MediaServiceTests
     }
 
     [Fact]
+    public async Task Trailing_newlines_in_hash_and_owner_id_are_rejected()
+    {
+        var (service, _, _, _) = Build();
+        var body = Png(4, 4);
+        var policy = Policy(PublicPolicyJson);
+        var invalidHash = service.AuthorizeGrant(
+            policy, Request(body, sha: Hex(SHA256.HashData(body)) + "\n"), callerIsSecret: false);
+        Assert.Equal("MEDIA_INVALID_REQUEST", invalidHash.Failure!.Code);
+        Assert.Equal(400, invalidHash.Failure.Status);
+
+        var purpose = service.AuthorizeGrant(policy, Request(body), callerIsSecret: false).Value!;
+        var invalidOwner = await service.IssueGrantAsync(ProjectId, purpose, Request(body), Owner + "\n", Now, default);
+        Assert.Equal("MEDIA_INVALID_REQUEST", invalidOwner.Failure!.Code);
+        Assert.Equal(400, invalidOwner.Failure.Status);
+    }
+
+    [Fact]
     public async Task Grant_upload_then_second_put_is_409_GRANT_USED()
     {
         var (service, store, blobs, _) = Build();
