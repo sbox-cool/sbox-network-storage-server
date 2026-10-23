@@ -24,8 +24,8 @@ public sealed class NetworkStorageMediaService
     private const long MillisPerDay = 86_400_000;
     private const string OctetStream = "application/octet-stream";
 
-    private static readonly Regex Sha256Pattern = new("^[0-9a-f]{64}$", RegexOptions.CultureInvariant);
-    private static readonly Regex SteamIdPattern = new("^[0-9]{17}$", RegexOptions.CultureInvariant);
+    private static readonly Regex Sha256Pattern = new("^[0-9a-f]{64}\\z", RegexOptions.CultureInvariant);
+    private static readonly Regex SteamIdPattern = new("^[0-9]{17}\\z", RegexOptions.CultureInvariant);
 
     private readonly IMediaStore _store;
     private readonly IMediaBlobStore _blobs;

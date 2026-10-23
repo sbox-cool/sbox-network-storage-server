@@ -25,9 +25,9 @@ public static class GameLogSearchParser
     private const int MaxAttrValueLength = 256;
     private const long MaxTextSearchSpanMs = 31L * 86_400_000L;
 
-    private static readonly Regex AttrKeyPattern = new(@"^[A-Za-z0-9_]{1,64}$", RegexOptions.CultureInvariant);
-    private static readonly Regex EventPattern = new(@"^[a-z][a-z0-9_]*(\.[a-z0-9_]+)*$", RegexOptions.CultureInvariant);
-    private static readonly Regex EntryIdPattern = new(@"^[0-9a-f]{32}$", RegexOptions.CultureInvariant);
+    private static readonly Regex AttrKeyPattern = new(@"^[A-Za-z0-9_]{1,64}\z", RegexOptions.CultureInvariant);
+    private static readonly Regex EventPattern = new(@"^[a-z][a-z0-9_]*(\.[a-z0-9_]+)*\z", RegexOptions.CultureInvariant);
+    private static readonly Regex EntryIdPattern = new(@"^[0-9a-f]{32}\z", RegexOptions.CultureInvariant);
     private static readonly HashSet<string> Levels = new(StringComparer.Ordinal) { "debug", "info", "warn", "error" };
     private static readonly HashSet<string> ScalarParameters = new(StringComparer.Ordinal)
     {

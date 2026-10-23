@@ -105,6 +105,13 @@ direct document API (`GET`, `POST` and `DELETE /v3/storage/{projectId}/{collecti
 `/api/storage/...` reaches the same handlers from clients that send `x-ns-library-version: 1.2.0` or newer) therefore treats public-key calls as
 untrusted:
 
+Collection IDs must contain 1–128 ASCII letters, digits, `_` or `-`. Record
+keys must contain 1–256 ASCII letters, digits, `_`, `:` or `-`. The server
+validates each path segment through the end of the value: a trailing line feed
+(`\n`, including `%0A` when URL-encoded) is invalid, not trimmed or treated as
+a line terminator. A direct record request with such a key is rejected with
+`404` rather than stored as a separate record.
+
 - The collection must declare `accessMode: public`. Any other value, or no
   `accessMode` at all, is endpoint-only and answers `403 ENDPOINT_ONLY`. Route
   those reads and writes through endpoints or queries. Collections created in

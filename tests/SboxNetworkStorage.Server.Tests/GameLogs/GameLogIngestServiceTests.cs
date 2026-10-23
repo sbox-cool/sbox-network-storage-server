@@ -127,6 +127,7 @@ public sealed class GameLogIngestServiceTests
     public void Invalid_event_names_and_levels_are_rejected_with_typed_codes()
     {
         Assert.Equal("INVALID_EVENT", RejectCode("[{\"event\":\"Bad Event\"}]", Context(trusted: true)));
+        Assert.Equal("INVALID_EVENT", RejectCode("[{\"event\":\"match.end\\n\"}]", Context(trusted: true)));
         Assert.Equal("INVALID_EVENT", RejectCode("[{}]", Context(trusted: true)));
         Assert.Equal("INVALID_LEVEL", RejectCode("[{\"event\":\"match.end\",\"level\":\"fatal\"}]", Context(trusted: true)));
         Assert.Equal("INVALID_ENTRY", RejectCode("[\"not-an-object\"]", Context(trusted: true)));
@@ -266,10 +267,13 @@ public sealed class GameLogIngestServiceTests
         Assert.Equal("UNKNOWN_PARAMETER", Parse(policy, ("nope", "1")).ErrorCode);
         Assert.Equal("INVALID_QUERY", Parse(policy, ("level", "info"), ("level", "warn")).ErrorCode);
         Assert.Equal("INVALID_QUERY", Parse(policy, ("attr.bad-key", "x")).ErrorCode);
+        Assert.Equal("INVALID_QUERY", Parse(policy, ("attr.team\n", "x"), ("from", "1700000000000"), ("to", "1700000001000")).ErrorCode);
+        Assert.Equal("INVALID_QUERY", Parse(policy, ("event", "match.end\n")).ErrorCode);
         Assert.Equal("INVALID_QUERY", Parse(policy, ("limit", "0")).ErrorCode);
         Assert.Equal("INVALID_QUERY", Parse(policy, ("limit", "501")).ErrorCode);
         Assert.Equal("INVALID_QUERY", Parse(policy, ("player", "abc")).ErrorCode);
         Assert.Equal("INVALID_CURSOR", Parse(policy, ("cursor", "garbage")).ErrorCode);
+        Assert.Equal("INVALID_CURSOR", Parse(policy, ("cursor", $"1700000000000.{new string('a', 32)}\n")).ErrorCode);
     }
 
     [Fact]
