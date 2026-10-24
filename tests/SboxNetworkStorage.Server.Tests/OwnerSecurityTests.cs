@@ -215,7 +215,7 @@ public sealed class OwnerSecurityTests
     private static Task<HttpResponseMessage> Send(HttpClient client, HttpMethod method, string path, HttpContent? content = null)
     {
         var request = new HttpRequestMessage(method, path) { Content = content };
-        request.Headers.Add(SelfHostFactory.PeerHeader, $"198.51.100.{Interlocked.Increment(ref peerCount) % 254 + 1}");
+        request.Headers.Add(SelfHostFactory.PeerHeader, $"127.0.0.{Interlocked.Increment(ref peerCount) % 254 + 1}");
         return client.SendAsync(request);
     }
 
