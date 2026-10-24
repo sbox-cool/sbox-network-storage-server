@@ -386,9 +386,14 @@ public sealed record SelfHostProject(string ProjectId, string PublicKey, string 
 
 public sealed class SqliteHostFactory : SelfHostFactory
 {
-    public SqliteHostFactory(params (string Key, string Value)[] settings) : base(StoreDriver.Sqlite, settings)
+    public SqliteHostFactory() : base(StoreDriver.Sqlite)
     {
     }
+}
+
+public sealed class ConfiguredSqliteHostFactory(params (string Key, string Value)[] settings)
+    : SelfHostFactory(StoreDriver.Sqlite, settings)
+{
 }
 
 public sealed class PostgresHostFactory : SelfHostFactory

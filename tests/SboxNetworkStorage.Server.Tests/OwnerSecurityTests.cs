@@ -95,7 +95,7 @@ public sealed class OwnerSecurityTests
     [InlineData("198.51.100.7, 203.0.113.9", 1, "203.0.113.9", HttpStatusCode.OK)]
     public async Task TrustedProxyChainIsReadOnlyWithinTheHopBound(string forwardedFor, int hops, string allowed, HttpStatusCode expected)
     {
-        using var factory = new SqliteHostFactory(
+        using var factory = new ConfiguredSqliteHostFactory(
             ("adminpanel.allowed_ips", allowed), ("adminpanel.allow_insecure_http", "true"),
             ("server.trusted_proxies", "203.0.113.0/24"), ("server.trusted_proxy_hops", hops.ToString()));
         using var client = OwnerHttp.Client(factory);
@@ -105,7 +105,7 @@ public sealed class OwnerSecurityTests
     [Fact]
     public async Task UntrustedPeerCannotSpoofAnAllowedAddressThroughForwardedFor()
     {
-        using var factory = new SqliteHostFactory(("adminpanel.allowed_ips", "198.51.100.7"), ("adminpanel.allow_insecure_http", "true"));
+        using var factory = new ConfiguredSqliteHostFactory(("adminpanel.allowed_ips", "198.51.100.7"), ("adminpanel.allow_insecure_http", "true"));
         using var client = OwnerHttp.Client(factory);
         Assert.Equal(HttpStatusCode.Forbidden, (await GetLoginFromPeerAsync(client, "203.0.113.5", "198.51.100.7")).StatusCode);
     }
@@ -113,7 +113,7 @@ public sealed class OwnerSecurityTests
     [Fact]
     public async Task TrustedProxyPassesAnAllowedClientThroughForwardedFor()
     {
-        using var factory = new SqliteHostFactory(("adminpanel.allowed_ips", "198.51.100.7"), ("adminpanel.allow_insecure_http", "true"),
+        using var factory = new ConfiguredSqliteHostFactory(("adminpanel.allowed_ips", "198.51.100.7"), ("adminpanel.allow_insecure_http", "true"),
             ("server.trusted_proxies", "203.0.113.0/24"));
         using var client = OwnerHttp.Client(factory);
         Assert.Equal(HttpStatusCode.OK, (await GetLoginFromPeerAsync(client, "203.0.113.5", "198.51.100.7")).StatusCode);

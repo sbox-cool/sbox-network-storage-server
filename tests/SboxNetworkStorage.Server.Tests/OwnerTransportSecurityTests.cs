@@ -134,7 +134,7 @@ public sealed class OwnerTransportSecurityTests : IDisposable
     [InlineData("http", false)]
     public async Task TrustedRemoteProxyCountsAsHttpsOnlyWhenItForwardsHttps(string forwardedProto, bool accepted)
     {
-        using var trusted = new SqliteHostFactory(("server.trusted_proxies", "203.0.113.0/24"));
+        using var trusted = new ConfiguredSqliteHostFactory(("server.trusted_proxies", "203.0.113.0/24"));
         await CreateOwnerAsync(trusted);
         using var client = trusted.CreateClient(new Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactoryClientOptions
         { AllowAutoRedirect = false, HandleCookies = false, BaseAddress = new Uri("http://localhost") });
