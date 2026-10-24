@@ -80,6 +80,7 @@ public static class CliApp
           db migrate --plan [--json]     Preview pending migrations and rollback floor without writes
           db backup [--output FILE]     Back up the database
           db restore <FILE>             Restore a backup (stop the server first)
+          db verify-backup <FILE>       Verify a backup without touching live data (--json, --scratch-database NAME)
 
         Export and import (move servers, switch SQLite <-> PostgreSQL; docs/export.md)
           export [--out FILE] [--no-secrets]   Write the whole server (data + config) to one .tar.gz

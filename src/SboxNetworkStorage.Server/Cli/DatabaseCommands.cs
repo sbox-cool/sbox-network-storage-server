@@ -10,7 +10,7 @@ public static class DatabaseCommands
 {
     public static async Task<int> RunAsync(CliContext context)
     {
-        var sub = context.RequirePositional(1, "test|status|migrate|backup|restore");
+        var sub = context.RequirePositional(1, "test|status|migrate|backup|restore|verify-backup");
         var config = context.LoadValidConfig();
         if (sub == "migrate" && context.Args.Flag("plan"))
         {
@@ -45,6 +45,34 @@ public static class DatabaseCommands
                 await DatabaseBackup.RestoreAsync(config, path, CancellationToken.None);
                 Console.WriteLine($"Restored {path}. Start the server again: sbox-ns service start");
                 return CliApp.Ok;
+            }
+            case "verify-backup":
+            {
+                var path = context.RequirePositional(2, "backup file");
+                var scratch = context.Args.Option("scratch-database");
+                using var cancel = new CancellationTokenSource();
+                ConsoleCancelEventHandler onCancel = (_, e) =>
+                {
+                    e.Cancel = !cancel.IsCancellationRequested;
+                    cancel.Cancel();
+                };
+                Console.CancelKeyPress += onCancel;
+                BackupVerificationReport report;
+                try
+                {
+                    report = await BackupVerifier.VerifyAsync(config, path, scratch, cancel.Token);
+                }
+                finally
+                {
+                    Console.CancelKeyPress -= onCancel;
+                }
+
+                if (context.Args.Flag("json"))
+                    Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(report,
+                        new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web) { WriteIndented = true }));
+                else
+                    PrintVerification(report);
+                return report.Result == "failed" ? CliApp.Failure : CliApp.Ok;
             }
         }
 
@@ -106,6 +134,30 @@ public static class DatabaseCommands
             default:
                 throw new CliException($"unknown db command '{sub}'", CliApp.Usage);
         }
+    }
+
+    private static void PrintVerification(BackupVerificationReport report)
+    {
+        var verdict = report.Result switch
+        {
+            "verified" => "VERIFIED (restore rehearsed)",
+            "inspected" => "INSPECTED ONLY (archive readable; not restore-tested)",
+            _ => "FAILED",
+        };
+        Console.WriteLine($"Backup {verdict}: {report.File}");
+        Console.WriteLine($"  provider: {report.Provider} (configured: {report.ConfiguredProvider})");
+        Console.WriteLine($"  level: {report.VerificationLevel}");
+        if (report.SchemaVersion is { } version)
+            Console.WriteLine($"  schema: version {version}, compatibility floor {report.MinBinarySchema}, this build supports {report.SupportedSchemaVersion}");
+        Console.WriteLine($"  live database: {report.LiveDatabase}");
+        if (report.ScratchDatabase is not null)
+            Console.WriteLine($"  scratch database: {report.ScratchDatabase}");
+        Console.WriteLine("  steps:");
+        foreach (var step in report.Steps)
+            Console.WriteLine($"    [{step.Status}] {step.Name}: {step.Detail}");
+        Console.WriteLine($"  source sha256: {report.SourceSha256}");
+        Console.WriteLine($"  elapsed: {report.ElapsedMs} ms");
+        Console.WriteLine($"  scope: {report.Scope}");
     }
 
     /// <summary>
