@@ -63,6 +63,24 @@
     if (button && document.contains(button)) copyFrom(button);
   });
 
+  // Recovery codes are generated only into this authenticated response. Download them locally without posting them back.
+  document.addEventListener("click", function (event) {
+    var button = event.target && event.target.closest ? event.target.closest("[data-download-previous]") : null;
+    if (!button || !document.contains(button)) return;
+    var row = button.closest(".copy-row");
+    var source = row && row.querySelector("pre");
+    if (!source) return;
+    var blob = new Blob([source.textContent + "\n"], { type: "text/plain;charset=utf-8" });
+    var url = URL.createObjectURL(blob);
+    var link = document.createElement("a");
+    link.href = url;
+    link.download = "sbox-ns-recovery-codes.txt";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 0);
+  });
+
   // Project filter enhancement (server renders data-enhance only above 8
   // projects). Without JavaScript the same form submits as GET ?q=.
   var filter = document.getElementById("project-filter");
