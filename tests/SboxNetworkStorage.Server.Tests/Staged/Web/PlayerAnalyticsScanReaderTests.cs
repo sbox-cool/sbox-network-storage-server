@@ -65,12 +65,14 @@ public sealed class PlayerAnalyticsScanReaderTests
     public async Task GetProjectLogsAsync_AggregatesSortsAndFilters()
     {
         var store = StoreWithCollection();
+        // Search covers the whole serialized row, including timestamps; a short numeric token can match both.
+        const string targetSteamId = "76561198000000111";
         var now = DateTimeOffset.UtcNow;
         var ms111 = now.AddMinutes(-20).ToUnixTimeMilliseconds();
         var ms222 = now.AddMinutes(-10).ToUnixTimeMilliseconds();
-        SeedProfile(store, "111", ms111);
+        SeedProfile(store, targetSteamId, ms111);
         SeedProfile(store, "222", ms222);
-        SeedStorageEvent(store, "111", ms111, "e1", "record.write", "col_a");
+        SeedStorageEvent(store, targetSteamId, ms111, "e1", "record.write", "col_a");
         SeedStorageEvent(store, "222", ms222, "e2", "record.delete", "col_a");
         var reader = new StorePlayerAnalyticsReader(store);
 
@@ -81,13 +83,13 @@ public sealed class PlayerAnalyticsScanReaderTests
         Assert.Equal("Players", logs[0]["_collectionName"].GetString());
         Assert.Equal("delete", logs[0]["_op"].GetString());
 
-        var filteredBySteam = AsDict(await reader.GetProjectLogsAsync(Owner, ProjectId, null, "111", null, null, 1, default));
+        var filteredBySteam = AsDict(await reader.GetProjectLogsAsync(Owner, ProjectId, null, targetSteamId, null, null, 1, default));
         Assert.Equal(1, (int)filteredBySteam["total"]!);
 
         var filteredByOp = AsDict(await reader.GetProjectLogsAsync(Owner, ProjectId, null, null, "delete", null, 1, default));
         Assert.Equal(1, (int)filteredByOp["total"]!);
 
-        var filteredBySearch = AsDict(await reader.GetProjectLogsAsync(Owner, ProjectId, null, null, null, "111", 1, default));
+        var filteredBySearch = AsDict(await reader.GetProjectLogsAsync(Owner, ProjectId, null, null, null, targetSteamId, 1, default));
         Assert.Equal(1, (int)filteredBySearch["total"]!);
 
         var filteredByCollection = AsDict(await reader.GetProjectLogsAsync(Owner, ProjectId, "col_a", null, null, null, 1, default));
