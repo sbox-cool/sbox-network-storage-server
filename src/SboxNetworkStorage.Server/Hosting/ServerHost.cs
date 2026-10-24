@@ -85,8 +85,8 @@ public static class ServerHost
         // Explicit v3 aliases and version-aware legacy storage dispatch run before routing.
         app.UseMiddleware<ApiRootRewriteMiddleware>();
         app.UseMiddleware<CompatHeadersMiddleware>();
-        app.UseMiddleware<ClientAddressMiddleware>();
         app.UseForwardedHeaders();
+        app.UseMiddleware<ClientAddressMiddleware>();
         app.UseMiddleware<HstsMiddleware>();
         app.UseMiddleware<CorrelationIdMiddleware>();
         app.UseMiddleware<ExceptionHandlingMiddleware>();
