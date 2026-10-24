@@ -147,7 +147,10 @@ public sealed class OwnerSecurityTests
         using var regenerated = await Send(client, HttpMethod.Post, "/dashboard/security/recovery-codes",
             ReauthForm(page, OwnerHttp.Password, codes[1]));
         Assert.Equal(HttpStatusCode.OK, regenerated.StatusCode);
-        var fresh = RecoveryCodes(await regenerated.Content.ReadAsStringAsync());
+        var recoveryHtml = await regenerated.Content.ReadAsStringAsync();
+        Assert.Contains("data-copy-previous", recoveryHtml);
+        Assert.Contains("data-download-previous", recoveryHtml);
+        var fresh = RecoveryCodes(recoveryHtml);
         Assert.Equal(10, fresh.Length);
         Assert.Empty(fresh.Intersect(codes));
         var after = (await accounts.GetAsync(default))!;

@@ -8,7 +8,7 @@
     {
         <h2>Save your recovery codes now</h2>
         <p>Each code works once instead of an authenticator code. These codes will not be shown again. All previous sessions are signed out. Store these offline before logging in again.</p>
-        <div class="copy-row"><pre>@string.Join("\n", Model.RecoveryCodes)</pre><button type="button" class="secondary" data-copy-previous>Copy</button></div>
+        <div class="copy-row"><pre>@string.Join("\n", Model.RecoveryCodes)</pre><button type="button" class="secondary" data-copy-previous>Copy</button><button type="button" class="secondary" data-download-previous>Download</button></div>
         <a href="/login">Log in with your authenticator</a>
     }
     else

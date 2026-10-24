@@ -721,8 +721,9 @@ apps open directly. Elsewhere, add the displayed secret manually. Then confirm
 your current password and a six-digit code. Enrollment expires after ten
 minutes. The server does not activate 2FA until confirmation succeeds.
 
-Save the ten recovery codes offline. Each works once. Enrollment and local
-reset invalidate existing owner sessions. Password reset does not remove 2FA.
+Save the ten recovery codes offline; the one-time screen lets you copy or
+download them. Each code works once. Enrollment and local reset invalidate
+existing owner sessions. Password reset does not remove 2FA.
 On this page, changing the password, replacing recovery codes and turning off two-factor
 sign-in each need your current password and a six-digit code or unused recovery code, and
 each signs out every session.
