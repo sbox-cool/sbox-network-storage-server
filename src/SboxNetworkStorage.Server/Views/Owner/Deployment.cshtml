@@ -1,0 +1,101 @@
+@model SboxNetworkStorage.Server.Owner.DeploymentPageModel
+@{
+    Layout = "~/Views/Owner/_Layout.cshtml";
+    var url = "/dashboard/projects/" + Uri.EscapeDataString(Model.ProjectId);
+}
+<link rel="stylesheet" href="/owner-assets/m/manage.css" />
+<div class="page-heading"><div><h1>Deployment plan</h1><p>Preview what a batch of definition changes does to @Model.ProjectName. Nothing is written until you approve the exact plan shown.</p></div><a class="button secondary" href="@url">Project overview</a></div>
+@if (Model.Error is not null) { <p class="notice" role="alert">@Model.Error</p> }
+<section class="card">
+    <h2>Proposal</h2>
+    <p class="muted">Write YAML or JSON with <code>target</code> (live or next), <code>upserts</code> (each with <code>kind</code> and a <code>source</code> definition) and <code>deletes</code> (each with <code>kind</code> and <code>id</code>). Static references are checked against the project after the batch. Dynamic and runtime-built references are shown as unknown, not validated.</p>
+    <form method="post" action="@url/deployment/preview">
+        @Html.AntiForgeryToken()
+        <label>Proposal <textarea name="proposal" rows="16" spellcheck="false" required>@Model.Proposal</textarea></label>
+        <div class="actions"><button type="submit">Preview plan</button></div>
+    </form>
+</section>
+@if (Model.Plan is { } plan)
+{
+    <section class="card" id="plan">
+        <h2>Plan for @plan.Target</h2>
+        <p class="muted">Plan hash <code>@plan.Hash</code></p>
+        @if (plan.Target == "next" && !plan.HasRevisionData)
+        {
+            <p class="muted">This project has no staged revision data yet, so endpoints and collections publish to live (live-fallback).</p>
+        }
+        <h3>Revision-policy implications</h3>
+        <p>Endpoints and collections marked staged overlay live definitions for the next package promotion; workflows, queries, game values, and explicit deletes act on live state now. Existing staged entries remain after a live delete and can recreate that definition on promotion.</p>
+        <p>Revision snapshots contain definitions, not player records. Retained snapshots, the requesting game's revision, and the policy below decide which definition an older game uses; approval does not force every published game onto this batch. Dynamic references, runtime inputs, script effects, and outbound calls cannot be proven by this plan. No endpoint or script is executed.</p>
+        <dl class="summary">
+        @foreach (var property in plan.RevisionPolicy.EnumerateObject())
+        {
+            <dt>@property.Name</dt><dd><code>@property.Value.GetRawText()</code></dd>
+        }
+        </dl>
+        <table>
+            <thead><tr><th>Action</th><th>Kind</th><th>Id</th><th>Publishes to</th><th>Static references</th></tr></thead>
+            <tbody>
+            @foreach (var item in plan.Items)
+            {
+                <tr>
+                    <td>@item.Action</td>
+                    <td>@item.Kind</td>
+                    <td><code>@item.Id</code></td>
+                    <td>@item.Publish</td>
+                    <td>
+                        @foreach (var reference in item.References)
+                        {
+                            <div><code>@reference.Kind @reference.Id</code> <span class="muted">@reference.Status (@reference.Path)</span></div>
+                        }
+                    </td>
+                </tr>
+            }
+            </tbody>
+        </table>
+        <h3>Affected or possible dependents</h3>
+        @if (plan.Dependents.Count == 0)
+        {
+            <p class="muted">No static dependents of the changed definitions were found. This is not proof of runtime safety.</p>
+        }
+        else
+        {
+            <table>
+                <thead><tr><th>Dependent</th><th>View</th><th>References</th><th>Result</th></tr></thead>
+                <tbody>
+                @foreach (var dependent in plan.Dependents)
+                {
+                    <tr><td>@dependent.Kind <code>@dependent.Id</code></td><td>@dependent.Target</td><td>@dependent.ResourceKind <code>@dependent.ResourceId</code></td><td>@dependent.Status</td></tr>
+                }
+                </tbody>
+            </table>
+        }
+        @if (plan.Issues.Count == 0)
+        {
+            <p class="muted">No blocking issues and no warnings.</p>
+        }
+        else
+        {
+            <h3>Issues</h3>
+            <ul class="rows">
+            @foreach (var issue in plan.Issues)
+            {
+                <li><span class="row-label"><strong>@issue.Severity</strong> @issue.Kind <code>@issue.Id</code></span><span class="row-value">@issue.Message</span></li>
+            }
+            </ul>
+        }
+        @if (plan.Blocked)
+        {
+            <p class="notice" role="alert">Resolve the blocking issues and preview again before approving.</p>
+        }
+        else
+        {
+            <form method="post" action="@url/deployment/apply" data-confirm-title="Apply deployment plan" data-confirm="Apply this plan to @Model.ProjectName? Every upsert and delete is written in one transaction.">
+                @Html.AntiForgeryToken()
+                <textarea name="proposal" hidden>@Model.Proposal</textarea>
+                <input type="hidden" name="planHash" value="@plan.Hash" />
+                <div class="actions"><button type="submit">Approve and apply plan</button></div>
+            </form>
+        }
+    </section>
+}

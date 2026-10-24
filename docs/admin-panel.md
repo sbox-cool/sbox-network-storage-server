@@ -526,6 +526,43 @@ it covers project settings and keys, records, collection, endpoint, workflow and
 query definitions, game values, endpoint tests, version history, rate limit
 rules, webhooks and pages.
 
+### Deployment plan
+
+**Deployment plan** (`/dashboard/projects/{projectId}/deployment`, linked from the project overview) previews a batch of definition changes before anything is written. Paste a YAML or JSON proposal and choose **Preview plan**. Preview is read-only: it writes nothing, runs no endpoint, and does not show project secrets.
+
+```yaml
+target: live
+upserts:
+  - kind: collection
+    source: |
+      id: players
+      name: players
+      collectionType: player
+      schema:
+        coins:
+          type: number
+  - kind: query
+    source: |
+      id: scores
+      name: Scores
+      type: count
+      sources:
+        - collectionId: players
+      config:
+        limit: 20
+deletes:
+  - kind: endpoint
+    id: old-slug
+```
+
+- `upserts` accept `collection`, `endpoint`, `workflow`, `query` and `game-values` (one document per project, id fixed to `game-values`). `deletes` accept `collection`, `endpoint`, `workflow` and `query`. Unknown keys, a duplicate kind and id pair, and an empty batch are rejected.
+- `target` is `live` or `next`. With `next`, endpoints and collections publish to staged when the project has revision data, otherwise `live-fallback`. Workflows, queries and game values always publish to live. Deletes always go to live and do not change staged revision entries.
+- The plan lists each item's action (`create`, `update`, `unchanged`, `module-retained`, `delete` or `invalid`), its publish target and its static references. Live writes are checked against the immediate live result; staged writes include existing staged overlays and same-batch staged writes. A live query cannot depend on a collection that exists only in next. A reference is `resolved` when its target view defines it, `missing` when it does not, and `unknown` when it is computed at runtime.
+- **Blockers** stop approval: definitions with compile or validation errors, a written item that references something the resulting set does not define, a live definition the plan removes while still referenced, and a delete of a row that does not exist. References that were already missing before the plan are warnings only.
+- A definition owned by an installed module is `module-retained`: it is not written and does not block. Dynamic references are reported as `unknown`, never validated. The dependents table shows both resolved static dependents and possible dynamic dependents in live and next views. The revision-policy section shows the current package revision and policy flags; snapshots contain definitions, not player records, and an approval does not force every old game to change immediately. A live delete leaves staged entries intact, so an existing staged entry can recreate that definition when promoted.
+- **Approve and apply plan** re-plans inside one serializable transaction and checks the plan hash shown on the page. The SHA-256 binds the proposal to live definitions, game values, staging, module ownership, current package revision and revision policy. If any of those changed after preview, apply returns 409 and requires a new preview. A refused write or any error rolls back the whole batch, and a successful apply writes a `deployment.apply` audit entry.
+- Writes run in this order: collections, game values, workflows, queries, then endpoints (ordered by their references within the batch). Deletes run endpoints, workflows, queries, then collections.
+
 ### Use from the game
 
 The detail page **Code** tab shows how to use the open collection, endpoint, workflow, query or game values,

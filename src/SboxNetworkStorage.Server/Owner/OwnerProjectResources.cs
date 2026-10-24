@@ -53,6 +53,43 @@ internal sealed class OwnerProjectResources
         ? ValueItems().Select(item => item.Id).ToHashSet(StringComparer.Ordinal)
         : Rows(kind).Select(row => Text(row, kind + "_id")).OfType<string>().ToHashSet(StringComparer.Ordinal);
 
+    /// <summary>
+    /// The resources a deployment batch would leave behind: these stored rows with the batch's writes applied and its
+    /// removals dropped. Planning validates each proposed definition against this set, so same-batch references resolve
+    /// and references to removed definitions do not.
+    /// </summary>
+    public OwnerProjectResources WithChanges(IReadOnlyList<(string Kind, string Id, JsonElement Definition)> writes,
+        IReadOnlyList<(string Kind, string Id)> removals, JsonElement? gameValues)
+    {
+        var rows = new Dictionary<string, List<JsonElement>>(StringComparer.Ordinal)
+        {
+            ["collection"] = [.. Collections],
+            ["endpoint"] = [.. Endpoints],
+            ["workflow"] = [.. Workflows],
+            ["query"] = [.. Queries],
+        };
+        foreach (var (kind, id) in removals)
+            rows[kind].RemoveAll(row => Text(row, kind + "_id") == id);
+        foreach (var (kind, id, definition) in writes)
+        {
+            rows[kind].RemoveAll(row => Text(row, kind + "_id") == id);
+            rows[kind].Add(StoredRow(kind, id, definition));
+        }
+        return new OwnerProjectResources(rows["collection"], rows["endpoint"], rows["workflow"], rows["query"], gameValues);
+    }
+
+    private static JsonElement StoredRow(string kind, string id, JsonElement definition)
+    {
+        var nameField = kind == "endpoint" ? "slug" : "name";
+        var row = new Dictionary<string, object?>
+        {
+            [kind + "_id"] = id,
+            [nameField] = Text(definition, nameField) ?? id,
+            ["definition_json"] = definition,
+        };
+        return JsonSerializer.SerializeToElement(row);
+    }
+
     /// <summary>Sorted collection ids, for the endpoint script typings.</summary>
     public IReadOnlyList<string> CollectionIds() => ExistingIds("collection").Order(StringComparer.Ordinal).ToList();
 

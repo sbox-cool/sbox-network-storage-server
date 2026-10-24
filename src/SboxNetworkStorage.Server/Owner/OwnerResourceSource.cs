@@ -84,7 +84,7 @@ internal static class OwnerResourceSource
     /// The save-time validator, plus a check that a saved endpoint does not break the scripted endpoints that import it.
     /// The importer check runs only when the endpoint's own findings are clean, so it never reports imports of a broken global.
     /// </summary>
-    private static IReadOnlyList<DefinitionDiagnostic> ValidateSave(string kind, JsonElement resource, string? resourceId,
+    internal static IReadOnlyList<DefinitionDiagnostic> ValidateSave(string kind, JsonElement resource, string? resourceId,
         OwnerProjectResources resources, IReadOnlyList<IEndpointScriptRuntime> scriptRuntimes, out JsonElement compiled)
     {
         var diagnostics = NetworkStorageDefinitionValidator.ValidateResource(resource, kind, resources.ValidationContext(resourceId, scriptRuntimes), out compiled);
