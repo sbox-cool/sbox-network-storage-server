@@ -153,6 +153,16 @@ public sealed class AutoUpdaterTests : IDisposable
         => Assert.Equal(downgrade, UpdateCommands.IsDowngrade(installed, target));
 
     [Fact]
+    public void Manual_instance_guard_refuses_a_selection_when_other_instances_share_the_binary()
+    {
+        var instances = CreateInstances();
+
+        Assert.True(UpdateCommands.HasOtherInstances(instances[0].Config, instances));
+        Assert.True(UpdateCommands.HasOtherInstances(instances[1].Config, instances));
+        Assert.False(UpdateCommands.HasOtherInstances(instances[1].Config, [instances[1]]));
+    }
+
+    [Fact]
     public async Task Older_or_unparseable_target_is_refused_unattended_before_stopping()
     {
         var instances = CreateInstances();
@@ -256,6 +266,7 @@ public sealed class AutoUpdaterTests : IDisposable
         var updater = Updater(host, broken: null);
         await updater.InstallAsync("1.0.0", "1.1.0", _staged, _binary, instances, "auto", CancellationToken.None);
         var records = instances.Select(i => (i, _state.Read(i.Name)!)).ToList();
+        host.Calls.Clear();
         host.LayoutRevertException = new LayoutMigrationException("disk full", [], hostUnchanged: false);
 
         var problems = await updater.RollbackRecordedAsync(records, _binary, CancellationToken.None);

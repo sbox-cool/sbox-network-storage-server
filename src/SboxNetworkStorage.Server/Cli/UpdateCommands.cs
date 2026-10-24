@@ -441,8 +441,11 @@ public static class UpdateCommands
     internal static bool HasOtherInstances(EffectiveConfig config)
     {
         var registered = OperatingSystem.IsLinux() ? ServerInstances.Enumerate() : [];
-        return registered.Any(i => !string.Equals(i.Config.ConfigDirectory, config.ConfigDirectory, StringComparison.Ordinal));
+        return HasOtherInstances(config, registered);
     }
+
+    internal static bool HasOtherInstances(EffectiveConfig config, IReadOnlyList<ServerInstance> registered)
+        => registered.Any(i => !string.Equals(i.Config.ConfigDirectory, config.ConfigDirectory, StringComparison.Ordinal));
 
     internal static async Task DownloadAsync(HttpClient http, string url, string target)
     {
