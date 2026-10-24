@@ -1,3 +1,4 @@
 {
-  "migrationRequired": true
+  "migrationRequired": true,
+  "security": true
 }
