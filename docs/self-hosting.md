@@ -846,7 +846,9 @@ unattended updates never install such a target. Without `--allow-downgrade` an o
 With `--all-instances`, `--keep-data` requires every instance's database to pass.
 Both rollback modes move the runtime files back into the config folder first (layout revert),
 because the previous binary may predate the state layout; only the database restore is
-skipped with `--keep-data`.
+skipped with `--keep-data`. If the layout revert fails before it changes anything, the service
+is started again on the installed binary; if it fails part way, the service stays stopped and the
+printed recovery steps finish the job. Either way the previous binary is not restored.
 `sbox-ns doctor` and `sbox-ns db status` show the same floor: a database that is newer
 than the binary through additive migrations only is reported as usable, and the
 server starts on it. A database with a breaking migration beyond the binary is
@@ -982,8 +984,12 @@ with `sbox-ns config set updates.auto_install false` (or
 
 Each instance has its own config folder, data folder and port, and runs as the
 systemd unit `sbox-ns@<name>` ([`install/sbox-ns@.service`](../install/sbox-ns@.service)):
-Use `--all-instances` for automated updates and rollbacks when another
-registered instance shares the binary; selecting only one is refused.
+Manual `sbox-ns update` and `sbox-ns rollback` handle one instance, so they refuse to run
+while another registered instance shares the binary: swapping it would leave that instance on
+a binary that nothing backed up or restarted for it. Use `sbox-ns update --auto --all-instances`
+(unattended, follows the channel policy) and `sbox-ns rollback --all-instances` instead. A
+single-instance manual command stops, backs up and restarts only its own unit (`sbox-ns@<name>`,
+or `sbox-ns` for the default instance), and restarts it only if it was running.
 
 ```sh
 sudo sbox-ns service install --instance alpha --port 8101 --auto-update

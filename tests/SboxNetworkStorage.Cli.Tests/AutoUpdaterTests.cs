@@ -153,6 +153,16 @@ public sealed class AutoUpdaterTests : IDisposable
         => Assert.Equal(downgrade, UpdateCommands.IsDowngrade(installed, target));
 
     [Fact]
+    public void Manual_instance_guard_refuses_a_selection_when_other_instances_share_the_binary()
+    {
+        var instances = CreateInstances();
+
+        Assert.True(UpdateCommands.HasOtherInstances(instances[0].Config, instances));
+        Assert.True(UpdateCommands.HasOtherInstances(instances[1].Config, instances));
+        Assert.False(UpdateCommands.HasOtherInstances(instances[1].Config, [instances[1]]));
+    }
+
+    [Fact]
     public async Task Older_or_unparseable_target_is_refused_unattended_before_stopping()
     {
         var instances = CreateInstances();
@@ -226,6 +236,78 @@ public sealed class AutoUpdaterTests : IDisposable
         // An older binary would generate new secrets if it started without them in the config folder.
         Assert.Contains(problems, p => p.StartsWith("revert layout", StringComparison.Ordinal));
         Assert.Equal("1.1.0", File.ReadAllText(_binary));
+        Assert.All(instances, instance => Assert.NotNull(_state.Read(instance.Name)));
+    }
+
+
+    [Fact]
+    public async Task Manual_rollback_restarts_the_unit_when_the_layout_revert_changed_nothing()
+    {
+        var instance = CreateInstances()[0];
+        var host = new FakeHost(this)
+        {
+            LayoutRevertException = new LayoutMigrationException("disk full", [], hostUnchanged: true)
+        };
+
+        var error = await Assert.ThrowsAsync<CliException>(() =>
+            UpdateCommands.RevertLayoutForRollbackAsync(host, _binary, instance, serviceActive: true));
+
+        Assert.Contains("Every change was undone", error.Message);
+        Assert.Contains($"start {instance.Unit}", host.Calls);
+    }
+
+    [Fact]
+    public async Task Manual_rollback_keeps_the_unit_stopped_when_the_layout_revert_partly_applied()
+    {
+        var instance = CreateInstances()[0];
+        var host = new FakeHost(this)
+        {
+            LayoutRevertException = new LayoutMigrationException("disk full", [], hostUnchanged: false)
+        };
+
+        var error = await Assert.ThrowsAsync<CliException>(() =>
+            UpdateCommands.RevertLayoutForRollbackAsync(host, _binary, instance, serviceActive: true));
+
+        Assert.Contains("partly reverted", error.Message);
+        Assert.DoesNotContain(host.Calls, call => call.StartsWith("start ", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Rollback_restarts_the_units_when_the_layout_revert_changed_nothing()
+    {
+        var instances = CreateInstances();
+        var host = new FakeHost(this);
+        var updater = Updater(host, broken: null);
+        await updater.InstallAsync("1.0.0", "1.1.0", _staged, _binary, instances, "auto", CancellationToken.None);
+        var records = instances.Select(i => (i, _state.Read(i.Name)!)).ToList();
+        host.LayoutRevertException = new LayoutMigrationException("disk full", [], hostUnchanged: true);
+
+        var problems = await updater.RollbackRecordedAsync(records, _binary, CancellationToken.None);
+
+        // Nothing moved, so the installed binary is still the new one and every running service comes back on it.
+        Assert.Contains(problems, p => p.StartsWith("revert layout", StringComparison.Ordinal));
+        Assert.Equal("1.1.0", File.ReadAllText(_binary));
+        Assert.All(instances, instance => Assert.Contains($"start {instance.Unit}", host.Calls));
+        Assert.All(instances, instance => Assert.NotNull(_state.Read(instance.Name)));
+    }
+
+    [Fact]
+    public async Task Rollback_leaves_the_units_stopped_when_the_layout_revert_partly_applied()
+    {
+        var instances = CreateInstances();
+        var host = new FakeHost(this);
+        var updater = Updater(host, broken: null);
+        await updater.InstallAsync("1.0.0", "1.1.0", _staged, _binary, instances, "auto", CancellationToken.None);
+        var records = instances.Select(i => (i, _state.Read(i.Name)!)).ToList();
+        host.Calls.Clear();
+        host.LayoutRevertException = new LayoutMigrationException("disk full", [], hostUnchanged: false);
+
+        var problems = await updater.RollbackRecordedAsync(records, _binary, CancellationToken.None);
+
+        // A partly moved layout must not be served by either binary until an operator finishes it.
+        Assert.Contains(problems, p => p.StartsWith("revert layout", StringComparison.Ordinal));
+        Assert.Equal("1.1.0", File.ReadAllText(_binary));
+        Assert.DoesNotContain(host.Calls, call => call.StartsWith("start ", StringComparison.Ordinal));
         Assert.All(instances, instance => Assert.NotNull(_state.Read(instance.Name)));
     }
 
@@ -368,6 +450,8 @@ public sealed class AutoUpdaterTests : IDisposable
 
         public bool FailLayoutRevert { get; set; }
 
+        public LayoutMigrationException? LayoutRevertException { get; set; }
+
         private bool _migrationAttempted;
 
         public Task<PostUpdateVerdict?> ReadUpdateVerdictAsync(string binary, ServerInstance instance, int hours, CancellationToken ct) => throw new NotSupportedException();
@@ -417,6 +501,10 @@ public sealed class AutoUpdaterTests : IDisposable
         public Task<int> RevertLayoutAsync(string binary, IReadOnlyList<ServerInstance> instances, CancellationToken ct)
         {
             Calls.Add($"revert-layout {string.Join(",", instances.Select(i => i.Name))}");
+            if (LayoutRevertException is { } failure)
+            {
+                throw failure;
+            }
             return Task.FromResult(FailLayoutRevert ? 1 : 0);
         }
 
