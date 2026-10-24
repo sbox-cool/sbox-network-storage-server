@@ -242,6 +242,20 @@ Always back up the config folder with the database, including
 become invalid after a restore; without the storage encryption key, every
 secret API key stops working.
 
+### Verify a backup
+
+```sh
+sbox-ns db verify-backup /backups/ns.bak                 # SQLite file or PostgreSQL archive
+sbox-ns db verify-backup /backups/ns.bak --json
+sbox-ns db verify-backup /backups/pg.dump --scratch-database ns_rehearsal   # PostgreSQL only
+```
+
+- SQLite: the backup is copied into a throwaway directory, `PRAGMA integrity_check` runs on the copy, the copy is opened as a store, migrated on the copy if older, and read (project and player counts). The live database and the backup file are never written.
+- PostgreSQL: `pg_restore --list` confirms the archive holds this server's `schema_version` table. With `--scratch-database NAME` the archive is restored into that database only after it is checked to be a separate database from the live one, reports its own name, and holds no user objects. The restored schema is dropped afterwards. Without `--scratch-database` the result is `inspected`, which is not a restore test.
+- Result: `verified` (restore rehearsed, every step passed), `inspected` (readable, not restore-tested), or `failed` (exit code 1, with the failing step named).
+- Scope: database content only. A `db backup` does not include media blobs, config files, or signing and secret key material; verify those backups separately.
+
+
 ## Resource guidance
 
 SQLite: no tuning. Keep the data folder on local disk with room for the

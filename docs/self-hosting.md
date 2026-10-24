@@ -730,6 +730,7 @@ every secret API key stops working.
 sbox-ns db backup                       # writes a timestamped backup into the data folder
 sbox-ns db backup --output /backups/ns.bak
 sbox-ns db restore /backups/ns.bak      # stop the server first
+sbox-ns db verify-backup /backups/ns.bak   # check a backup without touching the live database (docs/database.md)
 ```
 
 For SQLite this copies the database file. For PostgreSQL it uses `pg_dump`
