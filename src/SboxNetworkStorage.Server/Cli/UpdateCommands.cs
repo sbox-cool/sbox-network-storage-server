@@ -70,6 +70,10 @@ public static class UpdateCommands
         }
 
         RequireUpgradable(release);
+        if (HasOtherInstances(config))
+        {
+            throw new CliException("other instances share the installed binary; manual update only handles one instance. Use `sbox-ns update --auto --all-instances` (or `sbox-ns rollback --all-instances`) so every database is backed up and every service is restarted", CliApp.Usage);
+        }
         var binary = Environment.ProcessPath ?? throw new CliException("cannot determine the sbox-ns executable path");
         RequireStandaloneExecutable(binary);
         using var updateLock = AcquireUpdateLock(binary);
@@ -97,10 +101,11 @@ public static class UpdateCommands
                     $"To go back anyway, install {release.Version} on a restored database backup taken before the newer release (`sbox-ns db restore <backup>`); data written since that backup is lost.");
             }
 
-            var serviceInstalled = ServiceCommands.IsInstalled();
-            if (serviceInstalled)
+            // Only this instance's unit: it runs the database being migrated and the binary every instance shares.
+            var serviceActive = await host.IsActiveAsync(instance.Unit, CancellationToken.None);
+            if (serviceActive)
             {
-                await RequireServiceControlAsync("stop");
+                await RequireServiceControlAsync(host, instance.Unit, "stop");
             }
 
             string? backup = null;
@@ -140,17 +145,17 @@ public static class UpdateCommands
                     RequireSuccess(await host.RestoreAsync(binary, instance, backup!, CancellationToken.None), "database restore");
                 }
 
-                if (serviceInstalled)
+                if (serviceActive)
                 {
-                    await RequireServiceControlAsync("start");
+                    await RequireServiceControlAsync(host, instance.Unit, "start");
                 }
 
                 throw;
             }
 
-            if (serviceInstalled)
+            if (serviceActive)
             {
-                await RequireServiceControlAsync("start");
+                await RequireServiceControlAsync(host, instance.Unit, "start");
             }
 
             Console.WriteLine($"Updated sbox-ns {BuildInfo.Version} -> {release.Version}. Undo with: sbox-ns rollback");
@@ -171,6 +176,10 @@ public static class UpdateCommands
 
         var keepData = context.Args.Flag("keep-data");
         var config = context.LoadValidConfig();
+        if (HasOtherInstances(config))
+        {
+            throw new CliException("other instances share the installed binary; manual rollback only handles one instance. Use `sbox-ns rollback --all-instances` so every database is restored and every service is restarted", CliApp.Usage);
+        }
         var state = UpdateState.ForHost();
         var instance = ServerInstances.ForConfig(config);
         var record = state.Read(instance.Name) ?? throw new CliException("no update to roll back (nothing recorded by `sbox-ns update`)");
@@ -200,10 +209,11 @@ public static class UpdateCommands
 
         using var updateLock = AcquireUpdateLock(binary);
 
-        var serviceInstalled = ServiceCommands.IsInstalled();
-        if (serviceInstalled)
+        // Only this instance's unit: it runs the database being rolled back and the binary every instance shares.
+        var serviceActive = await host.IsActiveAsync(instance.Unit, CancellationToken.None);
+        if (serviceActive)
         {
-            await RequireServiceControlAsync("stop");
+            await RequireServiceControlAsync(host, instance.Unit, "stop");
         }
 
         if (keepData)
@@ -212,9 +222,9 @@ public static class UpdateCommands
             var quiesced = await CheckDataPreservingAsync(host, binary, state.PreviousBinaryPath, [instance]);
             if (!quiesced.Safe)
             {
-                if (serviceInstalled)
+                if (serviceActive)
                 {
-                    await RequireServiceControlAsync("start");
+                    await RequireServiceControlAsync(host, instance.Unit, "start");
                 }
 
                 throw new CliException($"quiesced compatibility check failed: {quiesced.Reason}; nothing was changed.");
@@ -222,14 +232,7 @@ public static class UpdateCommands
         }
 
         // The binary being restored may predate the state folder and expect its secrets in the config folder.
-        try
-        {
-            RequireSuccess(await host.RevertLayoutAsync(binary, [instance], CancellationToken.None), "layout revert");
-        }
-        catch (LayoutMigrationException ex)
-        {
-            throw new CliException($"cannot move the runtime files back into the config folder: {ex.Message}. The previous binary was not restored.");
-        }
+        await RevertLayoutForRollbackAsync(host, binary, instance, serviceActive);
 
         BinarySwap.Replace(state.PreviousBinaryPath, binary);
         if (!keepData)
@@ -238,9 +241,9 @@ public static class UpdateCommands
         }
 
         state.Delete(instance.Name);
-        if (serviceInstalled)
+        if (serviceActive)
         {
-            await RequireServiceControlAsync("start");
+            await RequireServiceControlAsync(host, instance.Unit, "start");
         }
 
         Console.WriteLine(keepData ? $"Rolled back to {record.FromVersion}; no data was lost." : $"Rolled back to {record.FromVersion}.");
@@ -376,13 +379,69 @@ public static class UpdateCommands
         return newBinary;
     }
 
-    private static async Task RequireServiceControlAsync(string action)
+    private static async Task RequireServiceControlAsync(IUpdateHost host, string unit, string action)
     {
-        var exitCode = await ServiceCommands.ControlAsync(action);
+        var exitCode = action == "start"
+            ? await host.StartAsync(unit, CancellationToken.None)
+            : await host.StopAsync(unit, CancellationToken.None);
         if (exitCode != 0)
         {
-            throw new CliException($"could not {action} the sbox-ns service (exit {exitCode}); no further update steps were performed");
+            throw new CliException($"could not {action} {unit} (exit {exitCode}); no further update steps were performed");
         }
+    }
+
+    /// <summary>Starts a unit that a failed rollback step stopped, when it was running before; returns what the operator should know.</summary>
+    private static async Task<string> RestartUnchangedAsync(IUpdateHost host, string unit, bool wasActive)
+    {
+        if (!wasActive)
+        {
+            return $"{unit} was not running and stays stopped.";
+        }
+
+        var exitCode = await host.StartAsync(unit, CancellationToken.None);
+        return exitCode == 0
+            ? $"{unit} was started again on the installed binary."
+            : $"{unit} could not be started again (exit {exitCode}); start it by hand.";
+    }
+
+    /// <summary>
+    /// Moves the runtime files back into the config folder for the older binary. The installed binary is still the new one
+    /// until the swap, so a revert that left the host unchanged starts the unit again instead of leaving it stopped.
+    /// </summary>
+    private static async Task RevertLayoutForRollbackAsync(IUpdateHost host, string binary, ServerInstance instance, bool serviceActive)
+    {
+        int exitCode;
+        try
+        {
+            exitCode = await host.RevertLayoutAsync(binary, [instance], CancellationToken.None);
+        }
+        catch (LayoutMigrationException ex) when (!ex.HostUnchanged)
+        {
+            throw new CliException($"cannot move the runtime files back into the config folder: {ex.Message}. The layout is partly reverted, so {instance.Unit} stays stopped; follow the recovery steps above, then run rollback again. The previous binary was not restored.");
+        }
+        catch (LayoutMigrationException ex)
+        {
+            var restart = await RestartUnchangedAsync(host, instance.Unit, serviceActive);
+            throw new CliException($"cannot move the runtime files back into the config folder: {ex.Message}. Every change was undone. {restart} The previous binary was not restored.");
+        }
+        catch (CliException ex)
+        {
+            // Refused before the first change (for example not root, or an untrusted config folder): nothing moved.
+            var restart = await RestartUnchangedAsync(host, instance.Unit, serviceActive);
+            throw new CliException($"cannot move the runtime files back into the config folder: {ex.Message}. Nothing was changed. {restart} The previous binary was not restored.");
+        }
+
+        if (exitCode != 0)
+        {
+            throw new CliException($"layout revert exited with code {exitCode}; {instance.Unit} stays stopped and the previous binary was not restored");
+        }
+    }
+
+    /// <summary>True when another registered instance shares the installed binary; manual update and rollback only handle one instance.</summary>
+    internal static bool HasOtherInstances(EffectiveConfig config)
+    {
+        var registered = OperatingSystem.IsLinux() ? ServerInstances.Enumerate() : [];
+        return registered.Any(i => !string.Equals(i.Config.ConfigDirectory, config.ConfigDirectory, StringComparison.Ordinal));
     }
 
     internal static async Task DownloadAsync(HttpClient http, string url, string target)

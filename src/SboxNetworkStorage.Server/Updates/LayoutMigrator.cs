@@ -45,10 +45,15 @@ public enum LayoutOutcome
     NothingToDo
 }
 
-/// <summary>A migration or revert step failed; the host was put back as far as possible and <see cref="RecoverySteps"/> finishes the rest by hand.</summary>
-public sealed class LayoutMigrationException(string message, IReadOnlyList<string> recoverySteps, Exception? inner = null) : Exception(message, inner)
+/// <summary>
+/// A migration or revert step failed; the host was put back as far as possible and <see cref="RecoverySteps"/> finishes the rest by hand.
+/// <see cref="HostUnchanged"/> is true when every change was undone, so the host is exactly as it was before the command.
+/// </summary>
+public sealed class LayoutMigrationException(string message, IReadOnlyList<string> recoverySteps, Exception? inner = null, bool hostUnchanged = false) : Exception(message, inner)
 {
     public IReadOnlyList<string> RecoverySteps { get; } = recoverySteps;
+
+    public bool HostUnchanged { get; } = hostUnchanged;
 }
 
 /// <summary>
@@ -493,7 +498,10 @@ public sealed class LayoutMigrator
             }
         }
 
-        /// <summary>Legacy installs keep <c>telemetry.enabled</c> in server.toml; carry the overlay's value back before the overlay goes.</summary>
+        /// <summary>
+        /// Legacy installs keep <c>telemetry.enabled</c> in server.toml; carry the overlay's value back before the overlay goes.
+        /// Both files are journaled so a later failure puts them back as they were.
+        /// </summary>
         private void MoveTelemetrySetting(ServerInstance instance)
         {
             var overlay = ManagedOverlay.PathFor(instance.Config, StateLayout.TelemetryOverlayFile);
@@ -502,8 +510,36 @@ public sealed class LayoutMigrator
                 return;
             }
 
-            ConfigFiles.SetValue(instance.Config.ConfigDirectory, SettingDefinitions.Find("telemetry.enabled")!, instance.Config.GetBoolean("telemetry.enabled"));
+            var configDirectory = instance.Config.ConfigDirectory;
+            var setting = SettingDefinitions.Find("telemetry.enabled")!;
+            var configFile = Path.Combine(configDirectory, setting.File);
+            var configBefore = File.Exists(configFile) ? File.ReadAllText(configFile) : null;
+            ConfigFiles.SetValue(configDirectory, setting, instance.Config.GetBoolean("telemetry.enabled"));
+            _undo.Add(() => RestoreConfigFile(configFile, configBefore, configDirectory));
+
+            var overlayBefore = File.ReadAllText(overlay);
+            var overlayOwner = _system.OwnerOf(overlay);
             File.Delete(overlay);
+            _undo.Add(() =>
+            {
+                ConfigFiles.WriteAtomically(overlay, overlayBefore);
+                if (overlayOwner is { } owner)
+                {
+                    _system.Chown(overlay, owner);
+                }
+            });
+        }
+
+        private static void RestoreConfigFile(string path, string? content, string configDirectory)
+        {
+            if (content is null)
+            {
+                File.Delete(path);
+                return;
+            }
+
+            ConfigFiles.WriteAtomically(path, content);
+            UnixFiles.ShareGroup(path, configDirectory);
         }
 
         // ---- marker ------------------------------------------------------------------------------------------
@@ -514,6 +550,8 @@ public sealed class LayoutMigrator
             if (revert)
             {
                 File.Delete(marker);
+                // Journaled: if a later instance fails, this one goes back to the migrated layout with its marker.
+                _undo.Add(() => WriteMarker(instance));
                 return;
             }
 
@@ -522,6 +560,13 @@ public sealed class LayoutMigrator
                 return;
             }
 
+            WriteMarker(instance);
+            _log($"{instance.Name}: layout marker written ({marker})");
+        }
+
+        private void WriteMarker(ServerInstance instance)
+        {
+            var marker = StateLayout.MarkerPath(instance.Config.DataDirectory);
             // Create-new under a temporary name then rename: never writes through a symbolic link planted in the state folder.
             var temporary = marker + ".tmp-" + Guid.NewGuid().ToString("N");
             using (var stream = new FileStream(temporary, new FileStreamOptions { Mode = FileMode.CreateNew, Access = FileAccess.Write, UnixCreateMode = StateFile }))
@@ -532,7 +577,6 @@ public sealed class LayoutMigrator
 
             _system.Chown(temporary, _system.ServiceAccount(instance).Owner);
             File.Move(temporary, marker, overwrite: true);
-            _log($"{instance.Name}: layout marker written ({marker})");
         }
 
         // ---- failure -----------------------------------------------------------------------------------------
@@ -619,7 +663,7 @@ public sealed class LayoutMigrator
                 steps.Add("`sbox-ns doctor` reports the layout as partial until the runtime files are back in one place.");
             }
 
-            return new LayoutMigrationException(failure.Message, steps, failure);
+            return new LayoutMigrationException(failure.Message, steps, failure, hostUnchanged: restored);
         }
 
         /// <summary>Removes the folders the undone moves left empty, the state folder itself included.</summary>

@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text.Json;
+using SboxNetworkStorage.Server.Cli;
 using SboxNetworkStorage.Server.Operations;
 
 namespace SboxNetworkStorage.Server.Updates;
@@ -105,7 +106,7 @@ public sealed class AutoUpdater(IUpdateHost host, UpdateState state, HttpClient 
         {
             var reason = ex is UpdateStepException ? ex.Message : $"{ex.GetType().Name}: {ex.Message}";
             log($"Update to {toVersion} failed: {reason}. Rolling back {instances.Count} instance(s).");
-            var problems = await RollbackAsync(fromVersion, binary, previous, replaced, active, backups, revertLayout: false);
+            var problems = await RollbackAsync(fromVersion, toVersion, binary, previous, replaced, active, backups, revertLayout: false);
             var fullReason = problems.Count == 0 ? reason : $"{reason}; rollback incomplete: {string.Join("; ", problems)}";
             foreach (var instance in instances)
             {
@@ -151,7 +152,7 @@ public sealed class AutoUpdater(IUpdateHost host, UpdateState state, HttpClient 
             }
         }
 
-        var problems = await RollbackAsync(first.FromVersion, binary, state.PreviousBinaryPath, binaryReplaced: true, active,
+        var problems = await RollbackAsync(first.FromVersion, first.ToVersion, binary, state.PreviousBinaryPath, binaryReplaced: true, active,
             recorded.Select(r => (r.Instance, r.Record.BackupPath)).ToList(), revertLayout: true, restoreDatabases: !keepData);
         if (problems.Count == 0)
         {
@@ -164,7 +165,7 @@ public sealed class AutoUpdater(IUpdateHost host, UpdateState state, HttpClient 
         return problems;
     }
 
-    private async Task<List<string>> RollbackAsync(string fromVersion, string binary, string previous, bool binaryReplaced,
+    private async Task<List<string>> RollbackAsync(string fromVersion, string installedVersion, string binary, string previous, bool binaryReplaced,
         IReadOnlyList<ServerInstance> active, IReadOnlyList<(ServerInstance Instance, string? Path)> backups, bool revertLayout, bool restoreDatabases = true)
     {
         var problems = new List<string>();
@@ -212,10 +213,41 @@ public sealed class AutoUpdater(IUpdateHost host, UpdateState state, HttpClient 
         // generate new ones, so a failed revert stops here with the old binary still in place.
         if (revertLayout && binaryReplaced)
         {
+            var layoutUnchanged = false;
             await TryAsync("revert layout", async () =>
-                Require(await host.RevertLayoutAsync(binary, backups.Select(b => b.Instance).ToList(), CancellationToken.None), "revert layout"));
+            {
+                try
+                {
+                    Require(await host.RevertLayoutAsync(binary, backups.Select(b => b.Instance).ToList(), CancellationToken.None), "revert layout");
+                }
+                catch (LayoutMigrationException ex)
+                {
+                    layoutUnchanged = ex.HostUnchanged;
+                    throw;
+                }
+                catch (CliException)
+                {
+                    // Refused before the first change (not root, untrusted config folder): nothing moved.
+                    layoutUnchanged = true;
+                    throw;
+                }
+            });
             if (problems.Count > 0)
             {
+                // The installed binary is still the new one, so a layout nothing moved can run again on it.
+                // A partly reverted layout stays stopped for the operator; the records remain for the next run.
+                if (layoutUnchanged)
+                {
+                    foreach (var instance in active)
+                    {
+                        await TryAsync($"restart unchanged {instance.Unit}", async () =>
+                        {
+                            Require(await host.StartAsync(instance.Unit, CancellationToken.None), $"start {instance.Unit}");
+                            await RequireHealthyAsync(instance, installedVersion, CancellationToken.None);
+                        });
+                    }
+                }
+
                 return problems;
             }
         }

@@ -230,6 +230,44 @@ public sealed class AutoUpdaterTests : IDisposable
     }
 
     [Fact]
+    public async Task Rollback_restarts_the_units_when_the_layout_revert_changed_nothing()
+    {
+        var instances = CreateInstances();
+        var host = new FakeHost(this);
+        var updater = Updater(host, broken: null);
+        await updater.InstallAsync("1.0.0", "1.1.0", _staged, _binary, instances, "auto", CancellationToken.None);
+        var records = instances.Select(i => (i, _state.Read(i.Name)!)).ToList();
+        host.LayoutRevertException = new LayoutMigrationException("disk full", [], hostUnchanged: true);
+
+        var problems = await updater.RollbackRecordedAsync(records, _binary, CancellationToken.None);
+
+        // Nothing moved, so the installed binary is still the new one and every running service comes back on it.
+        Assert.Contains(problems, p => p.StartsWith("revert layout", StringComparison.Ordinal));
+        Assert.Equal("1.1.0", File.ReadAllText(_binary));
+        Assert.All(instances, instance => Assert.Contains($"start {instance.Unit}", host.Calls));
+        Assert.All(instances, instance => Assert.NotNull(_state.Read(instance.Name)));
+    }
+
+    [Fact]
+    public async Task Rollback_leaves_the_units_stopped_when_the_layout_revert_partly_applied()
+    {
+        var instances = CreateInstances();
+        var host = new FakeHost(this);
+        var updater = Updater(host, broken: null);
+        await updater.InstallAsync("1.0.0", "1.1.0", _staged, _binary, instances, "auto", CancellationToken.None);
+        var records = instances.Select(i => (i, _state.Read(i.Name)!)).ToList();
+        host.LayoutRevertException = new LayoutMigrationException("disk full", [], hostUnchanged: false);
+
+        var problems = await updater.RollbackRecordedAsync(records, _binary, CancellationToken.None);
+
+        // A partly moved layout must not be served by either binary until an operator finishes it.
+        Assert.Contains(problems, p => p.StartsWith("revert layout", StringComparison.Ordinal));
+        Assert.Equal("1.1.0", File.ReadAllText(_binary));
+        Assert.DoesNotContain(host.Calls, call => call.StartsWith("start ", StringComparison.Ordinal));
+        Assert.All(instances, instance => Assert.NotNull(_state.Read(instance.Name)));
+    }
+
+    [Fact]
     public async Task Rollback_restores_only_the_fixed_binary_and_never_follows_paths_in_a_record()
     {
         var instances = CreateInstances();
@@ -368,6 +406,8 @@ public sealed class AutoUpdaterTests : IDisposable
 
         public bool FailLayoutRevert { get; set; }
 
+        public LayoutMigrationException? LayoutRevertException { get; set; }
+
         private bool _migrationAttempted;
 
         public Task<PostUpdateVerdict?> ReadUpdateVerdictAsync(string binary, ServerInstance instance, int hours, CancellationToken ct) => throw new NotSupportedException();
@@ -417,6 +457,10 @@ public sealed class AutoUpdaterTests : IDisposable
         public Task<int> RevertLayoutAsync(string binary, IReadOnlyList<ServerInstance> instances, CancellationToken ct)
         {
             Calls.Add($"revert-layout {string.Join(",", instances.Select(i => i.Name))}");
+            if (LayoutRevertException is { } failure)
+            {
+                throw failure;
+            }
             return Task.FromResult(FailLayoutRevert ? 1 : 0);
         }
 
