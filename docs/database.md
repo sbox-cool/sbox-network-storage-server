@@ -106,6 +106,7 @@ without its data directory loses its owner sessions and secret key material.
 ```sh
 sbox-ns db status    # provider, schema version, pending migrations
 sbox-ns db migrate   # apply pending migrations
+sbox-ns db migrate --plan --json  # read-only migration and rollback-floor preview
 ```
 
 `db status` prints the schema version, the version the binary supports, and
@@ -115,6 +116,22 @@ server also migrates on start. Take a backup before upgrading to a release
 that needs a migration; releases list the minimum version they upgrade from,
 so old installs may need to step through an intermediate release
 (see [self-hosting.md](self-hosting.md#updates)).
+
+`db migrate --plan` lists each pending migration from the installed binary,
+its additive/breaking classification, and the current and projected
+`min_binary_schema` rollback floor. Add `--json` for `provider`, `initialized`,
+`schemaVersion`, `supportedSchemaVersion`, `minBinarySchema`,
+`projectedMinBinarySchema`, `compatible`, `raisesRollbackFloor`, and `pending`.
+An absent database/schema is reported as uninitialized without creating it.
+Unavailable databases fail the command; a newer incompatible schema returns
+a failing verdict. Planning does not initialize the server, generate secrets,
+apply migrations, or execute a downloaded release.
+
+Back up before applying the plan. “Additive” does not mean zero downtime or
+guaranteed business-level rollback. `rollback --keep-data` still requires a
+target binary that supports the resulting floor and passes its own
+compatibility check. A plan is a point-in-time observation, not a lock against
+another operator migrating the database.
 
 Schema version 3 adds project/slug endpoint and project/key-identifier API-key
 indexes, plus surrogate primary keys for request logs and storage errors.

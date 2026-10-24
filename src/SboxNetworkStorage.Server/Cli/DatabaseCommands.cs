@@ -12,6 +12,24 @@ public static class DatabaseCommands
     {
         var sub = context.RequirePositional(1, "test|status|migrate|backup|restore");
         var config = context.LoadValidConfig();
+        if (sub == "migrate" && context.Args.Flag("plan"))
+        {
+            var plan = await DatabaseMigrationPlan.ReadAsync(config, CancellationToken.None);
+            if (context.Args.Flag("json")) Console.WriteLine(plan.ToJson().ToJsonString());
+            else
+            {
+                Console.WriteLine($"Database: {plan.Provider}; {(plan.Initialized ? $"schema {plan.State.Version}" : "uninitialized (nothing created)")}");
+                Console.WriteLine($"This binary supports schema {plan.Supported}; rollback floor {plan.State.MinBinarySchema} -> {plan.ProjectedFloor}.");
+                foreach (var migration in plan.Pending)
+                    Console.WriteLine($"  v{migration.Version}: {(migration.Compat == SchemaChange.Additive ? "additive" : "breaking")} — {migration.Description}");
+                if (!plan.Compatible) Console.WriteLine("This database is newer than this binary can use; no migration is allowed.");
+                else if (plan.Pending.Count == 0) Console.WriteLine("No pending migrations; the database will be left as is.");
+                Console.WriteLine("Plan only: nothing changed. Take a backup before migrating. Additive does not guarantee zero downtime or business-level rollback.");
+                Console.WriteLine("rollback --keep-data also requires the target binary to support the projected floor and pass its compatibility probe.");
+            }
+            return plan.Compatible ? CliApp.Ok : CliApp.Failure;
+        }
+
         switch (sub)
         {
             case "backup":

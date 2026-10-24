@@ -77,6 +77,7 @@ public static class CliApp
           db status                     Show the schema version
           compatibility [--json]        Non-mutating schema check for this binary (rollback/downgrade preflight)
           db migrate                    Apply pending schema migrations
+          db migrate --plan [--json]     Preview pending migrations and rollback floor without writes
           db backup [--output FILE]     Back up the database
           db restore <FILE>             Restore a backup (stop the server first)
 
