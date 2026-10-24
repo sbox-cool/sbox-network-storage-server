@@ -17,8 +17,8 @@ public static class OwnerTransport
 
     /// <summary>
     /// True when owner credentials (password, login link) must not be accepted on this request: plain HTTP from another
-    /// machine, unless the operator opted in with <c>adminpanel.allow_insecure_http</c>. A TLS proxy on loopback that
-    /// sends <c>X-Forwarded-Proto: https</c> counts as HTTPS.
+    /// machine, unless the operator opted in with <c>adminpanel.allow_insecure_http</c>. A trusted TLS proxy (loopback, or
+    /// listed in <c>server.trusted_proxies</c>) that sends <c>X-Forwarded-Proto: https</c> counts as HTTPS.
     /// </summary>
     public static bool RefusesCredentials(HttpContext context)
         => IsInsecureRemote(context) && !AllowsInsecureHttp(context);

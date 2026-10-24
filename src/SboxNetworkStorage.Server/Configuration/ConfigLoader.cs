@@ -395,6 +395,11 @@ public static class ConfigLoader
         foreach (var address in S("adminpanel.allowed_ips").Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
             if (!System.Net.IPNetwork.TryParse(address.Contains('/') ? address : address + (address.Contains(':') ? "/128" : "/32"), out _))
                 issues.Add(Issue("adminpanel.allowed_ips", "Every admin IP restriction must be a valid IP address or CIDR."));
+        foreach (var entry in Hosting.TrustedProxies.Entries(S("server.trusted_proxies")))
+            if (!Hosting.TrustedProxies.TryParseEntry(entry, out _))
+                issues.Add(Issue("server.trusted_proxies", "Every trusted proxy must be an IP address or CIDR, and cannot be 0.0.0.0/0 or ::/0."));
+        if ((long)values["server.trusted_proxy_hops"].Value is < Hosting.TrustedProxies.MinHops or > Hosting.TrustedProxies.MaxHops)
+            issues.Add(Issue("server.trusted_proxy_hops", $"server.trusted_proxy_hops must be between {Hosting.TrustedProxies.MinHops} and {Hosting.TrustedProxies.MaxHops}."));
         if ((bool)values["adminpanel.turnstile.enabled"].Value)
         {
             foreach (var key in new[] { "adminpanel.turnstile.sitekey", "adminpanel.turnstile.secret", "adminpanel.turnstile.hostname" })

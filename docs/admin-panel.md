@@ -108,7 +108,7 @@ these:
   `tls.certificate_path` and `tls.key_path`.
 - **TLS-terminating reverse proxy or tunnel** on the same machine, such as
   Caddy, nginx or Cloudflare Tunnel. The server trusts `X-Forwarded-Proto` and
-  `X-Forwarded-For` only from loopback proxies. Set `server.public_url` to the
+  `X-Forwarded-For` only from loopback proxies and from `server.trusted_proxies`. Set `server.public_url` to the
   HTTPS URL.
 
 Cookie protection:
@@ -752,7 +752,7 @@ sbox-ns service restart
 
 Replace those documentation addresses with yours. An empty list allows all
 addresses. The policy uses the trusted connection address, not arbitrary
-forwarding headers. The built-in proxy trust is loopback, one hop. Confirm the
+forwarding headers. The built-in proxy trust is loopback plus `server.trusted_proxies`, each reading up to `server.trusted_proxy_hops` entries. Confirm the
 observed address and your reverse proxy configuration before restricting access,
 especially with a Cloudflare tunnel; keep local recovery access available.
 

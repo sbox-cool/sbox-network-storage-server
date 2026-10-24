@@ -123,8 +123,8 @@ public static class RouteGroups
 }
 
 /// <summary>
-/// The connection's client address. Forwarded headers are applied by the forwarded-headers
-/// middleware for loopback peers only; <c>CF-Connecting-IP</c> is honoured only from a loopback
+/// The connection's client address. Forwarded headers are applied by the forwarded-headers middleware for trusted
+/// proxies only (loopback, plus <c>server.trusted_proxies</c>); <c>CF-Connecting-IP</c> is honoured only from a loopback
 /// peer while tunnel mode is active. Anything else a client sends is ignored.
 /// </summary>
 public static class ClientAddress

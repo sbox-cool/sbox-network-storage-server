@@ -90,6 +90,44 @@ public sealed class OwnerSecurityTests
     }
 
     [Theory]
+    [InlineData("198.51.100.7, 203.0.113.9", 1, "198.51.100.7", HttpStatusCode.Forbidden)]
+    [InlineData("198.51.100.7, 203.0.113.9", 2, "198.51.100.7", HttpStatusCode.OK)]
+    [InlineData("198.51.100.7, 203.0.113.9", 1, "203.0.113.9", HttpStatusCode.OK)]
+    public async Task TrustedProxyChainIsReadOnlyWithinTheHopBound(string forwardedFor, int hops, string allowed, HttpStatusCode expected)
+    {
+        using var factory = new SqliteHostFactory(
+            ("adminpanel.allowed_ips", allowed), ("adminpanel.allow_insecure_http", "true"),
+            ("server.trusted_proxies", "203.0.113.0/24"), ("server.trusted_proxy_hops", hops.ToString()));
+        using var client = OwnerHttp.Client(factory);
+        Assert.Equal(expected, (await GetLoginFromPeerAsync(client, "203.0.113.5", forwardedFor)).StatusCode);
+    }
+
+    [Fact]
+    public async Task UntrustedPeerCannotSpoofAnAllowedAddressThroughForwardedFor()
+    {
+        using var factory = new SqliteHostFactory(("adminpanel.allowed_ips", "198.51.100.7"), ("adminpanel.allow_insecure_http", "true"));
+        using var client = OwnerHttp.Client(factory);
+        Assert.Equal(HttpStatusCode.Forbidden, (await GetLoginFromPeerAsync(client, "203.0.113.5", "198.51.100.7")).StatusCode);
+    }
+
+    [Fact]
+    public async Task TrustedProxyPassesAnAllowedClientThroughForwardedFor()
+    {
+        using var factory = new SqliteHostFactory(("adminpanel.allowed_ips", "198.51.100.7"), ("adminpanel.allow_insecure_http", "true"),
+            ("server.trusted_proxies", "203.0.113.0/24"));
+        using var client = OwnerHttp.Client(factory);
+        Assert.Equal(HttpStatusCode.OK, (await GetLoginFromPeerAsync(client, "203.0.113.5", "198.51.100.7")).StatusCode);
+    }
+
+    private static async Task<HttpResponseMessage> GetLoginFromPeerAsync(HttpClient client, string peer, string forwardedFor)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/login");
+        request.Headers.Add(SelfHostFactory.PeerHeader, peer);
+        request.Headers.Add("X-Forwarded-For", forwardedFor);
+        return await client.SendAsync(request);
+    }
+
+    [Theory]
     [InlineData("{\"success\":true,\"action\":\"owner_login\",\"hostname\":\"example.sboxns.com\"}", 200, true)]
     [InlineData("{\"success\":false}", 200, false)]
     [InlineData("{\"success\":true,\"action\":\"wrong\",\"hostname\":\"example.sboxns.com\"}", 200, false)]

@@ -45,7 +45,7 @@ public abstract class SelfHostFactory : IDisposable
     private readonly string? _defaultSchema;
     private WebApplication? _app;
 
-    protected SelfHostFactory(StoreDriver driver)
+    protected SelfHostFactory(StoreDriver driver, params (string Key, string Value)[] settings)
     {
         Driver = driver;
         _configure = new List<Action<IWebHostBuilder>>();
@@ -65,7 +65,10 @@ public abstract class SelfHostFactory : IDisposable
             _defaultSchema = NewSchemaName();
         }
 
-        Config = LoadConfig(DatabaseOverrides(Path.Combine(_root, "data", "sbox-ns.db"), _defaultSchema));
+        var overrides = DatabaseOverrides(Path.Combine(_root, "data", "sbox-ns.db"), _defaultSchema);
+        foreach (var (key, value) in settings)
+            overrides[key] = value;
+        Config = LoadConfig(overrides);
         var admin = (INetworkStorageStoreAdmin)CreateDriverStore(Config);
         admin.MigrateAsync(CancellationToken.None).GetAwaiter().GetResult();
         (admin as IDisposable)?.Dispose();
@@ -383,7 +386,7 @@ public sealed record SelfHostProject(string ProjectId, string PublicKey, string 
 
 public sealed class SqliteHostFactory : SelfHostFactory
 {
-    public SqliteHostFactory() : base(StoreDriver.Sqlite)
+    public SqliteHostFactory(params (string Key, string Value)[] settings) : base(StoreDriver.Sqlite, settings)
     {
     }
 }
