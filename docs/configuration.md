@@ -56,6 +56,12 @@ code field. Enrollment invalidates all existing sessions. Local
 password reset preserves an enabled authenticator. The existing locally issued
 single-use `admin login-link` remains a shell-authorized recovery route.
 
+Signed-in owners can also change the password, replace recovery codes, or turn off
+two-factor sign-in on the same page. Each needs the current password and a current
+authenticator code or unused recovery code. The check and the change happen in one
+locked write, and each one signs out every session. Turning off two-factor sign-in
+removes the authenticator and the recovery codes.
+
 ### Library and release status card
 
 The owner dashboard's **Library and release status** card reads one JSON file that

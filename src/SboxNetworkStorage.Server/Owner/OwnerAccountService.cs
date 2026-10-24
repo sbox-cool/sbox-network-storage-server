@@ -101,23 +101,83 @@ public sealed class OwnerAccountService(INetworkStorageStore store, EffectiveCon
         await UpdateSecurityAsync(account =>
         {
             if (account.SecurityStamp != stamp || account.TotpSecret is null) return account;
-            CryptographicException? unreadable = null;
-            try
-            {
-                var step = OwnerTotp.Match(Protector().Unprotect(account.TotpSecret), code, account.TotpLastStep, DateTimeOffset.UtcNow);
-                if (step is not null) { accepted = true; return account with { TotpLastStep = step.Value }; }
-            }
-            catch (CryptographicException ex) { unreadable = ex; }
-            var hash = code is { Length: 32 } ? OwnerTotp.RecoveryHash(code) : null;
-            if (hash is not null && (account.RecoveryHashes ?? []).Contains(hash, StringComparer.Ordinal))
-            {
-                accepted = true;
-                return account with { RecoveryHashes = account.RecoveryHashes!.Where(value => value != hash).ToArray() };
-            }
-
-            return unreadable is null ? account : throw new OwnerAuthenticatorUnavailableException(unreadable);
+            var consumed = TryConsumeSecondFactor(account, code);
+            accepted = consumed is not null;
+            return consumed ?? account;
         }, ct);
         return accepted;
+    }
+
+    /// <summary>
+    /// Changes the owner password. Needs the session stamp, the current password and, when two-factor is enabled, a fresh
+    /// authenticator code or an unused recovery code. Everything is checked and written in one locked step. Ends every session.
+    /// </summary>
+    public async Task ChangePasswordAsync(string stamp, string? currentPassword, string? secondFactor, string newPassword, CancellationToken ct)
+    {
+        ValidateCredentials(null, newPassword);
+        await UpdateSecurityAsync(account =>
+        {
+            var verified = Reauthenticate(account, stamp, currentPassword, secondFactor);
+            return verified with { PasswordHash = Hasher.HashPassword(verified, newPassword), SecurityStamp = NewStamp() };
+        }, ct);
+    }
+
+    /// <summary>Turns two-factor sign-in off. Needs the same proof as a password change, and ends every session.</summary>
+    public Task DisableSecondFactorAsync(string stamp, string? currentPassword, string? secondFactor, CancellationToken ct)
+        => UpdateSecurityAsync(account =>
+        {
+            var verified = Reauthenticate(account, stamp, currentPassword, secondFactor);
+            if (verified.TotpSecret is null) throw new InvalidOperationException("Two-factor sign-in is not enabled.");
+            return verified with { TotpSecret = null, TotpLastStep = -1, RecoveryHashes = null, SecurityStamp = NewStamp() };
+        }, ct);
+
+    /// <summary>
+    /// Replaces the ten recovery codes. Needs the same proof as a password change, ends every session, and returns the
+    /// new codes once. The stored values are hashes only.
+    /// </summary>
+    public async Task<string[]> RegenerateRecoveryCodesAsync(string stamp, string? currentPassword, string? secondFactor, CancellationToken ct)
+    {
+        var codes = Enumerable.Range(0, 10).Select(_ => Convert.ToHexString(RandomNumberGenerator.GetBytes(16))).ToArray();
+        await UpdateSecurityAsync(account =>
+        {
+            var verified = Reauthenticate(account, stamp, currentPassword, secondFactor);
+            if (verified.TotpSecret is null) throw new InvalidOperationException("Two-factor sign-in is not enabled.");
+            return verified with { RecoveryHashes = codes.Select(OwnerTotp.RecoveryHash).ToArray(), SecurityStamp = NewStamp() };
+        }, ct);
+        return codes;
+    }
+
+    /// <summary>
+    /// Proves the session stamp, the current password and, when two-factor is enabled, a valid second factor (consumed
+    /// here). Throws <see cref="OwnerReauthenticationException"/> on any failure, so the caller writes nothing.
+    /// </summary>
+    private OwnerAccount Reauthenticate(OwnerAccount account, string stamp, string? currentPassword, string? secondFactor)
+    {
+        if (account.SecurityStamp != stamp || currentPassword is not { Length: >= 1 and <= 1024 }
+            || Hasher.VerifyHashedPassword(account, account.PasswordHash, currentPassword) == PasswordVerificationResult.Failed)
+            throw new OwnerReauthenticationException();
+        if (account.TotpSecret is null) return account;
+        return TryConsumeSecondFactor(account, secondFactor) ?? throw new OwnerReauthenticationException();
+    }
+
+    /// <summary>
+    /// Accepts an authenticator code (advancing the replay step) or an unused recovery code (removing it). Returns null
+    /// when neither matches. Throws <see cref="OwnerAuthenticatorUnavailableException"/> when the secret cannot be read
+    /// and no recovery code matched.
+    /// </summary>
+    private OwnerAccount? TryConsumeSecondFactor(OwnerAccount account, string? code)
+    {
+        CryptographicException? unreadable = null;
+        try
+        {
+            var step = OwnerTotp.Match(Protector().Unprotect(account.TotpSecret!), code, account.TotpLastStep, DateTimeOffset.UtcNow);
+            if (step is not null) return account with { TotpLastStep = step.Value };
+        }
+        catch (CryptographicException ex) { unreadable = ex; }
+        var hash = code is { Length: 32 } ? OwnerTotp.RecoveryHash(code) : null;
+        if (hash is not null && (account.RecoveryHashes ?? []).Contains(hash, StringComparer.Ordinal))
+            return account with { RecoveryHashes = account.RecoveryHashes!.Where(value => value != hash).ToArray() };
+        return unreadable is null ? null : throw new OwnerAuthenticatorUnavailableException(unreadable);
     }
 
     public Task ResetAuthenticatorAsync(CancellationToken ct) => UpdateSecurityAsync(account =>
@@ -208,3 +268,7 @@ public sealed class OwnerSetupToken
 /// <summary>The stored authenticator secret cannot be decrypted with this server's key ring (for example after a restore).</summary>
 public sealed class OwnerAuthenticatorUnavailableException(Exception inner)
     : Exception("The owner authenticator cannot be read on this server.", inner);
+
+/// <summary>A security change was refused: the session, the current password or the second factor did not verify. Nothing was written.</summary>
+public sealed class OwnerReauthenticationException()
+    : Exception("Enter your current password and your authenticator or a recovery code.");

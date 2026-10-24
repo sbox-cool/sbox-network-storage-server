@@ -72,6 +72,196 @@ public sealed class OwnerSecurityTests
         Assert.NotEqual(after.SecurityStamp, (await accounts.GetAsync(default))!.SecurityStamp);
     }
 
+    [Fact]
+    public async Task PasswordChangeNeedsCurrentPasswordAndSecondFactorAndEndsSessions()
+    {
+        using var factory = new SqliteHostFactory();
+        await OwnerHttp.CreateOwnerAsync(factory);
+        using var enrolling = await SignInAsync(factory, OwnerHttp.Password, string.Empty);
+        var codes = await EnrollAsync(enrolling);
+        using var client = await SignInAsync(factory, OwnerHttp.Password, codes[0]);
+        await using var scope = factory.Services.CreateAsyncScope();
+        var accounts = scope.ServiceProvider.GetRequiredService<OwnerAccountService>();
+        var before = (await accounts.GetAsync(default))!;
+        var page = await PageAsync(client, "/dashboard/security");
+
+        using var withoutToken = await Send(client, HttpMethod.Post, "/dashboard/security/password", OwnerHttp.Form(
+            ("currentPassword", OwnerHttp.Password), ("secondFactor", codes[1]), ("newPassword", NewPassword), ("confirmPassword", NewPassword)));
+        Assert.True(withoutToken.StatusCode is HttpStatusCode.BadRequest or HttpStatusCode.Forbidden);
+        using var wrongPassword = await Send(client, HttpMethod.Post, "/dashboard/security/password",
+            PasswordForm(page, "not-the-current-password", codes[1], NewPassword, NewPassword));
+        Assert.Equal(HttpStatusCode.BadRequest, wrongPassword.StatusCode);
+        Assert.Contains("Enter your current password", await wrongPassword.Content.ReadAsStringAsync());
+        using var wrongFactor = await Send(client, HttpMethod.Post, "/dashboard/security/password",
+            PasswordForm(page, OwnerHttp.Password, "0123456789abcdef0123456789abcdef", NewPassword, NewPassword));
+        Assert.Equal(HttpStatusCode.BadRequest, wrongFactor.StatusCode);
+        using var mismatch = await Send(client, HttpMethod.Post, "/dashboard/security/password",
+            PasswordForm(page, OwnerHttp.Password, codes[1], NewPassword, "different-replacement-password"));
+        Assert.Equal(HttpStatusCode.BadRequest, mismatch.StatusCode);
+        var unchanged = (await accounts.GetAsync(default))!;
+        Assert.Equal(before.PasswordHash, unchanged.PasswordHash);
+        Assert.Equal(before.SecurityStamp, unchanged.SecurityStamp);
+        Assert.Equal(before.RecoveryHashes, unchanged.RecoveryHashes);
+
+        using var changed = await Send(client, HttpMethod.Post, "/dashboard/security/password",
+            PasswordForm(page, OwnerHttp.Password, codes[1], NewPassword, NewPassword));
+        Assert.Equal(HttpStatusCode.Redirect, changed.StatusCode);
+        Assert.Contains("/login", changed.Headers.Location?.OriginalString ?? string.Empty);
+        var after = (await accounts.GetAsync(default))!;
+        Assert.NotEqual(before.SecurityStamp, after.SecurityStamp);
+        Assert.NotEqual(before.PasswordHash, after.PasswordHash);
+        Assert.Equal(before.RecoveryHashes!.Count() - 1, after.RecoveryHashes!.Count());
+        using var oldPassword = await SignInAsync(factory, OwnerHttp.Password, string.Empty, HttpStatusCode.Unauthorized);
+        using var newPasswordClient = await SignInAsync(factory, NewPassword, codes[2]);
+        var persisted = (await scope.ServiceProvider.GetRequiredService<INetworkStorageStore>().ReadWorkspaceObjectAsync(OwnerAccountService.AccountPath, default))!;
+        Assert.DoesNotContain(NewPassword, persisted);
+        Assert.DoesNotContain(codes[1], persisted);
+
+        using var stale = await Send(client, HttpMethod.Get, "/dashboard");
+        Assert.Equal(HttpStatusCode.Redirect, stale.StatusCode);
+        Assert.Contains("/login", stale.Headers.Location?.OriginalString ?? string.Empty);
+        using var replayedCode = await SignInAsync(factory, NewPassword, codes[1], HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task RecoveryCodeRegenerationReplacesEveryCodeAndRequiresReauthentication()
+    {
+        using var factory = new SqliteHostFactory();
+        await OwnerHttp.CreateOwnerAsync(factory);
+        using var enrolling = await SignInAsync(factory, OwnerHttp.Password, string.Empty);
+        var codes = await EnrollAsync(enrolling);
+        using var client = await SignInAsync(factory, OwnerHttp.Password, codes[0]);
+        await using var scope = factory.Services.CreateAsyncScope();
+        var accounts = scope.ServiceProvider.GetRequiredService<OwnerAccountService>();
+        var before = (await accounts.GetAsync(default))!;
+        var page = await PageAsync(client, "/dashboard/security");
+
+        using var wrongPassword = await Send(client, HttpMethod.Post, "/dashboard/security/recovery-codes",
+            ReauthForm(page, "not-the-current-password", codes[1]));
+        Assert.Equal(HttpStatusCode.BadRequest, wrongPassword.StatusCode);
+        using var replayed = await Send(client, HttpMethod.Post, "/dashboard/security/recovery-codes",
+            ReauthForm(page, OwnerHttp.Password, codes[0]));
+        Assert.Equal(HttpStatusCode.BadRequest, replayed.StatusCode);
+        Assert.Equal(before.RecoveryHashes, (await accounts.GetAsync(default))!.RecoveryHashes);
+
+        using var regenerated = await Send(client, HttpMethod.Post, "/dashboard/security/recovery-codes",
+            ReauthForm(page, OwnerHttp.Password, codes[1]));
+        Assert.Equal(HttpStatusCode.OK, regenerated.StatusCode);
+        var fresh = RecoveryCodes(await regenerated.Content.ReadAsStringAsync());
+        Assert.Equal(10, fresh.Length);
+        Assert.Empty(fresh.Intersect(codes));
+        var after = (await accounts.GetAsync(default))!;
+        Assert.NotEqual(before.SecurityStamp, after.SecurityStamp);
+        Assert.Equal(10, after.RecoveryHashes!.Count());
+
+        using var stale = await Send(client, HttpMethod.Get, "/dashboard");
+        Assert.Equal(HttpStatusCode.Redirect, stale.StatusCode);
+        Assert.Contains("/login", stale.Headers.Location?.OriginalString ?? string.Empty);
+        using var oldCode = await SignInAsync(factory, OwnerHttp.Password, codes[2], HttpStatusCode.Unauthorized);
+        using var newCode = await SignInAsync(factory, OwnerHttp.Password, fresh[0]);
+    }
+
+    [Fact]
+    public async Task DisablingTwoFactorRequiresReauthenticationAndAllowsPasswordOnlySignIn()
+    {
+        using var factory = new SqliteHostFactory();
+        await OwnerHttp.CreateOwnerAsync(factory);
+        using var enrolling = await SignInAsync(factory, OwnerHttp.Password, string.Empty);
+        var codes = await EnrollAsync(enrolling);
+        using var client = await SignInAsync(factory, OwnerHttp.Password, codes[0]);
+        await using var scope = factory.Services.CreateAsyncScope();
+        var accounts = scope.ServiceProvider.GetRequiredService<OwnerAccountService>();
+        var before = (await accounts.GetAsync(default))!;
+        var page = await PageAsync(client, "/dashboard/security");
+
+        using var wrongPassword = await Send(client, HttpMethod.Post, "/dashboard/security/2fa/disable",
+            ReauthForm(page, "not-the-current-password", codes[1]));
+        Assert.Equal(HttpStatusCode.BadRequest, wrongPassword.StatusCode);
+        Assert.Equal(before.TotpSecret, (await accounts.GetAsync(default))!.TotpSecret);
+
+        using var disabled = await Send(client, HttpMethod.Post, "/dashboard/security/2fa/disable",
+            ReauthForm(page, OwnerHttp.Password, codes[1]));
+        Assert.Equal(HttpStatusCode.Redirect, disabled.StatusCode);
+        Assert.Contains("/login", disabled.Headers.Location?.OriginalString ?? string.Empty);
+        var after = (await accounts.GetAsync(default))!;
+        Assert.Null(after.TotpSecret);
+        Assert.Empty(after.RecoveryHashes ?? Enumerable.Empty<string>());
+        Assert.NotEqual(before.SecurityStamp, after.SecurityStamp);
+
+        using var passwordOnly = await SignInAsync(factory, OwnerHttp.Password, string.Empty);
+        var securityPage = await PageAsync(passwordOnly, "/dashboard/security");
+        Assert.DoesNotContain("name=\"secondFactor\"", securityPage);
+        Assert.DoesNotContain("/dashboard/security/recovery-codes", securityPage);
+        Assert.DoesNotContain("/dashboard/security/2fa/disable", securityPage);
+        using var notEnabled = await Send(passwordOnly, HttpMethod.Post, "/dashboard/security/2fa/disable",
+            ReauthForm(securityPage, OwnerHttp.Password, string.Empty));
+        Assert.Equal(HttpStatusCode.BadRequest, notEnabled.StatusCode);
+        using var changed = await Send(passwordOnly, HttpMethod.Post, "/dashboard/security/password",
+            PasswordForm(securityPage, OwnerHttp.Password, string.Empty, NewPassword, NewPassword));
+        Assert.Equal(HttpStatusCode.Redirect, changed.StatusCode);
+        using var newPasswordClient = await SignInAsync(factory, NewPassword, string.Empty);
+    }
+
+    private const string NewPassword = "replacement-owner-password";
+    private static int peerCount;
+
+    /// <summary>
+    /// The owner-login limiter allows 10 requests per client address per minute, GETs included, so every request here
+    /// gets its own peer address. Cookies stay with the client.
+    /// </summary>
+    private static Task<HttpResponseMessage> Send(HttpClient client, HttpMethod method, string path, HttpContent? content = null)
+    {
+        var request = new HttpRequestMessage(method, path) { Content = content };
+        request.Headers.Add(SelfHostFactory.PeerHeader, $"198.51.100.{Interlocked.Increment(ref peerCount) % 254 + 1}");
+        return client.SendAsync(request);
+    }
+
+    private static async Task<string> PageAsync(HttpClient client, string path)
+    {
+        using var response = await Send(client, HttpMethod.Get, path);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        return await response.Content.ReadAsStringAsync();
+    }
+
+    private static async Task<HttpClient> SignInAsync(SelfHostFactory factory, string password, string secondFactor,
+        HttpStatusCode expected = HttpStatusCode.Redirect)
+    {
+        var client = OwnerHttp.Client(factory);
+        var page = await PageAsync(client, "/login");
+        using var response = await Send(client, HttpMethod.Post, "/login", OwnerHttp.Form(("username", OwnerHttp.Username),
+            ("password", password), ("secondFactor", secondFactor), ("__RequestVerificationToken", OwnerHttp.Csrf(page))));
+        Assert.Equal(expected, response.StatusCode);
+        return client;
+    }
+
+    private static async Task<string[]> EnrollAsync(HttpClient client)
+    {
+        var page = await PageAsync(client, "/dashboard/security");
+        var secret = Regex.Match(page, "<pre>([A-Z2-7]{32})</pre>").Groups[1].Value;
+        var enrollment = WebUtility.HtmlDecode(Regex.Match(page, "name=\"enrollment\" value=\"([^\"]+)\"").Groups[1].Value);
+        var code = OwnerTotp.Code(secret, DateTimeOffset.UtcNow.ToUnixTimeSeconds() / 30);
+        using var enrolled = await Send(client, HttpMethod.Post, "/dashboard/security/enroll", OwnerHttp.Form(("password", OwnerHttp.Password),
+            ("enrollment", enrollment), ("code", code), ("__RequestVerificationToken", OwnerHttp.Csrf(page))));
+        Assert.Equal(HttpStatusCode.OK, enrolled.StatusCode);
+        var codes = RecoveryCodes(await enrolled.Content.ReadAsStringAsync());
+        Assert.Equal(10, codes.Length);
+        return codes;
+    }
+
+    /// <summary>The recovery codes rendered in the response: 32 hex characters, one per line.</summary>
+    private static string[] RecoveryCodes(string html)
+        => Regex.Matches(html, "<pre>([^<]+)</pre>")
+            .SelectMany(match => match.Groups[1].Value.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            .Where(line => Regex.IsMatch(line, "^[A-F0-9]{32}$"))
+            .ToArray();
+
+    private static FormUrlEncodedContent PasswordForm(string page, string current, string factor, string next, string confirm)
+        => OwnerHttp.Form(("currentPassword", current), ("secondFactor", factor), ("newPassword", next), ("confirmPassword", confirm),
+            ("__RequestVerificationToken", OwnerHttp.Csrf(page)));
+
+    private static FormUrlEncodedContent ReauthForm(string page, string current, string factor)
+        => OwnerHttp.Form(("currentPassword", current), ("secondFactor", factor), ("__RequestVerificationToken", OwnerHttp.Csrf(page)));
+
     [Theory]
     [InlineData(false, "")]
     [InlineData(true, "192.0.2.0/24")]

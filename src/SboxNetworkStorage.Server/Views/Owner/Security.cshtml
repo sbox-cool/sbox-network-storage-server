@@ -2,7 +2,7 @@
 <link rel="stylesheet" href="/owner-assets/m/manage.css" />
 @{ Layout = "~/Views/Owner/_Layout.cshtml"; }
 <section class="card auth">
-    <h1>Authenticator security</h1>
+    <h1>Security</h1>
     @if (Model.Error is not null) { <p class="error" role="alert">@Model.Error</p> }
     @if (Model.RecoveryCodes is not null)
     {
@@ -11,25 +11,67 @@
         <div class="copy-row"><pre>@string.Join("\n", Model.RecoveryCodes)</pre><button type="button" class="secondary" data-copy-previous>Copy</button></div>
         <a href="/login">Log in with your authenticator</a>
     }
-    else if (Model.Enabled)
+    else
     {
-        <p>Your authenticator is enabled. Password login requires a fresh six-digit code or one unused recovery code.</p>
-        <p>To remove or recover the authenticator, run <code>sbox-ns admin reset-2fa</code> locally on the server. This invalidates all owner sessions.</p>
+        <h2>Authenticator</h2>
+        @if (Model.Enabled)
+        {
+            <p>Your authenticator is enabled. Password login requires a fresh six-digit code or one unused recovery code.</p>
+            <p>If you lost both your authenticator and your recovery codes, run <code>sbox-ns admin reset-2fa</code> locally on the server. This invalidates all owner sessions.</p>
+        }
+        else if (Model.Secret is not null)
+        {
+            <p>On a phone, open this link to add the account to your authenticator app: <a href="@Model.EnrollmentUri">Add to authenticator app</a></p>
+            <p>Or add the account manually with this secret, using time-based codes, SHA-1, six digits and a 30-second period.</p>
+            <div class="copy-row"><pre>@Model.Secret</pre><button type="button" class="secondary" data-copy-previous>Copy</button></div>
+            <p>The secret is not activated until you confirm a valid code. Enrollment expires after ten minutes.</p>
+            <form method="post" action="/dashboard/security/enroll">
+                @Html.AntiForgeryToken()
+                <input type="hidden" name="enrollment" value="@Model.Enrollment" />
+                <label>Current password <input type="password" name="password" autocomplete="current-password" required maxlength="1024" /></label>
+                <label>Authenticator code <input name="code" inputmode="numeric" autocomplete="one-time-code" required minlength="6" maxlength="6" /></label>
+                <button type="submit">Confirm and enable authenticator</button>
+            </form>
+        }
+        else { <a href="/dashboard/security">Start enrollment again</a> }
+
+        @if (!Model.ReadOnly)
+        {
+            <h2>Change password</h2>
+            <p>Changing the password signs out every session, including this one.</p>
+            <form method="post" action="/dashboard/security/password">
+                @Html.AntiForgeryToken()
+                <label>Current password <input type="password" name="currentPassword" autocomplete="current-password" required maxlength="1024" /></label>
+                @if (Model.Enabled)
+                {
+                    <label>Authenticator or recovery code <input name="secondFactor" autocomplete="one-time-code" required maxlength="32" /></label>
+                }
+                <label>New password <input type="password" name="newPassword" autocomplete="new-password" required minlength="12" maxlength="1024" /></label>
+                <label>Confirm new password <input type="password" name="confirmPassword" autocomplete="new-password" required minlength="12" maxlength="1024" /></label>
+                <button type="submit">Change password</button>
+            </form>
+        }
+
+        @if (Model.Enabled && !Model.ReadOnly)
+        {
+            <h2>Recovery codes</h2>
+            <p>Replacing the codes makes every existing code stop working. The new codes are shown once, and all sessions are signed out.</p>
+            <form method="post" action="/dashboard/security/recovery-codes">
+                @Html.AntiForgeryToken()
+                <label>Current password <input type="password" name="currentPassword" autocomplete="current-password" required maxlength="1024" /></label>
+                <label>Authenticator or recovery code <input name="secondFactor" autocomplete="one-time-code" required maxlength="32" /></label>
+                <button type="submit" class="secondary">Replace recovery codes</button>
+            </form>
+
+            <h2>Turn off two-factor sign-in</h2>
+            <p>Password login will then need only your password. All sessions are signed out.</p>
+            <form method="post" action="/dashboard/security/2fa/disable">
+                @Html.AntiForgeryToken()
+                <label>Current password <input type="password" name="currentPassword" autocomplete="current-password" required maxlength="1024" /></label>
+                <label>Authenticator or recovery code <input name="secondFactor" autocomplete="one-time-code" required maxlength="32" /></label>
+                <button type="submit" class="secondary">Turn off two-factor sign-in</button>
+            </form>
+        }
     }
-    else if (Model.Secret is not null)
-    {
-        <p>On a phone, open this link to add the account to your authenticator app: <a href="@Model.EnrollmentUri">Add to authenticator app</a></p>
-        <p>Or add the account manually with this secret, using time-based codes, SHA-1, six digits and a 30-second period.</p>
-        <div class="copy-row"><pre>@Model.Secret</pre><button type="button" class="secondary" data-copy-previous>Copy</button></div>
-        <p>The secret is not activated until you confirm a valid code. Enrollment expires after ten minutes.</p>
-        <form method="post" action="/dashboard/security/enroll">
-            @Html.AntiForgeryToken()
-            <input type="hidden" name="enrollment" value="@Model.Enrollment" />
-            <label>Current password <input type="password" name="password" autocomplete="current-password" required maxlength="1024" /></label>
-            <label>Authenticator code <input name="code" inputmode="numeric" autocomplete="one-time-code" required minlength="6" maxlength="6" /></label>
-            <button type="submit">Confirm and enable authenticator</button>
-        </form>
-    }
-    else { <a href="/dashboard/security">Start enrollment again</a> }
 </section>
 <script src="/owner-assets/m/manage.js" defer></script>

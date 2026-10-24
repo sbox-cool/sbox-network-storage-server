@@ -723,6 +723,9 @@ minutes. The server does not activate 2FA until confirmation succeeds.
 
 Save the ten recovery codes offline. Each works once. Enrollment and local
 reset invalidate existing owner sessions. Password reset does not remove 2FA.
+On this page, changing the password, replacing recovery codes and turning off two-factor
+sign-in each need your current password and a six-digit code or unused recovery code, and
+each signs out every session.
 With local server access, recover using `sbox-ns admin reset-2fa`.
 The authenticator is encrypted with a key kept in the data folder, which an
 export does not include. After a restore on another machine, sign-in says the
