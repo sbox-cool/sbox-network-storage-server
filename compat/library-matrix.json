@@ -338,6 +338,41 @@
       "engine": "0000000", "os": "Microsoft Windows 10.0.26100", "database": ["sqlite"], "result": "fail", "date": "2026-10-24",
       "evidence": ["https://github.com/sbox-cool/sbox-network-storage-server/actions/runs/40086448727", "https://github.com/sbox-cool/sbox-network-storage-server/releases/tag/v0.5.6"],
       "notes": "Unversioned r238672; 0.5.6 tagged source, engine fixture version 0.1.0-dev. Dedicated source engine Facepunch/sbox-public adc1e8a8378519518f92a695089d6a819fb964af, observed full build 0000000. Endpoint ping and secret-key failures occur on candidate and latest-release baseline; known failures, not a new regression or successful certification. No native editor or PostgreSQL-in-engine run."
+    },
+    {
+      "server": "0.1.0-dev", "commit": "01994503800aafec43bab1b74e392961eb1ec3c8", "kind": "self-hosted",
+      "library": "1.2.0", "librarySource": "git:ddf9b617c0c4fdf26c9c0e91c5cd34fa915b1750", "revision": 427072,
+      "engine": "0000000", "os": "Microsoft Windows 10.0.26100", "database": ["sqlite"], "result": "ci-only", "date": "2026-10-24",
+      "evidence": ["https://github.com/sbox-cool/sbox-network-storage-server/actions/runs/40089160089"],
+      "notes": "0.5.7 maintenance release source. Dedicated source-built Facepunch/sbox-public adc1e8a8378519518f92a695089d6a819fb964af. Observed server version is 0.1.0-dev, not the version-stamped downloadable archive. No native editor or PostgreSQL-in-engine run."
+    },
+    {
+      "server": "0.1.0-dev", "commit": "01994503800aafec43bab1b74e392961eb1ec3c8", "kind": "self-hosted",
+      "library": "1.1.0", "librarySource": "git:780d09cd12b7ac624f02246165564267ad77627f", "revision": 423774,
+      "engine": "0000000", "os": "Microsoft Windows 10.0.26100", "database": ["sqlite"], "result": "ci-only", "date": "2026-10-24",
+      "evidence": ["https://github.com/sbox-cool/sbox-network-storage-server/actions/runs/40089160089"],
+      "notes": "0.5.7 maintenance release source. Dedicated source-built Facepunch/sbox-public adc1e8a8378519518f92a695089d6a819fb964af. Observed server version is 0.1.0-dev, not the version-stamped downloadable archive. No native editor or PostgreSQL-in-engine run."
+    },
+    {
+      "server": "0.1.0-dev", "commit": "01994503800aafec43bab1b74e392961eb1ec3c8", "kind": "self-hosted",
+      "library": "git:026acfac737e351c4d58c5af2989d159c3a33fe3", "librarySource": "git:026acfac737e351c4d58c5af2989d159c3a33fe3", "revision": 422519,
+      "engine": "0000000", "os": "Microsoft Windows 10.0.26100", "database": ["sqlite"], "result": "ci-only", "date": "2026-10-24",
+      "evidence": ["https://github.com/sbox-cool/sbox-network-storage-server/actions/runs/40089160089"],
+      "notes": "Unversioned library against the 0.5.7 maintenance release source. Dedicated source-built Facepunch/sbox-public adc1e8a8378519518f92a695089d6a819fb964af. Observed server version is 0.1.0-dev, not the version-stamped downloadable archive. No native editor or PostgreSQL-in-engine run."
+    },
+    {
+      "server": "0.1.0-dev", "commit": "01994503800aafec43bab1b74e392961eb1ec3c8", "kind": "self-hosted",
+      "library": "1.2.0", "librarySource": "git:6efc43f065a348b38d51056bfccd162644d03de1",
+      "engine": "0000000", "os": "Microsoft Windows 10.0.26100", "database": ["sqlite"], "result": "ci-only", "date": "2026-10-24",
+      "evidence": ["https://github.com/sbox-cool/sbox-network-storage-server/actions/runs/40089160089", "https://github.com/sbox-cool/sbox-network-storage/issues/78"],
+      "notes": "Unpublished library main; no package revision assigned. 0.5.7 maintenance release source. Dedicated source-built Facepunch/sbox-public adc1e8a8378519518f92a695089d6a819fb964af. Observed server version is 0.1.0-dev, not the version-stamped downloadable archive. No native editor or PostgreSQL-in-engine run."
+    },
+    {
+      "server": "0.1.0-dev", "commit": "01994503800aafec43bab1b74e392961eb1ec3c8", "kind": "self-hosted",
+      "library": "git:5c33cb5556d23323fc78e33d5d51f2d4417e4fa0", "librarySource": "git:5c33cb5556d23323fc78e33d5d51f2d4417e4fa0", "revision": 238672,
+      "engine": "0000000", "os": "Microsoft Windows 10.0.26100", "database": ["sqlite"], "result": "fail", "date": "2026-10-24",
+      "evidence": ["https://github.com/sbox-cool/sbox-network-storage-server/actions/runs/40089160089"],
+      "notes": "Unversioned library against the 0.5.7 maintenance release source. Dedicated source-built Facepunch/sbox-public adc1e8a8378519518f92a695089d6a819fb964af. Observed server version is 0.1.0-dev. Same endpoint/secret-key checks fail on candidate and baseline; known failure, not certified. No native editor or PostgreSQL-in-engine run."
     }
   ]
 }
