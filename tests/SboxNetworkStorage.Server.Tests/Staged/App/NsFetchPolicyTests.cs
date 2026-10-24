@@ -206,6 +206,9 @@ public sealed class NsFetchPolicyTests
     [InlineData("240.0.0.1")]
     [InlineData("2001:db8::1")]
     [InlineData("ff02::1")]
+    [InlineData("64:ff9b:1::")]
+    [InlineData("64:ff9b:1::a9fe:a9fe")]
+    [InlineData("64:ff9b:1:ffff:ffff:ffff:ffff:ffff")]
     public void BlockedReason_ReservedAndMulticastAddress_IsAlwaysReservedAddress(string address)
     {
         Assert.Equal(FetchAddressRules.ReservedAddress, ReasonFor(address, allowPrivateNetworks: false));
@@ -233,6 +236,7 @@ public sealed class NsFetchPolicyTests
     [InlineData("::ffff:8.8.8.8")]
     [InlineData("64:ff9b::808:808")]
     [InlineData("2002:808:808::")]
+    [InlineData("64:ff9b:2::1")]
     public void BlockedReason_PublicAddress_ReturnsNull(string address)
     {
         Assert.Null(ReasonFor(address, allowPrivateNetworks: false));

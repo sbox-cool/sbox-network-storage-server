@@ -86,6 +86,10 @@ The second argument. Its type is `Ns` in `ns.d.ts`.
 Writes made by a script apply when the endpoint returns normally. A request
 that ends with `ns.fail` does not keep its writes.
 
+Script record keys are literal: `item` and `item_default` name different records, just as in
+the document API and owner console. No `_default` suffix is stripped by `get`, `put` or
+`delete`. Legacy YAML read/write steps keep their historical `_default` key normalization.
+
 ## Outbound HTTP: `ns.fetch`
 
 `ns.fetch(url, options?)` calls an outside HTTP or HTTPS host. The owner lists the allowed hosts for each project under **Script fetch (ns.fetch)** ([admin-panel.md](admin-panel.md#script-fetch-nsfetch)). A project with no listed host refuses every call. The operator setting `endpoints.fetch_private_networks` is in [configuration.md](configuration.md#scripted-endpoints). The types `FetchOptions`, `FetchResponse` and `FetchError` are in [`ns.d.ts`](/owner-assets/endpoint-api/ns.d.ts).
@@ -174,6 +178,8 @@ Address rules apply to every resolved address on every hop:
 | Private, loopback and link-local | `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `100.64.0.0/10`, `127.0.0.0/8`, `169.254.0.0/16`, `::1/128`, `fc00::/7`, `fe80::/10`, `fec0::/10` | Unless `endpoints.fetch_private_networks` is true | `private_address` |
 
 An IPv4 address inside an IPv4-mapped IPv6 address, a NAT64 address (`64:ff9b::/96`) or a 6to4 address (`2002::/16`) is checked as IPv4. Metadata is checked before private, so `169.254.169.254` reports `metadata_address`.
+The local-use NAT64 prefix `64:ff9b:1::/48` is always refused as `reserved_address`, even when
+private networks are enabled; its deployment-specific translation cannot bypass metadata checks.
 
 ### Limits, errors and the 502 rule
 

@@ -246,11 +246,10 @@ public sealed class ModuleInstaller(
         if (installed is null) return new ModuleInstallResult(false, "The module is not installed.", null);
         if (!TryCompileModule(module, out var compiled, out var compileError))
             return new ModuleInstallResult(false, compileError, null);
-        var conflicts = await FindConflictsAsync(projectId, module, compiled, excludeOwner: moduleId, ct);
-        if (conflicts.Count > 0) return ConflictFailure(conflicts);
-        await DeleteOwnedDefinitionsAsync(projectId, installed, keepValues: false, ct);
-        var upgraded = await WriteDefinitionsAsync(userId, projectId, module, compiled,
+        var replacement = await ReplaceDefinitionsAsync(userId, projectId, installed, module, compiled,
             ResolveSettings(module, installed.Settings, explicitValues: null), ct);
+        if (!replacement.Ok) return replacement;
+        var upgraded = replacement.Installed!;
         upgraded = installed.Enabled ? upgraded : upgraded with { Enabled = false };
         var modules = state.Modules.Select(candidate => candidate.Id == moduleId ? upgraded : candidate).ToList();
         var pending = state.PendingUpgrades.Where(candidate => candidate.Id != moduleId).ToList();
@@ -267,11 +266,10 @@ public sealed class ModuleInstaller(
         var newPermissions = NewPermissions(installed.Permissions, module.Permissions);
         if (newPermissions.Count == 0)
         {
-            var conflicts = await FindConflictsAsync(projectId, module, compiled, excludeOwner: module.Id, ct);
-            if (conflicts.Count > 0) return ConflictFailure(conflicts);
-            await DeleteOwnedDefinitionsAsync(projectId, installed, keepValues: false, ct);
-            var upgraded = await WriteDefinitionsAsync(userId, projectId, module, compiled,
+            var replacement = await ReplaceDefinitionsAsync(userId, projectId, installed, module, compiled,
                 ResolveSettings(module, installed.Settings, settings), ct);
+            if (!replacement.Ok) return replacement;
+            var upgraded = replacement.Installed!;
             upgraded = installed.Enabled ? upgraded : upgraded with { Enabled = false };
             var modules = state.Modules.Select(candidate => candidate.Id == module.Id ? upgraded : candidate).ToList();
             await states.SaveAsync(userId, projectId, new ModuleProjectState(modules, state.PendingUpgrades), ct);
@@ -475,31 +473,73 @@ public sealed class ModuleInstaller(
         return payload;
     }
 
-    private async Task DeleteOwnedDefinitionsAsync(string projectId, InstalledModule installed, bool keepValues, CancellationToken ct)
+    private async Task<ModuleInstallResult> ReplaceDefinitionsAsync(long userId, string projectId,
+        InstalledModule installed, CatalogModule module, IReadOnlyList<JsonElement> compiled,
+        Dictionary<string, string> settings, CancellationToken ct)
     {
-        foreach (var name in installed.Endpoints) await store.DeleteEndpointAsync(projectId, name, ct);
-        foreach (var name in installed.Workflows) await store.DeleteWorkflowAsync(projectId, name, ct);
-        foreach (var name in installed.Queries) await store.DeleteQueryAsync(projectId, name, ct);
-        foreach (var name in installed.Collections) await store.DeleteCollectionAsync(projectId, name, ct);
-        if (!keepValues && installed.ValuesItems.Count > 0)
+        await using var transaction = await store.BeginTransactionAsync(ct);
+        var bound = new ModuleInstaller(transaction.Store, workspace, states, audit, time);
+        var conflicts = await bound.FindConflictsAsync(projectId, module, compiled, module.Id, ct);
+        if (conflicts.Count > 0) return ConflictFailure(conflicts);
+        conflicts = await bound.DeleteOwnedDefinitionsAsync(projectId, installed, ct);
+        if (conflicts.Count > 0) return ConflictFailure(conflicts);
+        var upgraded = await bound.WriteDefinitionsAsync(userId, projectId, module, compiled, settings, ct);
+        await transaction.CommitAsync(ct);
+        return new ModuleInstallResult(true, null, upgraded);
+    }
+
+    private async Task<IReadOnlyList<ModuleConflict>> DeleteOwnedDefinitionsAsync(string projectId, InstalledModule installed, CancellationToken ct)
+    {
+        var conflicts = new List<ModuleConflict>();
+        foreach (var name in installed.Endpoints)
+        {
+            var row = await store.ReadEndpointAsync(projectId, name, ct);
+            if (!row.HasValue) continue;
+            if (ModuleOwnership.OwnedBy(DefinitionOf(row.Value), installed.Id))
+                await store.DeleteEndpointAsync(projectId, name, ct);
+            else conflicts.Add(new ModuleConflict("endpoint", name, "The installed definition is no longer owned by this module."));
+        }
+        foreach (var name in installed.Workflows)
+        {
+            var row = await store.ReadWorkflowAsync(projectId, name, ct);
+            if (!row.HasValue) continue;
+            if (ModuleOwnership.OwnedBy(DefinitionOf(row.Value), installed.Id))
+                await store.DeleteWorkflowAsync(projectId, name, ct);
+            else conflicts.Add(new ModuleConflict("workflow", name, "The installed definition is no longer owned by this module."));
+        }
+        foreach (var name in installed.Queries)
+        {
+            var row = await store.ReadQueryAsync(projectId, name, ct);
+            if (!row.HasValue) continue;
+            if (ModuleOwnership.OwnedBy(DefinitionOf(row.Value), installed.Id))
+                await store.DeleteQueryAsync(projectId, name, ct);
+            else conflicts.Add(new ModuleConflict("query", name, "The installed definition is no longer owned by this module."));
+        }
+        foreach (var name in installed.Collections)
+        {
+            var row = await store.ReadCollectionAsync(projectId, name, ct);
+            if (!row.HasValue) continue;
+            if (ModuleOwnership.OwnedBy(DefinitionOf(row.Value), installed.Id))
+                await store.DeleteCollectionAsync(projectId, name, ct);
+            else conflicts.Add(new ModuleConflict("collection", name, "The installed definition is no longer owned by this module."));
+        }
+        if (conflicts.Count > 0) return conflicts;
+        if (installed.ValuesItems.Count > 0)
         {
             var payload = await ReadValuesPayloadAsync(projectId, ct);
             if (payload.HasValue)
                 await store.UpsertGameValuesAsync(projectId, RemoveValuesItems(payload.Value, installed.ValuesItems), versionHash: null, NextVersion(), ct);
         }
+        return conflicts;
     }
 
     private async Task DeleteCollectionDataAsync(string projectId, string collectionId, CancellationToken ct)
     {
-        var keys = (await store.ListRecordsAsync(projectId, collectionId, ct))
-            .Select(row => row.ValueKind == JsonValueKind.Object && row.TryGetProperty("record_key", out var key)
-                && key.ValueKind == JsonValueKind.String ? key.GetString() : null)
-            .Where(key => key is not null)
-            .Cast<string>()
-            .Take(10_000)
-            .ToList();
-        foreach (var key in keys)
+        foreach (var row in await store.ListRecordsAsync(projectId, collectionId, ct))
         {
+            if (row.ValueKind != JsonValueKind.Object || !row.TryGetProperty("record_key", out var id)
+                || id.ValueKind != JsonValueKind.String) continue;
+            var key = id.GetString()!;
             await store.DeleteLedgerEntriesAsync(projectId, collectionId, key, ct);
             await store.DeleteRecordAsync(projectId, collectionId, key, ct);
         }

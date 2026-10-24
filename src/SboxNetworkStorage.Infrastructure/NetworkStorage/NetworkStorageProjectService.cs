@@ -31,7 +31,8 @@ public sealed class NetworkStorageProjectService(
     INetworkStorageStore networkStore,
     ILogger<NetworkStorageProjectService> logger,
     IApiKeyCacheInvalidator? keyCache = null,
-    IWebhookOutboxStore? webhookOutbox = null)
+    IWebhookOutboxStore? webhookOutbox = null,
+    IMediaBlobStore? mediaBlobs = null)
     : INetworkStorageProjectService
 {
     // Most-recent audit-log entries pulled from the store for the dashboard
@@ -444,22 +445,56 @@ public sealed class NetworkStorageProjectService(
 
     public async Task DeleteProjectAsync(long storageOwnerUserId, string projectId, CancellationToken cancellationToken)
     {
+        if (!StorageIdValidation.IsValidCollectionId(projectId))
+            throw new ArgumentException("Invalid project ID.", nameof(projectId));
         var projects = await workspaceStore.GetUserProjectsAsync(storageOwnerUserId, cancellationToken);
-        if (!projects.Any(p => string.Equals(p.Id, projectId, StringComparison.OrdinalIgnoreCase))) return;
-        // The authoritative row and its secret rows must disappear together. The FK also serialises deletion
-        // against secret creation, so a racing owner POST cannot leave an orphaned credential.
+        // Keep external-blob cleanup retryable across a crash or storage outage without retaining credentials.
+        var cleanupPath = $"network-storage/deletions/{storageOwnerUserId}/{projectId}.json";
+        var cleanup = await workspaceStore.GetRawAsync<ProjectDeletionCleanup>(cleanupPath, cancellationToken);
+        if (cleanup is null)
+        {
+            if (!projects.Any(p => string.Equals(p.Id, projectId, StringComparison.Ordinal))) return;
+            var media = networkStore is IMediaStore mediaStore
+                ? await mediaStore.ListMediaObjectsAsync(projectId, cancellationToken) : [];
+            var keys = await networkStore.ListApiKeysAsync(projectId, cancellationToken);
+            cleanup = new ProjectDeletionCleanup(
+                media.Select(row => row.Sha256).Distinct(StringComparer.Ordinal).ToArray(),
+                keys.Where(row => ReadJsonString(row, "key_type") == "public")
+                    .Select(row => ReadJsonString(row, "api_key")).ToArray());
+            await workspaceStore.PutRawAsync(cleanupPath, cleanup, cancellationToken);
+        }
+        if (cleanup.BlobHashes.Length > 0 && mediaBlobs is null)
+            throw new InvalidOperationException("The media blob store is required to delete this project's data.");
+        if (webhookOutbox is not null)
+            await webhookOutbox.CancelPendingAsync(projectId, "project deleted", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), cancellationToken);
         await using (var transaction = await networkStore.BeginTransactionAsync(cancellationToken))
         {
             await transaction.Store.DeleteProjectAsync(projectId, cancellationToken);
-            await transaction.Store.DeleteProjectMembershipAsync(storageOwnerUserId.ToString(CultureInfo.InvariantCulture), projectId, cancellationToken);
             await transaction.CommitAsync(cancellationToken);
         }
         keyCache?.InvalidateProjectKeys(projectId);
-        var updated = projects.Where(p => !string.Equals(p.Id, projectId, StringComparison.OrdinalIgnoreCase)).ToList();
+        var updated = projects.Where(p => !string.Equals(p.Id, projectId, StringComparison.Ordinal)).ToList();
         await workspaceStore.SaveUserProjectsAsync(storageOwnerUserId, updated, cancellationToken);
-        // Queued sends for a deleted project must not go out after the project is gone.
-        if (webhookOutbox is not null)
-            await webhookOutbox.CancelPendingAsync(projectId, "project deleted", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), cancellationToken);
+        foreach (var sha256 in cleanup.BlobHashes)
+            await mediaBlobs!.DeleteAsync(projectId, sha256, cancellationToken);
+        await DeleteWorkspaceTreeAsync($"network-storage/users/{storageOwnerUserId}/{projectId}/", cancellationToken);
+        await DeleteWorkspaceTreeAsync($"network-storage/keys/projects/{projectId}/", cancellationToken);
+        await DeleteWorkspaceTreeAsync($"network-storage-api/keys/projects/{projectId}/", cancellationToken);
+        foreach (var key in cleanup.PublicKeys)
+            await workspaceStore.DeleteRawAsync($"network-storage/keys/{key}.json", cancellationToken);
+        await workspaceStore.DeleteRawAsync(cleanupPath, cancellationToken);
+    }
+
+    private sealed record ProjectDeletionCleanup(string[] BlobHashes, string[] PublicKeys);
+
+    private async Task DeleteWorkspaceTreeAsync(string prefix, CancellationToken ct)
+    {
+        foreach (var entry in await networkStore.ListWorkspaceObjectsAsync(prefix, ct))
+        {
+            var path = prefix + entry.Name;
+            if (entry.IsDirectory) await DeleteWorkspaceTreeAsync(path + "/", ct);
+            else await networkStore.DeleteWorkspaceObjectAsync(path, ct);
+        }
     }
 
     // ── Settings ──

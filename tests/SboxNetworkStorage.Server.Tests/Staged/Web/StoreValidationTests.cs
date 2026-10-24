@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json;
 using Xunit;
 using SboxNetworkStorage.Infrastructure.NetworkStorage.Storage;
+using SboxNetworkStorage.Storage;
 
 namespace SboxNetworkStorage.Server.Tests;
 
@@ -17,6 +18,17 @@ public class StoreValidationTests
         await store.UpsertProjectAsync("proj-1", PayloadJson, 1, CancellationToken.None);
         var result = await store.ReadProjectAsync("proj-1", CancellationToken.None);
         Assert.NotNull(result);
+    }
+
+    [Fact]
+    public async Task FakeStore_RejectsIdentifiersWithTrailingNewline()
+    {
+        Assert.False(StorageIdValidation.IsValidCollectionId("collection\n"));
+        Assert.False(StorageIdValidation.IsValidRecordKey("key\n"));
+
+        var store = new InMemoryNetworkStorageStore();
+        await Assert.ThrowsAsync<ArgumentException>(() => store.UpsertProjectAsync("proj-1\n", PayloadJson, 1, CancellationToken.None));
+        await Assert.ThrowsAsync<ArgumentException>(() => store.UpsertRecordAsync("proj-1", "col-1", "key-1\n", PayloadJson, false, 1, CancellationToken.None));
     }
 
     [Fact]

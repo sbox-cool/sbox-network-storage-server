@@ -14,7 +14,7 @@ namespace SboxNetworkStorage.Server.Tests;
 /// deny even when the caller reports an old revision, and player blocks
 /// enforce write/all scopes with secret-key exemption.
 /// </summary>
-public sealed class ModuleSecurityHttpTests(SqliteHostFactory factory) : IClassFixture<SqliteHostFactory>
+public abstract class ModuleSecurityHttpTests<TFactory>(TFactory factory) : IClassFixture<TFactory> where TFactory : SelfHostFactory
 {
     private const string Player = "76561198000000001";
 
@@ -70,6 +70,44 @@ public sealed class ModuleSecurityHttpTests(SqliteHostFactory factory) : IClassF
 
         using var secret = await PostAsync(client, project.ProjectId, project.SecretKey, "economy_earn", new { amount = 10 }, secret: true);
         Assert.Equal(HttpStatusCode.OK, secret.StatusCode);
+    }
+
+    [SkippableTheory]
+    [InlineData("javascript")]
+    [InlineData("typescript")]
+    [InlineData("workflow")]
+    public async Task Writes_block_covers_scripted_and_workflow_calls_without_mutating_records(string runtime)
+    {
+        Skip.IfNot(factory.IsAvailable, factory.SkipReason);
+        var project = await factory.CreateProjectAsync("Indirect Writes");
+        var store = factory.Services.GetRequiredService<INetworkStorageStore>();
+        var workflow = JsonSerializer.SerializeToElement(new
+        {
+            steps = new[] { new { id = "save", type = "write", collection = "players", key = "blocked_record",
+                ops = new[] { new { op = "set", path = "value", value = 2 } } } }
+        });
+        await store.UpsertWorkflowAsync(project.ProjectId, "save", "save", workflow, null, 1, default);
+        var definition = runtime == "workflow"
+            ? JsonSerializer.SerializeToElement(new { steps = new[] { new { id = "delegate", type = "workflow", workflow = "save" } } })
+            : JsonSerializer.SerializeToElement(new { runtime, script = "export default function handle(req, ns) { ns.records.put('players', 'blocked_record', { value: 2 }); return { ok: true }; }" });
+        await store.UpsertEndpointAsync(project.ProjectId, "indirect", "indirect", "POST", true, definition, null, 1, default);
+        await store.UpsertRecordAsync(project.ProjectId, "players", "blocked_record",
+            JsonSerializer.SerializeToElement(new { value = 1 }), false, 1, default);
+        await factory.Services.GetRequiredService<PlayerBlockService>().BlockAsync(project.ProjectId, Player,
+            PlayerBlockService.WritesScope, "blocked", null, "owner", default);
+
+        using var client = factory.CreateClient();
+        using var blocked = await PostAsync(client, project.ProjectId, project.PublicKey, "indirect", new { });
+        Assert.Equal(HttpStatusCode.Forbidden, blocked.StatusCode);
+        var error = await blocked.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("PLAYER_BLOCKED", error.GetProperty("error").GetProperty("code").GetString());
+        var unchanged = await store.ReadRecordAsync(project.ProjectId, "players", "blocked_record", default);
+        Assert.Equal(1, unchanged!.Value.GetProperty("payload_json").GetProperty("value").GetInt32());
+
+        using var trusted = await PostAsync(client, project.ProjectId, project.SecretKey, "indirect", new { }, secret: true);
+        Assert.Equal(HttpStatusCode.OK, trusted.StatusCode);
+        var written = await store.ReadRecordAsync(project.ProjectId, "players", "blocked_record", default);
+        Assert.Equal(2, written!.Value.GetProperty("payload_json").GetProperty("value").GetInt32());
     }
 
     [SkippableFact]
@@ -190,3 +228,6 @@ public sealed class ModuleSecurityHttpTests(SqliteHostFactory factory) : IClassF
         return await client.SendAsync(request);
     }
 }
+
+public sealed class SqliteModuleSecurityHttpTests(SqliteHostFactory factory) : ModuleSecurityHttpTests<SqliteHostFactory>(factory);
+public sealed class PostgresModuleSecurityHttpTests(PostgresHostFactory factory) : ModuleSecurityHttpTests<PostgresHostFactory>(factory);

@@ -54,6 +54,10 @@ public sealed class StoreStorageApiKeyResolver(
             return null;
         try
         {
+            // Check the authoritative parent even on a key-cache hit. Another server process
+            // may have deleted the project; a cached key must not resurrect its data.
+            if (await store.ReadProjectAsync(projectId, cancellationToken).ConfigureAwait(false) is null)
+                return null;
             return apiKey.StartsWith("sbox_sk_", StringComparison.Ordinal)
                 ? await ResolveSecretKeyAsync(apiKey, projectId, cancellationToken).ConfigureAwait(false)
                 : await ResolvePublicKeyAsync(apiKey, projectId, cancellationToken).ConfigureAwait(false);

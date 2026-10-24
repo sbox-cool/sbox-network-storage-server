@@ -57,6 +57,9 @@ public abstract class SelfHostFactory : IDisposable
 
         Directory.CreateDirectory(Path.Combine(_root, "config"));
         Directory.CreateDirectory(Path.Combine(_root, "data"));
+        // Rotation tests mutate this keyring; only the immutable seed is shared across hosts.
+        File.Copy(Path.Combine(SharedSecretsDirectory, "request_encryption_keys.json"),
+            Path.Combine(_root, "config", "request_encryption_keys.json"));
         if (driver == StoreDriver.Postgres)
         {
             _defaultSchema = NewSchemaName();
@@ -288,7 +291,7 @@ public abstract class SelfHostFactory : IDisposable
             ["auth.session_secret_file"] = Path.Combine(SharedSecretsDirectory, "auth_session_secret"),
             ["auth.storage_encryption_key_file"] = Path.Combine(SharedSecretsDirectory, "storage_encryption_key"),
             ["auth.security_signing_key_file"] = Path.Combine(SharedSecretsDirectory, "security_signing_key.pem"),
-            ["auth.request_encryption_keys_file"] = Path.Combine(SharedSecretsDirectory, "request_encryption_keys.json"),
+            ["auth.request_encryption_keys_file"] = Path.Combine(_root, "config", "request_encryption_keys.json"),
         };
         if (Driver == StoreDriver.Postgres)
         {
@@ -332,8 +335,8 @@ public abstract class SelfHostFactory : IDisposable
     }
 
     /// <summary>
-    /// The security-config signer reads its key from a process-wide environment variable,
-    /// so every host in the test run shares one set of secrets, generated once up front.
+    /// The security-config signer uses shared signing material. Generate the other initial secrets once too;
+    /// each host copies the request-encryption keyring before any rotation can mutate it.
     /// </summary>
     private static string CreateSharedSecretsDirectory()
     {

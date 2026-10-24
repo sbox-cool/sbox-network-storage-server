@@ -293,18 +293,16 @@ public sealed partial class EndpointExecutor
         object? ReadRecord(string collection, string key)
         {
             var cid = Cid(collection);
-            var rk = ResolveRecordKey(key);
-            var cacheKey = RecordCacheKey(cid, rk);
+            var cacheKey = RecordCacheKey(cid, key);
             if (round.Writes.TryGetValue(cacheKey, out var written)) return written;
             if (state.Records.TryGetValue(cacheKey, out var stored)) return stored;
-            round.MissedRecords.TryAdd(cacheKey, (cid, rk));
+            round.MissedRecords.TryAdd(cacheKey, (cid, key));
             return null;
         }
 
         void Stage(string collection, string key, Dictionary<string, object?>? data, bool isDelete)
         {
             var cid = Cid(collection);
-            var rk = ResolveRecordKey(key);
             if (round.DurableWrites.Count >= MaxStagedWrites)
                 throw new ScriptLimitExceededException($"The endpoint wrote more than {MaxStagedWrites} records in one run.");
             if (data is not null)
@@ -313,8 +311,8 @@ public sealed partial class EndpointExecutor
                 if (round.StagedBytes > MaxStagedBytes)
                     throw new ScriptLimitExceededException($"The endpoint staged more than {MaxStagedBytes} bytes of record data in one run.");
             }
-            round.Writes[RecordCacheKey(cid, rk)] = data;
-            round.DurableWrites.Add((cid, rk, data, isDelete));
+            round.Writes[RecordCacheKey(cid, key)] = data;
+            round.DurableWrites.Add((cid, key, data, isDelete));
             round.TraceWrites.Add(new EndpointTraceWrite(collection, key, data, isDelete));
         }
 

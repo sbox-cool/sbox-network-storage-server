@@ -28,6 +28,14 @@ with every flag; this page groups the commands and links the guides. Every comma
 | `admin create` / `admin reset-password` / `admin reset-2fa` | Manage the local owner. |
 | `adminpanel disable\|enable` | Turn the owner console off or on; game APIs stay available. |
 
+`project delete <projectId>` atomically removes the project's database rows and
+revokes its keys, including keys cached by another running server. It then removes
+media blobs and project/key workspace files. If blob or workspace storage is
+unavailable, fix that storage and repeat the same command with the original ID;
+a persisted cleanup journal lets deletion finish even after a restart or after
+the project disappears from `project list`. Repeating a completed deletion is safe.
+Finish cleanup before importing an archive with that project ID.
+
 ## HTTPS and network
 
 | Command | Purpose |
