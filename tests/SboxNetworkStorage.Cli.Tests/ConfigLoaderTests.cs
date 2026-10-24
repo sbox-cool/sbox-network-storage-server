@@ -127,6 +127,33 @@ public sealed class ConfigLoaderTests : IDisposable
         Assert.Equal(valid, config.IsValid);
     }
 
+    [Theory]
+    [InlineData("203.0.113.5, 2001:db8::/32", true)]
+    [InlineData("", true)]
+    [InlineData("0.0.0.0/0", false)]
+    [InlineData("::/0", false)]
+    [InlineData("example.com", false)]
+    [InlineData("10.0.0.0/33", false)]
+    [InlineData("203.0.113.0/24, bogus", false)]
+    public void Trusted_proxies_must_be_addresses_or_networks(string value, bool valid)
+    {
+        var config = Load(flags: new Dictionary<string, string> { ["server.trusted_proxies"] = value });
+
+        Assert.Equal(valid, config.IsValid);
+    }
+
+    [Theory]
+    [InlineData("0", false)]
+    [InlineData("1", true)]
+    [InlineData("10", true)]
+    [InlineData("11", false)]
+    public void Trusted_proxy_hops_must_be_between_one_and_ten(string value, bool valid)
+    {
+        var config = Load(flags: new Dictionary<string, string> { ["server.trusted_proxy_hops"] = value });
+
+        Assert.Equal(valid, config.IsValid);
+    }
+
     [Fact]
     public void Invalid_environment_value_is_reported_with_variable_name()
     {

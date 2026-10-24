@@ -58,16 +58,7 @@ public static class ServerHost
         ConfigureKestrel(builder, config);
         builder.Host.UseWindowsService(o => o.ServiceName = "sbox-ns");
 
-        builder.Services.Configure<ForwardedHeadersOptions>(o =>
-        {
-            // Only loopback proxies (the default) are trusted, so clients cannot spoof their address.
-            o.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
-            o.KnownNetworks.Clear();
-            o.KnownProxies.Clear();
-            o.KnownProxies.Add(System.Net.IPAddress.Loopback);
-            o.KnownProxies.Add(System.Net.IPAddress.IPv6Loopback);
-            o.ForwardLimit = 1;
-        });
+        builder.Services.Configure<ForwardedHeadersOptions>(o => TrustedProxies.Apply(o, config));
         builder.Services.AddNetworkStorageServer(config);
         builder.Services.AddRequestLimits(config);
         builder.Services.AddOwnerManagement(config);
@@ -94,8 +85,8 @@ public static class ServerHost
         // Explicit v3 aliases and version-aware legacy storage dispatch run before routing.
         app.UseMiddleware<ApiRootRewriteMiddleware>();
         app.UseMiddleware<CompatHeadersMiddleware>();
-        app.UseMiddleware<ClientAddressMiddleware>();
         app.UseForwardedHeaders();
+        app.UseMiddleware<ClientAddressMiddleware>();
         app.UseMiddleware<HstsMiddleware>();
         app.UseMiddleware<CorrelationIdMiddleware>();
         app.UseMiddleware<ExceptionHandlingMiddleware>();

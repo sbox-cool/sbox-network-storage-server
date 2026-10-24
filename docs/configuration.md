@@ -24,7 +24,7 @@ CIDRs, for example `"127.0.0.1,::1,192.0.2.0/24"`. An empty string permits
 all addresses. Restrictions apply before authentication and CSRF to every
 owner controller route. The policy uses only trusted `Connection.RemoteIpAddress`
 and never reads raw visitor headers. The server's existing forwarded-header
-middleware trusts only loopback proxies, with a one-hop limit. Through a local
+middleware trusts only loopback proxies, plus `server.trusted_proxies`, and reads at most `server.trusted_proxy_hops` entries (default 1). Through a local
 connector this may be the forwarded visitor address; without trusted forwarding
 it is the connector's address. `CF-Connecting-IP` is not used by this policy.
 Do not expose a loopback-origin listener through an untrusted local proxy.
@@ -33,8 +33,9 @@ Do not expose a loopback-origin listener through an untrusted local proxy.
 server refuses owner passwords, login links and the setup form when they arrive
 over plain HTTP from another machine, and shows a page that explains the safe
 ways in: an SSH port forward, `sbox-ns tunnel enable`, or TLS. Loopback
-requests and HTTPS (including a TLS proxy on loopback that sends
-`X-Forwarded-Proto: https`) are not affected. Plain HTTP is an explicit opt-in for
+requests and HTTPS (including a TLS proxy that is loopback or listed in
+`server.trusted_proxies`, and sends `X-Forwarded-Proto: https`) are not affected.
+Plain HTTP is an explicit opt-in for
 operators with no domain (or sboxns.com name) and no SSH access: `sbox-ns setup`
 asks the questions and `sbox-ns setup --allow-http` (also accepted by `quickstart`)
 answers yes. It is fine for development and early game publishing, but your
@@ -254,6 +255,16 @@ public_url = ""
 # otherwise <install dir>/data. Docker sets /data through NS_DATA_DIR.
 data_dir = ""
 
+# Reverse proxies on other machines whose X-Forwarded-For and X-Forwarded-Proto
+# headers are trusted, in addition to loopback. Comma-separated IPv4/IPv6
+# addresses or CIDR networks, for example "203.0.113.10, 10.0.0.0/8". Empty
+# trusts loopback only.
+trusted_proxies = ""
+
+# Forwarded entries read from X-Forwarded-For, nearest proxy first (1 to 10).
+# Set it to the number of trusted proxies between clients and this server.
+trusted_proxy_hops = 1
+
 [tls]
 # "off"          plain HTTP only (default)
 # "certificate"  serve HTTPS with the PEM files below
@@ -333,12 +344,51 @@ request_encryption_keys_file = "secrets/request_encryption_keys.json"
 security_signing_key_id = ""
 ```
 
+### Reverse proxies and forwarded headers
+
+The server reads `X-Forwarded-Proto` and `X-Forwarded-For` only from a trusted
+peer: loopback always, plus the addresses and networks in
+`server.trusted_proxies`. Other peers keep their connection address and their
+forwarding headers are ignored. Trusted values are applied before the client
+address is used for owner access, rate limits and the HTTPS-only policy.
+
+`server.trusted_proxy_hops` (default 1, range 1 to 10) bounds how many
+`X-Forwarded-For` entries are read, nearest proxy first. Set it to the number of
+trusted proxies between clients and this server. Out-of-range values stop startup.
+
+- **Proxy on the same machine** (Caddy, nginx, Cloudflare Tunnel) connects from
+  loopback. No setting is needed; keep `listen` on `127.0.0.1`.
+- **Docker, proxy on the Docker host.** A published container port is reached
+  from the bridge gateway, not loopback. Publish on loopback only and trust the
+  gateway (usually `172.17.0.1` on the default bridge; check with
+  `docker network inspect bridge`):
+  ```sh
+  docker run -d --name sbox-ns -p 127.0.0.1:8080:8080 \
+    -e NS_SERVER__TRUSTED_PROXIES=172.17.0.1 \
+    -v sbox-ns-config:/config -v sbox-ns-data:/data \
+    ghcr.io/sbox-cool/sbox-network-storage-server:latest
+  ```
+  A wider publish would let other hosts arrive from the gateway address and
+  forge forwarded headers.
+- **Proxy on another machine**, for example nginx at `203.0.113.10`:
+  ```toml
+  [server]
+  listen = "10.0.0.5:8080"
+  trusted_proxies = "203.0.113.10"
+  trusted_proxy_hops = 1
+  ```
+  The proxy must send `proxy_set_header X-Forwarded-Proto $scheme;` and
+  `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;`. Firewall the
+  server port so only the proxy can reach it: a host that connects directly from
+  a listed address can set these headers.
+
 ### Request limits
 
 Body size limits and per-client rate limits belong to `server.toml`. Size keys
 are in KiB; rate keys count requests. The limits apply per client address, taken
-from the connection. `X-Forwarded-For` is honoured only from a proxy on the same
-machine, and `CF-Connecting-IP` only from the local tunnel connector while
+from the connection. `X-Forwarded-For` is honoured only from a trusted proxy
+(loopback, or an address in `server.trusted_proxies`), and `CF-Connecting-IP` only
+from the local tunnel connector while
 `tunnel.enabled` is true; any other client-supplied forwarding header is ignored.
 
 | Key | Default | Meaning |

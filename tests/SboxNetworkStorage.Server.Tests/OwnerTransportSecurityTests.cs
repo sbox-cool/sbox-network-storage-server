@@ -129,6 +129,32 @@ public sealed class OwnerTransportSecurityTests : IDisposable
         Assert.Contains(SetCookies(response), cookie => cookie.StartsWith("__Host-" + OwnerHostingExtensions.AuthCookieName + "=", StringComparison.Ordinal));
     }
 
+    [Theory]
+    [InlineData("https", true)]
+    [InlineData("http", false)]
+    public async Task TrustedRemoteProxyCountsAsHttpsOnlyWhenItForwardsHttps(string forwardedProto, bool accepted)
+    {
+        using var trusted = new ConfiguredSqliteHostFactory(("server.trusted_proxies", "203.0.113.0/24"));
+        await CreateOwnerAsync(trusted);
+        using var client = trusted.CreateClient(new Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactoryClientOptions
+        { AllowAutoRedirect = false, HandleCookies = false, BaseAddress = new Uri("http://localhost") });
+        client.DefaultRequestHeaders.Add("X-Forwarded-Proto", forwardedProto);
+
+        using var page = await SendAsync(client, HttpMethod.Get, "/login", "203.0.113.5");
+        Assert.Equal(accepted ? HttpStatusCode.OK : HttpStatusCode.Forbidden, page.StatusCode);
+    }
+
+    [Fact]
+    public async Task UntrustedRemoteCannotClaimHttpsThroughForwardedProto()
+    {
+        using var client = factory.CreateClient(new Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactoryClientOptions
+        { AllowAutoRedirect = false, HandleCookies = false, BaseAddress = new Uri("http://localhost") });
+        client.DefaultRequestHeaders.Add("X-Forwarded-Proto", "https");
+
+        using var page = await SendAsync(client, HttpMethod.Get, "/login", Remote);
+        Assert.Equal(HttpStatusCode.Forbidden, page.StatusCode);
+    }
+
     [Fact]
     public async Task RemoteHttpsLoginIsAccepted()
     {

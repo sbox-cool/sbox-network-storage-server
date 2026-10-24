@@ -209,6 +209,12 @@ config from `/config` and stores data in `/data`. It has no shell; use
 can also be passed as an `NS_` environment variable, for example
 `-e NS_DATABASE__PROVIDER=postgres`.
 
+Behind a reverse proxy on the Docker host, publish the port on loopback only
+(`-p 127.0.0.1:8080:8080`) and trust the bridge gateway, usually `172.17.0.1`,
+with `-e NS_SERVER__TRUSTED_PROXIES=172.17.0.1`. See
+[configuration.md](configuration.md#reverse-proxies-and-forwarded-headers) for
+the details and the remote-proxy example.
+
 Docker Compose with PostgreSQL:
 
 ```yaml
