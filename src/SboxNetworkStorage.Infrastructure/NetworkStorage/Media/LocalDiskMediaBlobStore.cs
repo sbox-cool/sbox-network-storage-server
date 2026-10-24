@@ -7,7 +7,8 @@ namespace SboxNetworkStorage.Infrastructure.NetworkStorage.Media;
 /// <summary>
 /// Content-addressed blobs on local disk at <c>{root}/{projectId}/{sha256}</c>. Both path segments are
 /// validated against strict patterns before use, so a caller can never name a path outside <c>root</c>.
-/// Writes go to a temp file that is moved into place, so a reader never sees a partial blob.
+/// Writes go to a temp file that is moved into place, so a reader never sees a partial blob. Concurrent
+/// writers for the same content keep the first completed file rather than replacing a file readers may hold.
 /// </summary>
 public sealed class LocalDiskMediaBlobStore : IMediaBlobStore
 {
@@ -32,7 +33,18 @@ public sealed class LocalDiskMediaBlobStore : IMediaBlobStore
         try
         {
             await File.WriteAllBytesAsync(temp, bytes, ct);
-            File.Move(temp, target, overwrite: true);
+            try
+            {
+                File.Move(temp, target);
+            }
+            catch (IOException) when (File.Exists(target))
+            {
+                // Another request installed the same content-addressed blob first.
+            }
+            catch (UnauthorizedAccessException) when (File.Exists(target))
+            {
+                // Windows can report a destination collision as access denied; the existing blob is immutable.
+            }
         }
         finally
         {
