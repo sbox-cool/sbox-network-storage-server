@@ -254,7 +254,8 @@ public sealed class OwnerSecurityTests
     /// <summary>The recovery codes rendered in the response: 32 hex characters, one per line.</summary>
     private static string[] RecoveryCodes(string html)
         => Regex.Matches(html, "<pre>([^<]+)</pre>")
-            .SelectMany(match => match.Groups[1].Value.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            .SelectMany(match => WebUtility.HtmlDecode(match.Groups[1].Value)
+                .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
             .Where(line => Regex.IsMatch(line, "^[A-F0-9]{32}$"))
             .ToArray();
 
