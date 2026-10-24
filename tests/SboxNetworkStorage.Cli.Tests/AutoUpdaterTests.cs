@@ -239,6 +239,39 @@ public sealed class AutoUpdaterTests : IDisposable
         Assert.All(instances, instance => Assert.NotNull(_state.Read(instance.Name)));
     }
 
+
+    [Fact]
+    public async Task Manual_rollback_restarts_the_unit_when_the_layout_revert_changed_nothing()
+    {
+        var instance = CreateInstances()[0];
+        var host = new FakeHost(this)
+        {
+            LayoutRevertException = new LayoutMigrationException("disk full", [], hostUnchanged: true)
+        };
+
+        var error = await Assert.ThrowsAsync<CliException>(() =>
+            UpdateCommands.RevertLayoutForRollbackAsync(host, _binary, instance, serviceActive: true));
+
+        Assert.Contains("Every change was undone", error.Message);
+        Assert.Contains($"start {instance.Unit}", host.Calls);
+    }
+
+    [Fact]
+    public async Task Manual_rollback_keeps_the_unit_stopped_when_the_layout_revert_partly_applied()
+    {
+        var instance = CreateInstances()[0];
+        var host = new FakeHost(this)
+        {
+            LayoutRevertException = new LayoutMigrationException("disk full", [], hostUnchanged: false)
+        };
+
+        var error = await Assert.ThrowsAsync<CliException>(() =>
+            UpdateCommands.RevertLayoutForRollbackAsync(host, _binary, instance, serviceActive: true));
+
+        Assert.Contains("partly reverted", error.Message);
+        Assert.DoesNotContain(host.Calls, call => call.StartsWith("start ", StringComparison.Ordinal));
+    }
+
     [Fact]
     public async Task Rollback_restarts_the_units_when_the_layout_revert_changed_nothing()
     {

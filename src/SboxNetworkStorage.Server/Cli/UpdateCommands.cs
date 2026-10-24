@@ -408,7 +408,7 @@ public static class UpdateCommands
     /// Moves the runtime files back into the config folder for the older binary. The installed binary is still the new one
     /// until the swap, so a revert that left the host unchanged starts the unit again instead of leaving it stopped.
     /// </summary>
-    private static async Task RevertLayoutForRollbackAsync(IUpdateHost host, string binary, ServerInstance instance, bool serviceActive)
+    internal static async Task RevertLayoutForRollbackAsync(IUpdateHost host, string binary, ServerInstance instance, bool serviceActive)
     {
         int exitCode;
         try
