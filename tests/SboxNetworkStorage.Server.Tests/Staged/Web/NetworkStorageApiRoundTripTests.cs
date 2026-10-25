@@ -391,6 +391,112 @@ public abstract class NetworkStorageApiRoundTripTests<TFactory> : IClassFixture<
         Assert.InRange(writeId, 0, 19);
     }
 
+    // ── x-ns-write-mode: document writes ──────────────────────────────────
+
+    [SkippableFact]
+    public async Task ReplaceMode_StoresAnOpsShapedDocumentAsTheDocument()
+    {
+        var store = new InMemoryNetworkStorageStore();
+        using var client = CreateClient(store);
+
+        using var post = await PostWithWriteModeAsync(client, "replace-doc", "replace", new
+        {
+            name = "Alice",
+            ops = new object[] { new { op = "inc", path = "coins", value = 5 } },
+        });
+        Assert.Equal(HttpStatusCode.OK, post.StatusCode);
+
+        using var get = await client.GetAsync(Url("replace-doc"));
+        var body = await get.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("Alice", body.GetProperty("name").GetString());
+        Assert.Equal(1, body.GetProperty("ops").GetArrayLength());
+        Assert.False(body.TryGetProperty("coins", out _));
+    }
+
+    [SkippableFact]
+    public async Task OpsMode_AppliesOperationsToTheStoredDocument()
+    {
+        var store = new InMemoryNetworkStorageStore();
+        using var client = CreateClient(store);
+        using var seed = await client.PostAsJsonAsync(Url("ops-doc"), new { coins = 10 });
+        Assert.Equal(HttpStatusCode.OK, seed.StatusCode);
+
+        using var post = await PostWithWriteModeAsync(client, "ops-doc", "ops", new
+        {
+            ops = new object[] { new { op = "inc", path = "coins", value = 5 } },
+        });
+        Assert.Equal(HttpStatusCode.OK, post.StatusCode);
+
+        using var get = await client.GetAsync(Url("ops-doc"));
+        var body = await get.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(15, body.GetProperty("coins").GetDouble());
+        Assert.False(body.TryGetProperty("ops", out _));
+    }
+
+    [SkippableFact]
+    public async Task AbsentMode_KeepsTheOpsBodyHeuristic()
+    {
+        var store = new InMemoryNetworkStorageStore();
+        using var client = CreateClient(store);
+
+        using var post = await PostWithWriteModeAsync(client, "heuristic-doc", null, new
+        {
+            ops = new object[] { new { op = "set", path = "level", value = 2 } },
+        });
+        Assert.Equal(HttpStatusCode.OK, post.StatusCode);
+
+        using var get = await client.GetAsync(Url("heuristic-doc"));
+        var body = await get.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(2, body.GetProperty("level").GetDouble());
+        Assert.False(body.TryGetProperty("ops", out _));
+    }
+
+    [SkippableTheory]
+    [InlineData("REPLACE")]
+    [InlineData("merge")]
+    public async Task UnknownMode_IsRefusedBeforeAnyWrite(string mode)
+    {
+        var store = new InMemoryNetworkStorageStore();
+        using var client = CreateClient(store);
+        using var seed = await client.PostAsJsonAsync(Url("guarded-doc"), new { coins = 10 });
+        Assert.Equal(HttpStatusCode.OK, seed.StatusCode);
+
+        using var post = await PostWithWriteModeAsync(client, "guarded-doc", mode, new { coins = 99 });
+        Assert.Equal(HttpStatusCode.BadRequest, post.StatusCode);
+        var error = await post.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("INVALID_WRITE_MODE", error.GetProperty("error").GetString());
+
+        using var get = await client.GetAsync(Url("guarded-doc"));
+        var body = await get.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(10, body.GetProperty("coins").GetDouble());
+    }
+
+    [SkippableFact]
+    public async Task OpsMode_WithoutOpsArray_ReturnsTheOpsValidationErrorAndKeepsTheDocument()
+    {
+        var store = new InMemoryNetworkStorageStore();
+        using var client = CreateClient(store);
+        using var seed = await client.PostAsJsonAsync(Url("guarded-ops"), new { coins = 10 });
+        Assert.Equal(HttpStatusCode.OK, seed.StatusCode);
+
+        using var post = await PostWithWriteModeAsync(client, "guarded-ops", "ops", new { coins = 99 });
+        Assert.Equal(HttpStatusCode.BadRequest, post.StatusCode);
+        var error = await post.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("INVALID_OPERATION", error.GetProperty("error").GetString());
+        Assert.Equal("ops must be a non-empty array.", error.GetProperty("detail").GetString());
+
+        using var get = await client.GetAsync(Url("guarded-ops"));
+        var body = await get.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(10, body.GetProperty("coins").GetDouble());
+    }
+
+    private static async Task<HttpResponseMessage> PostWithWriteModeAsync(HttpClient client, string key, string? mode, object payload)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, Url(key)) { Content = JsonContent.Create(payload) };
+        if (mode is not null) request.Headers.TryAddWithoutValidation("x-ns-write-mode", mode);
+        return await client.SendAsync(request);
+    }
+
     // ── Fakes ─────────────────────────────────────────────────────────────
 
     private sealed class FakeRecordKeyResolver(string validKey, string projectId) : IStorageApiKeyResolver
