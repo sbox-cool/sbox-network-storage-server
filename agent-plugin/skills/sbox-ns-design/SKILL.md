@@ -53,7 +53,8 @@ if ( !result.HasValue )
 }
 ```
 
-s&box hides 4xx bodies from game code, so a rejected call returns null with
-code `HTTP_ERROR`. Use `logs_requests` to see the status.
+s&box passes the status and body of a rejected call to game code (verified on 26.10.13c), so a
+rejected call returns null and `TryGetLastEndpointError` gives the server's error code. Use
+`logs_requests` to see the status and body.
 
 Changes reach a running server within about a minute.

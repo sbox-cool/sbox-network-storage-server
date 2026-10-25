@@ -57,7 +57,7 @@ accepted by default; recommendations and deprecations alone never reject a
 working game. An explicit owner minimum and advisory-linked blocks return
 HTTP 426 with `{ "ok": false, "error": { "code": "LIBRARY_UNSUPPORTED",
 "message": "..." } }` (or `LIBRARY_BLOCKED`); the existing library understands
-this structured envelope, but the engine may hide 4xx bodies. See
+this structured envelope, and s&box passes 4xx bodies through to game code (verified on 26.10.13c). See
 [compatibility.md](compatibility.md) for the operator policy.
 
 ## Library compatibility

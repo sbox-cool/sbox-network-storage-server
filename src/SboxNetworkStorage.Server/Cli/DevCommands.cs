@@ -448,7 +448,7 @@ public static class DevCommands
             ["method"] = OwnerProjectResources.Text(row, "method") ?? "POST",
             ["notes"] = new JsonArray(new JsonNode?[]
             {
-                "s&box hides 4xx bodies from game code: a rejected call returns null and the error code reads HTTP_ERROR. Check logs_requests for the status.",
+                "s&box passes 4xx bodies through to game code, and the library maps them to the server's error code. Check logs_requests for the status and body.",
                 requiresSecret ? "This endpoint requires a secret key: call it only from a dedicated server, never from the game client." : null,
             }.Where(n => n is not null).ToArray()),
         });

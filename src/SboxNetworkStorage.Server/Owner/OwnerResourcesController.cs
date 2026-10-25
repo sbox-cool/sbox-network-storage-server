@@ -736,7 +736,7 @@ public sealed class OwnerResourcesController(INetworkStorageProjectService proje
         var secret = OwnerGameSnippets.RequiresSecretKey(definition);
         var intro = secret
             ? "This endpoint requires a secret key: call it from a dedicated server, never from the game client. The call below is the same; the dedicated server sends the secret key with it."
-            : "s&box hides 4xx response bodies from game code, so a rejected call returns no value and the error code can read HTTP_ERROR. The Logs tab shows the status.";
+            : "s&box passes 4xx response bodies through to game code, so a rejected call returns no value and the library reports the server's error code. The Logs tab shows the status.";
         var prompt = secret
             ? $"My sbox-ns project ID is {projectId}. I am working on the endpoint \"{slug}\", which requires a secret key, so game clients must never call it. " +
                 "Read its definition with definition_get, dry-run it with endpoint_test using a secret key for a success case and a rejected case (target next when staged), " +
