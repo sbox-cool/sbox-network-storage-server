@@ -16,6 +16,7 @@ public sealed class PlayerAnalyticsAllowedEventsTests : IDisposable
 
     private readonly string _folder = Path.Combine(Path.GetTempPath(), "sbox-ns-analytics-" + Guid.NewGuid().ToString("N"));
     private readonly RequestEncryptionKeyStore _store;
+    private readonly SecuritySigningKeyStore _signing;
 
     public PlayerAnalyticsAllowedEventsTests()
     {
@@ -23,6 +24,7 @@ public sealed class PlayerAnalyticsAllowedEventsTests : IDisposable
         var keysPath = Path.Combine(_folder, "request_encryption_keys.json");
         RequestEncryptionKeyring.EnsureAndLoad(keysPath, Now);
         _store = new RequestEncryptionKeyStore(keysPath);
+        _signing = SigningKeyFixture.Create(_folder);
     }
 
     public void Dispose() => Directory.Delete(_folder, recursive: true);
@@ -103,7 +105,7 @@ public sealed class PlayerAnalyticsAllowedEventsTests : IDisposable
     {
         var project = JsonDocument.Parse("""{ "id": "demo-project" }""").RootElement.Clone();
 
-        var config = NetworkStorageSecurityConfigBuilder.Build("demo-project", project, Now, _store);
+        var config = NetworkStorageSecurityConfigBuilder.Build("demo-project", project, Now, _store, _signing);
 
         var published = config.GetProperty("settings").GetProperty("analytics").GetProperty("allowedEventTypes");
         Assert.Equal(ReferenceDefaults, published.EnumerateArray().Select(entry => entry.GetString()!));
@@ -119,7 +121,7 @@ public sealed class PlayerAnalyticsAllowedEventsTests : IDisposable
             }
             """).RootElement.Clone();
 
-        var config = NetworkStorageSecurityConfigBuilder.Build("demo-project", project, Now, _store);
+        var config = NetworkStorageSecurityConfigBuilder.Build("demo-project", project, Now, _store, _signing);
 
         var analytics = config.GetProperty("settings").GetProperty("analytics");
         Assert.False(analytics.GetProperty("captureSessions").GetBoolean());

@@ -280,8 +280,13 @@ allows `sbox-ns admin reset-2fa`. The owner re-entry rule applies to the owner c
   to 86400 and must be 0 to 2592000. The output names the new key and says whether the
   previous key still accepts requests until a time, or was removed at once (grace 0).
   If no key file exists yet, the command creates the first key and rotates nothing.
-- `sbox-ns security status`: prints the current key, its fingerprint and creation time,
-  and each retired key with whether it is still accepted.
+- `sbox-ns security rotate-signing-key [--grace-seconds N]`: replaces the signing key that
+  games pin; see Key pinning below. `N` defaults to 86400 and must be 0 to 2592000. If no
+  signing key file exists yet, the command refuses and rotates nothing; start the server once
+  to create the key.
+- `sbox-ns security status`: prints the signing key (key id, fingerprint, announced rotations
+  with their end times), then the current request key, its fingerprint and creation time, and
+  each retired request key with whether it is still accepted.
 
 `RequestEncryptionKeyring.Rotate` is the underlying operation for both.
 
@@ -307,11 +312,24 @@ it signs the security config, and a pin fixes which key the library must match.
 - The request-key fingerprint (`encryption.fingerprint`) is informational for pinning. When
   the request key rotates, the signed config carries the new `keyId`, which is accepted
   because the signature verifies against the pinned signing key.
-- Signing-key rotation breaks pinned games. It is deliberate and rare, and there is no
-  command for it. After a suspected compromise: stop the server, move
-  `auth.security_signing_key_file` aside, start the server to generate a new key, read the
-  new fingerprint with `sbox-ns security status`, announce it to game owners, and have them
-  repin.
+- Signing-key rotation: `sbox-ns security rotate-signing-key [--grace-seconds N]` makes a new
+  signing key current. The old key signs a statement that names the new key's fingerprint and
+  public key. The server publishes the statement under `signing.rotations` in the signed config.
+  A library that already trusts the old key verifies the statement with it and follows the chain
+  to the new key without a repin, until the statement's `notAfter` (the end of the grace). Grace 0
+  publishes no statement, so trusting clients refuse the new key at once.
+- The server keeps the statements in `auth.security_signing_rotations_file`, oldest first, and
+  publishes only those still in grace, at most 8. A rotation that would need a ninth unexpired
+  statement is refused until one expires.
+- A pin is an exact match, so a game pinned to the old fingerprint refuses the new key at once.
+  Repin it to the fingerprint from `sbox-ns security status`. An unpinned client that has not
+  followed the chain before the grace ends refuses the new key with `ENCRYPTION_SIGNING_KEY_CHANGED`.
+  That player recovers only when the game clears the stored trust with
+  `NetworkStorage.ResetSigningKeyTrust()` after the server identity is verified.
+- After a suspected compromise, do not rotate: the old key signs the statement, so whoever holds it
+  can forge one. Stop the server, move `auth.security_signing_key_file` and
+  `auth.security_signing_rotations_file` aside, start the server to create a new key, read the
+  fingerprint with `sbox-ns security status`, announce it to game owners, and have them repin.
 
 The library side ships in the library release that adds v2. Nothing here was run against an
 s&box build.

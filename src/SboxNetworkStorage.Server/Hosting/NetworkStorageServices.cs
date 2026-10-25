@@ -250,6 +250,11 @@ public static class NetworkStorageServices
         services.AddSingleton(sp => new RequestEncryptionKeyStore(
             config.GetPath("auth.request_encryption_keys_file", config.RuntimeDirectory),
             sp.GetRequiredService<ILogger<RequestEncryptionKeyStore>>()));
+        services.AddSingleton(sp => new SecuritySigningKeyStore(
+            config.GetPath("auth.security_signing_key_file", config.RuntimeDirectory),
+            config.GetPath("auth.security_signing_rotations_file", config.RuntimeDirectory),
+            config.GetString("auth.security_signing_key_id"),
+            sp.GetRequiredService<ILogger<SecuritySigningKeyStore>>()));
         services.AddSingleton<IAuthSessionSecretProvider, ConfigurationAuthSessionSecretProvider>();
         services.AddSingleton<INetworkStorageAuthSessionService, NetworkStorageAuthSessionService>();
         services.AddSingleton<IAuthSessionRevocationStore>(sp =>

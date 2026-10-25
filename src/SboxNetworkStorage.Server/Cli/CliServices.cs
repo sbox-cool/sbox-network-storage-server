@@ -13,7 +13,6 @@ public static class CliServices
     {
         Directory.CreateDirectory(config.DataDirectory);
         var secrets = ServerSecrets.EnsureAndLoad(config, path => Console.Error.WriteLine($"Generated secret file {path}"));
-        SecurityConfigEnvironment.Apply(config, secrets);
 
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>

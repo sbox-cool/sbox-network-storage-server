@@ -261,9 +261,9 @@ with user id `1`. Archives from a multi-user source must be rewritten to it:
 the database, so re-importing the same archive with `--force` converges.
 Versions, hashes and payloads are kept exactly; the write timestamps listed in
 [What the archive contains](#what-the-archive-contains) take the import time.
-The security config keeps the source's key id when `auth.security_signing_key_id`
-is set to it (and the source's signing key is installed as
-`secrets/security_signing_key.pem`).
+The security config keeps the source's key id when `auth.security_signing_key_id` is set to it
+(and the source's signing key and its announced rotations are installed as
+`secrets/security_signing_key.pem` and `secrets/security_signing_rotations.json`).
 
 ## Security of archives
 

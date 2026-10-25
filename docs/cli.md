@@ -42,7 +42,8 @@ Finish cleanup before importing an archive with that project ID.
 | --- | --- |
 | `tunnel enable\|status\|disable` | Free HTTPS name through a Cloudflare tunnel, no open ports ([guide](self-hosting.md#hosted-https-without-a-domain)). |
 | `dns enable\|status\|disable` | Free `sboxns.com` name pointing at your own public IP ([guide](self-hosting.md#free-hosted-name-with-your-own-ip-sboxnscom)). |
-| `security status` / `security rotate-key [--grace-seconds N]` | Request encryption keys ([encrypted requests](encrypted-requests-v2.md)). |
+| `security status` | Signing key and request encryption keys ([encrypted requests](encrypted-requests-v2.md)). |
+| `security rotate-key [--grace-seconds N]` / `security rotate-signing-key [--grace-seconds N]` | Rotate the request encryption key, or the signing key games pin ([encrypted requests](encrypted-requests-v2.md#key-pinning)). |
 
 ## Data
 

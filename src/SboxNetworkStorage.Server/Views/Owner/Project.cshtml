@@ -235,7 +235,7 @@
             <summary>Signing key (pin in games)</summary>
             @if (Model.SigningKeyFingerprint is not null)
             {
-                <p class="muted">Games pin this fingerprint to trust the server's signed security config. Rotating the request encryption key below does not change it. Replacing this signing key breaks every pinned game until its owner repins, so only do that after a compromise. <a href="@OwnerDocs.Url("admin-panel.md#encrypted-requests")" rel="noreferrer">Encrypted requests</a></p>
+                <p class="muted">Games pin this fingerprint to trust the server's signed security config. Rotating the request encryption key below does not change it. Rotate the signing key on the server host with <code>sbox-ns security rotate-signing-key</code>; the old key announces the new one, so games that still trust the old key follow it until the grace ends. Games pinned to the old fingerprint need a repin. <a href="@OwnerDocs.Url("admin-panel.md#encrypted-requests")" rel="noreferrer">Encrypted requests</a></p>
                 <p>Fingerprint <code class="selectable">@signingGroups</code></p>
             }
         </details>

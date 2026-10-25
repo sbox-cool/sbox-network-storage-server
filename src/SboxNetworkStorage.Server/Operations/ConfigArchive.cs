@@ -23,7 +23,7 @@ public static class ConfigArchive
     /// <summary>Settings whose value is a path to a file holding secret material.</summary>
     private static readonly string[] SecretFileSettings =
     [
-        "auth.session_secret_file", "auth.storage_encryption_key_file", "auth.security_signing_key_file", "auth.request_encryption_keys_file",
+        "auth.session_secret_file", "auth.storage_encryption_key_file", "auth.security_signing_key_file", "auth.security_signing_rotations_file", "auth.request_encryption_keys_file",
         "database.postgres.password_file", "alerts.discord.webhook_url_file", "alerts.smtp.password_file",
     ];
 

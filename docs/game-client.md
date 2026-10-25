@@ -291,6 +291,8 @@ errors keep their HTTP status. The library refreshes its security config and ret
 on a `SECURITY_*` code. After a key rotation, `SECURITY_CONFIG_STALE` means the cached
 config names a key that has expired; the refresh picks up the current key.
 
+Signing-key rotation: when the server replaces its signing key, a client that trusts the old key follows the announced statement to the new key with no game change. A pinned build refuses the new key until it is repinned. See [encrypted requests](encrypted-requests-v2.md#key-pinning).
+
 A v2 response body has `encrypted: true` and `v: 2`. Any other body is plain JSON.
 Error bodies can be either, because refusals before decryption are plain.
 

@@ -13,76 +13,14 @@ internal static class NetworkStorageSecurityConfigBuilder
     private const int DefaultEncryptedRequestWindowSeconds = 120;
     private const int TtlSeconds = 60;
 
-    /// <summary>
-    /// The security-config signing key.
-    ///
-    /// This MUST come from configuration. When it does not, every process generates
-    /// its own throwaway keypair, which breaks clients in two ways:
-    ///   1. The keyId and public key change on every restart/deploy, so a client that
-    ///      cached a config signed by the previous process fails signature verification
-    ///      on startup ("security config RSA verification failed").
-    ///   2. The legacy server runtime signs with its own separate ephemeral key
-    ///      (services/network-storage-security-config.js), so a config published by one
-    ///      runtime never verifies against the other's key.
-    ///
-    /// Set NETWORK_STORAGE_SECURITY_CONFIG_PRIVATE_KEY (PEM, shared with legacy server) to make
-    /// signatures stable and cross-runtime verifiable. The ephemeral fallback is kept
-    /// so local/dev boots still work, but it is logged loudly as a misconfiguration.
-    /// </summary>
-    private static readonly Lazy<RSA> SigningKeyLazy = new(LoadSigningKey, isThreadSafe: true);
-
-    private static RSA SigningKey => SigningKeyLazy.Value;
-
     private static readonly Lock SigningLock = new();
 
-    /// <summary>
-    /// True when no signing key was configured and an ephemeral one is in use. Surfaced
-    /// so startup diagnostics can warn instead of silently shipping unverifiable configs.
-    /// </summary>
-    internal static bool UsingEphemeralSigningKey { get; private set; }
-
-    /// <summary>Lowercase hex SHA-256 of the signing key's SubjectPublicKeyInfo DER: the identity games pin.</summary>
-    internal static string SigningKeyFingerprint => RequestEncryptionKeyring.FingerprintOf(SigningKey);
-
-    private static RSA LoadSigningKey()
-    {
-        var pem = Environment.GetEnvironmentVariable("NETWORK_STORAGE_SECURITY_CONFIG_PRIVATE_KEY");
-        if (!string.IsNullOrWhiteSpace(pem))
-        {
-            try
-            {
-                var rsa = RSA.Create();
-                rsa.ImportFromPem(pem.Replace("\\n", "\n"));
-                return rsa;
-            }
-            catch (Exception ex)
-            {
-                // A malformed configured key is a deployment error. Fail loudly rather
-                // than silently falling back to an ephemeral key that no client can verify.
-                throw new InvalidOperationException(
-                    "NETWORK_STORAGE_SECURITY_CONFIG_PRIVATE_KEY is set but could not be parsed as a PEM RSA private key.", ex);
-            }
-        }
-
-        UsingEphemeralSigningKey = true;
-        return RSA.Create(2048);
-    }
-
-    private static string SigningKeyId(string publicKeyPem)
-    {
-        var configured = Environment.GetEnvironmentVariable("NETWORK_STORAGE_SECURITY_CONFIG_KEY_ID");
-        return !string.IsNullOrWhiteSpace(configured)
-            ? configured.Trim()
-            : HashPrefix(Encoding.UTF8.GetBytes(publicKeyPem));
-    }
-
-    public static JsonElement Build(string projectId, JsonElement project, DateTimeOffset generatedAt, RequestEncryptionKeyStore keyStore)
+    public static JsonElement Build(string projectId, JsonElement project, DateTimeOffset generatedAt, RequestEncryptionKeyStore keyStore, SecuritySigningKeyStore signingKeys)
     {
         var settings = SettingsOf(project);
         var mode = EncryptedRequestModeOf(project);
 
-        var publicKeyPem = SigningKey.ExportSubjectPublicKeyInfoPem();
-        var parameters = SigningKey.ExportParameters(includePrivateParameters: false);
+        var signing = signingKeys.Current();
         var configVersion = HashPrefix(StableSerialize(settings));
         var payload = new JsonObject
         {
@@ -101,16 +39,23 @@ internal static class NetworkStorageSecurityConfigBuilder
             ["signing"] = new JsonObject
             {
                 ["algorithm"] = "rsa-sha256",
-                ["keyId"] = SigningKeyId(publicKeyPem),
-                ["publicKeyPem"] = publicKeyPem,
-                ["publicKeyJwk"] = new JsonObject
-                {
-                    ["kty"] = "RSA",
-                    ["n"] = Base64UrlEncode(parameters.Modulus ?? []),
-                    ["e"] = Base64UrlEncode(parameters.Exponent ?? []),
-                },
+                ["keyId"] = signing.KeyId,
+                ["publicKeyPem"] = signing.PublicKeyPem,
+                ["publicKeyJwk"] = signing.PublicKeyJwk.DeepClone(),
             },
         };
+        var announced = signing.AnnouncedAt(generatedAt);
+        if (announced.Count > 0)
+        {
+            var rotations = new JsonArray();
+            foreach (var statement in announced)
+            {
+                rotations.Add(statement);
+            }
+
+            ((JsonObject)payload["signing"]!)["rotations"] = rotations;
+        }
+
         if (EncryptedRequestModes.OffersV2(mode))
         {
             var key = keyStore.Current().Current;
@@ -127,7 +72,7 @@ internal static class NetworkStorageSecurityConfigBuilder
         byte[] signature;
         lock (SigningLock)
         {
-            signature = SigningKey.SignData(StableSerialize(payload), HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+            signature = signing.Key.SignData(StableSerialize(payload), HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
         }
 
         payload["signature"] = Base64UrlEncode(signature);
@@ -269,7 +214,7 @@ internal static class NetworkStorageSecurityConfigBuilder
         || !enabled.TryGetValue<bool>(out var value)
         || value;
 
-    private static string HashPrefix(ReadOnlySpan<byte> value) =>
+    internal static string HashPrefix(ReadOnlySpan<byte> value) =>
         Convert.ToHexString(SHA256.HashData(value)).ToLowerInvariant()[..16];
 
     private static string Base64UrlEncode(ReadOnlySpan<byte> value) =>
@@ -281,19 +226,4 @@ public static class NetworkStorageSecurityConfigVersion
 {
     /// <summary>Config version for a raw project JSON object (equal to the signed config's <c>configVersion</c>).</summary>
     public static string Of(JsonElement project) => NetworkStorageSecurityConfigBuilder.ConfigVersionOf(project);
-}
-
-/// <summary>Public entry point for the signing-key identity that games pin.</summary>
-public static class NetworkStorageSecurityConfigSigningKey
-{
-    /// <summary>Fingerprint of the key the server signs security configs with: the value games pin.</summary>
-    public static string Fingerprint => NetworkStorageSecurityConfigBuilder.SigningKeyFingerprint;
-
-    /// <summary>Fingerprint of a PKCS#8 signing key PEM, computed without starting the signer.</summary>
-    public static string FingerprintOfPem(string privateKeyPem)
-    {
-        using var rsa = RSA.Create();
-        rsa.ImportFromPem(privateKeyPem);
-        return RequestEncryptionKeyring.FingerprintOf(rsa);
-    }
 }

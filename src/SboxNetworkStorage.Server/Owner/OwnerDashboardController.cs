@@ -81,7 +81,7 @@ public sealed record OwnerProjectModel(WorkspaceProject Project, NetworkStorageP
 [Authorize(AuthenticationSchemes = OwnerHostingExtensions.Scheme)]
 public sealed class OwnerDashboardController(INetworkStorageProjectService projects, IWorkspaceStore workspace,
     IAuditLogger audit, INetworkStorageStore store, EffectiveConfig config, IMemoryCache cache, TimeProvider time, GameLogQueue gameLogs,
-    ReleaseStatusService releaseStatus, RequestEncryptionKeyStore encryptionKeys, OwnerAccountService accounts,
+    ReleaseStatusService releaseStatus, RequestEncryptionKeyStore encryptionKeys, SecuritySigningKeyStore signingKeys, OwnerAccountService accounts,
     IErrorArchive errorArchive, ProjectSecretsService secrets) : Controller
 {
     private const long Owner = NetworkStorageServices.LocalOwnerUserId;
@@ -399,7 +399,7 @@ public sealed class OwnerDashboardController(INetworkStorageProjectService proje
         var secretList = await secrets.ListAsync(projectId, ct);
         return new OwnerProjectModel(access.Project, resources,
             keys, connect, requests.FirstOrDefault(), rejected, authority, Secrets: secretList, SecretsAvailable: secrets.IsAvailable,
-            EncryptionKey: encryptionKeys.Current().Current, SigningKeyFingerprint: NetworkStorageSecurityConfigSigningKey.Fingerprint);
+            EncryptionKey: encryptionKeys.Current().Current, SigningKeyFingerprint: signingKeys.Current().Fingerprint);
     }
 
     private static OwnerRequestSummary Summary(JsonElement row) => new(
