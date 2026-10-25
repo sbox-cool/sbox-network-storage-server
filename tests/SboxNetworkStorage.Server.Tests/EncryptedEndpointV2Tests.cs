@@ -216,6 +216,25 @@ public abstract class EncryptedEndpointV2Tests<TFactory> : IDisposable where TFa
         Assert.Equal(5, await StoredCoinsAsync(project));
     }
 
+    [SkippableFact]
+    public async Task V2Envelope_StaleIdIsRefusedWithServerTimeSealed()
+    {
+        var project = await ProjectAsync(EncryptedRequestModes.V2Required);
+        var info = CurrentKeyInfo();
+        using var serverKey = PublicKeyOf(info);
+        var before = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        var request = CreateV2(serverKey, info.KeyId, project.ProjectId, SteamId, coins: 4, issuedAt: before - 3600);
+        using var client = Client(factory);
+
+        using var response = await client.SendAsync(EncryptedCall(project, request.Envelope));
+
+        var refusal = await OpenSealedAsync(response, request);
+        Assert.Equal(400, refusal.GetProperty("status").GetInt32());
+        Assert.Equal("ENCRYPTED_REQUEST_STALE", refusal.GetProperty("error").GetProperty("code").GetString());
+        Assert.InRange(refusal.GetProperty("error").GetProperty("serverTime").GetInt64(), before, DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+        Assert.Null(await StoredCoinsAsync(project));
+    }
+
     [SkippableTheory]
     [InlineData(EncryptedRequestModes.Off, 409, "SECURITY_ENCRYPTION_DISABLED")]
     [InlineData(EncryptedRequestModes.V1, 400, "SECURITY_MODE_UNSUPPORTED")]
@@ -402,7 +421,7 @@ public abstract class EncryptedEndpointV2Tests<TFactory> : IDisposable where TFa
     private sealed record V2Request(Dictionary<string, object> Envelope, byte[] AesKey, string Nonce, string KeyId);
 
     /// <summary>Builds a v2 envelope for the C4 wire: wrapped AES key, GCM over the payload, AAD = the sorted binding map.</summary>
-    private V2Request CreateV2(RSA serverKey, string keyId, string projectId, string steamId, int coins)
+    private V2Request CreateV2(RSA serverKey, string keyId, string projectId, string steamId, int coins, long? issuedAt = null)
     {
         var aesKey = RandomNumberGenerator.GetBytes(32);
         var nonce = Base64Url(RandomNumberGenerator.GetBytes(16));
@@ -411,7 +430,7 @@ public abstract class EncryptedEndpointV2Tests<TFactory> : IDisposable where TFa
         {
             ["coins"] = coins,
             ["security"] = new Dictionary<string, object> { ["clientMode"] = "encrypted" },
-            ["encryptedRequestId"] = $"{DateTimeOffset.UtcNow.ToUnixTimeSeconds()}_{Guid.NewGuid():N}",
+            ["encryptedRequestId"] = $"{issuedAt ?? DateTimeOffset.UtcNow.ToUnixTimeSeconds()}_{Guid.NewGuid():N}",
             ["_endpointSlug"] = "set-coins",
         });
         var ciphertext = new byte[payload.Length];

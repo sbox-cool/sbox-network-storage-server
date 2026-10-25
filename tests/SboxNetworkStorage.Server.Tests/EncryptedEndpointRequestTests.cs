@@ -209,7 +209,11 @@ public abstract class EncryptedEndpointRequestTests<TFactory> : IDisposable wher
         await factory.UpdateProjectAsync(narrow.ProjectId, p => p with { EncryptedRequestWindowSeconds = 30 });
         using (var stale = await client.SendAsync(EncryptedCall(narrow,
             LibraryEnvelope.Create(narrow.PublicKey, narrow.ProjectId, SteamId, "set-coins", 1, now - 40))))
-            await ReadSecurityErrorAsync(stale, 400, "ENCRYPTED_REQUEST_STALE");
+        {
+            var root = await ReadSecurityErrorAsync(stale, 400, "ENCRYPTED_REQUEST_STALE");
+            // The refusal carries the server clock so a client with a skewed clock can correct its request id.
+            Assert.InRange(root.GetProperty("error").GetProperty("serverTime").GetInt64(), now, DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+        }
         Assert.Null(await StoredCoinsAsync(narrow));
 
         var wide = await ProjectAsync();

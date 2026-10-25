@@ -127,7 +127,7 @@ not only the transport status. Security-class families are `SECURITY_*`,
 | `SECURITY_CONFIG_STALE` | 409 | A v2 `keyId` is missing or no longer usable (see Rotation). Also the existing stale `configVersion` case. |
 | `REQUEST_SIGNATURE_INVALID` | 401 | A v2 key unwrap or AES-GCM check failed. |
 | `ENCRYPTED_REQUEST_INVALID_ID` | 400 | The replay ID is malformed. |
-| `ENCRYPTED_REQUEST_STALE` | 400 | The replay ID is outside the project window. |
+| `ENCRYPTED_REQUEST_STALE` | 400 | The replay ID is outside the project window. The error object carries `serverTime` (unix seconds, the server clock at refusal) so a client can correct its clock and retry with a fresh ID. |
 | `ENCRYPTED_REQUEST_REPLAY_DETECTED` | 409 | The replay ID was already accepted for this identity. |
 | `AUTH_SESSION_STEAMID_MISMATCH` | 403 | The envelope's `steamId` names a different player than the auth session. Checked for v1 and v2. |
 
