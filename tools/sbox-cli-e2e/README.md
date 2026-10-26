@@ -56,6 +56,8 @@ writes are `ci-only`.
    revision, restarts the editor (sbox-cool/sbox-network-storage#106: an in-session update leaves the Network Storage menu
    and toolset unregistered until restart, so the editor never goes idle), and checks compilation.
    It does not use the unrelated asset-only `install_package` tool.
+   With `--attach`, the runner never closes the user's editor: after updating, it stops with
+   instructions to restart manually and rerun with `--library latest --attach`.
 3. **Editor** (Windows launches `sbox-dev -project`; on other systems open the fixture yourself and
    pass `--attach`): waits for the compile, then with the library's `network_storage` toolset
    (`ns_editor_status`, `ns_sync_push` with post-push verification, `ns_auto_test`) or, for older
@@ -81,7 +83,8 @@ writes are `ci-only`.
    and the server CLI can rotate the signing key; otherwise it reports not exercised. It trusts signing
    key A on first use, follows an announced A → B rotation with a one-hour grace, refuses an unannounced
    B → C rotation with zero grace (`ENCRYPTION_SIGNING_KEY_CHANGED` or `ENCRYPTION_SIGNING_KEY_ROTATION_INVALID`),
-   and restores the caller with an explicit pin on the current key.
+   and restores the caller with an explicit pin on the current key. Each rotation forces a fresh
+   signed-config fetch, so a still-cached config cannot make the announcement check pass trivially.
    Then the **rate-limit probe**: the runner sets `server.limits.game_burst` and
    `server.limits.game_per_second` to 1 with `sbox-ns config set`, restarts this server, and makes
    two game-values GETs, five concurrent GETs and one POST `ping` from the game. The second GET must

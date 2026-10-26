@@ -352,11 +352,14 @@ static class E2E
 			if (!o.Attach)
 			{
 				await cli.CallAsync("instance_console_command", new JsonObject { ["command"] = "quit" });
-				if (started.Count > 0 && !started[^1].HasExited) started[^1].WaitForExit(60_000);
+				if (started.Count == 0 || (!started[^1].HasExited && !started[^1].WaitForExit(60_000)))
+					throw new InvalidOperationException("the editor did not exit after the library update; refusing to launch a second instance (#106)");
 				started.Add(Proc.Start(Path.Combine(o.Engine, "sbox-dev" + exe), ["-mcp", "-project", project], o.Engine, Path.Combine(o.Out, "sbox-dev.stdout.log")));
 				if (!await WaitAsync(o.StartupTimeout, async () => (await cli.RunAsync(["--list"], 30)).Stdout.Contains("compat_probe")))
 					throw new InvalidOperationException("the editor never came back after the library update restart (#106)");
 			}
+			else
+				throw new InvalidOperationException("Library Manager updated the package. Restart the attached editor, then rerun with --library latest --attach; attached instances are never closed automatically (#106).");
 			status = await WaitForIdleAsync(cli, null, editor: true, o.StartupTimeout);
 		}
 
@@ -681,21 +684,29 @@ static class E2E
                 var v2Retry = await Call("echo", new JsonObject { ["hello"] = "v1-to-v2" });
                 ev.Check($"{target}.v1-to-v2", "C", Ok(v2Retry) && J.Str(Evidence.TryParse(Body(v2Retry)), "probe") == "v1-to-v2",
                     "without Configure, the cached v1 caller adapts to SECURITY_* and retries with v2", required: true);
-                // #240, #79: a rotated signing key is followed only through an announced statement. Needs a library that
-                // follows them and a server CLI that can rotate the signing key.
-                if (server.Cli is null || !LibraryFollowsSigningRotation(fixture))
-                    ev.Observe($"{target}.signing-rotation", server.Cli is null ? "not exercised: rotation is a sbox-ns CLI command; an attached server has no CLI" : "not exercised: library predates signing-key rotation");
+                // #240, #79: older servers and libraries retain their existing probes.
+                var supportsSigningRotation = server.Cli is not null
+                    && (await server.Cli.RunAsync(["--help"])).Stdout.Contains("security rotate-signing-key", StringComparison.Ordinal);
+                if (!supportsSigningRotation || !LibraryFollowsSigningRotation(fixture))
+                    ev.Observe($"{target}.signing-rotation", "not exercised: server CLI or library predates announced signing-key rotation");
                 else
                 {
                     // Trust the server's first signing key on first use, from a freshly reset trust.
                     ev.Step($"{target}.signing-trust-reset", await cli.CallAsync("run_csharp", new JsonObject { ["code"] = Scripts.ResetSigningKeyTrust() }, connect: pid));
-                    ev.Step($"{target}.signing-configure", await cli.CallAsync("run_csharp", new JsonObject { ["code"] = Scripts.Configure(server, apiRoot) }, connect: pid));
+                    await ConfigurePin(""); // A null fingerprint would preserve the previous pin instead of enabling TOFU.
                     var firstKey = await Call("echo", new JsonObject { ["hello"] = "signing-first-key" });
                     ev.Check($"{target}.signing-first-key", "C", Ok(firstKey), "signing key A is trusted on first use", required: true);
 
                     // A -> B announced for an hour: the caller follows the statement to the new key.
-                    var announced = await server.Cli.RunAsync(["security", "rotate-signing-key", "--grace-seconds", "3600"]);
+                    var announced = await server.Cli!.RunAsync(["security", "rotate-signing-key", "--grace-seconds", "3600"]);
                     ev.Check($"{target}.signing-rotated-announced", "C", announced.Code == 0, "rotate the signing key with a one-hour grace", required: true);
+                    var refreshedAnnounced = await cli.CallAsync("run_csharp", new JsonObject
+                    {
+                        ["code"] = """return new { loaded = await NetworkStorage.EnsureRuntimeSecurityConfigAsync("signing-announced-probe", forceRefresh: true) };""",
+                    }, connect: pid);
+                    ev.Step($"{target}.signing-announced-refresh", refreshedAnnounced);
+                    ev.Check($"{target}.signing-announced-refresh", "C", refreshedAnnounced.Ok && J.Bool(refreshedAnnounced.Json, "loaded"),
+                        "force a fresh signed config so a cached key A cannot make the announced rotation pass trivially", required: true);
                     var afterAnnounced = await Call("echo", new JsonObject { ["hello"] = "signing-announced" });
                     ev.Check($"{target}.signing-announced", "C", Ok(afterAnnounced) && J.Str(Evidence.TryParse(Body(afterAnnounced)), "probe") == "signing-announced",
                         "unpinned caller follows the announced A -> B statement to the new signing key", required: true);
@@ -703,6 +714,19 @@ static class E2E
                     // B -> C with zero grace: nothing announces C, so the caller refuses it.
                     var unannounced = await server.Cli.RunAsync(["security", "rotate-signing-key", "--grace-seconds", "0"]);
                     ev.Check($"{target}.signing-rotated-unannounced", "C", unannounced.Code == 0, "rotate the signing key again with zero grace", required: true);
+                    // Simulate startup with persisted TOFU trust but no held trusted config. Do not reset the trust store:
+                    // a warm client deliberately retains its last trusted config when a refresh is refused.
+                    await ConfigurePin(new string('0', 64));
+                    await ConfigurePin("");
+                    var refreshedUnannounced = await cli.CallAsync("run_csharp", new JsonObject
+                    {
+                        ["code"] = """var loaded = await NetworkStorage.EnsureRuntimeSecurityConfigAsync("signing-unannounced-probe", forceRefresh: true); var refused = NetworkStorage.TryGetSecurityConfigError(out var code, out var message); return new { loaded, refused, code, message };""",
+                    }, connect: pid);
+                    ev.Step($"{target}.signing-unannounced-refresh", refreshedUnannounced);
+                    ev.Check($"{target}.signing-unannounced-refresh", "C", refreshedUnannounced.Ok && !J.Bool(refreshedUnannounced.Json, "loaded")
+                        && J.Bool(refreshedUnannounced.Json, "refused")
+                        && J.Str(refreshedUnannounced.Json, "code") is "ENCRYPTION_SIGNING_KEY_CHANGED" or "ENCRYPTION_SIGNING_KEY_ROTATION_INVALID",
+                        "the freshly refused signing key is exposed through the read-only diagnostics API", required: true);
                     var refusedKey = await Call("echo", new JsonObject { ["hello"] = "signing-unannounced" });
                     ev.Check($"{target}.signing-unannounced-refused", "C", !Ok(refusedKey) && Code(refusedKey) is "ENCRYPTION_SIGNING_KEY_CHANGED" or "ENCRYPTION_SIGNING_KEY_ROTATION_INVALID",
                         $"unannounced B -> C signing key is refused (got '{(Ok(refusedKey) ? "ok" : Code(refusedKey))}')", required: true);
@@ -732,7 +756,7 @@ static class E2E
 	/// <summary>The signed security config and the SHA-256 of its signing key's SubjectPublicKeyInfo, the pin a caller can ship.</summary>
 	static async Task<(JsonNode Config, string Pin)> FetchSecurityConfigAsync(Server server)
 	{
-		using var request = new HttpRequestMessage(HttpMethod.Get, server.Url + "/v3/security-config/" + Uri.EscapeDataString(server.ProjectId));
+		using var request = new HttpRequestMessage(HttpMethod.Get, server.Url + "/v3/security-config/" + Uri.EscapeDataString(server.ProjectId) + "?refresh=1");
 		request.Headers.Add("x-api-key", server.PublicKey);
 		using var response = await Http.Client.SendAsync(request);
 		response.EnsureSuccessStatusCode();

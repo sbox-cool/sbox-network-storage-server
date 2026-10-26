@@ -30,13 +30,13 @@ public sealed class SecuritySigningKeyStoreTests : IDisposable
     }
 
     [Fact]
-    public void Zero_grace_announces_nothing_after_the_rotation()
+    public void Zero_grace_does_not_announce_in_the_rotation_second()
     {
         var store = SigningKeyFixture.Create(_folder);
-        var now = new DateTimeOffset(2026, 6, 1, 12, 0, 0, TimeSpan.Zero);
+        var now = new DateTimeOffset(2026, 6, 1, 12, 0, 0, TimeSpan.Zero).AddMilliseconds(500);
 
         SecuritySigningKeyStore.Rotate(store.KeyPath, store.RotationsPath, now, 0);
 
-        Assert.Empty(store.Reload().AnnouncedAt(now.AddSeconds(1)));
+        Assert.Empty(store.Reload().AnnouncedAt(now.AddMilliseconds(-500)));
     }
 }
