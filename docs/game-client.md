@@ -270,6 +270,13 @@ publish a new build so players run against the synced revision.
 
 ## Encrypted requests
 
+Encryption applies only to endpoint calls (`CallEndpoint` / `CallEndpointAs`), not
+to all project traffic. Direct document and record reads/writes, queries, game
+values, analytics events and heartbeat remain unsealed, even with `v2-required`.
+On plain HTTP, those requests and responses expose player data. Use HTTPS and
+endpoint-only collections (`accessMode: endpoint`) for sensitive records; access
+them through encrypted endpoints instead of the direct document API.
+
 The signed security config says which envelope the server accepts for a project.
 `modes.encryptedRequests` is `required` when the mode is anything other than `off`,
 and `disabled` otherwise. For the `v2-preferred` and `v2-required` modes, an
@@ -294,8 +301,8 @@ config names a key that has expired; the refresh picks up the current key.
 A v2 response body has `encrypted: true` and `v: 2`. Any other body is plain JSON.
 Error bodies can be either, because refusals before decryption are plain.
 
-Encrypted requests (v2) protect payload content from anyone without the server's
-private key. They do not hide the bearer or auth tokens the client sends in plain
+Encrypted endpoint requests (v2) protect payload content from anyone without the
+server's private key. They do not hide the bearer or auth tokens the client sends in plain
 headers or in the outer `security` block. An active man in the middle who sees such
 a token can still act with it, so the server must be reached over HTTPS.
 
