@@ -203,7 +203,7 @@ The shipped matrix is immutable and offline: no unsigned remote source can impos
 
 ## Endpoint errors for library callers
 
-Endpoint-route errors (`/v3/endpoints/...`) reach a library caller as HTTP 200 with the real status in the body (issue #152). The library reads only the body of a 2xx response, so the status it needs has to be in the body. A caller is a library caller when it sends a non-empty `x-ns-library-version`, a recognised `x-ns-client-type` (`game`, `editor` or `dedicated`), or a body `security` object. Every other client keeps the real HTTP status and the flat body it has always received. Non-endpoint routes return the real status to everyone.
+Endpoint-route errors (`/v3/endpoints/...`) reach a library caller as HTTP 200 with the real status in the body (issue #152). This envelope preserves compatibility with older library builds that only parsed successful HTTP responses; it is not an s&box engine restriction, since the engine exposes non-2xx status and bodies. A caller is a library caller when it sends a non-empty `x-ns-library-version`, a recognised `x-ns-client-type` (`game`, `editor` or `dedicated`), or a body `security` object. Every other client keeps the real HTTP status and the flat body it has always received. Non-endpoint routes return the real status to everyone.
 
 Identification by published library build (from each revision's source). The signal is on the request, not the version string:
 

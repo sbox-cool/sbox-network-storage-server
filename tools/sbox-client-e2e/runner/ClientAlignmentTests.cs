@@ -81,14 +81,12 @@ public class ClientAlignmentTests
 	[TestMethod]
 	public async Task Endpoints_ConditionRejectionReachesTheClientAsAFailure()
 	{
-		// The server answers 400 INVALID_AMOUNT (as the hosted service does); s&box Http hides 4xx bodies,
-		// so the library records HTTP_ERROR and returns null.
+		// The library preserves the server's structured refusal; the engine does not hide non-2xx bodies.
 		var result = await NetworkStorage.CallEndpoint( "mine-ore", new { amount = -1 } );
 		NetworkStorage.TryGetLastEndpointError( "mine-ore", out var code, out var message );
 		Console.WriteLine( $"mine-ore(-1) -> {Raw( result )} err={code} {message}" );
 		Assert.IsFalse( result.HasValue );
-		Assert.AreEqual( "HTTP_ERROR", code );
-		StringAssert.Contains( message, "400" );
+		Assert.AreEqual( "INVALID_AMOUNT", code );
 	}
 
 	[TestMethod]
