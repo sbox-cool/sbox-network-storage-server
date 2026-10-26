@@ -128,6 +128,10 @@ public static class SecurityCommands
         {
             throw new CliException($"{ex.Message} Nothing was rotated.");
         }
+        catch (InvalidDataException ex)
+        {
+            throw new CliException($"{ex.Message} Nothing was rotated.");
+        }
 
         TunnelFiles.Restrict(keyPath);
         TunnelFiles.Restrict(rotationsPath);
