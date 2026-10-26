@@ -257,8 +257,14 @@ carry the project's secret key are exempt. Off by default.
 ### Encrypted requests
 
 The **encrypted requests** setting is a select with four modes. The chosen mode is
-published in the signed security config, and the server enforces it on both plain
-and encrypted calls. Off by default.
+published in the signed security config, and the server enforces it on plain and
+encrypted **endpoint calls only** (`CallEndpoint` / `CallEndpointAs`). Off by default.
+
+Direct document and record operations, queries, game values, analytics events and
+heartbeat remain unsealed, including in `v2-required` mode. On plain HTTP their
+request and response data is exposed. Use HTTPS and endpoint-only collections
+(`accessMode: endpoint`) for sensitive player data, accessed through encrypted
+endpoints rather than the direct document API.
 
 - `off`: plain calls only. Encrypted calls are refused with `SECURITY_ENCRYPTION_DISABLED`.
 - `v1`: v1 envelopes only, the format released libraries send. Its key is derived from
@@ -268,7 +274,7 @@ and encrypted calls. Off by default.
 - `v2-preferred`: v1 and v2 envelopes are accepted. Plain calls are refused with
   `SECURITY_ENCRYPTION_REQUIRED`. Published games on v1 keep working.
 - `v2-required`: v2 envelopes only. Plain calls and v1 envelopes are refused with
-  `SECURITY_ENCRYPTION_REQUIRED`. A library without v2 support cannot call this project.
+  `SECURITY_ENCRYPTION_REQUIRED`. A library without v2 support cannot call endpoints in this project.
 
 The library refreshes its security config and retries once in the mode the server
 asks for, so a plain call made while encryption is required still succeeds when the
