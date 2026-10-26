@@ -470,7 +470,7 @@ public static class EndpointExecutionEndpoints
             if (endpointExists && EncryptedEndpointEnvelope.ConsumeReplay(projectId, accepted, replayWindow,
                     DateTimeOffset.UtcNow) is { } replay)
             {
-                await WriteEndpointErrorAsync(context, replay.Status, replay.Code!, replay.Message!);
+                await WriteEndpointErrorAsync(context, replay.Status, replay.Code!, replay.Message!, errorFields: replay.ErrorFields);
                 return;
             }
         }
@@ -698,13 +698,18 @@ public static class EndpointExecutionEndpoints
     /// the real status. Once a v2 request has decrypted, its envelope is sealed under that request's AES key (C5).
     /// </summary>
     private static Task WriteEndpointErrorAsync(HttpContext context, int status, string code, string message,
-        object? security = null)
+        object? security = null, IReadOnlyDictionary<string, object?>? errorFields = null)
     {
         if (LibraryErrorEnvelope.UsesEnvelope(context))
             return LibraryErrorEnvelope.WriteBodyAsync(context, status,
-                ResponseBodyFor(context, LibraryErrorEnvelope.Build(context, status, code, message, security: security)));
+                ResponseBodyFor(context, LibraryErrorEnvelope.Build(context, status, code, message,
+                    errorFields: errorFields, security: security)));
+        var error = new Dictionary<string, object?>(StringComparer.Ordinal) { ["code"] = code, ["message"] = message };
+        if (errorFields is not null)
+            foreach (var (key, value) in errorFields)
+                error[key] = value;
         context.Response.StatusCode = status;
-        object body = new { ok = false, error = new { code, message } };
+        object body = new { ok = false, error };
         return context.Response.WriteAsJsonAsync(ResponseBodyFor(context, body), JsonOptions);
     }
 

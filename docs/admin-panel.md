@@ -304,7 +304,7 @@ host, `sbox-ns security rotate-key [--grace-seconds N]` does the same, and
 Each encrypted call, v1 or v2, carries a request ID. The server refuses an ID outside the
 **Encrypted request window** with `ENCRYPTED_REQUEST_STALE`, and refuses an ID already
 accepted for the same identity with `ENCRYPTED_REQUEST_REPLAY_DETECTED`. The window is
-30 to 600 seconds, default 120. The window value is also passed to the client library.
+30 to 600 seconds, default 120. The window value is also passed to the client library. A refused `ENCRYPTED_REQUEST_STALE` response carries `serverTime` (unix seconds, the server clock at refusal) in its error object, so a client with a skewed clock can correct and retry once with a fresh ID.
 
 ### Player key mode
 

@@ -26,8 +26,12 @@ internal static partial class EncryptedEndpointEnvelope
     // JSON.stringify output for the ASCII identifiers, base64url and hex strings the envelope carries.
     private static readonly JsonSerializerOptions JsOptions = new() { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
 
+    /// <summary>
+    /// <c>ErrorFields</c> are extra members merged into the error object (ENCRYPTED_REQUEST_STALE carries
+    /// <c>serverTime</c>). Null for every other result.
+    /// </summary>
     internal readonly record struct Result(bool Ok, int Status, string? Code, string? Message, JsonElement Payload,
-        string RequestId = "", string IdentityKey = "");
+        string RequestId = "", string IdentityKey = "", IReadOnlyDictionary<string, object?>? ErrorFields = null);
 
     /// <summary>Returns the envelope object if the body carries one (envelope, encryptedRequest, or inline).</summary>
     public static bool TryRead(JsonElement body, out JsonElement envelope)
@@ -169,7 +173,8 @@ internal static partial class EncryptedEndpointEnvelope
         var issued = long.Parse(match.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
         var nowSeconds = now.ToUnixTimeSeconds();
         if (Math.Abs(nowSeconds - issued) > windowSeconds)
-            return new Result(false, 400, "ENCRYPTED_REQUEST_STALE", $"encryptedRequestId is outside the accepted {windowSeconds} second replay window.", default);
+            return new Result(false, 400, "ENCRYPTED_REQUEST_STALE", $"encryptedRequestId is outside the accepted {windowSeconds} second replay window.", default,
+                ErrorFields: new Dictionary<string, object?>(StringComparer.Ordinal) { ["serverTime"] = nowSeconds });
 
         var nowMs = now.ToUnixTimeMilliseconds();
         if (nowMs - Interlocked.Read(ref lastCleanupMs) >= 10_000)
