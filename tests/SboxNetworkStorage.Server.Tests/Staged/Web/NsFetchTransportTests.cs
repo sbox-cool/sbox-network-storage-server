@@ -257,7 +257,9 @@ public sealed class NsFetchTransportTests
     private static HttpScriptFetchTransport CreateTransport(FakeNetwork network, bool allowPrivateNetworks = false) =>
         new(allowPrivateNetworks, network.ResolveAsync, network.ConnectAsync);
 
-    private static Task<ScriptFetchResult> Fetch(HttpScriptFetchTransport transport, string url, int timeoutMs = 2000) =>
+    // Security and response-shape checks must not race the shared runner's scheduler.
+    // Timeout-specific cases pass their own short deadline explicitly.
+    private static Task<ScriptFetchResult> Fetch(HttpScriptFetchTransport transport, string url, int timeoutMs = 30000) =>
         transport.SendAsync(
             new ScriptFetchRequest(url, "GET", [], null, timeoutMs),
             AllowAllPublicPolicy,
