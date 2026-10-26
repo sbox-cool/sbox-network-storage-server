@@ -145,6 +145,17 @@ at the next consecutive index, but sparse gaps are rejected as an invalid operat
 than allocating attacker-selected amounts of memory. Rejected operations do not persist a
 partially modified document.
 
+### Document write mode
+
+A record write to the direct document route (`POST /v3/storage/...` or `/api/storage/...`)
+may send an `x-ns-write-mode` header. Without the header, a body with a top-level `ops`
+array is applied as operations and any other body replaces the document, as before. With
+`x-ns-write-mode: replace`, the body replaces the document even when it has an `ops` array.
+With `x-ns-write-mode: ops`, the body must be an operations request, and a body without an
+`ops` array returns `400 INVALID_OPERATION`. The values are case-sensitive; any other value
+returns `400 INVALID_WRITE_MODE` and nothing is written. Until a library release sends the
+header, game code cannot set it.
+
 ## Error codes
 
 The project's **Logs** and **Errors** tabs in the [dashboard](admin-panel.md#request-log-and-errors)
@@ -160,6 +171,8 @@ list rejected requests and explain them. The common ones:
 | `404` | The project, collection, endpoint or record does not exist. | Save or sync the definition and check the ID in the game code. |
 | `409 STALE_SAVE` | A save was based on older data than the stored record. | Reload the record and retry. |
 | `SAVE_NOT_CONFIRMED` | The client could not confirm a save reached the server. | Check the player's connection and the request log around that time. |
+| `400 INVALID_OPERATION` | An `ops` write has an invalid operation, or its `ops` array is missing or empty. | Fix the operations; see [indexed record operations](#indexed-record-operations). |
+| `400 INVALID_WRITE_MODE` | The `x-ns-write-mode` header is not `replace` or `ops`. | Send `replace`, `ops`, or no header. |
 
 In the game, read the last error of an endpoint call by its slug:
 
@@ -172,9 +185,11 @@ if ( !result.HasValue )
 }
 ```
 
-s&box hides the body of 4xx responses from game code, so the code there can be
-`HTTP_ERROR` with the status in the message. The dashboard's **Logs** tab shows
-the status for the same request.
+s&box passes the status and body of non-2xx responses to game code (verified on
+s&box 26.10.13c with `Http.RequestAsync`). A 403 body is, for example,
+`{"ok":false,"error":"ENDPOINT_ONLY",...}`, and a 503 includes a `Retry-After: 1` header.
+The library maps these bodies to the codes in the table above. The dashboard's **Logs**
+tab shows the status for the same request.
 
 On the server, `sbox-ns logs -f` follows the server log.
 

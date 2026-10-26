@@ -301,7 +301,7 @@ Project JSON stores `libraryMinimum` and optional `libraryAlertPercent`; both ar
 {"ok":false,"error":{"code":"LIBRARY_UNSUPPORTED","message":"Update the library and republish the game."}}
 ```
 
-Advisory blocks use `LIBRARY_BLOCKED` with the advisory in the message. Missing/invalid keys and unauthorized management keys retain their original 401/403 paths, and management diagnostics and recovery (Pull, Test Live, revision-init) stay reachable. The s&box runtime can hide 4xx bodies; use response headers, server logs and the library-side update UI, not an assumption that every old game can display this message.
+Advisory blocks use `LIBRARY_BLOCKED` with the advisory in the message. Missing/invalid keys and unauthorized management keys retain their original 401/403 paths, and management diagnostics and recovery (Pull, Test Live, revision-init) stay reachable. s&box passes 4xx bodies through to game code (verified on 26.10.13c), but an older library or game may not read or display this message; use response headers, server logs and the library-side update UI, not an assumption that every old game can display it.
 
 Traffic is buffered in memory, flushed once per minute and at graceful shutdown, and retained locally for 90 UTC days. The collector accepts at most 2,000 identity groups per UTC day/process and 2,000 pending groups; flushing does not reset the daily budget. Overflow is best-effort telemetry loss, never a failed game request. Restarting resets the in-process cardinality/drop counters; the CLI counter belongs to its own process, while the live dashboard shows the running server's counter. Database queries do not silently truncate the report.
 

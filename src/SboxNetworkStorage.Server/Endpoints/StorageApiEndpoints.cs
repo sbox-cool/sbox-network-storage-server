@@ -227,6 +227,14 @@ public static partial class StorageApiEndpoints
             return;
         }
 
+        // Optional document write mode. An unknown value is refused before the body is read.
+        if (!TryReadWriteMode(context.Request, out var writeMode))
+        {
+            context.Response.StatusCode = StatusCodes.Status400BadRequest;
+            await context.Response.WriteAsJsonAsync(new { error = "INVALID_WRITE_MODE", detail = "x-ns-write-mode must be \"replace\" or \"ops\"." }, JsonOptions);
+            return;
+        }
+
         JsonElement body;
         try
         {
@@ -279,10 +287,13 @@ public static partial class StorageApiEndpoints
                 auth.UserId, projectId, collectionId, recordKey, context.RequestAborted);
             var previousBytes = previous.Found ? Encoding.UTF8.GetByteCount(previous.Value.GetRawText()) : 0;
             var document = body;
-            if (IsOperationsRequest(body, out var ops))
+            var hasOps = IsOperationsRequest(body, out var ops);
+            if (writeMode is "ops" || (writeMode is null && hasOps))
             {
+                // An "ops" write whose body has no ops array refuses through the same validation as an empty list.
+                var operations = hasOps ? (List<object?>)EndpointExpression.FromJson(ops)! : new List<object?>();
                 var existing = previous.Found ? EndpointExpression.FromJson(previous.Value) as Dictionary<string, object?> : null;
-                var applied = RecordOperations.Apply(existing, (List<object?>)EndpointExpression.FromJson(ops)!);
+                var applied = RecordOperations.Apply(existing, operations);
                 if (applied.Ok) document = JsonSerializer.SerializeToElement(applied.Data);
                 else invalidOperation = applied.Error;
             }
@@ -330,6 +341,18 @@ public static partial class StorageApiEndpoints
         ops = default;
         return body.ValueKind == JsonValueKind.Object
             && body.TryGetProperty("ops", out ops) && ops.ValueKind == JsonValueKind.Array;
+    }
+
+    /// <summary>
+    /// Reads the optional <c>x-ns-write-mode</c> header of a document write. An absent header returns a null mode,
+    /// which keeps the body-shape check in <see cref="IsOperationsRequest"/>. <c>replace</c> stores the body as the
+    /// document and <c>ops</c> requires an operations body. Any other value, including an empty or repeated header, is invalid.
+    /// </summary>
+    private static bool TryReadWriteMode(HttpRequest request, out string? mode)
+    {
+        var values = request.Headers["x-ns-write-mode"];
+        mode = values.Count == 0 ? null : values.Count == 1 ? values[0] : string.Empty;
+        return mode is null or "replace" or "ops";
     }
 
     /// <summary>
