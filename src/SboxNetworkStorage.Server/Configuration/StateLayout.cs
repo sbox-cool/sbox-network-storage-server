@@ -58,7 +58,7 @@ public static class StateLayout
     public const string MigrationNotice =
         "This install still keeps runtime files (secrets, tunnel and DNS state) in the config folder. Run `sudo sbox-ns layout migrate` to move them to the state folder and make the config folder read-only to the service.";
 
-    private static readonly string[] AuthFileKeys = ["auth.session_secret_file", "auth.storage_encryption_key_file", "auth.security_signing_key_file", "auth.request_encryption_keys_file"];
+    private static readonly string[] AuthFileKeys = ["auth.session_secret_file", "auth.storage_encryption_key_file", "auth.security_signing_key_file", "auth.security_signing_rotations_file", "auth.request_encryption_keys_file"];
 
     /// <summary>Overlay keys outside the <c>tunnel.*</c> and <c>dns.*</c> tables that the managed overlays write.</summary>
     private static readonly HashSet<string> AllowedOverlayKeys = new(StringComparer.Ordinal)

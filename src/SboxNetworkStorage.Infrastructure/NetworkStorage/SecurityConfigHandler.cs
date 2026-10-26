@@ -14,12 +14,14 @@ public sealed class SecurityConfigHandler : INetworkStorageHandler
     private readonly INetworkStorageStore _store;
     private readonly TimeProvider _timeProvider;
     private readonly RequestEncryptionKeyStore _keyStore;
+    private readonly SecuritySigningKeyStore _signingKeys;
 
-    public SecurityConfigHandler(INetworkStorageStore store, TimeProvider timeProvider, RequestEncryptionKeyStore keyStore)
+    public SecurityConfigHandler(INetworkStorageStore store, TimeProvider timeProvider, RequestEncryptionKeyStore keyStore, SecuritySigningKeyStore signingKeys)
     {
         _store = store;
         _timeProvider = timeProvider;
         _keyStore = keyStore;
+        _signingKeys = signingKeys;
     }
 
     public NetworkStorageRouteFamily Family => NetworkStorageRouteFamily.SecurityConfig;
@@ -70,7 +72,7 @@ public sealed class SecurityConfigHandler : INetworkStorageHandler
                 authDecision: "anonymous");
         }
 
-        var config = NetworkStorageSecurityConfigBuilder.Build(projectId, project.Value, _timeProvider.GetUtcNow(), _keyStore);
+        var config = NetworkStorageSecurityConfigBuilder.Build(projectId, project.Value, _timeProvider.GetUtcNow(), _keyStore, _signingKeys);
         return NetworkStorageResult.Ok(
             new
             {

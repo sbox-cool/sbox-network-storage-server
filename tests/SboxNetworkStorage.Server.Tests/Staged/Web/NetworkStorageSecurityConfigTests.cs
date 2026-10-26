@@ -30,6 +30,7 @@ public abstract class NetworkStorageSecurityConfigTests<TFactory> : IClassFixtur
     private readonly HttpClient client;
     private readonly string keysFolder = Path.Combine(Path.GetTempPath(), "sbox-ns-config-" + Guid.NewGuid().ToString("N"));
     private readonly RequestEncryptionKeyStore keys;
+    private readonly SecuritySigningKeyStore signingKeys;
 
     protected NetworkStorageSecurityConfigTests(TFactory factory)
     {
@@ -39,6 +40,7 @@ public abstract class NetworkStorageSecurityConfigTests<TFactory> : IClassFixtur
         var keysPath = Path.Combine(keysFolder, "request_encryption_keys.json");
         RequestEncryptionKeyring.EnsureAndLoad(keysPath, DateTimeOffset.UtcNow);
         keys = new RequestEncryptionKeyStore(keysPath);
+        signingKeys = SigningKeyFixture.Create(keysFolder);
         client = factory.WithWebHostBuilder(builder =>
         {
             builder.UseSetting("NETWORK_STORAGE_AUTH_SESSION_SECRET", "test-secret-do-not-use-in-production");
@@ -64,7 +66,7 @@ public abstract class NetworkStorageSecurityConfigTests<TFactory> : IClassFixtur
     [SkippableFact]
     public async Task ProjectMetadataReturnsSignedBunCompatiblePayload()
     {
-        var handler = new SecurityConfigHandler(new StubProjectStore(ProjectJson), TimeProvider.System, keys);
+        var handler = new SecurityConfigHandler(new StubProjectStore(ProjectJson), TimeProvider.System, keys, signingKeys);
 
         var result = await handler.ExecuteAsync(BuildRequest("demo-project"));
 
@@ -99,7 +101,7 @@ public abstract class NetworkStorageSecurityConfigTests<TFactory> : IClassFixtur
               "analytics": { "enabled": false }
             }
             """;
-        var handler = new SecurityConfigHandler(new StubProjectStore(nullProjectJson), TimeProvider.System, keys);
+        var handler = new SecurityConfigHandler(new StubProjectStore(nullProjectJson), TimeProvider.System, keys, signingKeys);
 
         var result = await handler.ExecuteAsync(BuildRequest("demo-project"));
 
@@ -114,7 +116,7 @@ public abstract class NetworkStorageSecurityConfigTests<TFactory> : IClassFixtur
     [SkippableFact]
     public async Task MissingProjectReturnsNotFoundCode()
     {
-        var handler = new SecurityConfigHandler(new StubProjectStore(), TimeProvider.System, keys);
+        var handler = new SecurityConfigHandler(new StubProjectStore(), TimeProvider.System, keys, signingKeys);
 
         var result = await handler.ExecuteAsync(BuildRequest("demo-project"));
 
@@ -128,7 +130,7 @@ public abstract class NetworkStorageSecurityConfigTests<TFactory> : IClassFixtur
     [SkippableFact]
     public async Task StoreErrorReturnsReadFailedCode()
     {
-        var handler = new SecurityConfigHandler(new StubProjectStore(throws: true), TimeProvider.System, keys);
+        var handler = new SecurityConfigHandler(new StubProjectStore(throws: true), TimeProvider.System, keys, signingKeys);
 
         var result = await handler.ExecuteAsync(BuildRequest("demo-project"));
 

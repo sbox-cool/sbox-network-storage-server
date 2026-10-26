@@ -339,14 +339,17 @@ session_secret_file = "secrets/auth_session_secret"
 # invalidates every existing secret key (sbox_sk_...).
 storage_encryption_key_file = "secrets/storage_encryption_key"
 # RSA private key (PEM) that signs the security config game clients download. Games pin its
-# fingerprint; replacing the key breaks pinned games. See encrypted-requests-v2.md#key-pinning.
+# fingerprint. Rotate with `sbox-ns security rotate-signing-key`; see encrypted-requests-v2.md#key-pinning.
 security_signing_key_file = "secrets/security_signing_key.pem"
+# Announced signing-key rotations (JSON), written by `sbox-ns security rotate-signing-key`. Do not edit by hand.
+security_signing_rotations_file = "secrets/security_signing_rotations.json"
 # RSA private keys (JSON) that unwrap encrypted-request v2 payloads: the current key plus
 # retired keys still in their grace window. Rotate with `sbox-ns security rotate-key`.
 request_encryption_keys_file = "secrets/request_encryption_keys.json"
 # Key id published with the signed security config. Empty (default) derives it
 # from the public key. Set it to the previous server's key id when moving a
 # project here with its signing key, so game clients keep accepting the config.
+# A signing-key rotation publishes the derived id of the new key, so this id applies until the first rotation.
 security_signing_key_id = ""
 ```
 

@@ -5,7 +5,7 @@ using SboxNetworkStorage.Server.Tunnels;
 namespace SboxNetworkStorage.Server.Configuration;
 
 /// <summary>Resolved secret material the Network Storage core reads from configuration.</summary>
-public sealed record ServerSecretValues(string AuthSessionSecret, string StorageEncryptionKeyHex, string SecuritySigningKeyPem);
+public sealed record ServerSecretValues(string AuthSessionSecret, string StorageEncryptionKeyHex);
 
 /// <summary>
 /// Creates (once) and loads the server's secret files. Files are created with
@@ -44,8 +44,7 @@ public static class ServerSecrets
 
         return new ServerSecretValues(
             File.ReadAllText(sessionPath).Trim(),
-            encryptionKey,
-            File.ReadAllText(signingPath));
+            encryptionKey);
     }
 
     private static void EnsureFile(string path, Func<string> generate, Action<string>? onCreated)

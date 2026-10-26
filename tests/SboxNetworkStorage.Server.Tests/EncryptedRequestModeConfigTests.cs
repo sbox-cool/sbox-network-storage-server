@@ -19,6 +19,7 @@ public sealed class EncryptedRequestModeConfigTests : IDisposable
     private readonly string _folder = Path.Combine(Path.GetTempPath(), "sbox-ns-mode-" + Guid.NewGuid().ToString("N"));
     private readonly string _keysPath;
     private readonly RequestEncryptionKeyStore _store;
+    private readonly SecuritySigningKeyStore _signing;
 
     public EncryptedRequestModeConfigTests()
     {
@@ -26,6 +27,7 @@ public sealed class EncryptedRequestModeConfigTests : IDisposable
         _keysPath = Path.Combine(_folder, "request_encryption_keys.json");
         RequestEncryptionKeyring.EnsureAndLoad(_keysPath, Now);
         _store = new RequestEncryptionKeyStore(_keysPath);
+        _signing = SigningKeyFixture.Create(_folder);
     }
 
     public void Dispose() => Directory.Delete(_folder, recursive: true);
@@ -171,7 +173,7 @@ public sealed class EncryptedRequestModeConfigTests : IDisposable
             Exponent = Base64UrlDecode(jwk.GetProperty("e").GetString()!),
         });
 
-        var pinned = NetworkStorageSecurityConfigSigningKey.Fingerprint;
+        var pinned = _signing.Current().Fingerprint;
         Assert.Matches("^[0-9a-f]{64}$", pinned);
         Assert.Equal(pinned, Convert.ToHexString(SHA256.HashData(fromPem.ExportSubjectPublicKeyInfo())).ToLowerInvariant());
         Assert.Equal(pinned, Convert.ToHexString(SHA256.HashData(fromJwk.ExportSubjectPublicKeyInfo())).ToLowerInvariant());
@@ -181,7 +183,7 @@ public sealed class EncryptedRequestModeConfigTests : IDisposable
         JsonDocument.Parse("{\"id\":\"demo-project\",\"authSessionTtlSeconds\":7200" + extra + "}").RootElement.Clone();
 
     private JsonElement Build(JsonElement project) =>
-        NetworkStorageSecurityConfigBuilder.Build("demo-project", project, Now, _store);
+        NetworkStorageSecurityConfigBuilder.Build("demo-project", project, Now, _store, _signing);
 
     private static byte[] Base64UrlDecode(string value)
     {

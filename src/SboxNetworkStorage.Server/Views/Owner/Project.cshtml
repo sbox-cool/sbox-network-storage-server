@@ -235,8 +235,15 @@
             <summary>Signing key (pin in games)</summary>
             @if (Model.SigningKeyFingerprint is not null)
             {
-                <p class="muted">Games pin this fingerprint to trust the server's signed security config. Rotating the request encryption key below does not change it. Replacing this signing key breaks every pinned game until its owner repins, so only do that after a compromise. <a href="@OwnerDocs.Url("admin-panel.md#encrypted-requests")" rel="noreferrer">Encrypted requests</a></p>
+                <p class="muted">Games pin this fingerprint to trust the server's signed security config. Rotating the request encryption key below does not change it. Rotating the signing key below makes a new key current; the old key signs a statement that announces the new one, so games that still trust the old key follow it until the grace ends. Games pinned to the old fingerprint need a repin. <a href="@OwnerDocs.Url("admin-panel.md#encrypted-requests")" rel="noreferrer">Encrypted requests</a></p>
                 <p>Fingerprint <code class="selectable">@signingGroups</code></p>
+                <form method="post" action="@url/signing/rotate">
+                    @Html.AntiForgeryToken()
+                    <label>Grace period for the previous signing key (seconds) <input type="number" name="graceSeconds" value="@RequestEncryptionKeyring.DefaultGraceSeconds" min="0" max="@RequestEncryptionKeyring.MaxGraceSeconds" required /></label>
+                    <label>Current password <input type="password" name="password" autocomplete="current-password" required maxlength="1024" /></label>
+                    <label>Authenticator or recovery code (if enabled) <input name="secondFactor" maxlength="32" autocomplete="one-time-code" /></label>
+                    <button type="submit" class="secondary">Rotate signing key</button>
+                </form>
             }
         </details>
         <details class="settings-advanced">

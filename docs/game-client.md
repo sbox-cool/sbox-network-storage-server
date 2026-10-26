@@ -298,6 +298,8 @@ errors keep their HTTP status. The library refreshes its security config and ret
 on a `SECURITY_*` code. After a key rotation, `SECURITY_CONFIG_STALE` means the cached
 config names a key that has expired; the refresh picks up the current key.
 
+Signing-key rotation: when the server replaces its signing key, a client that trusts the old key follows the announced statement to the new key with no game change, once the library release that includes sbox-network-storage PR #87 is in use. A pinned build (`securityKeyFingerprint`) refuses the new key until it is repinned. An unpinned client that has not followed the statement before the grace ends refuses the new key with `ENCRYPTION_SIGNING_KEY_CHANGED`. That refusal blocks every endpoint call from the game, including projects in `off` mode, until the stored trust is cleared. Only a game build can clear it, with `NetworkStorage.ResetSigningKeyTrust()` after the server identity is verified. The owner's remedy for players is a build that pins `securityKeyFingerprint`. A server reinstalled or restored without its `secrets/` directory presents a new key and triggers the same lockout. See [encrypted requests](encrypted-requests-v2.md#key-pinning).
+
 A v2 response body has `encrypted: true` and `v: 2`. Any other body is plain JSON.
 Error bodies can be either, because refusals before decryption are plain.
 

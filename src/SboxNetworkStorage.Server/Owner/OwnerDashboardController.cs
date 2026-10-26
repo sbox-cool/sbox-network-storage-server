@@ -81,7 +81,7 @@ public sealed record OwnerProjectModel(WorkspaceProject Project, NetworkStorageP
 [Authorize(AuthenticationSchemes = OwnerHostingExtensions.Scheme)]
 public sealed class OwnerDashboardController(INetworkStorageProjectService projects, IWorkspaceStore workspace,
     IAuditLogger audit, INetworkStorageStore store, EffectiveConfig config, IMemoryCache cache, TimeProvider time, GameLogQueue gameLogs,
-    ReleaseStatusService releaseStatus, RequestEncryptionKeyStore encryptionKeys, OwnerAccountService accounts,
+    ReleaseStatusService releaseStatus, RequestEncryptionKeyStore encryptionKeys, SecuritySigningKeyStore signingKeys, OwnerAccountService accounts,
     IErrorArchive errorArchive, ProjectSecretsService secrets) : Controller
 {
     private const long Owner = NetworkStorageServices.LocalOwnerUserId;
@@ -262,6 +262,41 @@ public sealed class OwnerDashboardController(INetworkStorageProjectService proje
         return Redirect(ProjectUrl(projectId) + "#project-settings");
     }
 
+    /// <summary>Rotates the signing key that games pin. The old key announces the new one for the grace period. Needs the owner's password, and the authenticator or a recovery code when enabled, as for the request key.</summary>
+    [HttpPost("/dashboard/projects/{projectId}/signing/rotate")]
+    public async Task<IActionResult> RotateSigningKey(string projectId, [FromForm] string? graceSeconds,
+        [FromForm] string? password, [FromForm] string? secondFactor, CancellationToken ct)
+    {
+        if (await LoadProjectAsync(projectId, ct) is null) return NotFound();
+        try
+        {
+            if (!await accounts.ConfirmAsync(User.Identity!.Name!, User.FindFirstValue(OwnerHostingExtensions.StampClaim), password, secondFactor, ct))
+                return await ProjectErrorAsync(projectId, "Enter your password, and your authenticator or recovery code if you enabled one.", ct);
+        }
+        catch (OwnerAuthenticatorUnavailableException)
+        {
+            return await ProjectErrorAsync(projectId, "This server cannot read your authenticator. Use a recovery code, or run sbox-ns admin reset-2fa on the server.", ct);
+        }
+        if (!int.TryParse(graceSeconds, NumberStyles.None, CultureInfo.InvariantCulture, out var grace)
+            || grace < 0 || grace > RequestEncryptionKeyring.MaxGraceSeconds)
+            return await ProjectErrorAsync(projectId, $"Grace period must be a whole number of seconds from 0 to {RequestEncryptionKeyring.MaxGraceSeconds}.", ct);
+        var previousFingerprint = signingKeys.Current().Fingerprint;
+        SigningKeyRotation rotation;
+        try
+        {
+            rotation = SecuritySigningKeyStore.Rotate(signingKeys.KeyPath, signingKeys.RotationsPath, time.GetUtcNow(), grace);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or FileNotFoundException or InvalidDataException or IOException)
+        {
+            // Refused before anything was written; show the reason on the project page.
+            return await ProjectErrorAsync(projectId, ex.Message, ct);
+        }
+        signingKeys.Reload();
+        await AuditAsync(projectId, "signing.key.rotate", new { previousFingerprint, nextFingerprint = rotation.NextFingerprint, graceSeconds = grace }, ct);
+        OwnerFlash.Success(this, $"Signing key rotated. Games that trust the previous key follow the announcement until the grace period ends ({grace} seconds).");
+        return Redirect(ProjectUrl(projectId) + "#project-settings");
+    }
+
     [HttpPost("/dashboard/projects/{projectId}/keys")]
     public async Task<IActionResult> CreateKey(string projectId, [FromForm] string? label, [FromForm] string? keyType, CancellationToken ct)
     {
@@ -399,7 +434,7 @@ public sealed class OwnerDashboardController(INetworkStorageProjectService proje
         var secretList = await secrets.ListAsync(projectId, ct);
         return new OwnerProjectModel(access.Project, resources,
             keys, connect, requests.FirstOrDefault(), rejected, authority, Secrets: secretList, SecretsAvailable: secrets.IsAvailable,
-            EncryptionKey: encryptionKeys.Current().Current, SigningKeyFingerprint: NetworkStorageSecurityConfigSigningKey.Fingerprint);
+            EncryptionKey: encryptionKeys.Current().Current, SigningKeyFingerprint: signingKeys.Current().Fingerprint);
     }
 
     private static OwnerRequestSummary Summary(JsonElement row) => new(

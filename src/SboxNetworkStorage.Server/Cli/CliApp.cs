@@ -59,10 +59,14 @@ public static class CliApp
           telemetry preview             Print the exact JSON that would be sent, without sending it
 
         Request encryption keys (docs/configuration.md)
-          security status               Show the server key id, fingerprint and retired keys still in grace
+          security status               Show the signing key, announced rotations, and request keys in grace
           security rotate-key [--grace-seconds N]
                                         Make a new key current; the previous key keeps working for N seconds
                                         (default 86400, max 2592000; 0 removes it at once). No restart needed
+          security rotate-signing-key [--grace-seconds N]
+                                        Replace the signing key games pin; the old key announces the new one
+                                        for N seconds (default 86400, max 2592000; 0 announces nothing).
+                                        Pinned games need a repin. No restart needed
 
         Configuration
           config path                   Print the config folder

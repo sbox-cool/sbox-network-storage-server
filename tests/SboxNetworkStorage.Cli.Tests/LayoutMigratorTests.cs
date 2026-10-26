@@ -58,6 +58,7 @@ public sealed class LayoutMigratorTests : IDisposable
         Put(Etc("secrets/auth_session_secret"), "session-secret");
         Put(Etc("secrets/storage_encryption_key"), new string('a', 64));
         Put(Etc("secrets/security_signing_key.pem"), "pem");
+        Put(Etc("secrets/security_signing_rotations.json"), "{\"schemaVersion\":1,\"current\":{\"fingerprint\":\"\",\"keyId\":\"\"},\"rotations\":[]}");
         Put(Etc("secrets/identity_ecdsa_p256.pem"), "identity");
         Put(Etc("secrets/tunnel_token"), "token");
         Put(Etc("secrets/postgres_password"), "operator password");
@@ -94,6 +95,7 @@ public sealed class LayoutMigratorTests : IDisposable
     private static readonly string[] RuntimeRelative =
     [
         "secrets/auth_session_secret", "secrets/storage_encryption_key", "secrets/security_signing_key.pem",
+        "secrets/security_signing_rotations.json",
         "secrets/identity_ecdsa_p256.pem", "secrets/tunnel_token", ".tunnel.lock", ".dns.lock", "conf.d/zzzz-tunnel.toml"
     ];
 

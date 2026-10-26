@@ -29,9 +29,6 @@ public static class ServerHost
             Console.WriteLine($"Notice: {StateLayout.MigrationNotice}");
         }
 
-        // The security-config signer reads its key and key id from the process environment.
-        SecurityConfigEnvironment.Apply(config, secrets);
-
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions
         {
             Args = args ?? [],

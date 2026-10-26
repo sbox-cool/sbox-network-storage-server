@@ -158,6 +158,7 @@ public sealed class StateLayoutTests : IDisposable
     [InlineData("secrets/auth_session_secret")]
     [InlineData("secrets/storage_encryption_key")]
     [InlineData("secrets/security_signing_key.pem")]
+    [InlineData("secrets/security_signing_rotations.json")]
     [InlineData("secrets/identity_ecdsa_p256.pem")]
     [InlineData("secrets/tunnel_token")]
     [InlineData("connectors/2026.10.0/cloudflared")]

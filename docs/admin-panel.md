@@ -294,9 +294,15 @@ only the v2 modes use it.
 **Signing key** shows the fingerprint of the key that signs the security config
 (`auth.security_signing_key_file`). Games pin this value to trust the server, and the same
 value is printed by `sbox-ns security status`. Rotating the request key does not change it.
-This key has no rotate command. Replacing it breaks every pinned game until its owner
-repins, so do that only after a compromise. The steps are in
-[encrypted-requests-v2.md](encrypted-requests-v2.md#key-pinning).
+
+**Rotate signing key** makes a new signing key current. The old key signs a statement that
+announces the new one, so games that trust the old key follow it until the grace period ends.
+The grace uses the same default and maximum as the request key. Rotating needs the owner's
+current password, and the authenticator or a recovery code when enabled. The same command is
+`sbox-ns security rotate-signing-key [--grace-seconds N]` on the server host. Games pinned to
+the old fingerprint need a repin, and an unpinned player who has not followed the chain before
+the grace ends has to clear stored trust (see
+[encrypted-requests-v2.md](encrypted-requests-v2.md#key-pinning)).
 
 **Rotate** creates a new key and makes it current. The previous key stays valid for the
 **grace** period, in seconds: default 86400 (one day), maximum 2592000 (30 days). Until

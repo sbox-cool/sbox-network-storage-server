@@ -4,8 +4,6 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using SboxNetworkStorage.Infrastructure.NetworkStorage;
-using SboxNetworkStorage.Server.Configuration;
-using SboxNetworkStorage.Server.Hosting;
 
 namespace SboxNetworkStorage.Server.Tests;
 
@@ -38,6 +36,7 @@ public sealed class NetworkStorageSecurityConfigSigningTests : IDisposable
 
     private readonly string _folder = Path.Combine(Path.GetTempPath(), "sbox-ns-signing-" + Guid.NewGuid().ToString("N"));
     private readonly RequestEncryptionKeyStore _keys;
+    private readonly SecuritySigningKeyStore _signing;
 
     public NetworkStorageSecurityConfigSigningTests()
     {
@@ -45,6 +44,7 @@ public sealed class NetworkStorageSecurityConfigSigningTests : IDisposable
         var keysPath = Path.Combine(_folder, "request_encryption_keys.json");
         RequestEncryptionKeyring.EnsureAndLoad(keysPath, DateTimeOffset.UnixEpoch);
         _keys = new RequestEncryptionKeyStore(keysPath);
+        _signing = SigningKeyFixture.Create(_folder);
     }
 
     public void Dispose() => Directory.Delete(_folder, recursive: true);
@@ -68,7 +68,7 @@ public sealed class NetworkStorageSecurityConfigSigningTests : IDisposable
     [Fact]
     public void Signature_verifies_against_the_published_public_key()
     {
-        var config = NetworkStorageSecurityConfigBuilder.Build("demo-project", Project, DateTimeOffset.UnixEpoch, _keys);
+        var config = NetworkStorageSecurityConfigBuilder.Build("demo-project", Project, DateTimeOffset.UnixEpoch, _keys, _signing);
 
         var signature = Base64UrlDecode(config.GetProperty("signature").GetString()!);
         var publicKeyPem = config.GetProperty("signing").GetProperty("publicKeyPem").GetString()!;
@@ -87,8 +87,8 @@ public sealed class NetworkStorageSecurityConfigSigningTests : IDisposable
     [Fact]
     public void KeyId_is_stable_across_builds_within_a_process()
     {
-        var first = NetworkStorageSecurityConfigBuilder.Build("demo-project", Project, DateTimeOffset.UnixEpoch, _keys);
-        var second = NetworkStorageSecurityConfigBuilder.Build("demo-project", Project, DateTimeOffset.UnixEpoch, _keys);
+        var first = NetworkStorageSecurityConfigBuilder.Build("demo-project", Project, DateTimeOffset.UnixEpoch, _keys, _signing);
+        var second = NetworkStorageSecurityConfigBuilder.Build("demo-project", Project, DateTimeOffset.UnixEpoch, _keys, _signing);
 
         Assert.Equal(
             first.GetProperty("signing").GetProperty("keyId").GetString(),
@@ -97,33 +97,16 @@ public sealed class NetworkStorageSecurityConfigSigningTests : IDisposable
 
     /// <summary>
     /// auth.security_signing_key_id lets a server that took over a project keep publishing
-    /// the key id its game clients know; empty keeps the derived id. The id lives in the process
-    /// environment, so this test runs in SecurityConfigProcessEnvironmentCollection with the other signed-config tests.
+    /// the key id its game clients know; empty keeps the derived id.
     /// </summary>
     [Fact]
     public void Configured_signing_key_id_reaches_the_security_config()
     {
-        var previousKeyId = Environment.GetEnvironmentVariable(SecurityConfigEnvironment.KeyIdVariable);
-        var currentKey = Environment.GetEnvironmentVariable(SecurityConfigEnvironment.PrivateKeyVariable) ?? string.Empty;
-        var folder = Path.Combine(Path.GetTempPath(), "sbox-ns-key-id-" + Guid.NewGuid().ToString("N"));
-        var secrets = new ServerSecretValues("session", new string('a', 64), currentKey);
-        try
-        {
-            Environment.SetEnvironmentVariable(SecurityConfigEnvironment.KeyIdVariable, null);
-            SecurityConfigEnvironment.Apply(ConfigLoader.Load(folder, folder, null, _ => null), secrets);
-            var derived = KeyId(NetworkStorageSecurityConfigBuilder.Build("demo-project", Project, DateTimeOffset.UnixEpoch, _keys));
+        var derived = KeyId(NetworkStorageSecurityConfigBuilder.Build("demo-project", Project, DateTimeOffset.UnixEpoch, _keys, _signing));
+        var configured = new SecuritySigningKeyStore(_signing.KeyPath, _signing.RotationsPath, "hosted-key-2026");
 
-            var configured = ConfigLoader.Load(folder, folder,
-                new Dictionary<string, string> { ["auth.security_signing_key_id"] = "hosted-key-2026" }, _ => null);
-            SecurityConfigEnvironment.Apply(configured, secrets);
-
-            Assert.Equal("hosted-key-2026", KeyId(NetworkStorageSecurityConfigBuilder.Build("demo-project", Project, DateTimeOffset.UnixEpoch, _keys)));
-            Assert.NotEqual("hosted-key-2026", derived);
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable(SecurityConfigEnvironment.KeyIdVariable, previousKeyId);
-        }
+        Assert.Equal("hosted-key-2026", KeyId(NetworkStorageSecurityConfigBuilder.Build("demo-project", Project, DateTimeOffset.UnixEpoch, _keys, configured)));
+        Assert.NotEqual("hosted-key-2026", derived);
 
         static string? KeyId(JsonElement config) => config.GetProperty("signing").GetProperty("keyId").GetString();
     }
@@ -135,7 +118,7 @@ public sealed class NetworkStorageSecurityConfigSigningTests : IDisposable
     [Fact]
     public void Published_jwk_and_pem_describe_the_same_key()
     {
-        var config = NetworkStorageSecurityConfigBuilder.Build("demo-project", Project, DateTimeOffset.UnixEpoch, _keys);
+        var config = NetworkStorageSecurityConfigBuilder.Build("demo-project", Project, DateTimeOffset.UnixEpoch, _keys, _signing);
         var signing = config.GetProperty("signing");
 
         using var fromPem = RSA.Create();
