@@ -217,7 +217,13 @@ public sealed class SecuritySigningKeyStore
             previous.SignData(StatementBytes(statement), HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1));
 
         var nextKeyId = KeyIdOf(next.ExportSubjectPublicKeyInfoPem());
-        var links = new List<RotationLink>(kept) { new(statement, previousFingerprint, nextFingerprint, notAfter) };
+        // A zero grace announces nothing, so no link is kept for it. A link with NotAfter = now would still match a
+        // config generated in the same second, because generatedAt has whole seconds.
+        var links = new List<RotationLink>(kept);
+        if (graceSeconds > 0)
+        {
+            links.Add(new(statement, previousFingerprint, nextFingerprint, notAfter));
+        }
 
         // The rotations file goes first. A crash between the two writes leaves a link the live key does not end,
         // which the next load ignores and the next rotation drops.
