@@ -698,8 +698,11 @@ static class E2E
                     ev.Check($"{target}.signing-first-key", "C", Ok(firstKey), "signing key A is trusted on first use", required: true);
 
                     // A -> B announced for an hour: the caller follows the statement to the new key.
+                    var (_, pinA) = await FetchSecurityConfigAsync(server);
                     var announced = await server.Cli!.RunAsync(["security", "rotate-signing-key", "--grace-seconds", "3600"]);
-                    ev.Check($"{target}.signing-rotated-announced", "C", announced.Code == 0, "rotate the signing key with a one-hour grace", required: true);
+                    // The running server reloads the key file within seconds; probing before then would test the old key.
+                    var servingB = announced.Code == 0 && await WaitForSigningKeyChangeAsync(server, pinA);
+                    ev.Check($"{target}.signing-rotated-announced", "C", servingB, "rotate the signing key with a one-hour grace; the server serves the new key", required: true);
                     var refreshedAnnounced = await cli.CallAsync("run_csharp", new JsonObject
                     {
                         ["code"] = """return new { loaded = await NetworkStorage.EnsureRuntimeSecurityConfigAsync("signing-announced-probe", forceRefresh: true) };""",
@@ -712,8 +715,10 @@ static class E2E
                         "unpinned caller follows the announced A -> B statement to the new signing key", required: true);
 
                     // B -> C with zero grace: nothing announces C, so the caller refuses it.
+                    var (_, pinB) = await FetchSecurityConfigAsync(server);
                     var unannounced = await server.Cli.RunAsync(["security", "rotate-signing-key", "--grace-seconds", "0"]);
-                    ev.Check($"{target}.signing-rotated-unannounced", "C", unannounced.Code == 0, "rotate the signing key again with zero grace", required: true);
+                    var servingC = unannounced.Code == 0 && await WaitForSigningKeyChangeAsync(server, pinB);
+                    ev.Check($"{target}.signing-rotated-unannounced", "C", servingC, "rotate the signing key again with zero grace; the server serves the new key", required: true);
                     // Simulate startup with persisted TOFU trust but no held trusted config. Do not reset the trust store:
                     // a warm client deliberately retains its last trusted config when a refresh is refused.
                     await ConfigurePin(new string('0', 64));
@@ -766,6 +771,10 @@ static class E2E
 		signingKey.ImportFromPem(J.Str(config["signing"], "publicKeyPem") ?? throw new InvalidOperationException("No signing public key in security config."));
 		return (config, Convert.ToHexString(SHA256.HashData(signingKey.ExportSubjectPublicKeyInfo())).ToLowerInvariant());
 	}
+
+	/// <summary>Waits until the running server signs its config with a key other than <paramref name="previousPin"/>.</summary>
+	static Task<bool> WaitForSigningKeyChangeAsync(Server server, string previousPin) =>
+		WaitAsync(30, async () => (await FetchSecurityConfigAsync(server)).Pin != previousPin);
 
 	/// <summary>True when the installed library carries the signing-key follower (sboxcool.network-storage#87).</summary>
 	static bool LibraryFollowsSigningRotation(string fixture)
