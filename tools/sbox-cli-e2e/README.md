@@ -53,7 +53,9 @@ writes are `ci-only`.
    `git clone`) or, with `--library package`, the published package through
    `Editor.LibrarySystem.Install`, the same whole-folder installer the Library Manager button uses.
    The package leg first installs revision 165702 when available, then updates it to the latest
-   revision and checks compilation; it does not use the unrelated asset-only `install_package` tool.
+   revision, restarts the editor (sbox-cool/sbox-network-storage#106: an in-session update leaves the Network Storage menu
+   and toolset unregistered until restart, so the editor never goes idle), and checks compilation.
+   It does not use the unrelated asset-only `install_package` tool.
 3. **Editor** (Windows launches `sbox-dev -project`; on other systems open the fixture yourself and
    pass `--attach`): waits for the compile, then with the library's `network_storage` toolset
    (`ns_editor_status`, `ns_sync_push` with post-push verification, `ns_auto_test`) or, for older
@@ -75,6 +77,11 @@ writes are `ci-only`.
    grace followed by the library's signed-config refresh/retry, and v2→v1→v2 switching
    without reconfiguring the cached caller. Older library/server pairs explicitly report
    that v2 was not exercised, while retaining the legacy switching checks.
+   The signing-key probe runs when the library follows signing-key rotations (`ResetSigningKeyTrust`)
+   and the server CLI can rotate the signing key; otherwise it reports not exercised. It trusts signing
+   key A on first use, follows an announced A → B rotation with a one-hour grace, refuses an unannounced
+   B → C rotation with zero grace (`ENCRYPTION_SIGNING_KEY_CHANGED` or `ENCRYPTION_SIGNING_KEY_ROTATION_INVALID`),
+   and restores the caller with an explicit pin on the current key.
    Then the **rate-limit probe**: the runner sets `server.limits.game_burst` and
    `server.limits.game_per_second` to 1 with `sbox-ns config set`, restarts this server, and makes
    two game-values GETs, five concurrent GETs and one POST `ping` from the game. The second GET must
