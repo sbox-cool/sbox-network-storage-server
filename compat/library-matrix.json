@@ -506,6 +506,27 @@
       "engine": "0000000", "os": "Microsoft Windows 10.0.26100", "database": ["sqlite"], "result": "ci-only", "date": "2026-10-26",
       "evidence": ["https://github.com/sbox-cool/sbox-network-storage/actions/runs/40282045716", "https://github.com/sbox-cool/sbox-network-storage/pull/105"],
       "notes": "Unpublished integration library, no package revision assigned, against the verified oldest-supported 0.4.0 release archive. Source-built Facepunch/sbox-public 86f70929f44fc5945a04d9b70f1638531f961a2f, build 0000000. All required legacy probes passed; v2 and announced signing rotation are not certified against this old server. No native GUI, two-client RPC or PostgreSQL-in-engine run."
+    },
+    {
+      "server": "0.1.0-dev", "commit": "62ecf6ad4583b585443f7369b53fb4a5597bd411", "kind": "self-hosted",
+      "library": "1.2.1", "librarySource": "git:49fde9ce600c25aa41ac8f7082b30780297bff2b",
+      "engine": "0000000", "os": "Microsoft Windows 10.0.26100", "database": ["sqlite"], "result": "ci-only", "date": "2026-10-26",
+      "evidence": ["https://github.com/sbox-cool/sbox-network-storage/actions/runs/40286263631", "https://github.com/sbox-cool/sbox-network-storage/pull/105"],
+      "notes": "Final unreleased 1.2.1 integration candidate, no package revision assigned. Source-built Facepunch/sbox-public 86f70929f44fc5945a04d9b70f1638531f961a2f, observed build 0000000. Dedicated engine passed existing endpoint, script sync, values, v1/v2 switching, request-key rotation, rate-limit and version-header probes. TOFU A-to-B announced rotation succeeded; unannounced B-to-C was refused as ENCRYPTION_SIGNING_KEY_CHANGED; refusal diagnostics and explicit-pin recovery passed. No native GUI, two-account RPC or PostgreSQL-in-engine run."
+    },
+    {
+      "server": "0.5.7", "kind": "self-hosted",
+      "library": "1.2.1", "librarySource": "git:49fde9ce600c25aa41ac8f7082b30780297bff2b",
+      "engine": "0000000", "os": "Microsoft Windows 10.0.26100", "database": ["sqlite"], "result": "ci-only", "date": "2026-10-26",
+      "evidence": ["https://github.com/sbox-cool/sbox-network-storage/actions/runs/40286263631", "https://github.com/sbox-cool/sbox-network-storage/pull/105"],
+      "notes": "Final unreleased 1.2.1 integration candidate, no package revision assigned, against the verified 0.5.7 release archive. Source-built Facepunch/sbox-public 86f70929f44fc5945a04d9b70f1638531f961a2f, observed build 0000000. All required existing probes passed. Announced signing rotation is not certified against this older server, which predates the CLI. No native GUI, two-account RPC or PostgreSQL-in-engine run."
+    },
+    {
+      "server": "0.4.0", "kind": "self-hosted",
+      "library": "1.2.1", "librarySource": "git:49fde9ce600c25aa41ac8f7082b30780297bff2b",
+      "engine": "0000000", "os": "Microsoft Windows 10.0.26100", "database": ["sqlite"], "result": "ci-only", "date": "2026-10-26",
+      "evidence": ["https://github.com/sbox-cool/sbox-network-storage/actions/runs/40286263631", "https://github.com/sbox-cool/sbox-network-storage/pull/105"],
+      "notes": "Final unreleased 1.2.1 integration candidate, no package revision assigned, against the verified oldest-supported 0.4.0 release archive. Source-built Facepunch/sbox-public 86f70929f44fc5945a04d9b70f1638531f961a2f, observed build 0000000. All required legacy probes passed. V2 and announced signing rotation are not certified against this old server. No native GUI, two-account RPC or PostgreSQL-in-engine run."
     }
   ]
 }
