@@ -219,7 +219,7 @@ internal static class NetworkStorageManagementAutoTestRunner
         JsonValueKind.Object => value.EnumerateObject().ToDictionary(
             property => property.Name,
             property => JsonElementToObject(property.Value),
-            StringComparer.OrdinalIgnoreCase),
+            StringComparer.Ordinal),
         JsonValueKind.Array => value.EnumerateArray().Select(JsonElementToObject).ToList(),
         JsonValueKind.String => value.GetString(),
         JsonValueKind.Number when value.TryGetInt64(out var integer) => integer,
