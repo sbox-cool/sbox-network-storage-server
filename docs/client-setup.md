@@ -60,7 +60,7 @@ sbox-ns key create <projectId> --type secret --label editor
    `.yaml` also accepted).
 
 YAML mapping keys are case-sensitive, like JSON: `Foo` and `foo` remain
-distinct.
+distinct, including nested object defaults used by auto-test.
 
 The Setup window stores the base URL in your project's Network Storage
 credentials, and the generated config is picked up automatically by

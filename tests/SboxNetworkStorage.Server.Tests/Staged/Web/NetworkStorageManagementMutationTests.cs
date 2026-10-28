@@ -1174,6 +1174,50 @@ public abstract class NetworkStorageManagementMutationTests<TFactory> : IClassFi
     }
 
     [SkippableFact]
+    public async Task AutoTest_PreservesCaseDistinctKeysInObjectDefaults()
+    {
+        var definition = new Dictionary<string, object?>
+        {
+            ["input"] = new Dictionary<string, object?>
+            {
+                ["properties"] = new Dictionary<string, object?>
+                {
+                    ["payload"] = new Dictionary<string, object?>
+                    {
+                        ["type"] = "object",
+                        ["default"] = new Dictionary<string, object?> { ["Foo"] = 1, ["foo"] = 2 },
+                    },
+                },
+            },
+            ["steps"] = new List<object?>(),
+            ["response"] = new Dictionary<string, object?>
+            {
+                ["status"] = 200d,
+                ["body"] = new Dictionary<string, object?> { ["payload"] = "{{input.payload}}" },
+            },
+        };
+        var store = new InMemoryNetworkStorageStore();
+        await store.UpsertEndpointAsync(
+            "proj-1", "ping", "ping", "POST", true, JsonSerializer.SerializeToElement(definition), null, 1, CancellationToken.None);
+        var handler = new ManagementMutationHandler(
+            new FakeKeyResolver("sk-valid", "proj-1"),
+            new FakeWorkspace("proj-1"),
+            store,
+            TimeProvider.System,
+            new EndpointExecutor(new AutoTestDataSource(definition)));
+
+        var result = await handler.ExecuteAsync(
+            BuildRequest("POST", "proj-1", apiKey: "sk-valid", routeSuffix: "auto-test", body: """{"slug":"ping"}"""));
+
+        Assert.Equal(200, result.StatusCode);
+        var json = JsonSerializer.SerializeToElement(result.Body);
+        Assert.True(json.GetProperty("passed").GetBoolean());
+        var payload = json.GetProperty("result").GetProperty("body").GetProperty("payload");
+        Assert.Equal(1, payload.GetProperty("Foo").GetInt32());
+        Assert.Equal(2, payload.GetProperty("foo").GetInt32());
+    }
+
+    [SkippableFact]
     public async Task AutoTest_ResolvesGameValuesLikeTestEndpoint()
     {
         var definition = new Dictionary<string, object?>
