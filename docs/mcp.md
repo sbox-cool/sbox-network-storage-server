@@ -187,8 +187,14 @@ Debugging:
 | `data_record_write`, `data_record_delete` | Change records (need `mcp.allow_data_writes` / `mcp.allow_destructive`, plus the record's current version) |
 
 The server also offers its guides as MCP resources (`sbox-ns://docs/client-setup`,
-`game-client`, `mcp`, `admin-panel`) and four prompts: `first-setup`,
-`new-endpoint`, `debug-player` and `playtest` (needs sbox-cli, above).
+`game-client`, `mcp`, `admin-panel`) and five prompts: `first-setup`,
+`new-endpoint`, `debug-player`, `integrate-analytics` and `playtest` (needs
+sbox-cli, above). `integrate-analytics` takes a project ID and measurement
+goals, then helps plan event names, minimal payloads and instrumentation around
+the game's actual actions. It checks existing session capture and the project's
+analytics settings before suggesting changes. Analytics are best-effort;
+request logs alone do not prove that an event was stored. Test in a development
+project and authorize play-mode testing separately: test events are real data.
 
 `sbox-ns dev <tool>` is the command behind the development tools. It reads the
 tool's arguments as one JSON object on stdin and prints JSON, so YAML and
