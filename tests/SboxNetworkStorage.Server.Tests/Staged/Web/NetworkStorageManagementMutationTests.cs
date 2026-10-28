@@ -1260,6 +1260,48 @@ public abstract class NetworkStorageManagementMutationTests<TFactory> : IClassFi
             throw new InvalidOperationException("Auto-test must not persist global writes.");
     }
 
+    private const string CaseVariantCollectionYaml = """
+        kind: collection
+        id: casekeys
+        name: Case keys
+        schema:
+          Foo:
+            type: number
+          foo:
+            type: string
+        """;
+
+    [SkippableFact]
+    public async Task PreflightSync_YamlCollectionWithCaseVariantNestedKeys_Passes()
+    {
+        var handler = new ManagementMutationHandler(
+            new FakeKeyResolver("sk-valid", "proj-1"),
+            new FakeWorkspace("proj-1"),
+            new InMemoryNetworkStorageStore(),
+            TimeProvider.System);
+        var body = JsonSerializer.Serialize(new
+        {
+            collections = new[]
+            {
+                new
+                {
+                    kind = "collection",
+                    id = "casekeys",
+                    sourceFormat = "yaml",
+                    sourcePath = "casekeys.collection.yml",
+                    sourceText = CaseVariantCollectionYaml,
+                },
+            },
+        });
+
+        var result = await handler.ExecuteAsync(
+            BuildRequest("POST", "proj-1", apiKey: "sk-valid", routeSuffix: "sync/preflight", body: body));
+
+        Assert.Equal(200, result.StatusCode);
+        var json = JsonSerializer.SerializeToElement(result.Body);
+        Assert.True(json.GetProperty("ok").GetBoolean());
+    }
+
 }
 
 public sealed class NetworkStorageManagementMutationTests_Sqlite(SqliteHostFactory factory) : NetworkStorageManagementMutationTests<SqliteHostFactory>(factory);

@@ -59,6 +59,9 @@ sbox-ns key create <projectId> --type secret --label editor
    definitions for collections, endpoints and workflows (`.yml` preferred;
    `.yaml` also accepted).
 
+YAML mapping keys are case-sensitive, like JSON: `Foo` and `foo` remain
+distinct.
+
 The Setup window stores the base URL in your project's Network Storage
 credentials, and the generated config is picked up automatically by
 `NetworkStorage.AutoConfigure()` at runtime.
