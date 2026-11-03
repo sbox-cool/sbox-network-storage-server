@@ -87,4 +87,23 @@ public sealed class OwnerResourceCatalogTests : IDisposable
         Assert.NotEmpty(created.GetProperty("created").EnumerateArray());
         Assert.Empty(created.GetProperty("failed").EnumerateArray());
     }
+
+    [Fact]
+    public void OwnerYamlParse_NestedKeysDifferingOnlyByCase_StayDistinct()
+    {
+        var definition = SboxNetworkStorage.Server.Owner.OwnerYamlDefinitions.ParseDefinition("""
+            kind: collection
+            id: casekeys
+            schema:
+              Foo:
+                type: number
+              foo:
+                type: string
+            """, out _);
+
+        var schema = definition.GetProperty("schema");
+        Assert.Equal(new[] { "Foo", "foo" }, schema.EnumerateObject().Select(property => property.Name).ToArray());
+        Assert.Equal("string", schema.GetProperty("foo").GetProperty("type").GetString());
+    }
+
 }

@@ -132,14 +132,11 @@ internal static class NetworkStorageSourceResourceCompiler
 
     private static object? NormalizeYamlValue(object? value) => value switch
     {
-        IDictionary<object, object> map => map.ToDictionary(
-            pair => Convert.ToString(pair.Key) ?? string.Empty,
-            pair => NormalizeYamlValue(pair.Value),
-            StringComparer.OrdinalIgnoreCase),
+        IDictionary<object, object> map => NormalizeYamlMapping(map),
         IDictionary<string, object> map => map.ToDictionary(
             pair => pair.Key,
             pair => NormalizeYamlValue(pair.Value),
-            StringComparer.OrdinalIgnoreCase),
+            StringComparer.Ordinal),
         IEnumerable sequence when value is not string => sequence.Cast<object?>().Select(NormalizeYamlValue).ToList(),
         // YamlDotNet's default schema resolves nothing for an `object` target: an
         // unquoted YAML `true` arrives as the STRING "true" and `403` as "403".
@@ -154,6 +151,20 @@ internal static class NetworkStorageSourceResourceCompiler
         string s when double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out var d) && double.IsFinite(d) => d,
         _ => value,
     };
+
+    // Keys stay case-sensitive, matching the JSON path: `Foo` and `foo` are two keys.
+    // Keys that collide only after stringification are source errors, not unhandled ArgumentExceptions.
+    private static Dictionary<string, object?> NormalizeYamlMapping(IDictionary<object, object> map)
+    {
+        var normalized = new Dictionary<string, object?>(StringComparer.Ordinal);
+        foreach (var pair in map)
+        {
+            var key = Convert.ToString(pair.Key) ?? string.Empty;
+            if (!normalized.TryAdd(key, NormalizeYamlValue(pair.Value)))
+                throw new YamlException($"Duplicate mapping key '{key}'.");
+        }
+        return normalized;
+    }
 
     private static JsonObject UnwrapSourceBody(JsonObject source, string expectedKind)
     {

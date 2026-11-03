@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json;
 using SboxNetworkStorage.Application.NetworkStorage.Endpoints;
 using SboxNetworkStorage.Infrastructure.NetworkStorage;
@@ -120,4 +121,33 @@ public sealed class NetworkStorageSourceResourceCompilerTests
         Assert.True(EndpointExpression.EvaluateCondition(check, withSecret));
         Assert.False(EndpointExpression.EvaluateCondition(check, withoutSecret));
     }
+
+    [Fact]
+    public void Compile_YamlNestedKeysDifferingOnlyByCase_StayDistinct()
+    {
+        // Nested keys are case-sensitive, like the JSON path: `Foo` and `foo` are two schema fields.
+        var resource = JsonSerializer.SerializeToElement(new
+        {
+            sourceFormat = "yaml",
+            sourceText = """
+                kind: collection
+                id: casekeys
+                name: Case keys
+                schema:
+                  Foo:
+                    type: number
+                  foo:
+                    type: string
+                """,
+        });
+
+        var ok = NetworkStorageSourceResourceCompiler.TryCompile(resource, "collection", out var compiled, out var error);
+
+        Assert.True(ok, error);
+        var schema = compiled.GetProperty("schema");
+        Assert.Equal(new[] { "Foo", "foo" }, schema.EnumerateObject().Select(property => property.Name).ToArray());
+        Assert.Equal("number", schema.GetProperty("Foo").GetProperty("type").GetString());
+        Assert.Equal("string", schema.GetProperty("foo").GetProperty("type").GetString());
+    }
+
 }

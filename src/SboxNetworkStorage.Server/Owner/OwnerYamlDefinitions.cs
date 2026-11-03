@@ -105,20 +105,32 @@ public static class OwnerYamlDefinitions
 
     internal static object? NormalizeYamlValue(object? value) => value switch
     {
-        IDictionary<object, object> map => map.ToDictionary(
-            pair => Convert.ToString(pair.Key) ?? string.Empty,
-            pair => NormalizeYamlValue(pair.Value),
-            StringComparer.OrdinalIgnoreCase),
+        IDictionary<object, object> map => NormalizeYamlMapping(map),
         IDictionary<string, object> map => map.ToDictionary(
             pair => pair.Key,
             pair => NormalizeYamlValue(pair.Value),
-            StringComparer.OrdinalIgnoreCase),
+            StringComparer.Ordinal),
         IEnumerable<object?> sequence when value is not string => sequence.Select(NormalizeYamlValue).ToList(),
         string s when bool.TryParse(s, out var b) => b,
         string s when long.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out var l) => l,
         string s when double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out var d) && double.IsFinite(d) => d,
         _ => value,
     };
+
+    // Keys stay case-sensitive, matching the JSON path: `Foo` and `foo` are two keys.
+    // Keys that collide only after stringification are reported as invalid YAML
+    // (ParseDefinition maps YamlException to ArgumentException) instead of crashing.
+    private static Dictionary<string, object?> NormalizeYamlMapping(IDictionary<object, object> map)
+    {
+        var normalized = new Dictionary<string, object?>(StringComparer.Ordinal);
+        foreach (var pair in map)
+        {
+            var key = Convert.ToString(pair.Key) ?? string.Empty;
+            if (!normalized.TryAdd(key, NormalizeYamlValue(pair.Value)))
+                throw new YamlException($"Duplicate mapping key '{key}'.");
+        }
+        return normalized;
+    }
 
     private static object? ToYamlValue(JsonElement element) => element.ValueKind switch
     {
