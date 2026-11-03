@@ -23,7 +23,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   operation. Requests without the header retain the existing heuristic; older
   servers ignore the header.
 - `ENCRYPTED_REQUEST_STALE` refusals include the server time for clock correction.
-- Updated the S3 SDK and the test-only JSON schema validator.
+- YAML sync preflight, owner editing and auto-test preserve case-distinct nested
+  keys such as `Foo` and `foo` instead of failing or losing a value.
+- Updated Microsoft runtime packages, the S3 SDK and the test-only JSON schema
+  validator.
 
 ### Changed
 
