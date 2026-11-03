@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.8] - 2026-11-03
+
+### Added
+
+- `sbox-ns security rotate-signing-key` announces a signing-key rotation
+  signed by the previous key. Explicitly pinned clients still require a repin;
+  the published library r427072 does not follow announced rotations.
+- The `integrate-analytics` MCP prompt helps plan and integrate game analytics.
+
+### Fixed
+
+- Record writes accept `x-ns-write-mode: replace` or `ops`, allowing documents
+  with a top-level `ops` field to be stored without interpreting it as an
+  operation. Requests without the header retain the existing heuristic; older
+  servers ignore the header.
+- `ENCRYPTED_REQUEST_STALE` refusals include the server time for clock correction.
+- Updated the S3 SDK and the test-only JSON schema validator.
+
+### Changed
+
+- Clarified endpoint-only encryption coverage and corrected documentation about
+  non-2xx response bodies in s&box.
+
 ## [0.5.2] - 2026-10-12
 
 ### Fixed
@@ -444,7 +467,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   not the requester.
 - Answer malformed sync/preflight JSON with the client-contract error shape.
 
-[Unreleased]: https://github.com/sbox-cool/sbox-network-storage-server/compare/v0.5.0...main
+[Unreleased]: https://github.com/sbox-cool/sbox-network-storage-server/compare/v0.5.8...main
+[0.5.8]: https://github.com/sbox-cool/sbox-network-storage-server/releases/tag/v0.5.8
 [0.5.0]: https://github.com/sbox-cool/sbox-network-storage-server/releases/tag/v0.5.0
 [0.4.0]: https://github.com/sbox-cool/sbox-network-storage-server/releases/tag/v0.4.0
 [0.3.0]: https://github.com/sbox-cool/sbox-network-storage-server/releases/tag/v0.3.0
