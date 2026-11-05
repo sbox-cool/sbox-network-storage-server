@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.9] - 2026-11-05
+
+### Fixed
+
+- Large collection, endpoint, workflow and query definitions are no longer
+  refused by the 64 KiB record payload limit. Definitions now have their own
+  limit (`database.max_definition_bytes`, default 4 MiB), so projects moved
+  from hosted sboxcool.com with large definitions import and sync again.
+
+### Added
+
+- `database.max_payload_bytes` (default 64 KiB) and
+  `database.max_definition_bytes` (default 4 MiB) configure the record and
+  definition size limits.
+
 ## [0.5.8] - 2026-11-03
 
 ### Added
