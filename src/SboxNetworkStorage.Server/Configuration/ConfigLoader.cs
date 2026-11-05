@@ -483,6 +483,22 @@ public static class ConfigLoader
             }
         }
 
+        var payloadLimit = (long)values["database.max_payload_bytes"].Value;
+        if (payloadLimit is < 1024 or > 16 * 1024 * 1024)
+        {
+            issues.Add(Issue("database.max_payload_bytes", "'database.max_payload_bytes' must be between 1024 and 16777216 bytes"));
+        }
+
+        var definitionLimit = (long)values["database.max_definition_bytes"].Value;
+        if (definitionLimit is < 64 * 1024 or > 32 * 1024 * 1024)
+        {
+            issues.Add(Issue("database.max_definition_bytes", "'database.max_definition_bytes' must be between 65536 and 33554432 bytes"));
+        }
+        else if (definitionLimit < payloadLimit)
+        {
+            issues.Add(Issue("database.max_definition_bytes", "'database.max_definition_bytes' must be at least 'database.max_payload_bytes'"));
+        }
+
         if (!Updates.UpdateWindow.TryParse(S("updates.window"), out _))
         {
             issues.Add(Issue("updates.window", "'updates.window' must look like \"03:00-05:00\" (UTC, start and end differ; end may be 24:00)"));

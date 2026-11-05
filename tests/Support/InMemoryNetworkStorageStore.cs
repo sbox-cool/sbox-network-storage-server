@@ -16,7 +16,9 @@ public partial class InMemoryNetworkStorageStore : INetworkStorageStore, IProjec
 {
     private const char Sep = '\u001F';
     private const int PayloadLimitBytes = 64 * 1024;
+    private const int DefinitionLimitBytes = 4 * 1024 * 1024;
     public int MaxPayloadBytes => PayloadLimitBytes;
+    public int MaxDefinitionBytes => DefinitionLimitBytes;
     private static readonly long QueryRunLogTtlMs = 7_776_000L * 1000;
 
     [GeneratedRegex("^[a-zA-Z0-9_-]{1,128}\\z", RegexOptions.None, 100)]
@@ -716,11 +718,17 @@ public partial class InMemoryNetworkStorageStore : INetworkStorageStore, IProjec
         catch (JsonException) { return null; }
     }
 
+    private static readonly HashSet<string> DefinitionResourceTypes =
+    [
+        "projects", "collections", "endpoints", "workflows", "queries", "game_values", "rate_limit_rules", "api_keys",
+    ];
+
     private static string Serialize(JsonElement element, string resourceType)
     {
         var str = element.GetRawText();
-        if (Encoding.UTF8.GetByteCount(str) > PayloadLimitBytes)
-            throw new ArgumentException($"Payload exceeds {PayloadLimitBytes} bytes for {resourceType}.");
+        var limit = DefinitionResourceTypes.Contains(resourceType) ? DefinitionLimitBytes : PayloadLimitBytes;
+        if (Encoding.UTF8.GetByteCount(str) > limit)
+            throw new ArgumentException($"Payload exceeds {limit} bytes for {resourceType}.");
         return str;
     }
 

@@ -66,7 +66,7 @@ public sealed class OwnerDeploymentController(INetworkStorageProjectService proj
         DeploymentProposal parsed;
         try
         {
-            parsed = DeploymentProposalReader.Parse(text, store.MaxPayloadBytes);
+            parsed = DeploymentProposalReader.Parse(text, store.MaxDefinitionBytes);
         }
         catch (Exception ex) when (ex is ArgumentException or JsonException)
         {
@@ -96,7 +96,7 @@ public sealed class OwnerDeploymentController(INetworkStorageProjectService proj
         DeploymentPlan? plan = null;
         try
         {
-            var parsed = DeploymentProposalReader.Parse(proposalText, store.MaxPayloadBytes);
+            var parsed = DeploymentProposalReader.Parse(proposalText, store.MaxDefinitionBytes);
             plan = await OwnerDeployment.PreviewAsync(store, workspace, mutations, projectId, parsed, Runtimes, ct);
         }
         catch (Exception ex) when (ex is ArgumentException or JsonException)

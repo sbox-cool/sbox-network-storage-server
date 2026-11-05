@@ -273,6 +273,26 @@ sbox-ns db verify-backup /backups/pg.dump --scratch-database ns_rehearsal   # Po
 - Scope: database content only. A `db backup` does not include media blobs, config files, or signing and secret key material; verify those backups separately.
 
 
+## Size limits
+
+The store enforces two byte limits on every write, for both backends. They are
+separate so that large project definitions can be imported without raising the
+limit on record writes:
+
+- `database.max_payload_bytes` (default `65536`, range 1 KiB to 16 MiB) applies to
+  records, ledger entries, player profiles, player sessions and analytics events.
+  A write over the limit is refused with `Payload exceeds N bytes for <resource>`.
+- `database.max_definition_bytes` (default `4194304`, range 64 KiB to 32 MiB) applies
+  to project, collection, endpoint, workflow, query, game-values, rate-limit-rule and
+  API-key documents. Hosted projects can carry definitions well above 64 KiB, for
+  example a 546 KB collection definition.
+
+`max_definition_bytes` must be at least `max_payload_bytes`. Both limits apply to
+`sbox-ns import` (including `--verify-only`), to backup verification, and to owner-dashboard
+and definition checks.
+Changing a limit takes effect on the next server start. Pages are not size-checked by
+the store. See [configuration.md](configuration.md) for the keys.
+
 ## Resource guidance
 
 SQLite: no tuning. Keep the data folder on local disk with room for the

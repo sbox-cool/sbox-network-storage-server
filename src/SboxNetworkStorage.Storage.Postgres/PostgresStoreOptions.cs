@@ -33,8 +33,11 @@ public sealed partial record PostgresStoreOptions
 
     public int ConnectTimeoutSeconds { get; init; } = 15;
 
-    /// <summary>Maximum accepted JSON payload size in UTF-8 bytes (production default: 64 KiB).</summary>
+    /// <summary>Maximum accepted record payload size in UTF-8 bytes (default: 64 KiB).</summary>
     public int MaxPayloadBytes { get; init; } = 64 * 1024;
+
+    /// <summary>Maximum accepted definition size in UTF-8 bytes for collections, endpoints, workflows, queries, game values, rate-limit rules, projects and API keys (default: 4 MiB).</summary>
+    public int MaxDefinitionBytes { get; init; } = 4 * 1024 * 1024;
 
     [GeneratedRegex("^[A-Za-z_][A-Za-z0-9_]{0,62}\\z", RegexOptions.None, 100)]
     private static partial Regex SchemaPattern();

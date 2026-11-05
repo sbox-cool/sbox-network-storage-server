@@ -12,6 +12,7 @@ namespace SboxNetworkStorage.Storage;
 public class EmptyNetworkStorageStore : INetworkStorageStore
 {
     public virtual int MaxPayloadBytes => 64 * 1024;
+    public virtual int MaxDefinitionBytes => 4 * 1024 * 1024;
 
     public virtual Task<IStoreTransaction> BeginTransactionAsync(CancellationToken ct) => throw new NotImplementedException();
     public virtual Task<long> PurgeAnalyticsBeforeAsync(long beforeUnixMs, CancellationToken ct) => throw new NotImplementedException();

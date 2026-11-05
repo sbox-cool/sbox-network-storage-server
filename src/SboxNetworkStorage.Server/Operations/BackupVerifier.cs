@@ -192,7 +192,7 @@ public static class BackupVerifier
                 return;
             }
 
-            await using var store = new SqliteNetworkStorageStore(new SqliteStoreOptions { DatabasePath = copy });
+            await using var store = new SqliteNetworkStorageStore(StoreRegistration.BuildSqliteOptions(config, copy));
             await RehearseStoreAsync((INetworkStorageStoreAdmin)store, run, ct);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)

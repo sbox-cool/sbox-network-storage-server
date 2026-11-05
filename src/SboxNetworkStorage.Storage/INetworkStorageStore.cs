@@ -11,8 +11,11 @@ namespace SboxNetworkStorage.Storage;
 /// </summary>
 public interface INetworkStorageStore
 {
-    /// <summary>Maximum accepted JSON payload size in UTF-8 bytes, matching the configured store limit.</summary>
+    /// <summary>Maximum accepted record payload size in UTF-8 bytes, matching the configured store limit.</summary>
     int MaxPayloadBytes { get; }
+
+    /// <summary>Maximum accepted definition size in UTF-8 bytes (collections, endpoints, workflows, queries, game values, rate-limit rules, projects, API keys), matching the configured store limit.</summary>
+    int MaxDefinitionBytes { get; }
 
     /// <summary>
     /// Opens a transaction. Every call on <see cref="IStoreTransaction.Store"/> joins it; nothing is visible to

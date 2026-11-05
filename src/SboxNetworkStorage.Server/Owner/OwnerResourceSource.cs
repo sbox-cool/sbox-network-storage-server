@@ -47,10 +47,10 @@ internal static class OwnerResourceSource
     /// </summary>
     /// <exception cref="ArgumentException">The text is empty, too large, or has no valid id.</exception>
     /// <exception cref="JsonException">The text is not valid YAML or JSON.</exception>
-    public static JsonElement Parse(string kind, string? definition, string? id, int maxPayloadBytes, out string? resourceId)
+    public static JsonElement Parse(string kind, string? definition, string? id, int maxDefinitionBytes, out string? resourceId)
     {
         if (string.IsNullOrWhiteSpace(definition)) throw new ArgumentException("Enter a resource definition before saving.");
-        if (Encoding.UTF8.GetByteCount(definition) > maxPayloadBytes) throw new ArgumentException($"Definition exceeds the store limit of {maxPayloadBytes:N0} bytes.");
+        if (Encoding.UTF8.GetByteCount(definition) > maxDefinitionBytes) throw new ArgumentException($"Definition exceeds the store limit of {maxDefinitionBytes:N0} bytes.");
         var parsed = OwnerYamlDefinitions.ParseDefinition(definition, out var wasJson);
         resourceId = null;
         // Game values are one document per project; the parsed object is stored as-is.
@@ -64,14 +64,14 @@ internal static class OwnerResourceSource
 
     /// <summary>Parses the text and runs the save-time validator without saving. Parse failures become one INVALID_DEFINITION error.</summary>
     public static IReadOnlyList<DefinitionDiagnostic> Check(string kind, string? definition, string? id, OwnerProjectResources resources,
-        int maxPayloadBytes, IReadOnlyList<IEndpointScriptRuntime> scriptRuntimes, out JsonElement? source, out string? resourceId)
+        int maxDefinitionBytes, IReadOnlyList<IEndpointScriptRuntime> scriptRuntimes, out JsonElement? source, out string? resourceId)
     {
         source = null;
         resourceId = null;
         try
         {
             if (!string.IsNullOrWhiteSpace(definition)) source = OwnerYamlDefinitions.ParseDefinition(definition, out _);
-            var resource = Parse(kind, definition, id, maxPayloadBytes, out resourceId);
+            var resource = Parse(kind, definition, id, maxDefinitionBytes, out resourceId);
             return ValidateSave(kind, resource, resourceId, resources, scriptRuntimes, out _);
         }
         catch (Exception error) when (error is JsonException or ArgumentException)

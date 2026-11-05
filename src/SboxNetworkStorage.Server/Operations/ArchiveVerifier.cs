@@ -13,13 +13,13 @@ namespace SboxNetworkStorage.Server.Operations;
 /// <c>sbox-ns import --verify-only</c>: checks an archive, including one produced outside
 /// sbox-ns (docs/export.md "Archive contract"), without touching the configured server.
 /// It checks the single-owner contract, then replays the archive into a throwaway SQLite
-/// database, so every row is parsed and written exactly as a real import would.
+/// database with the configured record and definition limits, so every row is parsed and written exactly as a real import would.
 /// </summary>
 public static class ArchiveVerifier
 {
     private static readonly string Owner = NetworkStorageServices.LocalOwnerUserId.ToString(CultureInfo.InvariantCulture);
 
-    public static async Task<ImportResult> VerifyAsync(string archivePath, CancellationToken ct)
+    public static async Task<ImportResult> VerifyAsync(string archivePath, EffectiveConfig config, CancellationToken ct)
     {
         await using (var archive = OpenRead(archivePath))
         {
@@ -29,11 +29,11 @@ public static class ArchiveVerifier
         var scratch = Directory.CreateTempSubdirectory("sbox-ns-verify-").FullName;
         try
         {
-            var config = ConfigLoader.Load(Path.Combine(scratch, "config"), Path.Combine(scratch, "data"), environment: _ => null);
-            await using var store = new SqliteNetworkStorageStore(new SqliteStoreOptions { DatabasePath = Path.Combine(scratch, "data", "verify.db") });
+            var scratchConfig = ConfigLoader.Load(Path.Combine(scratch, "config"), Path.Combine(scratch, "data"), environment: _ => null);
+            await using var store = new SqliteNetworkStorageStore(StoreRegistration.BuildSqliteOptions(config, Path.Combine(scratch, "data", "verify.db")));
             await store.MigrateAsync(ct);
             await using var archive = OpenRead(archivePath);
-            return await ServerArchive.ImportAsync(archive, store, blobs: null, config, new ImportOptions(Force: false, RestoreConfig: false), ct);
+            return await ServerArchive.ImportAsync(archive, store, blobs: null, scratchConfig, new ImportOptions(Force: false, RestoreConfig: false), ct);
         }
         finally
         {

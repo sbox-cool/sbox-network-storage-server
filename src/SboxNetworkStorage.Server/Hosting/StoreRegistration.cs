@@ -16,10 +16,7 @@ public static class StoreRegistration
                 services.AddPostgresNetworkStorageStore(BuildPostgresOptions(config));
                 break;
             default:
-                services.AddSqliteNetworkStorageStore(new SqliteStoreOptions
-                {
-                    DatabasePath = SqlitePath(config)
-                });
+                services.AddSqliteNetworkStorageStore(BuildSqliteOptions(config, SqlitePath(config)));
                 break;
         }
 
@@ -28,6 +25,13 @@ public static class StoreRegistration
 
     public static string SqlitePath(EffectiveConfig config)
         => config.GetPath("database.sqlite.path", config.DataDirectory);
+
+    public static SqliteStoreOptions BuildSqliteOptions(EffectiveConfig config, string databasePath) => new()
+    {
+        DatabasePath = databasePath,
+        MaxPayloadBytes = checked((int)config.GetInteger("database.max_payload_bytes")),
+        MaxDefinitionBytes = checked((int)config.GetInteger("database.max_definition_bytes"))
+    };
 
     public static PostgresStoreOptions BuildPostgresOptions(EffectiveConfig config)
     {
@@ -46,7 +50,9 @@ public static class StoreRegistration
             SslMode = config.GetString("database.postgres.ssl_mode"),
             MaxPoolSize = checked((int)config.GetInteger("database.postgres.max_pool_size")),
             Schema = config.GetString("database.postgres.schema"),
-            ConnectTimeoutSeconds = checked((int)config.GetInteger("database.postgres.connect_timeout_seconds"))
+            ConnectTimeoutSeconds = checked((int)config.GetInteger("database.postgres.connect_timeout_seconds")),
+            MaxPayloadBytes = checked((int)config.GetInteger("database.max_payload_bytes")),
+            MaxDefinitionBytes = checked((int)config.GetInteger("database.max_definition_bytes"))
         };
     }
 

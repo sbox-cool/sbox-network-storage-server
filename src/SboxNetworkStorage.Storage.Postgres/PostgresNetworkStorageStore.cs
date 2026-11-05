@@ -18,7 +18,7 @@ public sealed class PostgresNetworkStorageStore : RelationalNetworkStorageStore
     private readonly string _redactedTarget;
 
     public PostgresNetworkStorageStore(PostgresStoreOptions options, TimeProvider? time = null, ILogger<PostgresNetworkStorageStore>? logger = null)
-        : base(SchemaPrefix(options), options.MaxPayloadBytes, time, logger)
+        : base(SchemaPrefix(options), options.MaxPayloadBytes, options.MaxDefinitionBytes, time, logger)
     {
         _schema = options.Schema;
         _redactedTarget = options.RedactedTarget;

@@ -20,6 +20,7 @@ public abstract partial class RelationalNetworkStorageStore : INetworkStorageSto
 
     private readonly StoreSql _sql;
     private readonly int _maxPayloadBytes;
+    private readonly int _maxDefinitionBytes;
     private readonly TimeProvider _time;
 
     // Set only on the bound view returned by Bind; null on the shared singleton store.
@@ -29,19 +30,24 @@ public abstract partial class RelationalNetworkStorageStore : INetworkStorageSto
     // reads or deletes an import's rows before they commit. Bound views share it (MemberwiseClone copies the reference).
     private readonly SemaphoreSlim _projectImportGate = new(1, 1);
 
-    protected RelationalNetworkStorageStore(string tablePrefix, int maxPayloadBytes, TimeProvider? time, ILogger? logger)
+    protected RelationalNetworkStorageStore(string tablePrefix, int maxPayloadBytes, int maxDefinitionBytes, TimeProvider? time, ILogger? logger)
     {
         ArgumentNullException.ThrowIfNull(tablePrefix);
         if (maxPayloadBytes <= 0) throw new ArgumentOutOfRangeException(nameof(maxPayloadBytes), "Maximum payload size must be positive.");
+        if (maxDefinitionBytes <= 0) throw new ArgumentOutOfRangeException(nameof(maxDefinitionBytes), "Maximum definition size must be positive.");
         _sql = new StoreSql(tablePrefix);
         TablePrefix = tablePrefix;
         _maxPayloadBytes = maxPayloadBytes;
+        _maxDefinitionBytes = maxDefinitionBytes;
         _time = time ?? TimeProvider.System;
         Logger = logger ?? NullLogger.Instance;
     }
 
     /// <inheritdoc />
     public int MaxPayloadBytes => _maxPayloadBytes;
+
+    /// <inheritdoc />
+    public int MaxDefinitionBytes => _maxDefinitionBytes;
 
     /// <summary>Prefix placed before every table name (empty, or a quoted schema followed by a dot).</summary>
     protected string TablePrefix { get; }
@@ -67,8 +73,15 @@ public abstract partial class RelationalNetworkStorageStore : INetworkStorageSto
 
     private long UnixMs() => _time.GetUtcNow().ToUnixTimeMilliseconds();
 
+    /// <summary>Resource types whose JSON is a definition (collections, endpoints, ...) and not record data.</summary>
+    private static readonly HashSet<string> DefinitionResourceTypes =
+    [
+        "projects", "collections", "endpoints", "workflows", "queries", "game_values", "rate_limit_rules", "api_keys",
+    ];
+
     private string Serialize(JsonElement element, string resourceType)
-        => StoreValidation.Serialize(element, resourceType, _maxPayloadBytes);
+        => StoreValidation.Serialize(element, resourceType,
+            DefinitionResourceTypes.Contains(resourceType) ? _maxDefinitionBytes : _maxPayloadBytes);
 
     public async Task<bool> TryImportProjectAsync(string projectId,
         Func<INetworkStorageStore, CancellationToken, Task> restore, CancellationToken ct)

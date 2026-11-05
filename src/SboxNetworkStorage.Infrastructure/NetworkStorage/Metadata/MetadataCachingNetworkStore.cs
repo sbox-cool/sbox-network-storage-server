@@ -274,6 +274,7 @@ public sealed class MetadataCachingNetworkStore : INetworkStorageStore, IProject
     // ── pass-through ────────────────────────────────────────────────
 
     public int MaxPayloadBytes => _inner.MaxPayloadBytes;
+    public int MaxDefinitionBytes => _inner.MaxDefinitionBytes;
     public Task UpsertProjectAsync(string projectId, JsonElement payload, long version, CancellationToken ct) => Changed(_inner.UpsertProjectAsync(projectId, payload, version, ct), projectId);
     public Task<JsonElement?> ReadProjectAsync(string projectId, CancellationToken ct) => _inner.ReadProjectAsync(projectId, ct);
     public Task UpsertWorkflowAsync(string projectId, string workflowId, string name, JsonElement definitionJson, string? versionHash, long version, CancellationToken ct) => Changed(_inner.UpsertWorkflowAsync(projectId, workflowId, name, definitionJson, versionHash, version, ct), projectId);

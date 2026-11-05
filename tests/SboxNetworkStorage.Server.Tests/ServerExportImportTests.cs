@@ -67,6 +67,25 @@ public abstract class ServerExportImportTests<TFactory> : IDisposable
     }
 
     [SkippableFact]
+    public async Task HostedSizedDefinitionsSurviveExportAndImport()
+    {
+        var projectId = await SeedAsync();
+        var collection = Json(new { name = "Large inventory", notes = new string('c', 500 * 1024) });
+        var endpoint = Json(new { steps = new string('e', 160 * 1024) });
+        await Source.UpsertCollectionAsync(projectId, "large-collection", "Large inventory", "private", collection, 4, Ct);
+        await Source.UpsertEndpointAsync(projectId, "large-endpoint", "large-endpoint", "POST", true, endpoint, "hash-large", 8, Ct);
+        var archive = await ExportAsync(Source, factory.Config, includeSecrets: false);
+        var target = await factory.NewStoreAsync();
+
+        await ImportAsync(archive, target, factory.Config, new ImportOptions(Force: false, RestoreConfig: false));
+
+        var importedCollection = await target.ReadCollectionAsync(projectId, "large-collection", Ct);
+        Assert.Equal(500 * 1024, importedCollection!.Value.GetProperty("definition_json").GetProperty("notes").GetString()!.Length);
+        var importedEndpoint = await target.ReadEndpointAsync(projectId, "large-endpoint", Ct);
+        Assert.Equal(160 * 1024, importedEndpoint!.Value.GetProperty("definition_json").GetProperty("steps").GetString()!.Length);
+    }
+
+    [SkippableFact]
     public async Task MediaObjectsAndBytesSurviveWholeServerRoundTrip()
     {
         var projectId = await SeedAsync();

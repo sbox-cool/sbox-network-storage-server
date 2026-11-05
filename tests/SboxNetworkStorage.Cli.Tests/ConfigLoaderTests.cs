@@ -1,4 +1,5 @@
 using SboxNetworkStorage.Server.Configuration;
+using SboxNetworkStorage.Server.Hosting;
 
 namespace SboxNetworkStorage.Cli.Tests;
 
@@ -172,5 +173,50 @@ public sealed class ConfigLoaderTests : IDisposable
 
         Assert.Equal(Path.Combine(_root, "data", "nested", "ns.db"), config.GetPath("database.sqlite.path", config.DataDirectory));
         Assert.Equal(Path.Combine(ConfigDir, "secrets", "auth_session_secret"), config.GetPath("auth.session_secret_file", config.ConfigDirectory));
+    }
+
+    [Fact]
+    public void Store_size_limits_default_to_64_KiB_records_and_4_MiB_definitions()
+    {
+        var config = Load();
+
+        Assert.DoesNotContain(config.Issues, i => i.Message.Contains("database.max_"));
+        Assert.Equal(65536, config.GetInteger("database.max_payload_bytes"));
+        Assert.Equal(4194304, config.GetInteger("database.max_definition_bytes"));
+    }
+
+    [Theory]
+    [InlineData("database.max_payload_bytes", "512", "'database.max_payload_bytes' must be between 1024 and 16777216 bytes")]
+    [InlineData("database.max_payload_bytes", "17825792", "'database.max_payload_bytes' must be between 1024 and 16777216 bytes")]
+    [InlineData("database.max_definition_bytes", "32768", "'database.max_definition_bytes' must be between 65536 and 33554432 bytes")]
+    [InlineData("database.max_definition_bytes", "67108864", "'database.max_definition_bytes' must be between 65536 and 33554432 bytes")]
+    [InlineData("database.max_definition_bytes", "524288", "'database.max_definition_bytes' must be at least 'database.max_payload_bytes'")]
+    public void Store_size_limits_are_range_checked(string key, string value, string expected)
+    {
+        var flags = new Dictionary<string, string>
+        {
+            ["database.max_payload_bytes"] = key == "database.max_payload_bytes" ? value : "1048576",
+            ["database.max_definition_bytes"] = key == "database.max_definition_bytes" ? value : "4194304",
+        };
+
+        Assert.Contains(Load(flags: flags).Issues, i => i.Message.StartsWith(expected, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Configured_store_size_limits_reach_the_sqlite_and_postgres_store_options()
+    {
+        var config = Load(flags: new Dictionary<string, string>
+        {
+            ["database.max_payload_bytes"] = "131072",
+            ["database.max_definition_bytes"] = "8388608",
+        });
+
+        var sqlite = StoreRegistration.BuildSqliteOptions(config, Path.Combine(_root, "data", "ns.db"));
+        var postgres = StoreRegistration.BuildPostgresOptions(config);
+
+        Assert.Equal(131072, sqlite.MaxPayloadBytes);
+        Assert.Equal(8388608, sqlite.MaxDefinitionBytes);
+        Assert.Equal(131072, postgres.MaxPayloadBytes);
+        Assert.Equal(8388608, postgres.MaxDefinitionBytes);
     }
 }

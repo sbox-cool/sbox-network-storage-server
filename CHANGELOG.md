@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Project definitions over 64 KiB are no longer refused on import. Collection and
+  endpoint definitions had shared the 64 KiB record payload limit; they now have their
+  own `database.max_definition_bytes` limit (default 4 MiB). Record-like payloads keep
+  `database.max_payload_bytes` (default 64 KiB, now configurable).
+
 ## [0.5.8] - 2026-11-03
 
 ### Added

@@ -611,7 +611,7 @@ public abstract class OwnerDeploymentPlanTests<TFactory> : IDisposable where TFa
     private Task<DeploymentPlan> PreviewAsync(string projectId, string proposal) => InScopeAsync(async sp =>
     {
         var store = sp.GetRequiredService<INetworkStorageStore>();
-        var parsed = DeploymentProposalReader.Parse(proposal, store.MaxPayloadBytes);
+        var parsed = DeploymentProposalReader.Parse(proposal, store.MaxDefinitionBytes);
         return await OwnerDeployment.PreviewAsync(store, sp.GetRequiredService<IWorkspaceStore>(),
             sp.GetRequiredService<ManagementMutationHandler>(), projectId, parsed,
             sp.GetRequiredService<IReadOnlyList<IEndpointScriptRuntime>>(), CancellationToken.None);
@@ -620,7 +620,7 @@ public abstract class OwnerDeploymentPlanTests<TFactory> : IDisposable where TFa
     private Task<DeploymentApplyResult> ApplyAsync(string projectId, string proposal, string hash) => InScopeAsync(async sp =>
     {
         var store = sp.GetRequiredService<INetworkStorageStore>();
-        var parsed = DeploymentProposalReader.Parse(proposal, store.MaxPayloadBytes);
+        var parsed = DeploymentProposalReader.Parse(proposal, store.MaxDefinitionBytes);
         return await OwnerDeployment.ApplyAsync(store, sp.GetRequiredService<IWorkspaceStore>(),
             sp.GetRequiredService<ManagementMutationHandler>(), sp.GetRequiredService<IAuditLogger>(), projectId, parsed, hash,
             sp.GetRequiredService<IReadOnlyList<IEndpointScriptRuntime>>(), CancellationToken.None);

@@ -7,9 +7,6 @@ namespace SboxNetworkStorage.Storage.Relational;
 /// <summary>Input validation identical to the production the store store (same patterns and messages).</summary>
 internal static partial class StoreValidation
 {
-    /// <summary>Production default for the maximum accepted JSON payload (64 KiB of UTF-8).</summary>
-    public const int DefaultMaxPayloadBytes = 64 * 1024;
-
     [GeneratedRegex("^[a-zA-Z0-9_-]{1,128}\\z", RegexOptions.None, 100)]
     private static partial Regex IdPattern();
 
