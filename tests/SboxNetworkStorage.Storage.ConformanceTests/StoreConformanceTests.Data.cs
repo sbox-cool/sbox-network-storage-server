@@ -191,6 +191,28 @@ public abstract partial class StoreConformanceTests
     }
 
     [SkippableFact]
+    public async Task Stored_collection_ids_and_ledger_keys_include_rows_without_definitions_or_records()
+    {
+        var s = await StoreAsync();
+        await s.UpsertCollectionAsync("p1", "defined-empty", "Empty", "private", Json.Parse("{}"), 1, Ct);
+        await s.UpsertRecordAsync("p1", "player-stats", "steam:1", Json.Parse("{}"), false, 1, Ct);
+        await s.UpsertGlobalRecordAsync("p1", "board", "season-1", Json.Parse("{}"), 1, Ct);
+        // A ledger entry with no record row, and keys that prefix each other.
+        await s.InsertLedgerEntryAsync("p1", "wallet", "steam:2", 1, Json.Parse("{}"), Ct);
+        await s.InsertLedgerEntryAsync("p1", "wallet", "steam:1", 1, Json.Parse("{}"), Ct);
+        await s.InsertLedgerEntryAsync("p1", "wallet", "steam:1:x", 1, Json.Parse("{}"), Ct);
+        await s.InsertLedgerEntryAsync("p1", "wallet", "steam:1", 2, Json.Parse("{}"), Ct);
+        // Another project's rows must not leak in.
+        await s.InsertLedgerEntryAsync("p2", "vault", "steam:9", 1, Json.Parse("{}"), Ct);
+        await s.UpsertRecordAsync("p2", "other", "steam:9", Json.Parse("{}"), false, 1, Ct);
+
+        Assert.Equal(new[] { "board", "player-stats", "wallet" }, await s.ListStoredCollectionIdsAsync("p1", Ct));
+        Assert.Equal(new[] { "steam:1", "steam:1:x", "steam:2" }, await s.ListLedgerRecordKeysAsync("p1", "wallet", Ct));
+        Assert.Empty(await s.ListLedgerRecordKeysAsync("p1", "defined-empty", Ct));
+        Assert.Empty(await s.ListStoredCollectionIdsAsync("p3", Ct));
+    }
+
+    [SkippableFact]
     public async Task Checkpoint_cursor_round_trips_overwrites_and_deletes()
     {
         var s = await StoreAsync();

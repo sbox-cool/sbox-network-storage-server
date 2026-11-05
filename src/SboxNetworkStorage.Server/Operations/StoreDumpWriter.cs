@@ -166,20 +166,33 @@ public sealed class StoreDumpWriter(INetworkStorageStore store, string stagingRo
         var collections = await store.ListCollectionsAsync(projectId, ct);
         await WriteListAsync(projectId, "collections", collections, counts);
 
+        // Export every collection that holds data, not only those with a definition: the server writes
+        // player-stats without one, and a deleted definition leaves its records behind.
+        var collectionIds = new SortedSet<string>(StringComparer.Ordinal);
+        foreach (var collection in collections)
+        {
+            if (Text(collection, "collection_id") is { } definedId)
+            {
+                collectionIds.Add(definedId);
+            }
+        }
+
+        collectionIds.UnionWith(await store.ListStoredCollectionIdsAsync(projectId, ct));
+
         await using (var records = Open(ExportFormat.ProjectEntry(projectId, "records")))
         await using (var ledger = Open(ExportFormat.ProjectEntry(projectId, "ledger-entries")))
         await using (var globals = Open(ExportFormat.ProjectEntry(projectId, "global-records")))
         {
-            foreach (var collectionId in collections.Select(c => Text(c, "collection_id")).OfType<string>())
+            foreach (var collectionId in collectionIds)
             {
                 foreach (var record in await store.ListRecordsAsync(projectId, collectionId, ct))
                 {
                     records.Write(record, ("collection_id", collectionId));
-                    if (Text(record, "record_key") is not { } recordKey)
-                    {
-                        continue;
-                    }
+                }
 
+                // Ledger entries are found by key, not through record rows: an entry can outlive its record.
+                foreach (var recordKey in await store.ListLedgerRecordKeysAsync(projectId, collectionId, ct))
+                {
                     foreach (var entry in await store.ListLedgerEntriesAsync(projectId, collectionId, recordKey, ct))
                     {
                         ledger.Write(entry, ("collection_id", collectionId), ("record_key", recordKey));

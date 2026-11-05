@@ -107,10 +107,9 @@ Media objects (format 3, when a project has any) include the object rows and the
 Not included, because they are operational history the server rebuilds:
 request logs, storage error logs, query run history, monthly/daily usage
 counters (only the total storage footprint is carried over), record
-idempotency keys, analytics issue buckets and ended player sessions. Records
-are found through their collection definitions, so records left behind in a
-collection whose definition was deleted are not exported. Analytics events
-are found through player profiles.
+idempotency keys, analytics issue buckets and ended player sessions.
+
+Records, ledger entries and global records are exported for every collection that holds them, including collections with no definition: `player-stats`, which the server writes itself, and collections whose definition was deleted. Ledger entries are exported even when their record row is gone. Analytics events are found through player profiles.
 
 The export reads the database through the same storage interface for both
 drivers, while the server keeps running. Writes that happen during an export

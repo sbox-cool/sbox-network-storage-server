@@ -34,6 +34,11 @@ public interface INetworkStorageStore
     Task<JsonElement?> ReadCollectionAsync(string projectId, string collectionId, CancellationToken ct);
     Task<IReadOnlyList<JsonElement>> ListCollectionsAsync(string projectId, CancellationToken ct);
     Task DeleteCollectionAsync(string projectId, string collectionId, CancellationToken ct);
+    /// <summary>
+    /// Distinct, ordinal-sorted collection ids that hold at least one record, ledger entry or global record in the
+    /// project. Includes collections with no definition row, so export can reach data the definitions do not list.
+    /// </summary>
+    Task<IReadOnlyList<string>> ListStoredCollectionIdsAsync(string projectId, CancellationToken ct);
 
     // ── endpoints ───────────────────────────────────────────────────
     Task UpsertEndpointAsync(string projectId, string endpointId, string slug, string method, bool enabled, JsonElement definitionJson, string? versionHash, long version, CancellationToken ct);
@@ -118,6 +123,11 @@ public interface INetworkStorageStore
     // ── ledger_entries ──────────────────────────────────────────────
     Task InsertLedgerEntryAsync(string projectId, string collectionId, string recordKey, long sequence, JsonElement entryJson, CancellationToken ct);
     Task<IReadOnlyList<JsonElement>> ListLedgerEntriesAsync(string projectId, string collectionId, string recordKey, CancellationToken ct);
+    /// <summary>
+    /// Distinct, ordinal-sorted record keys that have ledger entries in a collection, whether or not the record row
+    /// exists. Export walks ledger entries through these keys.
+    /// </summary>
+    Task<IReadOnlyList<string>> ListLedgerRecordKeysAsync(string projectId, string collectionId, CancellationToken ct);
     Task DeleteLedgerEntriesAsync(string projectId, string collectionId, string recordKey, CancellationToken ct);
 
     // ── checkpoint_cursor ───────────────────────────────────────────

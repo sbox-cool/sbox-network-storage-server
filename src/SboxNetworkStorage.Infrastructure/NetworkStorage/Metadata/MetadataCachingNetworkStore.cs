@@ -241,6 +241,8 @@ public sealed class MetadataCachingNetworkStore : INetworkStorageStore, IProject
             ? (await _cache.GetAsync(_inner, projectId, ct)).Collections
             : await _inner.ListCollectionsAsync(projectId, ct);
 
+    public Task<IReadOnlyList<string>> ListStoredCollectionIdsAsync(string projectId, CancellationToken ct) => _inner.ListStoredCollectionIdsAsync(projectId, ct);
+
     public Task UpsertEndpointAsync(string projectId, string endpointId, string slug, string method, bool enabled, JsonElement definitionJson, string? versionHash, long version, CancellationToken ct)
         => Changed(_inner.UpsertEndpointAsync(projectId, endpointId, slug, method, enabled, definitionJson, versionHash, version, ct), projectId);
 
@@ -308,6 +310,7 @@ public sealed class MetadataCachingNetworkStore : INetworkStorageStore, IProject
     public Task<IReadOnlyList<JsonElement>> ListLiveRecordsAsync(string projectId, string collectionId, bool global, string? keyPrefix, int offset, int limit, CancellationToken ct) => _inner.ListLiveRecordsAsync(projectId, collectionId, global, keyPrefix, offset, limit, ct);
     public Task InsertLedgerEntryAsync(string projectId, string collectionId, string recordKey, long sequence, JsonElement entryJson, CancellationToken ct) => _inner.InsertLedgerEntryAsync(projectId, collectionId, recordKey, sequence, entryJson, ct);
     public Task<IReadOnlyList<JsonElement>> ListLedgerEntriesAsync(string projectId, string collectionId, string recordKey, CancellationToken ct) => _inner.ListLedgerEntriesAsync(projectId, collectionId, recordKey, ct);
+    public Task<IReadOnlyList<string>> ListLedgerRecordKeysAsync(string projectId, string collectionId, CancellationToken ct) => _inner.ListLedgerRecordKeysAsync(projectId, collectionId, ct);
     public Task DeleteLedgerEntriesAsync(string projectId, string collectionId, string recordKey, CancellationToken ct) => _inner.DeleteLedgerEntriesAsync(projectId, collectionId, recordKey, ct);
     public Task UpsertCheckpointCursorAsync(string projectId, long latestSequence, string? manifestPath, long version, CancellationToken ct) => _inner.UpsertCheckpointCursorAsync(projectId, latestSequence, manifestPath, version, ct);
     public Task<JsonElement?> ReadCheckpointCursorAsync(string projectId, CancellationToken ct) => _inner.ReadCheckpointCursorAsync(projectId, ct);
