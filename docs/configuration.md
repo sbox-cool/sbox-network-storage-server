@@ -562,6 +562,15 @@ provider = "sqlite"
 # Useful when the database starts at the same time as the server.
 startup_timeout_seconds = 60
 
+# Largest record-like payload the store accepts, in bytes (1 KiB to 16 MiB). Covers
+# records, ledger entries, player profiles, player sessions and analytics events.
+max_payload_bytes = 65536
+
+# Largest definition document the store accepts, in bytes (64 KiB to 32 MiB). Covers
+# project, collection, endpoint, workflow, query, game-values, rate-limit-rule and API-key
+# documents. Must be at least max_payload_bytes.
+max_definition_bytes = 4194304
+
 [database.sqlite]
 # Database file. Relative paths are inside the data folder.
 path = "sbox-ns.db"

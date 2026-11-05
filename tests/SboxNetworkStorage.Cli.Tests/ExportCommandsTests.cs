@@ -1,6 +1,7 @@
 using System.Formats.Tar;
 using System.IO.Compression;
 using System.Text;
+using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using SboxNetworkStorage.Application.Workspace;
 using SboxNetworkStorage.Domain.Workspace;
@@ -93,6 +94,25 @@ public sealed class ExportCommandsTests : IDisposable
         Assert.Equal(CliApp.Ok, await ExportCommands.ImportAsync(Context(target, "import", archive, "--verify-only")));
 
         Assert.False(Directory.Exists(Path.Combine(_root, "absent")));
+    }
+
+    [Fact]
+    public async Task Verify_only_accepts_an_export_with_hosted_sized_definitions()
+    {
+        var source = CreateServerFolders("old");
+        Assert.Equal(CliApp.Ok, await ProjectCommands.RunProjectAsync(Context(source, "project", "create", "Big Game")));
+        var projectId = (await ProjectsAsync(source)).Single().Id;
+        await using (var services = CliServices.Build(Load(source)))
+        {
+            var collection = JsonSerializer.Deserialize<JsonElement>("{\"notes\":\"" + new string('c', 500 * 1024) + "\"}");
+            await services.GetRequiredService<INetworkStorageStore>()
+                .UpsertCollectionAsync(projectId, "inventory", "Inventory", "private", collection, 1, CancellationToken.None);
+        }
+        var archive = Path.Combine(_root, "big-definitions.tar.gz");
+        Assert.Equal(CliApp.Ok, await ExportCommands.ExportAsync(Context(source, "export", "--out", archive)));
+
+        var target = (Config: Path.Combine(_root, "absent", "config"), Data: Path.Combine(_root, "absent", "data"));
+        Assert.Equal(CliApp.Ok, await ExportCommands.ImportAsync(Context(target, "import", archive, "--verify-only")));
     }
 
     [Fact]

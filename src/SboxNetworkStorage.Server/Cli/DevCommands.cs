@@ -193,7 +193,7 @@ public static class DevCommands
                 var kind = RequireKind(Required(a, "kind"));
                 var resources = await OwnerProjectResources.LoadAsync(store, projectId, ct);
                 var diagnostics = OwnerResourceSource.Check(kind, Required(a, "source", trim: false), Optional(a, "id"), resources,
-                    store.MaxPayloadBytes, sp.GetRequiredService<IReadOnlyList<IEndpointScriptRuntime>>(), out _, out var resourceId);
+                    store.MaxDefinitionBytes, sp.GetRequiredService<IReadOnlyList<IEndpointScriptRuntime>>(), out _, out var resourceId);
                 return Diagnostics(diagnostics, new JsonObject { ["resourceId"] = resourceId });
             }
             case "definition_save":
@@ -204,7 +204,7 @@ public static class DevCommands
                 var resources = await OwnerProjectResources.LoadAsync(store, projectId, ct);
                 JsonElement resource;
                 string? resourceId;
-                try { resource = OwnerResourceSource.Parse(kind, Required(a, "source", trim: false), null, store.MaxPayloadBytes, out resourceId); }
+                try { resource = OwnerResourceSource.Parse(kind, Required(a, "source", trim: false), null, store.MaxDefinitionBytes, out resourceId); }
                 catch (Exception error) when (error is JsonException or ArgumentException) { return Fail("INVALID_DEFINITION", error.Message); }
                 var expected = $"{projectId}/{kind}/{resourceId ?? "game-values"}";
                 if (Optional(a, "confirm") != expected)

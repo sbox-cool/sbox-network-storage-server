@@ -1,3 +1,4 @@
+using SboxNetworkStorage.Server.Configuration;
 using SboxNetworkStorage.Server.Operations;
 using SboxNetworkStorage.Storage.Relational;
 using SboxNetworkStorage.Application.NetworkStorage.Media;
@@ -109,7 +110,7 @@ public static class ExportCommands
 
         if (context.Args.Flag("verify-only"))
         {
-            return await VerifyAsync(path);
+            return await VerifyAsync(path, context.LoadConfig());
         }
 
         var options = new ImportOptions(Force: context.Args.Flag("force"), RestoreConfig: context.Args.Flag("config"));
@@ -169,12 +170,12 @@ public static class ExportCommands
     }
 
     /// <summary><c>import --verify-only</c>: needs no configured server and writes nothing to one.</summary>
-    private static async Task<int> VerifyAsync(string path)
+    private static async Task<int> VerifyAsync(string path, EffectiveConfig config)
     {
         ImportResult result;
         try
         {
-            result = await ArchiveVerifier.VerifyAsync(path, CancellationToken.None);
+            result = await ArchiveVerifier.VerifyAsync(path, config, CancellationToken.None);
         }
         catch (ExportArchiveException ex)
         {

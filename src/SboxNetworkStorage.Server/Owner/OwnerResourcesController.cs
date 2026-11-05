@@ -173,7 +173,7 @@ public sealed class OwnerResourcesController(INetworkStorageProjectService proje
         var (_, resources) = loaded.Value;
         try
         {
-            var resource = OwnerResourceSource.Parse(kind, definition, id, store.MaxPayloadBytes, out var resourceId);
+            var resource = OwnerResourceSource.Parse(kind, definition, id, store.MaxDefinitionBytes, out var resourceId);
             var (diagnostics, result) = await OwnerResourceSource.SaveAsync(mutations, audit, "owner-dashboard", projectId, kind, resource, resourceId, resources, HttpContext.RequestServices.GetRequiredService<IReadOnlyList<IEndpointScriptRuntime>>(), false, ct);
             if (diagnostics.Any(item => item.IsError))
             {
@@ -209,7 +209,7 @@ public sealed class OwnerResourcesController(INetworkStorageProjectService proje
     {
         var loaded = await LoadAsync(projectId, kind, id, ct);
         if (loaded is null) return NotFound();
-        var diagnostics = OwnerResourceSource.Check(kind, definition, id, loaded.Value.Resources, store.MaxPayloadBytes, HttpContext.RequestServices.GetRequiredService<IReadOnlyList<IEndpointScriptRuntime>>(), out var source, out _);
+        var diagnostics = OwnerResourceSource.Check(kind, definition, id, loaded.Value.Resources, store.MaxDefinitionBytes, HttpContext.RequestServices.GetRequiredService<IReadOnlyList<IEndpointScriptRuntime>>(), out var source, out _);
         return Json(new { ok = !diagnostics.Any(item => item.IsError), diagnostics, source }, Web);
     }
 

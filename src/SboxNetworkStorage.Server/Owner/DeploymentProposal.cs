@@ -23,7 +23,7 @@ internal static class DeploymentProposalReader
 
     /// <exception cref="ArgumentException">The proposal is empty or not a valid batch.</exception>
     /// <exception cref="JsonException">The proposal is not valid YAML or JSON.</exception>
-    public static DeploymentProposal Parse(string? text, int maxPayloadBytes)
+    public static DeploymentProposal Parse(string? text, int maxDefinitionBytes)
     {
         if (string.IsNullOrWhiteSpace(text)) throw new ArgumentException("Enter a deployment proposal first.");
         var root = OwnerYamlDefinitions.ParseDefinition(text, out _);
@@ -41,7 +41,7 @@ internal static class DeploymentProposalReader
             var kind = KindOf(item, "upsert");
             var source = OwnerProjectResources.Text(item, "source")
                 ?? throw new ArgumentException($"Upsert for {kind} needs a source.");
-            var resource = OwnerResourceSource.Parse(kind, source, null, maxPayloadBytes, out var resourceId);
+            var resource = OwnerResourceSource.Parse(kind, source, null, maxDefinitionBytes, out var resourceId);
             var id = kind == "game-values" ? "game-values" : resourceId
                 ?? throw new ArgumentException($"Upsert for {kind} needs an id in its source.");
             Claim(seen, kind, id);

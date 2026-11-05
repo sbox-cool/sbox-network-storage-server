@@ -19,7 +19,7 @@ public sealed class SqliteNetworkStorageStore : RelationalNetworkStorageStore
     private int _walWarned;
 
     public SqliteNetworkStorageStore(SqliteStoreOptions options, TimeProvider? time = null, ILogger<SqliteNetworkStorageStore>? logger = null)
-        : base(string.Empty, (options ?? throw new ArgumentNullException(nameof(options))).MaxPayloadBytes, time, logger)
+        : base(string.Empty, (options ?? throw new ArgumentNullException(nameof(options))).MaxPayloadBytes, options.MaxDefinitionBytes, time, logger)
     {
         if (string.IsNullOrWhiteSpace(options.DatabasePath))
             throw new ArgumentException("SQLite database path is required.", nameof(options));
