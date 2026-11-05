@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.10] - 2026-11-05
+
+### Fixed
+
+- `sbox-ns export` keeps every stored record, ledger entry and global record.
+  It used to walk only collections with a definition, so heartbeat
+  `player-stats`, data in collections whose definition was removed, and ledger
+  entries without a record row were left out of exports and server moves.
+
 ## [0.5.9] - 2026-11-05
 
 ### Fixed
