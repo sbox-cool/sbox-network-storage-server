@@ -33,6 +33,13 @@ public abstract partial class RelationalNetworkStorageStore
         return QueryListAsync(_sql.ListRecords, C.Record, ct, Text("project_id", projectId), Text("collection_id", collectionId));
     }
 
+    public async Task<IReadOnlyList<string>> ListStoredCollectionIdsAsync(string projectId, CancellationToken ct)
+    {
+        V.Id(projectId);
+        var ids = await QueryStringListAsync(_sql.ListStoredCollectionIds, ct, Text("project_id", projectId));
+        return ids.Order(StringComparer.Ordinal).ToList();
+    }
+
     public Task DeleteRecordAsync(string projectId, string collectionId, string recordKey, CancellationToken ct)
     {
         V.Id(projectId); V.Id(collectionId); V.RecordKey(recordKey);
@@ -210,6 +217,14 @@ public abstract partial class RelationalNetworkStorageStore
         V.Id(projectId); V.Id(collectionId); V.RecordKey(recordKey);
         return QueryListAsync(_sql.ListLedgerEntries, C.LedgerEntry, ct,
             Text("project_id", projectId), Text("collection_id", collectionId), Text("record_key", recordKey));
+    }
+
+    public async Task<IReadOnlyList<string>> ListLedgerRecordKeysAsync(string projectId, string collectionId, CancellationToken ct)
+    {
+        V.Id(projectId); V.Id(collectionId);
+        var keys = await QueryStringListAsync(_sql.ListLedgerRecordKeys, ct,
+            Text("project_id", projectId), Text("collection_id", collectionId));
+        return keys.Order(StringComparer.Ordinal).ToList();
     }
 
     public Task DeleteLedgerEntriesAsync(string projectId, string collectionId, string recordKey, CancellationToken ct)

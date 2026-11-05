@@ -31,6 +31,7 @@ internal sealed class StoreSql
         UpsertCollection = Upsert("collections", ["project_id", "collection_id"], ["name", "visibility", "definition_json", "version", "updated_at_unix_ms"]);
         ReadCollection = Select("collections", C.Collection, "project_id = @project_id AND collection_id = @collection_id");
         ListCollections = Select("collections", C.Collection, "project_id = @project_id", "collection_id");
+        ListStoredCollectionIds = $"SELECT collection_id FROM {T("records")} WHERE project_id = @project_id UNION SELECT collection_id FROM {T("ledger_entries")} WHERE project_id = @project_id UNION SELECT collection_id FROM {T("global_records")} WHERE project_id = @project_id";
         DeleteCollection = $"DELETE FROM {T("collections")} WHERE project_id = @project_id AND collection_id = @collection_id";
 
         UpsertEndpoint = Upsert("endpoints", ["project_id", "endpoint_id"], ["slug", "method", "enabled", "definition_json", "version_hash", "version", "updated_at_unix_ms"]);
@@ -85,6 +86,7 @@ internal sealed class StoreSql
 
         UpsertLedgerEntry = Upsert("ledger_entries", ["project_id", "collection_id", "record_key", "sequence"], ["entry_json", "created_at_unix_ms"]);
         ListLedgerEntries = Select("ledger_entries", C.LedgerEntry, "project_id = @project_id AND collection_id = @collection_id AND record_key = @record_key", "sequence");
+        ListLedgerRecordKeys = $"SELECT DISTINCT record_key FROM {T("ledger_entries")} WHERE project_id = @project_id AND collection_id = @collection_id";
         DeleteLedgerEntries = $"DELETE FROM {T("ledger_entries")} WHERE project_id = @project_id AND collection_id = @collection_id AND record_key = @record_key";
 
         UpsertCheckpointCursor = Upsert("checkpoint_cursor", ["project_id"], ["latest_sequence", "manifest_path", "updated_at_unix_ms", "version"]);
@@ -179,6 +181,7 @@ internal sealed class StoreSql
     public string UpsertCollection { get; }
     public string ReadCollection { get; }
     public string ListCollections { get; }
+    public string ListStoredCollectionIds { get; }
     public string DeleteCollection { get; }
     public string UpsertEndpoint { get; }
     public string ReadEndpoint { get; }
@@ -217,6 +220,7 @@ internal sealed class StoreSql
     public string DeleteGlobalRecord { get; }
     public string UpsertLedgerEntry { get; }
     public string ListLedgerEntries { get; }
+    public string ListLedgerRecordKeys { get; }
     public string DeleteLedgerEntries { get; }
     public string UpsertCheckpointCursor { get; }
     public string ReadCheckpointCursor { get; }

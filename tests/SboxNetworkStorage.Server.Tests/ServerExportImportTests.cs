@@ -253,6 +253,47 @@ public abstract class ServerExportImportTests<TFactory> : IDisposable
     }
 
     [SkippableFact]
+    public async Task RoundTripKeepsRecordsLedgerEntriesAndGlobalsWithoutDefinitions()
+    {
+        var projectId = await SeedAsync();
+        // Rows the collection definitions do not list: the server's heartbeat writes player-stats with no
+        // definition, a deleted definition leaves its records behind, a ledger entry can outlive its record,
+        // and a global record can sit in a collection with no definition.
+        const string LedgerOnlyKey = "76561198000000009";
+        await Source.UpsertRecordAsync(projectId, "player-stats", PlayerA, Json(new { kills = 3 }), false, 1, Ct);
+        await Source.UpsertRecordAsync(projectId, "player-stats", PlayerB, Json(new { kills = 0 }), false, 1, Ct);
+        await Source.UpsertCollectionAsync(projectId, "retired", "Retired", "private", Json(new { fields = new[] { "xp" } }), 1, Ct);
+        await Source.UpsertRecordAsync(projectId, "retired", PlayerA, Json(new { xp = 7 }), false, 1, Ct);
+        await Source.DeleteCollectionAsync(projectId, "retired", Ct);
+        await Source.InsertLedgerEntryAsync(projectId, Collection, LedgerOnlyKey, 1, Json(new { delta = -5 }), Ct);
+        await Source.UpsertGlobalRecordAsync(projectId, "orphan-board", "season-9", Json(new { top = PlayerB }), 2, Ct);
+        Assert.NotNull(await Source.ReadRecordAsync(projectId, "retired", PlayerA, Ct));
+
+        var archive = await ExportAsync(Source, factory.Config, includeSecrets: false);
+        var target = await factory.NewStoreAsync();
+        var imported = await ImportAsync(archive, target, factory.Config, new ImportOptions(Force: false, RestoreConfig: false));
+
+        AssertRows(await Source.ListRecordsAsync(projectId, "player-stats", Ct), await target.ListRecordsAsync(projectId, "player-stats", Ct), "updated_at_unix_ms");
+        AssertRows(await Source.ListRecordsAsync(projectId, "retired", Ct), await target.ListRecordsAsync(projectId, "retired", Ct), "updated_at_unix_ms");
+        AssertRows(await Source.ListLedgerEntriesAsync(projectId, Collection, LedgerOnlyKey, Ct), await target.ListLedgerEntriesAsync(projectId, Collection, LedgerOnlyKey, Ct), "created_at_unix_ms");
+        AssertRows(await Source.ListGlobalRecordsAsync(projectId, "orphan-board", Ct), await target.ListGlobalRecordsAsync(projectId, "orphan-board", Ct), "created_at_unix_ms");
+        Assert.Equal(await Source.ListStoredCollectionIdsAsync(projectId, Ct), await target.ListStoredCollectionIdsAsync(projectId, Ct));
+
+        // Exporting the imported copy again yields the same counts, so nothing is lost on a second hop.
+        var reExport = await ExportAsync(target, factory.Config, includeSecrets: false);
+        var reImported = await ImportAsync(reExport, await factory.NewStoreAsync(), factory.Config, new ImportOptions(Force: false, RestoreConfig: false));
+        var firstCounts = imported.Manifest.Projects.Single(p => p.Id == projectId).Counts;
+        var secondCounts = reImported.Manifest.Projects.Single(p => p.Id == projectId).Counts;
+        Assert.Equal(5, firstCounts["records"]);
+        Assert.Equal(3, firstCounts["ledger-entries"]);
+        Assert.Equal(2, firstCounts["global-records"]);
+        foreach (var name in new[] { "records", "ledger-entries", "global-records" })
+        {
+            Assert.Equal(firstCounts[name], secondCounts[name]);
+        }
+    }
+
+    [SkippableFact]
     public async Task ProjectArchivePreservesOtherProjectsAndRejectsOverwrite()
     {
         var id = await SeedAsync();

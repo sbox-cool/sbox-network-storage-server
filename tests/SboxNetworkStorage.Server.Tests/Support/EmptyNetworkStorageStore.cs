@@ -24,6 +24,7 @@ public class EmptyNetworkStorageStore : INetworkStorageStore
     public virtual Task UpsertCollectionAsync(string projectId, string collectionId, string name, string visibility, JsonElement definitionJson, long version, CancellationToken ct) => throw new NotImplementedException();
     public virtual Task<JsonElement?> ReadCollectionAsync(string projectId, string collectionId, CancellationToken ct) => throw new NotImplementedException();
     public virtual Task<IReadOnlyList<JsonElement>> ListCollectionsAsync(string projectId, CancellationToken ct) => throw new NotImplementedException();
+    public virtual Task<IReadOnlyList<string>> ListStoredCollectionIdsAsync(string projectId, CancellationToken ct) => throw new NotImplementedException();
     public virtual Task DeleteCollectionAsync(string projectId, string collectionId, CancellationToken ct) => throw new NotImplementedException();
 
     public virtual Task UpsertEndpointAsync(string projectId, string endpointId, string slug, string method, bool enabled, JsonElement definitionJson, string? versionHash, long version, CancellationToken ct) => throw new NotImplementedException();
@@ -72,6 +73,7 @@ public class EmptyNetworkStorageStore : INetworkStorageStore
 
     public virtual Task InsertLedgerEntryAsync(string projectId, string collectionId, string recordKey, long sequence, JsonElement entryJson, CancellationToken ct) => throw new NotImplementedException();
     public virtual Task<IReadOnlyList<JsonElement>> ListLedgerEntriesAsync(string projectId, string collectionId, string recordKey, CancellationToken ct) => throw new NotImplementedException();
+    public virtual Task<IReadOnlyList<string>> ListLedgerRecordKeysAsync(string projectId, string collectionId, CancellationToken ct) => throw new NotImplementedException();
     public virtual Task DeleteLedgerEntriesAsync(string projectId, string collectionId, string recordKey, CancellationToken ct) => throw new NotImplementedException();
 
     public virtual Task UpsertCheckpointCursorAsync(string projectId, long latestSequence, string? manifestPath, long version, CancellationToken ct) => throw new NotImplementedException();

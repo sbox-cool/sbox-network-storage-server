@@ -230,6 +230,21 @@ public partial class InMemoryNetworkStorageStore : INetworkStorageStore, IProjec
     }
     public Task<JsonElement?> ReadRecordAsync(string projectId, string collectionId, string recordKey, CancellationToken ct) { lock (_stateGate) { Id(projectId); Id(collectionId); RecordKey(recordKey); return Get(Records, K(projectId, collectionId, recordKey)); } }
     public Task<IReadOnlyList<JsonElement>> ListRecordsAsync(string projectId, string collectionId, CancellationToken ct) { lock (_stateGate) { Id(projectId); Id(collectionId); return List(Under(Records, P(projectId, collectionId)).OrderBy(r => Str(r, "record_key"), StringComparer.Ordinal)); } }
+    public Task<IReadOnlyList<string>> ListStoredCollectionIdsAsync(string projectId, CancellationToken ct)
+    {
+        lock (_stateGate)
+        {
+            Id(projectId);
+            var prefix = P(projectId);
+            var ids = Records.Keys.Concat(LedgerEntries.Keys).Concat(GlobalRecords.Keys)
+                .Where(k => k.StartsWith(prefix, StringComparison.Ordinal))
+                .Select(k => k[prefix.Length..].Split(Sep)[0])
+                .Distinct(StringComparer.Ordinal)
+                .Order(StringComparer.Ordinal)
+                .ToList();
+            return Task.FromResult<IReadOnlyList<string>>(ids);
+        }
+    }
     public Task DeleteRecordAsync(string projectId, string collectionId, string recordKey, CancellationToken ct) { lock (_stateGate) { Id(projectId); Id(collectionId); RecordKey(recordKey); return Remove(Records, K(projectId, collectionId, recordKey)); } }
 
     public Task<bool> TryMutateRecordAsync(string projectId, string collectionId, string recordKey,
@@ -344,6 +359,21 @@ public partial class InMemoryNetworkStorageStore : INetworkStorageStore, IProjec
     }
     public Task<IReadOnlyList<JsonElement>> ListLedgerEntriesAsync(string projectId, string collectionId, string recordKey, CancellationToken ct)
     { lock (_stateGate) { Id(projectId); Id(collectionId); RecordKey(recordKey); return List(Under(LedgerEntries, P(projectId, collectionId, recordKey)).OrderBy(r => Long(r, "sequence"))); } }
+    public Task<IReadOnlyList<string>> ListLedgerRecordKeysAsync(string projectId, string collectionId, CancellationToken ct)
+    {
+        lock (_stateGate)
+        {
+            Id(projectId); Id(collectionId);
+            var prefix = P(projectId, collectionId);
+            var keys = LedgerEntries.Keys
+                .Where(k => k.StartsWith(prefix, StringComparison.Ordinal))
+                .Select(k => k[prefix.Length..].Split(Sep)[0])
+                .Distinct(StringComparer.Ordinal)
+                .Order(StringComparer.Ordinal)
+                .ToList();
+            return Task.FromResult<IReadOnlyList<string>>(keys);
+        }
+    }
     public Task DeleteLedgerEntriesAsync(string projectId, string collectionId, string recordKey, CancellationToken ct)
     { lock (_stateGate) { Id(projectId); Id(collectionId); RecordKey(recordKey); RemoveUnder(LedgerEntries, P(projectId, collectionId, recordKey)); return Task.CompletedTask; } }
 

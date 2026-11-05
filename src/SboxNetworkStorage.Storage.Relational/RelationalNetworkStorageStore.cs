@@ -249,6 +249,18 @@ public abstract partial class RelationalNetworkStorageStore : INetworkStorageSto
         return rows;
     }
 
+    /// <summary>Reads the first column of every row as text, in query order. NULLs are skipped.</summary>
+    private async Task<IReadOnlyList<string>> QueryStringListAsync(string sql, CancellationToken ct, params Arg[] args)
+    {
+        await using var lease = await LeaseAsync(ct);
+        await using var command = Command(lease, sql, args);
+        await using var reader = await command.ExecuteReaderAsync(ct);
+        var values = new List<string>();
+        while (await reader.ReadAsync(ct))
+            if (!reader.IsDBNull(0)) values.Add(reader.GetString(0));
+        return values;
+    }
+
     /// <summary>Reads the first column of the first row as UTF-8 bytes; <c>found</c> is false when no row exists.</summary>
     private async Task<(bool Found, byte[]? Value)> QueryUtf8Async(string sql, CancellationToken ct, params Arg[] args)
     {
