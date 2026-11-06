@@ -127,4 +127,28 @@ public sealed class PlayerAnalyticsAllowedEventsTests : IDisposable
         Assert.False(analytics.GetProperty("captureSessions").GetBoolean());
         Assert.Equal(new[] { "shop_opened", "gold.earned" }, analytics.GetProperty("allowedEventTypes").EnumerateArray().Select(entry => entry.GetString()!));
     }
+
+    [Fact]
+    public void Explicit_null_publishes_no_allowlist_and_keeps_other_analytics_keys()
+    {
+        var project = JsonDocument.Parse("""
+            { "id": "demo-project", "analytics": { "enabled": true, "allowedEventTypes": null } }
+            """).RootElement.Clone();
+
+        var config = NetworkStorageSecurityConfigBuilder.Build("demo-project", project, Now, _store, _signing);
+
+        var analytics = config.GetProperty("settings").GetProperty("analytics");
+        Assert.True(analytics.GetProperty("enabled").GetBoolean());
+        Assert.False(analytics.TryGetProperty("allowedEventTypes", out _));
+    }
+
+    [Fact]
+    public void Explicit_null_marker_is_distinct_from_an_absent_key()
+    {
+        Assert.True(PlayerAnalyticsAllowedEvents.IsExplicitlyUnpublished(JsonNode.Parse("""{ "allowedEventTypes": null }""")));
+        Assert.False(PlayerAnalyticsAllowedEvents.IsExplicitlyUnpublished(JsonNode.Parse("""{ "enabled": true }""")));
+        Assert.False(PlayerAnalyticsAllowedEvents.IsExplicitlyUnpublished(JsonNode.Parse("""{ "allowedEventTypes": [] }""")));
+        Assert.Empty(PlayerAnalyticsAllowedEvents.ReadStored(JsonNode.Parse("""{ "allowedEventTypes": null }""")));
+        Assert.Equal(ReferenceDefaults, PlayerAnalyticsAllowedEvents.ReadStored(JsonNode.Parse("""{ "enabled": true }""")));
+    }
 }

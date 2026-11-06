@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.11] - 2026-11-06
+
+### Fixed
+
+- A project can now publish no custom analytics event allowlist. An explicit
+  `analytics.allowedEventTypes: null` in the project makes the signed security
+  config omit the list, exactly as the hosted sboxcool.com service does for projects
+  that never stored one. An absent key still publishes the reference defaults, so
+  existing projects are unchanged. Projects moved from hosted use this to keep
+  an identical security config.
+
 ## [0.5.10] - 2026-11-05
 
 ### Fixed
