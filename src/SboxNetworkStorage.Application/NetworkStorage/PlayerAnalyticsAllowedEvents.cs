@@ -21,11 +21,19 @@ public static class PlayerAnalyticsAllowedEvents
 
     private static readonly Regex ValidName = new("^[a-z0-9][a-z0-9_.:-]{0,47}\\z", RegexOptions.CultureInvariant);
 
-    /// <summary>Names from the stored analytics object; <see cref="Defaults"/> when the project has no list.</summary>
+    /// <summary>
+    /// True when the stored analytics object carries <c>allowedEventTypes</c> as an explicit JSON null: the project
+    /// publishes no allowlist at all. Projects migrated from the hosted service use it where hosted published none,
+    /// so the security config stays identical. An absent key still means <see cref="Defaults"/>.
+    /// </summary>
+    public static bool IsExplicitlyUnpublished(JsonNode? analytics) =>
+        analytics is JsonObject obj && obj.TryGetPropertyValue("allowedEventTypes", out var value) && value is null;
+
+    /// <summary>Names from the stored analytics object; <see cref="Defaults"/> when the project has no list, none when explicitly unpublished.</summary>
     public static IReadOnlyList<string> ReadStored(JsonNode? analytics)
     {
+        if (IsExplicitlyUnpublished(analytics)) return [];
         if (analytics is not JsonObject obj || obj["allowedEventTypes"] is not JsonArray entries) return Defaults;
-
         var names = new List<string>();
         foreach (var entry in entries)
         {
