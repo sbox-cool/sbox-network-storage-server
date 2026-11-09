@@ -83,7 +83,7 @@ jobs:
           if [ "$MODE" != installer ]; then
             dotnet publish "$SERVER_PROJECT" -c Release -r linux-x64 --self-contained true \
               -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true \
-              -p:EnableCompressionInSingleFile=true -p:Version="0.0.0-live.${GITHUB_RUN_NUMBER}" \
+              -p:Version="0.0.0-live.${GITHUB_RUN_NUMBER}" \
               -o publish/linux-x64
             tar -C publish/linux-x64 -czf sbox-ns-live.tar.gz .
           fi

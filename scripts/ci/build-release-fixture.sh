@@ -41,7 +41,7 @@ for version in "${versions[@]}"; do
   publish="$out/publish-$version"
   dotnet publish "$root/src/SboxNetworkStorage.Server/SboxNetworkStorage.Server.csproj" -c Release -r "$rid" \
     --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true \
-    -p:EnableCompressionInSingleFile=true -p:Version="$version" -o "$publish" -nologo -v q
+    -p:Version="$version" -o "$publish" -nologo -v q
   cp "$root/LICENSE" "$root/README.md" "$root/CHANGELOG.md" "$publish/"
   if [[ "$rid" == win-* ]]; then
     # Git Bash paths (/d/a/...) mean something else to PowerShell; hand it Windows paths.

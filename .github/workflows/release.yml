@@ -134,7 +134,6 @@ jobs:
             --self-contained true \
             -p:PublishSingleFile=true \
             -p:IncludeNativeLibrariesForSelfExtract=true \
-            -p:EnableCompressionInSingleFile=true \
             -p:Version="$VERSION" \
             -o "publish/$RID"
           cp LICENSE README.md CHANGELOG.md "publish/$RID/"
