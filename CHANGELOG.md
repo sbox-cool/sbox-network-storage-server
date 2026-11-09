@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.12] - 2026-11-10
+
+### Fixed
+
+- Release binaries are no longer compressed single-file bundles. A compressed
+  bundle decompresses every assembly into private memory at startup, about
+  116 MB per process that can be neither shared nor reclaimed. Uncompressed, the
+  assemblies are mapped from the binary, so processes running the same binary
+  share one page-cache copy. The download is larger; code is unchanged from
+  0.5.11.
+
 ## [0.5.11] - 2026-11-06
 
 ### Fixed
