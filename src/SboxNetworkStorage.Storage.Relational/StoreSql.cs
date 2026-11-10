@@ -112,6 +112,7 @@ internal sealed class StoreSql
         PurgeProjectIssues = $"DELETE FROM {T("project_analytics_issues")} WHERE created_at_unix_ms < @before_unix_ms";
         PurgeLegacyAnalytics = $"DELETE FROM {T("player_analytics")} WHERE created_at_unix_ms < @before_unix_ms";
         CountPlayerEvents = $"SELECT COUNT(*) FROM {T("player_analytics_events")} WHERE project_id = @project_id AND steam_id = @steam_id";
+        ListPlayerEventSteamIds = $"SELECT DISTINCT steam_id FROM {T("player_analytics_events")} WHERE project_id = @project_id";
 
         UpsertPlayerProfile = Upsert("player_profiles", ["project_id", "steam_id"], ["player_name", "is_online", "online_since_unix_ms", "last_seen_unix_ms", "last_heartbeat_unix_ms", "current_session_id", "current_session_last_seconds", "total_seconds", "session_count", "last_event_type", "last_endpoint_slug", "managed_counters_json", "updated_at_unix_ms"]);
         ReadPlayerProfile = Select("player_profiles", C.PlayerProfile, "project_id = @project_id AND steam_id = @steam_id");
@@ -238,6 +239,7 @@ internal sealed class StoreSql
     public string UpsertPlayerEvent { get; }
     public string ListPlayerEvents { get; }
     public string CountPlayerEvents { get; }
+    public string ListPlayerEventSteamIds { get; }
     public string PurgeAnalyticsEvents { get; }
     public string PurgeProjectIssues { get; }
     public string PurgeLegacyAnalytics { get; }

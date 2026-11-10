@@ -294,6 +294,24 @@ public abstract class ServerExportImportTests<TFactory> : IDisposable
     }
 
     [SkippableFact]
+    public async Task RoundTripKeepsEventsOfPlayersWithoutProfile()
+    {
+        var projectId = await SeedAsync();
+        const string OrphanSteamId = "76561198000000009";
+        await Source.InsertPlayerAnalyticsEventV2Async(projectId, OrphanSteamId, 4_300, "ev-orphan", "purchase", "economy", "Bought", "buy-item", Collection,
+            Json(new { item = "bow" }), Ct);
+        Assert.Null(await Source.ReadPlayerProfileAsync(projectId, OrphanSteamId, Ct));
+
+        var archive = await ExportAsync(Source, factory.Config, includeSecrets: false);
+        var target = await factory.NewStoreAsync();
+        await ImportAsync(archive, target, factory.Config, new ImportOptions(Force: false, RestoreConfig: false));
+
+        Assert.Equal(new[] { PlayerA, OrphanSteamId }, await target.ListPlayerEventSteamIdsAsync(projectId, Ct));
+        AssertRows(await Source.ListPlayerEventsAsync(projectId, OrphanSteamId, 0, long.MaxValue, 100, Ct),
+            await target.ListPlayerEventsAsync(projectId, OrphanSteamId, 0, long.MaxValue, 100, Ct));
+    }
+
+    [SkippableFact]
     public async Task ProjectArchivePreservesOtherProjectsAndRejectsOverwrite()
     {
         var id = await SeedAsync();

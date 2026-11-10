@@ -164,6 +164,9 @@ public interface INetworkStorageStore
     /// <summary>Exact count of all stored events for a player (reliable; not a denormalized counter).</summary>
     Task<long> CountPlayerEventsAsync(string projectId, string steamId, CancellationToken ct);
 
+    /// <summary>Distinct steam ids with at least one stored player analytics event in the project, ordinal-sorted. Includes players who have no profile.</summary>
+    Task<IReadOnlyList<string>> ListPlayerEventSteamIdsAsync(string projectId, CancellationToken ct);
+
     // ── player_profiles (V4 — per-player presence/profile) ───────────
     Task UpsertPlayerProfileAsync(string projectId, string steamId, string playerName, bool isOnline, long? onlineSinceUnixMs, long lastSeenUnixMs, long? lastHeartbeatUnixMs, string? currentSessionId, long? currentSessionLastSeconds, long totalSeconds, long sessionCount, string? lastEventType, string? lastEndpointSlug, string managedCountersJson, long updatedAtUnixMs, CancellationToken ct);
     Task<JsonElement?> ReadPlayerProfileAsync(string projectId, string steamId, CancellationToken ct);

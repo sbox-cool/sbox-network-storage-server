@@ -264,7 +264,11 @@ public sealed class StoreDumpWriter(INetworkStorageStore store, string stagingRo
                 {
                     sessions.Write(session, ("steam_id", steamId));
                 }
+            }
 
+            // Events are found by steam id, not through profiles: an event can be stored for a player who has no profile.
+            foreach (var steamId in await store.ListPlayerEventSteamIdsAsync(projectId, ct))
+            {
                 var eventCount = await store.CountPlayerEventsAsync(projectId, steamId, ct);
                 if (eventCount > 0)
                 {

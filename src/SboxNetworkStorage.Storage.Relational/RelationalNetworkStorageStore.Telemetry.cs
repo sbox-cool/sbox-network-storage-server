@@ -92,6 +92,13 @@ public abstract partial class RelationalNetworkStorageStore
         return QueryInt64ScalarAsync(_sql.CountPlayerEvents, ct, Text("project_id", projectId), Text("steam_id", steamId));
     }
 
+    public async Task<IReadOnlyList<string>> ListPlayerEventSteamIdsAsync(string projectId, CancellationToken ct)
+    {
+        V.Id(projectId);
+        var steamIds = await QueryStringListAsync(_sql.ListPlayerEventSteamIds, ct, Text("project_id", projectId));
+        return steamIds.Order(StringComparer.Ordinal).ToList();
+    }
+
     // ── player_profiles (V4) ────────────────────────────────────────
 
     public Task UpsertPlayerProfileAsync(string projectId, string steamId, string playerName, bool isOnline, long? onlineSinceUnixMs, long lastSeenUnixMs, long? lastHeartbeatUnixMs, string? currentSessionId, long? currentSessionLastSeconds, long totalSeconds, long sessionCount, string? lastEventType, string? lastEndpointSlug, string managedCountersJson, long updatedAtUnixMs, CancellationToken ct)
