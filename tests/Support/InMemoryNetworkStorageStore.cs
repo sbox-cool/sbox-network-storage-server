@@ -471,6 +471,21 @@ public partial class InMemoryNetworkStorageStore : INetworkStorageStore, IProjec
     { lock (_stateGate) { return Task.FromResult(PurgeBefore(PlayerAnalyticsEvents, beforeUnixMs) + PurgeBefore(ProjectAnalyticsIssues, beforeUnixMs) + PurgeBefore(PlayerAnalytics, beforeUnixMs)); } }
     public Task<long> CountPlayerEventsAsync(string projectId, string steamId, CancellationToken ct)
     { lock (_stateGate) { Id(projectId); Id(steamId); return Task.FromResult((long)Under(PlayerAnalyticsEvents, P(projectId, steamId)).Count()); } }
+    public Task<IReadOnlyList<string>> ListPlayerEventSteamIdsAsync(string projectId, CancellationToken ct)
+    {
+        lock (_stateGate)
+        {
+            Id(projectId);
+            var prefix = P(projectId);
+            var steamIds = PlayerAnalyticsEvents.Keys
+                .Where(k => k.StartsWith(prefix, StringComparison.Ordinal))
+                .Select(k => k[prefix.Length..].Split(Sep)[0])
+                .Distinct(StringComparer.Ordinal)
+                .Order(StringComparer.Ordinal)
+                .ToList();
+            return Task.FromResult<IReadOnlyList<string>>(steamIds);
+        }
+    }
 
     // ── player_profiles (V4) ────────────────────────────────────────
     public Task UpsertPlayerProfileAsync(string projectId, string steamId, string playerName, bool isOnline, long? onlineSinceUnixMs, long lastSeenUnixMs, long? lastHeartbeatUnixMs, string? currentSessionId, long? currentSessionLastSeconds, long totalSeconds, long sessionCount, string? lastEventType, string? lastEndpointSlug, string managedCountersJson, long updatedAtUnixMs, CancellationToken ct)

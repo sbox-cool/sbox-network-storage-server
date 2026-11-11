@@ -73,6 +73,20 @@ public abstract partial class StoreConformanceTests
         Assert.Equal(1, await s.CountPlayerEventsAsync("p1", "other", Ct));
     }
 
+    [SkippableFact]
+    public async Task Player_event_steam_ids_are_distinct_ordinal_sorted_and_project_scoped()
+    {
+        var s = await StoreAsync();
+        Assert.Empty(await s.ListPlayerEventSteamIdsAsync("p1", Ct));
+        await s.InsertPlayerAnalyticsEventV2Async("p1", "b", 100, "1", "evt", "cat", "lbl", "ep", "col", Json.Parse("{}"), Ct);
+        await s.InsertPlayerAnalyticsEventV2Async("p1", "b", 200, "2", "evt", "cat", "lbl", "ep", "col", Json.Parse("{}"), Ct);
+        await s.InsertPlayerAnalyticsEventV2Async("p1", "a", 100, "1", "evt", "cat", "lbl", "ep", "col", Json.Parse("{}"), Ct);
+        await s.InsertPlayerAnalyticsEventV2Async("p2", "c", 100, "1", "evt", "cat", "lbl", "ep", "col", Json.Parse("{}"), Ct);
+
+        Assert.Equal(new[] { "a", "b" }, await s.ListPlayerEventSteamIdsAsync("p1", Ct));
+        Assert.Equal(new[] { "c" }, await s.ListPlayerEventSteamIdsAsync("p2", Ct));
+    }
+
     // ── player profiles / sessions ──────────────────────────────────
 
     [SkippableFact]

@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.13] - 2026-11-11
+
+### Fixed
+
+- Exports now include every stored player analytics event. Events were found
+  through player profiles, so events of a steam id without a profile were
+  imported but left out of every later export, backup verification and data
+  move. A new store query lists the steam ids that have events.
+
 ## [0.5.12] - 2026-11-10
 
 ### Fixed
