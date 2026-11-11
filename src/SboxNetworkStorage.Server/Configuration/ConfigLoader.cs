@@ -55,6 +55,9 @@ public sealed class EffectiveConfig
     /// <summary>The random ID used only for opt-in usage statistics.</summary>
     public string TelemetryIdPath => Path.Combine(Layout == ConfigLayout.State ? StateDirectory : DataDirectory, Telemetry.UsageTelemetry.IdFileName);
 
+    /// <summary>Record of the last scheduled or manual backup run; written by the backup runner.</summary>
+    public string BackupStatePath => Path.Combine(Layout == ConfigLayout.State ? StateDirectory : DataDirectory, StateLayout.BackupStateFile);
+
     /// <summary>
     /// Creates the runtime folder (owner-only) and, in the state layout, the layout marker. Calling it on a fresh
     /// install is what turns "no marker, nothing to migrate" into the recorded state layout.
@@ -400,6 +403,12 @@ public static class ConfigLoader
                 issues.Add(Issue("server.trusted_proxies", "Every trusted proxy must be an IP address or CIDR, and cannot be 0.0.0.0/0 or ::/0."));
         if ((long)values["server.trusted_proxy_hops"].Value is < Hosting.TrustedProxies.MinHops or > Hosting.TrustedProxies.MaxHops)
             issues.Add(Issue("server.trusted_proxy_hops", $"server.trusted_proxy_hops must be between {Hosting.TrustedProxies.MinHops} and {Hosting.TrustedProxies.MaxHops}."));
+        if ((long)values["backup.schedule.interval_hours"].Value is < 1 or > 168)
+            issues.Add(Issue("backup.schedule.interval_hours", "backup.schedule.interval_hours must be between 1 and 168."));
+        if ((long)values["backup.schedule.keep_local"].Value is < 1 or > 365)
+            issues.Add(Issue("backup.schedule.keep_local", "backup.schedule.keep_local must be between 1 and 365."));
+        if (Telemetry.UsageTelemetry.ValidateEndpoint(S("backup.sboxns.endpoint")) is null)
+            issues.Add(Issue("backup.sboxns.endpoint", "backup.sboxns.endpoint must be an HTTPS URL (HTTP is allowed only on loopback for testing)."));
         if ((bool)values["adminpanel.turnstile.enabled"].Value)
         {
             foreach (var key in new[] { "adminpanel.turnstile.sitekey", "adminpanel.turnstile.secret", "adminpanel.turnstile.hostname" })

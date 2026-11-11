@@ -30,6 +30,7 @@ The same guides are published at [sboxns.com/docs](https://sboxns.com/docs/), ve
 | [CLI reference](cli.md) | Every `sbox-ns` command, grouped. |
 | [Configuration](configuration.md) | Every TOML key, environment variables, precedence and secrets. |
 | [Databases](database.md) | SQLite and PostgreSQL, schemas, migrations, backups. |
+| [Backups](backups.md) | Scheduled local backups and opt-in sboxns Backups offsite copies. |
 | [Export and import](export.md) | Portable archives and switching servers or databases. |
 | [Monitoring](monitoring.md) and [alerting](alerting.md) | Live server stats, alert rules and notification channels. |
 | [Coding agents (MCP)](mcp.md) | `sbox-ns mcp`, permissions and the Claude Code plugin. |

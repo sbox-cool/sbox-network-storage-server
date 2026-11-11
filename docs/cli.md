@@ -82,3 +82,4 @@ Finish cleanup before importing an archive with that project ID.
 | `mcp` | Model Context Protocol server over stdio for coding agents ([MCP](mcp.md)). |
 | `register --email ADDRESS` / `register --remove` | Confirmed security and update email notices. |
 | `telemetry status\|enable\|disable\|preview` | Anonymous usage statistics, off by default. |
+| `backup status\|now\|list\|download\|delete\|identity\|sboxns` | Scheduled local backups and optional sboxns offsite copies ([backups](backups.md)). |

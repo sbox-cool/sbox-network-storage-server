@@ -538,6 +538,11 @@ enable apply again. Tunnel and DNS modes cannot be enabled at the same time.
 | `notices.email` | empty | Last registered email, not authoritative consent; use `register` to subscribe/remove |
 | `telemetry.enabled` | `false` | Send anonymous usage statistics once a day; use `telemetry enable` / `telemetry disable` |
 | `telemetry.endpoint` | `https://sboxcool.com/api/network-storage/telemetry` | Usage statistics API; HTTPS required except loopback testing; no request unless enabled |
+| `backup.schedule.enabled` | `true` | Run scheduled local backups; see [backups](backups.md) |
+| `backup.schedule.interval_hours` | `24` | Hours between scheduled backups (1 to 168) |
+| `backup.schedule.keep_local` | `7` | Automatic local backups to keep (1 to 365); `db backup` files are never removed |
+| `backup.sboxns.enabled` | `false` | Upload each backup to sboxns Backups; use `backup sboxns enable` / `disable` |
+| `backup.sboxns.endpoint` | `https://sboxcool.com/api/network-storage/backups` | sboxns Backups API; HTTPS required except loopback testing |
 
 Identity and connector credentials are separate private files under
 `<data dir>/state/secrets/`, not TOML values. Notice removal uses the private

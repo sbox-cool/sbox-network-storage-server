@@ -13,6 +13,8 @@ public sealed record TunnelRequest(string PublicKeySpki, string Action, string N
 public sealed record DnsRequest(string PublicKeySpki, string Action, string Name, long Timestamp,
     string Nonce, string Ipv4, string Ipv6, int Port, string Signature);
 
+public sealed record BackupSignature(string PublicKey, string Name, long Timestamp, string Nonce, string Signature);
+
 public sealed class TunnelIdentity : IDisposable
 {
     private readonly ECDsa _key;
@@ -111,6 +113,21 @@ public sealed class TunnelIdentity : IDisposable
     public string SignDnsProof(string nonce)
         => Convert.ToBase64String(_key.SignData(DnsProofPayload(Name, nonce), HashAlgorithmName.SHA256,
             DSASignatureFormat.IeeeP1363FixedFieldConcatenation));
+
+    public static byte[] BackupPayload(string action, string name, long timestamp, string nonce, string detail)
+        => Encoding.UTF8.GetBytes($"sbox-ns-backup-v1\n{action}\n{name}\n{timestamp.ToString(CultureInfo.InvariantCulture)}\n{nonce}\n{detail}");
+
+    /// <summary>Signs one sboxns Backups request. The detail is the action's field: size:sha256, a backup ID, or empty.</summary>
+    public BackupSignature SignBackup(string action, string detail, long? timestamp = null, string? nonce = null)
+    {
+        if (action is not ("status" or "upload" or "complete" or "list" or "download" or "delete"))
+            throw new ArgumentException("Invalid backup action.");
+        var time = timestamp ?? DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        nonce ??= Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
+        var signature = _key.SignData(BackupPayload(action, Name, time, nonce, detail), HashAlgorithmName.SHA256,
+            DSASignatureFormat.IeeeP1363FixedFieldConcatenation);
+        return new(Convert.ToBase64String(PublicKeySpki), Name, time, nonce, Convert.ToBase64String(signature));
+    }
 
     public void Dispose() => _key.Dispose();
 }

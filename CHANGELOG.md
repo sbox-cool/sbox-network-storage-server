@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.14] - 2026-11-11
+
+### Added
+
+- Scheduled local backups, on by default: one backup every
+  `backup.schedule.interval_hours` (24), keeping the newest
+  `backup.schedule.keep_local` (7) automatic copies. Manual `db backup` files are
+  never pruned.
+- `sbox-ns backup` commands: `now`, `status`, `list`, `download`, `delete`,
+  `identity` and `sboxns enable|disable`, with `--json` output for scripts.
+- Opt-in sboxns Backups: offsite copies signed with the install's sboxns
+  identity. Off by default; installs that are not enrolled see a coming-soon
+  notice and keep their local backups. See docs/backups.md.
+
 ## [0.5.13] - 2026-11-11
 
 ### Fixed
