@@ -13,10 +13,12 @@ namespace SboxNetworkStorage.Server.Operations;
 /// </summary>
 public static class DatabaseBackup
 {
+    public static string BackupDirectory(EffectiveConfig config) => Path.Combine(config.DataDirectory, "backups");
+
     public static string DefaultBackupPath(EffectiveConfig config, string label = "backup")
     {
         var extension = config.GetString("database.provider") == "postgres" ? "dump" : "db";
-        return Path.Combine(config.DataDirectory, "backups", $"sbox-ns-{label}-{DateTimeOffset.UtcNow:yyyyMMdd-HHmmss}.{extension}");
+        return Path.Combine(BackupDirectory(config), $"sbox-ns-{label}-{DateTimeOffset.UtcNow:yyyyMMdd-HHmmss}.{extension}");
     }
 
     public static async Task<string> BackupAsync(EffectiveConfig config, string? outputPath, CancellationToken ct)

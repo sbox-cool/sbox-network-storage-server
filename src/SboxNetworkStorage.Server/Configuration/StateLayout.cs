@@ -54,6 +54,8 @@ public static class StateLayout
     public const string TunnelIdentityFile = "identity_ecdsa_p256.pem";
     public const string TunnelTokenFile = "tunnel_token";
     public const string TelemetryOverlayFile = "telemetry.toml";
+    public const string BackupLockFile = ".backup.lock";
+    public const string BackupStateFile = "backup-state.json";
 
     public const string MigrationNotice =
         "This install still keeps runtime files (secrets, tunnel and DNS state) in the config folder. Run `sudo sbox-ns layout migrate` to move them to the state folder and make the config folder read-only to the service.";
@@ -111,12 +113,14 @@ public static class StateLayout
         files.Add(new RuntimeFile(Path.Combine(configDirectory, LegacyExecutablesFolder), Path.Combine(state, ExecutablesFolder)));
         files.Add(new RuntimeFile(Path.Combine(configDirectory, TunnelLockFile), Path.Combine(state, TunnelLockFile)));
         files.Add(new RuntimeFile(Path.Combine(configDirectory, DnsLockFile), Path.Combine(state, DnsLockFile)));
+        files.Add(new RuntimeFile(Path.Combine(configDirectory, BackupLockFile), Path.Combine(state, BackupLockFile)));
         foreach (var name in new[] { TunnelManager.ManagedFile, DnsManager.ManagedFile })
         {
             files.Add(new RuntimeFile(Path.Combine(configDirectory, ConfigLoader.ConfDirectory, name), Path.Combine(state, ConfigLoader.ConfDirectory, name)));
         }
 
         files.Add(new RuntimeFile(Path.Combine(dataDirectory, UsageTelemetry.IdFileName), Path.Combine(state, UsageTelemetry.IdFileName), InConfigFolder: false));
+        files.Add(new RuntimeFile(Path.Combine(dataDirectory, BackupStateFile), Path.Combine(state, BackupStateFile), InConfigFolder: false));
         return files.DistinctBy(f => f.LegacyPath, StringComparer.Ordinal).ToList();
     }
 

@@ -755,6 +755,8 @@ pg_restore --clean --if-exists --dbname="postgresql://sbox_ns@db/sbox_ns" ns.dum
 Schedule backups with cron, a systemd timer or your provider's snapshots, and
 test a restore now and then.
 
+Scheduled local backups are on by default, and offsite sboxns Backups copies are opt-in. See [backups](backups.md).
+
 ## Updates
 
 Unless you opt in to [automatic updates](#automatic-updates), the server never

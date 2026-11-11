@@ -1,6 +1,7 @@
 using System.Security.Cryptography.X509Certificates;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
+using SboxNetworkStorage.Server.Backups;
 using SboxNetworkStorage.Server.Compat;
 using SboxNetworkStorage.Server.Configuration;
 using SboxNetworkStorage.Server.Endpoints;
@@ -70,6 +71,8 @@ public static class ServerHost
         builder.Services.AddHostedService<DnsAddressService>();
         builder.Services.AddHostedService(sp => new UsageTelemetryService(config,
             sp.GetRequiredService<INetworkStorageStoreAdmin>(), sp.GetRequiredService<ILogger<UsageTelemetryService>>()));
+        builder.Services.AddHostedService(sp => new BackupSchedulerService(config,
+            sp.GetRequiredService<ILogger<BackupSchedulerService>>()));
 
         builder.Host.UseDefaultServiceProvider(o =>
         {

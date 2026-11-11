@@ -86,6 +86,18 @@ public static class CliApp
           db restore <FILE>             Restore a backup (stop the server first)
           db verify-backup <FILE>       Verify a backup without touching live data (--json, --scratch-database NAME)
 
+        Scheduled backups (docs/backups.md)
+          backup status [--json]        Show the schedule, last run, and sboxns Backups state
+          backup now                    Make a local backup now; exits non-zero if the offsite upload fails
+          backup list [--json]          List local backups
+          backup list --offsite [--json]
+                                        List the offsite copies in sboxns Backups
+          backup download <ID> [--output FILE]
+                                        Download an offsite copy (gzip; checksum verified)
+          backup delete <ID>            Delete an offsite copy
+          backup identity [--json]      Show this install's sboxns name and public key (created if missing)
+          backup sboxns enable|disable  Turn offsite upload on or off (enable checks availability; restart afterward)
+
         Export and import (move servers, switch SQLite <-> PostgreSQL; docs/export.md)
           export [--out FILE] [--no-secrets]   Write the whole server (data + config) to one .tar.gz
           import <FILE> [--config] [--force]   Restore an export into the configured database
@@ -183,6 +195,7 @@ public static class CliApp
                 "dns" => await DnsCommands.RunAsync(context),
                 "register" => await NoticeCommands.RunAsync(context),
                 "telemetry" => await TelemetryCommands.RunAsync(context),
+                "backup" => await BackupCommands.RunAsync(context),
                 "security" => SecurityCommands.Run(context),
                 "config" => ConfigCommands.Run(context),
                 "db" => await DatabaseCommands.RunAsync(context),
